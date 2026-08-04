@@ -1,0 +1,25 @@
+[package]
+name = "fjord-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fjord-domain.workspace = true
+fjord-ports.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+time.workspace = true
+
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "uuid",
+    "time",
+    "macros",
+    "migrate",
+] }
+
+[dev-dependencies]
+tokio.workspace = true

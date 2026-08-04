@@ -1,0 +1,36 @@
+# Rust
+# Cargo.lock is intentionally committed — Fjord is an application, not a
+# library, so a reproducible lockfile is what we want.
+/target/
+src-tauri/target/
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Tauri
+src-tauri/gen/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Databases created at runtime (app data dir is outside the repo, this is a safety net)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Editors / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

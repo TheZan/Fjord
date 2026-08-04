@@ -1,0 +1,10 @@
+[package]
+name = "fjord-ports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fjord-domain.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true

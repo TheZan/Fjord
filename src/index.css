@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/* Token set per docs/specs/theming.md — same values validated in the
+   dashboard prototype. Light values on :root, dark overrides under both
+   the media query (no-JS / first-paint fallback) and [data-theme], which
+   ThemeProvider sets and which must win once JS has resolved a choice. */
+
+:root {
+  --page-bg: #eef1f3;
+  --paper: #ffffff;
+  --ink: #12181f;
+  --slate: #59636f;
+  --mist: #8b95a2;
+  --hairline: #dee3e7;
+  --hairline-strong: #c9d0d6;
+
+  --fjord: #0e6e86;
+  --fjord-ink: #08424f;
+  --fjord-tint: #e1f0f3;
+
+  --moss: #3e7d52;
+  --moss-ink: #204a2c;
+  --moss-tint: #e7f3ea;
+
+  --amber: #a97429;
+  --amber-ink: #5c3f14;
+  --amber-tint: #faefdc;
+
+  --rust: #b0483b;
+  --rust-ink: #5e251e;
+  --rust-tint: #faeae6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #0b0f13;
+    --paper: #131920;
+    --ink: #e7ecef;
+    --slate: #9ba6b0;
+    --mist: #6c7681;
+    --hairline: #232b33;
+    --hairline-strong: #303941;
+
+    --fjord: #4fbad1;
+    --fjord-ink: #cdeef4;
+    --fjord-tint: #122a30;
+
+    --moss: #6fbe86;
+    --moss-ink: #d3eedb;
+    --moss-tint: #132a1b;
+
+    --amber: #e0aa5c;
+    --amber-ink: #f6e2c1;
+    --amber-tint: #2e2413;
+
+    --rust: #e38477;
+    --rust-ink: #f8d9d3;
+    --rust-tint: #301d1a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-bg: #0b0f13;
+  --paper: #131920;
+  --ink: #e7ecef;
+  --slate: #9ba6b0;
+  --mist: #6c7681;
+  --hairline: #232b33;
+  --hairline-strong: #303941;
+
+  --fjord: #4fbad1;
+  --fjord-ink: #cdeef4;
+  --fjord-tint: #122a30;
+
+  --moss: #6fbe86;
+  --moss-ink: #d3eedb;
+  --moss-tint: #132a1b;
+
+  --amber: #e0aa5c;
+  --amber-ink: #f6e2c1;
+  --amber-tint: #2e2413;
+
+  --rust: #e38477;
+  --rust-ink: #f8d9d3;
+  --rust-tint: #301d1a;
+}
+
+:root[data-theme="light"] {
+  --page-bg: #eef1f3;
+  --paper: #ffffff;
+  --ink: #12181f;
+  --slate: #59636f;
+  --mist: #8b95a2;
+  --hairline: #dee3e7;
+  --hairline-strong: #c9d0d6;
+
+  --fjord: #0e6e86;
+  --fjord-ink: #08424f;
+  --fjord-tint: #e1f0f3;
+
+  --moss: #3e7d52;
+  --moss-ink: #204a2c;
+  --moss-tint: #e7f3ea;
+
+  --amber: #a97429;
+  --amber-ink: #5c3f14;
+  --amber-tint: #faefdc;
+
+  --rust: #b0483b;
+  --rust-ink: #5e251e;
+  --rust-tint: #faeae6;
+}
+
+body {
+  background: var(--page-bg);
+  color: var(--ink);
+}

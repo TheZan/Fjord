@@ -1,0 +1,19 @@
+[package]
+name = "fjord-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fjord-domain.workspace = true
+fjord-ports.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+time.workspace = true
+
+gix = "0.86"
+git2 = "0.21"
+
+[dev-dependencies]
+tempfile = "3"

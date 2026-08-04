@@ -1,0 +1,17 @@
+{
+  "app": {
+    "title": "Fjord",
+    "tagline": "Git workspace manager — не просто ещё один Git-клиент."
+  },
+  "settings": {
+    "theme": {
+      "label": "Тема",
+      "light": "Светлая",
+      "dark": "Тёмная",
+      "system": "Системная"
+    },
+    "locale": {
+      "label": "Язык"
+    }
+  }
+}
