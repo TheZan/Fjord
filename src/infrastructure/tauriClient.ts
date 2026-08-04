@@ -31,12 +31,28 @@ export function createWorkspace(name: string): Promise<Workspace> {
   return invoke("create_workspace", { name });
 }
 
+export function renameWorkspace(id: string, name: string): Promise<Workspace> {
+  return invoke("rename_workspace", { id, name });
+}
+
+export function reorderWorkspaces(ids: string[]): Promise<void> {
+  return invoke("reorder_workspaces", { ids });
+}
+
+export function deleteWorkspace(id: string): Promise<void> {
+  return invoke("delete_workspace", { id });
+}
+
 export function listRepositories(workspaceId: string): Promise<RepositoryEntry[]> {
   return invoke("list_repositories", { workspaceId });
 }
 
 export function addRepository(workspaceId: string, path: string): Promise<RepositoryEntry> {
   return invoke("add_repository", { workspaceId, path });
+}
+
+export function removeRepository(id: string): Promise<void> {
+  return invoke("remove_repository", { id });
 }
 
 export function getBranches(repoId: string): Promise<BranchInfo[]> {

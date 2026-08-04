@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use fjord_domain::{RepositoryEntry, Workspace, WorkspaceId};
+use fjord_domain::{RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use tauri::State;
 
 use crate::error::AppError;
@@ -12,8 +12,33 @@ pub async fn list_workspaces(state: State<'_, AppState>) -> Result<Vec<Workspace
 }
 
 #[tauri::command]
-pub async fn create_workspace(state: State<'_, AppState>, name: String) -> Result<Workspace, AppError> {
+pub async fn create_workspace(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Workspace, AppError> {
     Ok(state.workspaces.create_workspace(&name).await?)
+}
+
+#[tauri::command]
+pub async fn rename_workspace(
+    state: State<'_, AppState>,
+    id: WorkspaceId,
+    name: String,
+) -> Result<Workspace, AppError> {
+    Ok(state.workspaces.rename_workspace(id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn reorder_workspaces(
+    state: State<'_, AppState>,
+    ids: Vec<WorkspaceId>,
+) -> Result<(), AppError> {
+    Ok(state.workspaces.reorder_workspaces(&ids).await?)
+}
+
+#[tauri::command]
+pub async fn delete_workspace(state: State<'_, AppState>, id: WorkspaceId) -> Result<(), AppError> {
+    Ok(state.workspaces.delete_workspace(id).await?)
 }
 
 #[tauri::command]
@@ -31,4 +56,12 @@ pub async fn add_repository(
     path: PathBuf,
 ) -> Result<RepositoryEntry, AppError> {
     Ok(state.workspaces.add_repository(workspace_id, path).await?)
+}
+
+#[tauri::command]
+pub async fn remove_repository(
+    state: State<'_, AppState>,
+    id: RepositoryId,
+) -> Result<(), AppError> {
+    Ok(state.workspaces.remove_repository(id).await?)
 }

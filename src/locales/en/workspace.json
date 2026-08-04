@@ -1,7 +1,22 @@
 {
+  "workspaces": {
+    "label": "Workspaces",
+    "loading": "Loading",
+    "empty": "No workspaces yet.",
+    "noSelection": "No workspace selected",
+    "createPlaceholder": "Workspace name",
+    "createButton": "Create",
+    "rename": "Rename",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "moveUp": "Up",
+    "moveDown": "Down"
+  },
   "repositories": {
     "label": "Repositories",
     "openButton": "Open repository",
+    "removeButton": "Remove",
     "empty": "No repositories yet — open one to get started.",
     "notAGitRepository": "That folder isn't a Git repository."
   },

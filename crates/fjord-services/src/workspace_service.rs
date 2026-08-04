@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fjord_domain::{RepositoryEntry, Workspace, WorkspaceId};
+use fjord_domain::{RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
 use thiserror::Error;
 
@@ -48,6 +48,22 @@ impl WorkspaceService {
         Ok(self.store.create_workspace(name).await?)
     }
 
+    pub async fn rename_workspace(
+        &self,
+        id: WorkspaceId,
+        name: &str,
+    ) -> Result<Workspace, WorkspaceError> {
+        Ok(self.store.rename_workspace(id, name).await?)
+    }
+
+    pub async fn reorder_workspaces(&self, ids: &[WorkspaceId]) -> Result<(), WorkspaceError> {
+        Ok(self.store.reorder_workspaces(ids).await?)
+    }
+
+    pub async fn delete_workspace(&self, id: WorkspaceId) -> Result<(), WorkspaceError> {
+        Ok(self.store.delete_workspace(id).await?)
+    }
+
     pub async fn list_repositories(
         &self,
         workspace_id: WorkspaceId,
@@ -73,10 +89,7 @@ impl WorkspaceService {
             .await?)
     }
 
-    pub async fn remove_repository(
-        &self,
-        id: fjord_domain::RepositoryId,
-    ) -> Result<(), WorkspaceError> {
+    pub async fn remove_repository(&self, id: RepositoryId) -> Result<(), WorkspaceError> {
         Ok(self.store.remove_repository(id).await?)
     }
 }
@@ -290,6 +303,40 @@ mod tests {
             .add_repository(ws.id, PathBuf::from("/not/a/repo"))
             .await;
         assert!(matches!(result, Err(WorkspaceError::NotAGitRepository(_))));
+        assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn workspace_crud_delegates_to_store() {
+        let service = service(true);
+        let first = service.create_workspace("Backend").await.unwrap();
+        let second = service.create_workspace("Frontend").await.unwrap();
+
+        let renamed = service.rename_workspace(first.id, "Core").await.unwrap();
+        assert_eq!(renamed.name, "Core");
+
+        service
+            .reorder_workspaces(&[second.id, first.id])
+            .await
+            .unwrap();
+        service.delete_workspace(second.id).await.unwrap();
+
+        let remaining = service.list_workspaces().await.unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, first.id);
+    }
+
+    #[tokio::test]
+    async fn remove_repository_delegates_to_store() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let entry = service
+            .add_repository(ws.id, PathBuf::from("/repos/api-gateway"))
+            .await
+            .unwrap();
+
+        service.remove_repository(entry.id).await.unwrap();
+
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
     }
 }
