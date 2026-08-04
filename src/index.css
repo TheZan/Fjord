@@ -6,6 +6,10 @@
    ThemeProvider sets and which must win once JS has resolved a choice. */
 
 :root {
+  /* Brand mark color (assets/logo/README.md) — fixed, not theme-dependent;
+     distinct from --fjord (the UI accent token) even though both read as
+     "teal": this one is the mark's own identity, not a semantic UI role. */
+  --brand: #2dd4bf;
   --page-bg: #eef1f3;
   --paper: #ffffff;
   --ink: #12181f;

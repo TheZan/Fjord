@@ -1,7 +1,9 @@
 <p align="center">
-  <b>Fjord</b><br>
-  Git workspace manager — не просто ещё один Git-клиент.
+  <img src="assets/logo/fjord-mark-teal.svg" alt="" width="72" height="72">
 </p>
+
+<h1 align="center">Fjord</h1>
+<p align="center">Git workspace manager — не просто ещё один Git-клиент.</p>
 
 <p align="center">
   <a href="README.md">English</a> · <a href="README.ru.md">Русский</a>

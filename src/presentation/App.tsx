@@ -3,6 +3,7 @@ import { useTheme } from "@/infrastructure/theme/ThemeProvider";
 import { setLocale } from "@/infrastructure/i18n";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
 import type { Theme } from "@/domain/settings";
+import { FjordMark } from "@/presentation/FjordMark";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
@@ -13,6 +14,7 @@ export function App() {
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
       <div className="text-center">
+        <FjordMark size={32} className="mx-auto mb-3" style={{ color: "var(--brand)" }} />
         <h1 className="text-2xl font-medium" style={{ color: "var(--ink)" }}>
           {t("app.title")}
         </h1>
