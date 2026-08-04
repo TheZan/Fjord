@@ -14,6 +14,7 @@ pub use state::AppState;
 
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -29,5 +30,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::list_workspaces,
+            commands::create_workspace,
+            commands::list_repositories,
+            commands::add_repository,
         ])
 }

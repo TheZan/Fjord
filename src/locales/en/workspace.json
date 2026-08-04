@@ -1,0 +1,8 @@
+{
+  "repositories": {
+    "label": "Repositories",
+    "openButton": "Open repository",
+    "empty": "No repositories yet — open one to get started.",
+    "notAGitRepository": "That folder isn't a Git repository."
+  }
+}

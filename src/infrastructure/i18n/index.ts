@@ -1,12 +1,14 @@
 // See docs/specs/i18n.md. Catalogs are imported statically for now — with
-// two locales and one namespace this is simpler and just as correct as
-// dynamic per-locale chunks; revisit if/when the catalog list grows enough
-// to matter for bundle size.
+// two locales and a handful of namespaces this is simpler and just as
+// correct as dynamic per-locale chunks; revisit if/when the catalog list
+// grows enough to matter for bundle size.
 
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
-import en from "@/locales/en/common.json";
-import ru from "@/locales/ru/common.json";
+import enCommon from "@/locales/en/common.json";
+import ruCommon from "@/locales/ru/common.json";
+import enWorkspace from "@/locales/en/workspace.json";
+import ruWorkspace from "@/locales/ru/workspace.json";
 import { DEFAULT_LOCALE } from "@/locales/registry";
 
 export const i18n = i18next.use(initReactI18next);
@@ -19,10 +21,10 @@ export async function initI18n(initialLocale: string): Promise<void> {
 
   await i18n.init({
     resources: {
-      en: { common: en },
-      ru: { common: ru },
+      en: { common: enCommon, workspace: enWorkspace },
+      ru: { common: ruCommon, workspace: ruWorkspace },
     },
-    ns: ["common"],
+    ns: ["common", "workspace"],
     defaultNS: "common",
     lng: initialLocale,
     // Selected locale -> English -> raw key (docs/specs/i18n.md's fallback

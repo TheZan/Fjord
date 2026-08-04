@@ -14,3 +14,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 fjord-app.workspace = true
 tauri = { version = "2", features = [] }
+# Not called directly here — fjord-app owns the actual `.plugin(...)` wiring
+# (SDD §5.1). This is a direct dependency purely because Tauri's build-time
+# ACL/permission discovery only scans the crate where build.rs/tauri.conf.json
+# live, not transitive deps through fjord-app.
+tauri-plugin-dialog = "2.7"

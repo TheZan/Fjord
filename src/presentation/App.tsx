@@ -4,12 +4,15 @@ import { setLocale } from "@/infrastructure/i18n";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
 import type { Theme } from "@/domain/settings";
 import { FjordMark } from "@/presentation/FjordMark";
+import { useRepositories } from "@/application/useRepositories";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
 export function App() {
   const { t, i18n } = useTranslation();
+  const { t: tw } = useTranslation("workspace");
   const { choice, setChoice } = useTheme();
+  const { repositories, error, openRepository } = useRepositories();
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
@@ -67,6 +70,39 @@ export function App() {
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="flex flex-col items-center gap-3">
+        <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+          {tw("repositories.label")}
+        </span>
+        <button
+          type="button"
+          onClick={openRepository}
+          className="h-9 rounded-lg border px-3 text-sm"
+          style={{ borderColor: "var(--fjord)", background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}
+        >
+          {tw("repositories.openButton")}
+        </button>
+        {error && (
+          <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
+            {tw("repositories.notAGitRepository")}
+          </p>
+        )}
+        {repositories.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--slate)" }}>
+            {tw("repositories.empty")}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm" style={{ color: "var(--ink)" }}>
+            {repositories.map((repo) => (
+              <li key={repo.id}>
+                <span className="font-medium">{repo.name}</span>{" "}
+                <span style={{ color: "var(--mist)" }}>{repo.path}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </main>
   );

@@ -19,3 +19,4 @@ tokio.workspace = true
 tracing.workspace = true
 
 tauri = "2"
+tauri-plugin-dialog = "2.7"
