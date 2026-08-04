@@ -1074,6 +1074,7 @@ dependencies = [
 name = "fjord-bench"
 version = "0.1.0"
 dependencies = [
+ "fjord-db",
  "fjord-git",
  "fjord-ports",
  "git2",

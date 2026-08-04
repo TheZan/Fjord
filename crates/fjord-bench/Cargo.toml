@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+fjord-db.workspace = true
 fjord-git.workspace = true
 fjord-ports.workspace = true
 git2 = "0.21"
