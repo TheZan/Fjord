@@ -38,6 +38,14 @@
     "filterPlaceholder": "Filter by repo or workspace",
     "empty": "No repositories match the filter."
   },
+  "commandPalette": {
+    "placeholder": "Search commands, repositories, branches",
+    "empty": "No commands found.",
+    "repository": "Repository",
+    "action": "Action",
+    "localBranch": "Local branch",
+    "remoteBranch": "Remote branch"
+  },
   "branches": {
     "local": "Local",
     "remote": "Remote",

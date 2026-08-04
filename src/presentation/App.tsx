@@ -8,6 +8,7 @@ import { FjordMark } from "@/presentation/FjordMark";
 import { BranchesPanel } from "@/presentation/BranchesPanel";
 import { CommitGraph } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
+import { useBranches } from "@/application/useBranches";
 import { useRepositories } from "@/application/useRepositories";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import type { CommitSummary } from "@/domain/git";
@@ -25,6 +26,33 @@ import {
 } from "@/infrastructure/tauriClient";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
+
+interface PaletteItem {
+  id: string;
+  label: string;
+  detail: string;
+  kind: string;
+  run: () => void | Promise<void>;
+}
+
+function paletteScore(query: string, label: string, detail: string): number | null {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return 0;
+
+  const haystack = `${label} ${detail}`.toLocaleLowerCase();
+  const directIndex = haystack.indexOf(needle);
+  if (directIndex >= 0) return directIndex;
+
+  let cursor = 0;
+  let score = 100;
+  for (const char of needle) {
+    const found = haystack.indexOf(char, cursor);
+    if (found < 0) return null;
+    score += found - cursor;
+    cursor = found + 1;
+  }
+  return score;
+}
 
 export function App() {
   const { t, i18n } = useTranslation();
@@ -59,8 +87,13 @@ export function App() {
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionSummary, setBulkActionSummary] = useState<string | null>(null);
   const [bulkActionError, setBulkActionError] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteIndex, setPaletteIndex] = useState(0);
   const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
+  const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
   const allRepositories = Object.values(repositoriesByWorkspace).flat();
+  const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
   const totalRepoCount = allRepositories.length;
   const needAttentionCount = allRepositories.filter((repo) => {
     const status = statusByRepo[repo.id]?.status;
@@ -79,6 +112,83 @@ export function App() {
       value.toLocaleLowerCase().includes(normalizedRepoFilter),
     );
   });
+  const rawPaletteItems: PaletteItem[] = [
+    ...flatRepositories.map(({ workspace, repo }) => ({
+      id: `repo:${repo.id}`,
+      label: repo.name,
+      detail: `${workspace.name} · ${repo.path}`,
+      kind: tw("commandPalette.repository"),
+      run: () => chooseRepository(workspace.id, repo.id),
+    })),
+    ...(selectedRepo
+      ? [
+          {
+            id: "action:open-ide",
+            label: tw("repoActions.openIde"),
+            detail: selectedRepo.name,
+            kind: tw("commandPalette.action"),
+            run: () => runRepoAction("open-ide", () => openInIde(selectedRepo.id)),
+          },
+          {
+            id: "action:fetch",
+            label: tw("repoActions.fetch"),
+            detail: selectedRepo.name,
+            kind: tw("commandPalette.action"),
+            run: () => runRepoAction("fetch", () => fetchRepo(selectedRepo.id)),
+          },
+          {
+            id: "action:pull",
+            label: tw("repoActions.pull"),
+            detail: selectedRepo.name,
+            kind: tw("commandPalette.action"),
+            run: () => runRepoAction("pull", () => pullRepo(selectedRepo.id)),
+          },
+        ]
+      : []),
+    ...(selectedWorkspaceId
+      ? [
+          {
+            id: "bulk:fetch",
+            label: tw("bulk.fetch"),
+            detail: selectedWorkspace?.name ?? "",
+            kind: tw("commandPalette.action"),
+            run: () => runBulkAction("fetch", () => bulkFetch(selectedWorkspaceId)),
+          },
+          {
+            id: "bulk:pull",
+            label: tw("bulk.pull"),
+            detail: selectedWorkspace?.name ?? "",
+            kind: tw("commandPalette.action"),
+            run: () => runBulkAction("pull", () => bulkPull(selectedWorkspaceId)),
+          },
+          {
+            id: "bulk:open-ide",
+            label: tw("bulk.openIde"),
+            detail: selectedWorkspace?.name ?? "",
+            kind: tw("commandPalette.action"),
+            run: () => runBulkAction("open-ide", () => bulkOpenInIde(selectedWorkspaceId)),
+          },
+        ]
+      : []),
+    ...paletteBranches.map((branch) => ({
+      id: `branch:${branch.name}`,
+      label: branch.name,
+      detail: selectedRepo?.name ?? "",
+      kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
+      run: () =>
+        selectedRepoId
+          ? runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch.name))
+          : undefined,
+    })),
+  ];
+  const paletteItems = rawPaletteItems
+    .flatMap((item) => {
+      const score = paletteScore(paletteQuery, item.label, item.detail);
+      return score === null ? [] : [{ item, score }];
+    })
+    .sort((a, b) => a.score - b.score)
+    .map((entry) => entry.item);
+  const visiblePaletteItems = paletteItems.slice(0, 12);
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
@@ -86,6 +196,24 @@ export function App() {
       setSelectedCommit(null);
     }
   }, [allRepositories, selectedRepoId]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+        setPaletteQuery("");
+        setPaletteIndex(0);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    setPaletteIndex(0);
+  }, [paletteQuery, paletteOpen]);
 
   async function runRepoAction(action: string, run: () => Promise<void>) {
     setRepoActionError(null);
@@ -168,6 +296,14 @@ export function App() {
         : Math.min(Math.max(currentIndex + direction, 0), filteredRepositories.length - 1);
     const next = filteredRepositories[nextIndex];
     void chooseRepository(next.workspace.id, next.repo.id);
+  }
+
+  async function runPaletteItem(item: PaletteItem | undefined) {
+    if (!item) return;
+
+    setPaletteOpen(false);
+    setPaletteQuery("");
+    await item.run();
   }
 
   async function removeTrackedRepository(repoId: string) {
@@ -771,6 +907,87 @@ export function App() {
           </div>
         )}
       </section>
+
+      {paletteOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-20"
+          style={{ background: "rgba(0, 0, 0, 0.35)" }}
+          onMouseDown={() => setPaletteOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl rounded border shadow-xl"
+            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <input
+              autoFocus
+              value={paletteQuery}
+              onChange={(event) => setPaletteQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setPaletteOpen(false);
+                }
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setPaletteIndex((index) => Math.min(index + 1, Math.max(visiblePaletteItems.length - 1, 0)));
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setPaletteIndex((index) => Math.max(index - 1, 0));
+                }
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void runPaletteItem(visiblePaletteItems[paletteIndex]);
+                }
+              }}
+              placeholder={tw("commandPalette.placeholder")}
+              className="h-12 w-full border-b px-4 text-sm outline-none"
+              style={{
+                borderColor: "var(--hairline)",
+                background: "var(--paper)",
+                color: "var(--ink)",
+              }}
+            />
+            {paletteItems.length === 0 ? (
+              <p className="p-4 text-sm" style={{ color: "var(--slate)" }}>
+                {tw("commandPalette.empty")}
+              </p>
+            ) : (
+              <ul className="max-h-96 overflow-auto p-2">
+                {visiblePaletteItems.map((item, index) => {
+                  const isSelected = index === paletteIndex;
+
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        onMouseEnter={() => setPaletteIndex(index)}
+                        onClick={() => void runPaletteItem(item)}
+                        className="grid w-full grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 rounded px-3 py-2 text-left text-sm"
+                        style={{
+                          background: isSelected ? "var(--fjord-tint)" : "transparent",
+                          color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
+                        }}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{item.label}</span>
+                          <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
+                            {item.detail}
+                          </span>
+                        </span>
+                        <span className="truncate text-right text-xs" style={{ color: "var(--slate)" }}>
+                          {item.kind}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -38,6 +38,14 @@
     "filterPlaceholder": "Фильтр по repo или workspace",
     "empty": "По фильтру ничего не найдено."
   },
+  "commandPalette": {
+    "placeholder": "Поиск команд, репозиториев, веток",
+    "empty": "Команды не найдены.",
+    "repository": "Репозиторий",
+    "action": "Действие",
+    "localBranch": "Локальная ветка",
+    "remoteBranch": "Удалённая ветка"
+  },
   "branches": {
     "local": "Локальные",
     "remote": "Удалённые",
