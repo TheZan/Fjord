@@ -1070,6 +1070,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fjord-bench"
+version = "0.1.0"
+dependencies = [
+ "fjord-git",
+ "fjord-ports",
+ "git2",
+ "tokio",
+]
+
+[[package]]
 name = "fjord-db"
 version = "0.1.0"
 dependencies = [

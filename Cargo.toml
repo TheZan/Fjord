@@ -9,6 +9,7 @@ members = [
     "crates/fjord-db",
     "crates/fjord-fs",
     "crates/fjord-app",
+    "crates/fjord-bench",
 ]
 
 [workspace.package]
