@@ -33,6 +33,11 @@
     "ahead": "Ahead",
     "unknown": "Unknown"
   },
+  "allRepositories": {
+    "title": "All repositories",
+    "filterPlaceholder": "Filter by repo or workspace",
+    "empty": "No repositories match the filter."
+  },
   "branches": {
     "local": "Local",
     "remote": "Remote",

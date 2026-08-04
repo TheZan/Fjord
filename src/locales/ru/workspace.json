@@ -33,6 +33,11 @@
     "ahead": "Впереди",
     "unknown": "Неизвестно"
   },
+  "allRepositories": {
+    "title": "Все репозитории",
+    "filterPlaceholder": "Фильтр по repo или workspace",
+    "empty": "По фильтру ничего не найдено."
+  },
   "branches": {
     "local": "Локальные",
     "remote": "Удалённые",
