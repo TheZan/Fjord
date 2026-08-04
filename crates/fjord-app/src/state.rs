@@ -68,7 +68,11 @@ impl AppState {
         }
 
         let workspaces = self.workspaces.clone();
-        let watcher = RepoEventWatcher::watch(&repo.path, move |event| {
+        // Avoid recursive working-tree watches here: large repos can contain
+        // build outputs such as `target/` or `node_modules/`, and Windows can
+        // exhaust memory while the app is still booting. The cache also
+        // refreshes on dashboard reads, so this watcher is an incremental hint.
+        let watcher = RepoEventWatcher::watch_git_metadata(&repo.path, move |event| {
             if event.is_err() {
                 return;
             }

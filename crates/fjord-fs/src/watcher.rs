@@ -24,6 +24,9 @@ pub struct RepoWatcher {
     pub events: mpsc::Receiver<notify::Result<Event>>,
 }
 
+/// Lightweight app-facing watcher. It avoids recursively watching the whole
+/// working tree because generated directories can be very large; callers use
+/// it as an invalidation hint and still perform cache refreshes on demand.
 pub struct RepoEventWatcher {
     _watcher: RecommendedWatcher,
 }
@@ -45,15 +48,22 @@ impl RepoWatcher {
 }
 
 impl RepoEventWatcher {
-    pub fn watch<F>(path: &Path, on_event: F) -> Result<Self, WatchError>
+    pub fn watch_git_metadata<F>(path: &Path, on_event: F) -> Result<Self, WatchError>
     where
         F: FnMut(notify::Result<Event>) + Send + 'static,
     {
         let mut watcher =
             notify::recommended_watcher(on_event).map_err(|e| WatchError::Start(e.to_string()))?;
         watcher
-            .watch(path, RecursiveMode::Recursive)
+            .watch(path, RecursiveMode::NonRecursive)
             .map_err(|e| WatchError::Start(e.to_string()))?;
+
+        let git_dir = path.join(".git");
+        if git_dir.is_dir() {
+            watcher
+                .watch(&git_dir, RecursiveMode::Recursive)
+                .map_err(|e| WatchError::Start(e.to_string()))?;
+        }
 
         Ok(Self { _watcher: watcher })
     }
