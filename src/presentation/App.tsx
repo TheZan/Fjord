@@ -15,6 +15,7 @@ import {
   checkoutBranch,
   fetchRepo,
   invokeErrorMessage,
+  openInIde,
   openMergeTool,
   pullRepo,
   pushRepo,
@@ -643,6 +644,15 @@ export function App() {
                 style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
               >
                 {repoActionPending === "push" ? tw("repoActions.pushing") : tw("repoActions.push")}
+              </button>
+              <button
+                type="button"
+                disabled={repoActionPending !== null}
+                onClick={() => runRepoAction("open-ide", () => openInIde(selectedRepoId))}
+                className="h-9 rounded border px-3 text-sm disabled:opacity-60"
+                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+              >
+                {repoActionPending === "open-ide" ? tw("repoActions.openingIde") : tw("repoActions.openIde")}
               </button>
             </div>
             {repoActionError && (

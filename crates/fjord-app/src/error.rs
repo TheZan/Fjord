@@ -1,4 +1,4 @@
-use fjord_ports::{GitError, StoreError};
+use fjord_ports::{GitError, LaunchError, StoreError};
 use fjord_services::{RepoError, WorkspaceError};
 use serde::Serialize;
 
@@ -47,7 +47,20 @@ impl From<RepoError> for AppError {
         match err {
             RepoError::Store(inner) => inner.into(),
             RepoError::Git(inner) => git_error_to_app_error(inner),
+            RepoError::Launch(inner) => launch_error_to_app_error(inner),
         }
+    }
+}
+
+fn launch_error_to_app_error(err: LaunchError) -> AppError {
+    let code = match &err {
+        LaunchError::NoIdeAvailable => "no_ide_available",
+        LaunchError::SpawnFailed(_) => "ide_launch_failed",
+    };
+
+    AppError {
+        code: code.to_string(),
+        message: err.to_string(),
     }
 }
 

@@ -5,6 +5,7 @@
 
 mod commands;
 mod error;
+mod ide_launcher;
 mod state;
 
 use tauri::Manager;
@@ -53,5 +54,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::pull_repo,
             commands::push_repo,
             commands::open_merge_tool,
+            commands::open_in_ide,
         ])
 }

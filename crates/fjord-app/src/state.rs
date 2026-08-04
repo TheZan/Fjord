@@ -8,6 +8,8 @@ use fjord_fs::RepoEventWatcher;
 use fjord_git::GixGitBackend;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 
+use crate::ide_launcher::SystemIdeLauncher;
+
 /// Everything a command handler needs, built once in `bootstrap` and
 /// `app.manage()`d (SDD §5.1: commands stay thin adapters over services).
 pub struct AppState {
@@ -28,6 +30,7 @@ pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
     let git_backend = Arc::new(GixGitBackend::new());
+    let ide_launcher = Arc::new(SystemIdeLauncher);
     let workspace_service = Arc::new(WorkspaceService::new(
         workspace_store.clone(),
         git_backend.clone(),
@@ -38,9 +41,14 @@ pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
         .map_err(|e| e.to_string())?;
 
     let state = AppState {
-        settings: Arc::new(SettingsService::new(settings_store)),
+        settings: Arc::new(SettingsService::new(settings_store.clone())),
         workspaces: workspace_service,
-        repos: Arc::new(RepoService::new(workspace_store, git_backend)),
+        repos: Arc::new(RepoService::new(
+            workspace_store,
+            settings_store,
+            git_backend,
+            ide_launcher,
+        )),
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
 

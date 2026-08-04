@@ -3,7 +3,10 @@ use std::sync::Arc;
 use fjord_domain::{
     BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, RepositoryId,
 };
-use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
+use fjord_ports::{
+    GitBackend, GitError, IdeLauncher, LaunchError, RepoPath, SettingsStore, StoreError,
+    WorkspaceStore,
+};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -13,6 +16,8 @@ pub enum RepoError {
     Store(#[from] StoreError),
     #[error(transparent)]
     Git(#[from] GitError),
+    #[error(transparent)]
+    Launch(#[from] LaunchError),
 }
 
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
@@ -21,12 +26,24 @@ pub enum RepoError {
 /// handlers and the frontend only ever deal in IDs (SDD §5.1, §7).
 pub struct RepoService {
     workspaces: Arc<dyn WorkspaceStore>,
+    settings: Arc<dyn SettingsStore>,
     git: Arc<dyn GitBackend>,
+    ide: Arc<dyn IdeLauncher>,
 }
 
 impl RepoService {
-    pub fn new(workspaces: Arc<dyn WorkspaceStore>, git: Arc<dyn GitBackend>) -> Self {
-        Self { workspaces, git }
+    pub fn new(
+        workspaces: Arc<dyn WorkspaceStore>,
+        settings: Arc<dyn SettingsStore>,
+        git: Arc<dyn GitBackend>,
+        ide: Arc<dyn IdeLauncher>,
+    ) -> Self {
+        Self {
+            workspaces,
+            settings,
+            git,
+            ide,
+        }
     }
 
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
@@ -125,6 +142,17 @@ impl RepoService {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.open_merge_tool(&RepoPath::new(repo.path)).await?)
     }
+
+    pub async fn open_in_ide(
+        &self,
+        repo_id: RepositoryId,
+        ide: Option<&str>,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let settings = self.settings.get_settings().await?;
+        let configured_ide = ide.or(settings.default_ide.as_deref());
+        Ok(self.ide.open(&repo.path, configured_ide).await?)
+    }
 }
 
 #[cfg(test)]
@@ -133,13 +161,21 @@ mod tests {
     use async_trait::async_trait;
     use fjord_domain::{
         CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepoStatusSummary, RepositoryEntry, Workspace, WorkspaceId,
+        RepoStatusSummary, RepositoryEntry, Settings, Workspace, WorkspaceId,
     };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     struct FakeStore {
         repo: RepositoryEntry,
+    }
+
+    struct FakeSettingsStore {
+        settings: Settings,
+    }
+
+    struct FakeIdeLauncher {
+        opened: Mutex<Option<(PathBuf, Option<String>)>>,
     }
 
     #[async_trait]
@@ -208,6 +244,25 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl SettingsStore for FakeSettingsStore {
+        async fn get_settings(&self) -> Result<Settings, StoreError> {
+            Ok(self.settings.clone())
+        }
+
+        async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError> {
+            Ok(settings.clone())
+        }
+    }
+
+    #[async_trait]
+    impl IdeLauncher for FakeIdeLauncher {
+        async fn open(&self, path: &Path, ide: Option<&str>) -> Result<(), LaunchError> {
+            *self.opened.lock().unwrap() = Some((path.to_path_buf(), ide.map(ToString::to_string)));
+            Ok(())
+        }
+    }
+
     struct FakeGit {
         seen_path: Mutex<Option<PathBuf>>,
     }
@@ -222,13 +277,31 @@ mod tests {
         }
     }
 
-    fn service_with_fake_git() -> (RepositoryEntry, Arc<FakeGit>, RepoService) {
+    fn service_with_fake_git() -> (
+        RepositoryEntry,
+        Arc<FakeGit>,
+        Arc<FakeIdeLauncher>,
+        RepoService,
+    ) {
         let repo = repo_entry();
         let git = Arc::new(FakeGit {
             seen_path: Mutex::new(None),
         });
-        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
-        (repo, git, service)
+        let ide = Arc::new(FakeIdeLauncher {
+            opened: Mutex::new(None),
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings {
+                    default_ide: Some("code".to_string()),
+                    ..Settings::default()
+                },
+            }),
+            git.clone(),
+            ide.clone(),
+        );
+        (repo, git, ide, service)
     }
 
     #[async_trait]
@@ -322,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_the_repo_id_to_a_path_before_calling_git() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         let branches = service.get_branches(repo.id).await.unwrap();
         assert_eq!(branches.len(), 1);
@@ -340,8 +413,14 @@ mod tests {
         };
         let service = RepoService::new(
             Arc::new(FakeStore { repo }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
             Arc::new(FakeGit {
                 seen_path: Mutex::new(None),
+            }),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
             }),
         );
 
@@ -354,7 +433,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_commit_log_resolves_the_repo_id_too() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         service.get_commit_log(repo.id, None, 20).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
@@ -362,7 +441,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_commit_diff_resolves_the_repo_id_too() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         let files = service.get_commit_diff(repo.id, "deadbeef").await.unwrap();
         assert_eq!(files.len(), 1);
@@ -371,7 +450,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_file_diff_resolves_the_repo_id_too() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         let detail = service
             .get_file_diff(repo.id, "deadbeef", "src/main.rs")
@@ -383,7 +462,7 @@ mod tests {
 
     #[tokio::test]
     async fn write_operations_resolve_the_repo_id_too() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         service.checkout_branch(repo.id, "main").await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
@@ -416,12 +495,36 @@ mod tests {
 
     #[tokio::test]
     async fn status_and_merge_tool_resolve_the_repo_id_too() {
-        let (repo, git, service) = service_with_fake_git();
+        let (repo, git, _, service) = service_with_fake_git();
 
         let status = service.get_status(repo.id).await.unwrap();
         assert_eq!(status.branch.as_deref(), Some("main"));
 
         service.open_merge_tool(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn open_in_ide_resolves_repo_and_uses_configured_default() {
+        let (repo, _, ide, service) = service_with_fake_git();
+
+        service.open_in_ide(repo.id, None).await.unwrap();
+
+        assert_eq!(
+            *ide.opened.lock().unwrap(),
+            Some((repo.path, Some("code".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn open_in_ide_override_wins_over_configured_default() {
+        let (repo, _, ide, service) = service_with_fake_git();
+
+        service.open_in_ide(repo.id, Some("cursor")).await.unwrap();
+
+        assert_eq!(
+            *ide.opened.lock().unwrap(),
+            Some((repo.path, Some("cursor".to_string())))
+        );
     }
 }

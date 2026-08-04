@@ -120,3 +120,12 @@ pub async fn open_merge_tool(
 ) -> Result<(), AppError> {
     Ok(state.repos.open_merge_tool(repo_id).await?)
 }
+
+#[tauri::command]
+pub async fn open_in_ide(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    ide: Option<String>,
+) -> Result<(), AppError> {
+    Ok(state.repos.open_in_ide(repo_id, ide.as_deref()).await?)
+}

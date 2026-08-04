@@ -50,7 +50,9 @@
     "pull": "Pull",
     "pulling": "Pulling…",
     "push": "Push",
-    "pushing": "Pushing…"
+    "pushing": "Pushing…",
+    "openIde": "Open in IDE",
+    "openingIde": "Opening…"
   },
   "repoStatus": {
     "conflict": "Merge conflicts detected.",

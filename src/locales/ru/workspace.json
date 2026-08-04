@@ -50,7 +50,9 @@
     "pull": "Обновить",
     "pulling": "Обновление…",
     "push": "Отправить",
-    "pushing": "Отправка…"
+    "pushing": "Отправка…",
+    "openIde": "Открыть в IDE",
+    "openingIde": "Открытие…"
   },
   "repoStatus": {
     "conflict": "Обнаружены merge-конфликты.",

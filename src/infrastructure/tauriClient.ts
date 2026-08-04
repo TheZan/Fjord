@@ -114,3 +114,7 @@ export function pushRepo(repoId: string): Promise<void> {
 export function openMergeTool(repoId: string): Promise<void> {
   return invoke("open_merge_tool", { repoId });
 }
+
+export function openInIde(repoId: string, ide: string | null = null): Promise<void> {
+  return invoke("open_in_ide", { repoId, ide });
+}
