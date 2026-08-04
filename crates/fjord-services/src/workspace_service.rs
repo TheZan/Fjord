@@ -120,6 +120,9 @@ mod tests {
         async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError> {
             Ok(self.repos.lock().unwrap().iter().filter(|r| r.workspace_id == workspace_id).cloned().collect())
         }
+        async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
+            self.repos.lock().unwrap().iter().find(|r| r.id == id).cloned().ok_or(StoreError::RepositoryNotFound(id))
+        }
         async fn add_repository(
             &self,
             workspace_id: WorkspaceId,

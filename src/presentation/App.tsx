@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
 import { setLocale } from "@/infrastructure/i18n";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
 import type { Theme } from "@/domain/settings";
 import { FjordMark } from "@/presentation/FjordMark";
+import { BranchesPanel } from "@/presentation/BranchesPanel";
 import { useRepositories } from "@/application/useRepositories";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
@@ -13,6 +15,7 @@ export function App() {
   const { t: tw } = useTranslation("workspace");
   const { choice, setChoice } = useTheme();
   const { repositories, error, openRepository } = useRepositories();
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
@@ -94,15 +97,26 @@ export function App() {
             {tw("repositories.empty")}
           </p>
         ) : (
-          <ul className="flex flex-col gap-1 text-sm" style={{ color: "var(--ink)" }}>
+          <ul className="flex flex-col gap-1 text-sm">
             {repositories.map((repo) => (
               <li key={repo.id}>
-                <span className="font-medium">{repo.name}</span>{" "}
-                <span style={{ color: "var(--mist)" }}>{repo.path}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRepoId(repo.id === selectedRepoId ? null : repo.id)}
+                  className="rounded px-2 py-1 text-left"
+                  style={{
+                    background: repo.id === selectedRepoId ? "var(--fjord-tint)" : "transparent",
+                    color: repo.id === selectedRepoId ? "var(--fjord-ink)" : "var(--ink)",
+                  }}
+                >
+                  <span className="font-medium">{repo.name}</span>{" "}
+                  <span style={{ color: "var(--mist)" }}>{repo.path}</span>
+                </button>
               </li>
             ))}
           </ul>
         )}
+        {selectedRepoId && <BranchesPanel repoId={selectedRepoId} />}
       </div>
     </main>
   );

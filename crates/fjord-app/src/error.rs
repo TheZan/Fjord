@@ -1,5 +1,5 @@
 use fjord_ports::StoreError;
-use fjord_services::WorkspaceError;
+use fjord_services::{RepoError, WorkspaceError};
 use serde::Serialize;
 
 /// The only error shape that crosses the Tauri IPC boundary. `code` is
@@ -35,6 +35,18 @@ impl From<WorkspaceError> for AppError {
                 message: err.to_string(),
             },
             WorkspaceError::Git(_) => AppError {
+                code: "git_error".to_string(),
+                message: err.to_string(),
+            },
+        }
+    }
+}
+
+impl From<RepoError> for AppError {
+    fn from(err: RepoError) -> Self {
+        match err {
+            RepoError::Store(inner) => inner.into(),
+            RepoError::Git(_) => AppError {
                 code: "git_error".to_string(),
                 message: err.to_string(),
             },

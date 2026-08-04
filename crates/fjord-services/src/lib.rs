@@ -2,8 +2,10 @@
 //! `fjord-ports` — never on `tauri`, `sqlx`, or a Git engine directly.
 //! See docs/SDD.md §5.1.
 
+mod repo_service;
 mod settings_service;
 mod workspace_service;
 
+pub use repo_service::{RepoError, RepoService};
 pub use settings_service::SettingsService;
 pub use workspace_service::{WorkspaceError, WorkspaceService};

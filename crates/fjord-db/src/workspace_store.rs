@@ -21,7 +21,14 @@ impl SqliteWorkspaceStore {
 #[async_trait]
 impl WorkspaceStore for SqliteWorkspaceStore {
     async fn list_workspaces(&self) -> Result<Vec<Workspace>, StoreError> {
-        let rows = sqlx::query("SELECT id, name, sort_order FROM workspaces ORDER BY sort_order")
+        // `created_at` as a tiebreaker makes ordering deterministic even when
+        // two rows share a `sort_order` (e.g. both computed as MAX+1 in the
+        // same instant) — otherwise which one a caller like
+        // `ensureDefaultWorkspace` treats as "the" first workspace is
+        // implementation-defined SQLite behavior, not a real guarantee.
+        let rows = sqlx::query(
+            "SELECT id, name, sort_order FROM workspaces ORDER BY sort_order, created_at",
+        )
             .fetch_all(&self.pool)
             .await
             .map_err(|e| StoreError::Database(e.to_string()))?;
@@ -116,7 +123,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
 
     async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError> {
         let rows = sqlx::query(
-            "SELECT id, workspace_id, name, path, sort_order FROM repositories WHERE workspace_id = ? ORDER BY sort_order",
+            "SELECT id, workspace_id, name, path, sort_order FROM repositories WHERE workspace_id = ? ORDER BY sort_order, created_at",
         )
         .bind(workspace_id.0.to_string())
         .fetch_all(&self.pool)
@@ -136,6 +143,28 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                 })
             })
             .collect()
+    }
+
+    async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
+        let row = sqlx::query(
+            "SELECT id, workspace_id, name, path, sort_order FROM repositories WHERE id = ?",
+        )
+        .bind(id.0.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?
+        .ok_or(StoreError::RepositoryNotFound(id))?;
+
+        let workspace_id = Uuid::from_str(&row.get::<String, _>("workspace_id"))
+            .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        Ok(RepositoryEntry {
+            id,
+            workspace_id: WorkspaceId(workspace_id),
+            name: row.get("name"),
+            path: PathBuf::from(row.get::<String, _>("path")),
+            sort_order: row.get("sort_order"),
+        })
     }
 
     async fn add_repository(
@@ -230,5 +259,25 @@ mod tests {
 
         assert_eq!(store.list_repositories(ws.id).await.unwrap().len(), 1);
         assert_eq!(store.list_repositories(other_ws.id).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_repository_finds_it_by_id_alone() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let created = store
+            .add_repository(ws.id, "api-gateway", std::path::Path::new("/repos/api-gateway"))
+            .await
+            .unwrap();
+
+        let fetched = store.get_repository(created.id).await.unwrap();
+        assert_eq!(fetched, created);
+    }
+
+    #[tokio::test]
+    async fn get_repository_reports_not_found() {
+        let store = store().await;
+        let result = store.get_repository(RepositoryId::new()).await;
+        assert!(matches!(result, Err(StoreError::RepositoryNotFound(_))));
     }
 }

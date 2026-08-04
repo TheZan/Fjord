@@ -4,5 +4,11 @@
     "openButton": "Open repository",
     "empty": "No repositories yet — open one to get started.",
     "notAGitRepository": "That folder isn't a Git repository."
+  },
+  "branches": {
+    "local": "Local",
+    "remote": "Remote",
+    "current": "current",
+    "empty": "No branches found."
   }
 }

@@ -24,6 +24,7 @@ pub trait WorkspaceStore: Send + Sync {
     async fn delete_workspace(&self, id: WorkspaceId) -> Result<(), StoreError>;
 
     async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError>;
+    async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError>;
     async fn add_repository(
         &self,
         workspace_id: WorkspaceId,
