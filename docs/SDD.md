@@ -1,7 +1,12 @@
 # Fjord — Software Design Document
 
-Status: draft v0.1
+Status: draft v0.2
 Owner: msochnev
+
+This document covers the *why* — vision, architecture, and the decisions behind them. For the *what's next* and the *exact contract*, see:
+
+- [`plan.md`](plan.md) — the phased task breakdown (`P0-01`, `P1-03`, ...) that turns this document into work.
+- [`specs/`](specs/) — focused technical specs per subsystem (Git engine, data model, IPC commands, i18n, theming), each linked from the plan tasks that implement it.
 
 ## 1. Vision
 
@@ -172,9 +177,6 @@ Settings         { locale, theme, default_ide, ... }        -- single row
 | i18n key drift between locales as features ship fast | CI catalog-diff check (§6.2) turns this into a build failure, not a silent gap |
 | Custom title bar vs. native OS conventions | Default to native decorations per-platform; only override where there's a clear UX win, revisit if it feels "un-native" on any one OS |
 
-## 10. Suggested phasing (rough)
+## 10. Phasing
 
-1. **Foundation**: Cargo workspace + crate boundaries, `GitBackend` trait + gix/git2 impl skeleton, SQLite migrations, Tauri shell boots, theming + i18n wiring end-to-end on a single placeholder screen.
-2. **Single-repo core**: open a repo, branches, commit graph, diff/file view — proves the `fjord-git` abstraction against a real UI.
-3. **Workspace layer**: multi-repo grouping, status cache, bulk operations, dashboard.
-4. **Polish**: command palette, global search, cross-platform packaging/signing, first public release.
+See [`plan.md`](plan.md) for the full task-level breakdown. In short: **Foundation** (architecture skeleton, theming/i18n wired end-to-end) → **Single-repo core** (proves the `fjord-git` abstraction against a real UI) → **Workspace layer** (the actual multi-repo product) → **Polish and release**.
