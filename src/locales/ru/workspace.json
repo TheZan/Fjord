@@ -16,5 +16,24 @@
     "loading": "Загрузка…",
     "loadEarlier": "Загрузить более ранние коммиты",
     "end": "Начало истории"
+  },
+  "commitInspector": {
+    "empty": "Нет изменённых файлов.",
+    "changeType": {
+      "added": "Добавлен",
+      "modified": "Изменён",
+      "deleted": "Удалён",
+      "renamed": "Переименован"
+    },
+    "changeTypeMark": {
+      "added": "A",
+      "modified": "M",
+      "deleted": "D",
+      "renamed": "R"
+    }
+  },
+  "diff": {
+    "binary": "Бинарный файл не отображается.",
+    "empty": "Нет изменений для отображения."
   }
 }

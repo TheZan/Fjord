@@ -16,5 +16,24 @@
     "loading": "Loading…",
     "loadEarlier": "Load earlier commits",
     "end": "Beginning of history"
+  },
+  "commitInspector": {
+    "empty": "No changed files.",
+    "changeType": {
+      "added": "Added",
+      "modified": "Modified",
+      "deleted": "Deleted",
+      "renamed": "Renamed"
+    },
+    "changeTypeMark": {
+      "added": "A",
+      "modified": "M",
+      "deleted": "D",
+      "renamed": "R"
+    }
+  },
+  "diff": {
+    "binary": "Binary file not shown.",
+    "empty": "No changes to display."
   }
 }

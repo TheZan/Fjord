@@ -67,10 +67,16 @@ impl WorkspaceService {
         self.git.status(&RepoPath::new(path.clone())).await?;
 
         let name = repo_display_name(&path);
-        Ok(self.store.add_repository(workspace_id, &name, &path).await?)
+        Ok(self
+            .store
+            .add_repository(workspace_id, &name, &path)
+            .await?)
     }
 
-    pub async fn remove_repository(&self, id: fjord_domain::RepositoryId) -> Result<(), WorkspaceError> {
+    pub async fn remove_repository(
+        &self,
+        id: fjord_domain::RepositoryId,
+    ) -> Result<(), WorkspaceError> {
         Ok(self.store.remove_repository(id).await?)
     }
 }
@@ -85,7 +91,10 @@ fn repo_display_name(path: &Path) -> String {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use fjord_domain::{BranchInfo, CommitPage, FileDiff, LogCursor, RepoStatus, RepositoryId};
+    use fjord_domain::{
+        BranchInfo, CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+        RepositoryId,
+    };
     use std::path::PathBuf as StdPathBuf;
     use std::sync::Mutex;
 
@@ -100,13 +109,24 @@ mod tests {
             Ok(self.workspaces.lock().unwrap().clone())
         }
         async fn create_workspace(&self, name: &str) -> Result<Workspace, StoreError> {
-            let ws = Workspace { id: WorkspaceId::new(), name: name.to_string(), sort_order: 0 };
+            let ws = Workspace {
+                id: WorkspaceId::new(),
+                name: name.to_string(),
+                sort_order: 0,
+            };
             self.workspaces.lock().unwrap().push(ws.clone());
             Ok(ws)
         }
-        async fn rename_workspace(&self, id: WorkspaceId, name: &str) -> Result<Workspace, StoreError> {
+        async fn rename_workspace(
+            &self,
+            id: WorkspaceId,
+            name: &str,
+        ) -> Result<Workspace, StoreError> {
             let mut wss = self.workspaces.lock().unwrap();
-            let ws = wss.iter_mut().find(|w| w.id == id).ok_or(StoreError::WorkspaceNotFound(id))?;
+            let ws = wss
+                .iter_mut()
+                .find(|w| w.id == id)
+                .ok_or(StoreError::WorkspaceNotFound(id))?;
             ws.name = name.to_string();
             Ok(ws.clone())
         }
@@ -117,11 +137,27 @@ mod tests {
             self.workspaces.lock().unwrap().retain(|w| w.id != id);
             Ok(())
         }
-        async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError> {
-            Ok(self.repos.lock().unwrap().iter().filter(|r| r.workspace_id == workspace_id).cloned().collect())
+        async fn list_repositories(
+            &self,
+            workspace_id: WorkspaceId,
+        ) -> Result<Vec<RepositoryEntry>, StoreError> {
+            Ok(self
+                .repos
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.workspace_id == workspace_id)
+                .cloned()
+                .collect())
         }
         async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
-            self.repos.lock().unwrap().iter().find(|r| r.id == id).cloned().ok_or(StoreError::RepositoryNotFound(id))
+            self.repos
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|r| r.id == id)
+                .cloned()
+                .ok_or(StoreError::RepositoryNotFound(id))
         }
         async fn add_repository(
             &self,
@@ -153,27 +189,77 @@ mod tests {
     impl GitBackend for FakeGitBackend {
         async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {
             if self.valid_repo {
-                Ok(RepoStatus { branch: Some("main".into()), ahead: 0, behind: 0, dirty_count: 0, has_conflict: false })
+                Ok(RepoStatus {
+                    branch: Some("main".into()),
+                    ahead: 0,
+                    behind: 0,
+                    dirty_count: 0,
+                    has_conflict: false,
+                })
             } else {
                 Err(GitError::NotAGitRepository(repo.0.clone()))
             }
         }
-        async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> { Ok(vec![]) }
-        async fn log(&self, _repo: &RepoPath, _from: Option<LogCursor>, _limit: u32) -> Result<CommitPage, GitError> {
-            Ok(CommitPage { commits: vec![], next_cursor: None })
+        async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
+            Ok(vec![])
         }
-        async fn diff(&self, _repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> { Ok(vec![]) }
-        async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> { Ok(()) }
-        async fn stage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> { Ok(()) }
-        async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> { Ok("deadbeef".into()) }
-        async fn fetch(&self, _repo: &RepoPath, _remote: &str) -> Result<(), GitError> { Ok(()) }
-        async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> { Ok(()) }
-        async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> { Ok(()) }
+        async fn log(
+            &self,
+            _repo: &RepoPath,
+            _from: Option<LogCursor>,
+            _limit: u32,
+        ) -> Result<CommitPage, GitError> {
+            Ok(CommitPage {
+                commits: vec![],
+                next_cursor: None,
+            })
+        }
+        async fn diff(
+            &self,
+            _repo: &RepoPath,
+            _commit_id: &str,
+        ) -> Result<Vec<FileDiff>, GitError> {
+            Ok(vec![])
+        }
+        async fn file_diff(
+            &self,
+            _repo: &RepoPath,
+            _commit_id: &str,
+            path: &str,
+        ) -> Result<FileDiffDetail, GitError> {
+            Ok(FileDiffDetail {
+                path: path.to_string(),
+                change_type: FileChangeType::Modified,
+                is_binary: false,
+                hunks: vec![],
+            })
+        }
+        async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn stage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+            Ok("deadbeef".into())
+        }
+        async fn fetch(&self, _repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
+            Ok(())
+        }
     }
 
     fn service(valid_repo: bool) -> WorkspaceService {
         WorkspaceService::new(
-            Arc::new(FakeWorkspaceStore { workspaces: Mutex::new(vec![]), repos: Mutex::new(vec![]) }),
+            Arc::new(FakeWorkspaceStore {
+                workspaces: Mutex::new(vec![]),
+                repos: Mutex::new(vec![]),
+            }),
             Arc::new(FakeGitBackend { valid_repo }),
         )
     }
@@ -182,7 +268,10 @@ mod tests {
     async fn adding_a_real_repo_persists_it_with_a_derived_name() {
         let service = service(true);
         let ws = service.create_workspace("Backend").await.unwrap();
-        let entry = service.add_repository(ws.id, PathBuf::from("/repos/api-gateway")).await.unwrap();
+        let entry = service
+            .add_repository(ws.id, PathBuf::from("/repos/api-gateway"))
+            .await
+            .unwrap();
         assert_eq!(entry.name, "api-gateway");
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 1);
     }
@@ -191,7 +280,9 @@ mod tests {
     async fn adding_a_non_git_folder_is_rejected() {
         let service = service(false);
         let ws = service.create_workspace("Backend").await.unwrap();
-        let result = service.add_repository(ws.id, PathBuf::from("/not/a/repo")).await;
+        let result = service
+            .add_repository(ws.id, PathBuf::from("/not/a/repo"))
+            .await;
         assert!(matches!(result, Err(WorkspaceError::NotAGitRepository(_))));
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
     }

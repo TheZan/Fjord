@@ -27,3 +27,39 @@ export interface CommitPage {
   commits: CommitSummary[];
   nextCursor: LogCursor | null;
 }
+
+// Mirrors `fjord_domain::{FileChangeType, FileDiff, DiffLineKind, DiffLine,
+// DiffHunk, FileDiffDetail}`.
+
+export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
+
+export interface FileDiff {
+  path: string;
+  changeType: FileChangeType;
+  additions: number;
+  deletions: number;
+}
+
+export type DiffLineKind = "context" | "addition" | "deletion";
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  oldLineno: number | null;
+  newLineno: number | null;
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
+export interface FileDiffDetail {
+  path: string;
+  changeType: FileChangeType;
+  isBinary: boolean;
+  hunks: DiffHunk[];
+}

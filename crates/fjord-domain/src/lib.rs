@@ -107,6 +107,7 @@ pub struct CommitSummary {
     pub message: String,
     pub author_name: String,
     pub author_email: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub authored_at: OffsetDateTime,
     pub refs: Vec<String>,
 }
@@ -144,16 +145,53 @@ pub struct FileDiff {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    /// 1-based line number in the old (before) version, absent for added lines.
+    pub old_lineno: Option<u32>,
+    /// 1-based line number in the new (after) version, absent for removed lines.
+    pub new_lineno: Option<u32>,
+    pub content: String,
+}
+
+/// One `@@ -old_start,old_lines +new_start,new_lines @@` block of a unified diff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    pub lines: Vec<DiffLine>,
+}
+
+/// Full line-by-line diff for a single file, as returned by `GitBackend::file_diff`.
+/// See docs/plan.md P1-05.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiffDetail {
+    pub path: String,
+    pub change_type: FileChangeType,
+    /// `true` if either side of the diff was detected as binary — `hunks` is empty in that case.
+    pub is_binary: bool,
+    pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Theme {
     Light,
     Dark,
+    #[default]
     System,
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Theme::System
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,5 +210,27 @@ impl Default for Settings {
             theme: Theme::System,
             default_ide: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commit_summary_serializes_authored_at_as_rfc3339() {
+        let commit = CommitSummary {
+            id: CommitId("deadbeef".to_string()),
+            parent_ids: vec![],
+            message: "Initial commit".to_string(),
+            author_name: "A. Developer".to_string(),
+            author_email: "dev@example.com".to_string(),
+            authored_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+            refs: vec![],
+        };
+
+        let value = serde_json::to_value(commit).unwrap();
+
+        assert_eq!(value["authoredAt"], "1970-01-01T00:00:00Z");
     }
 }

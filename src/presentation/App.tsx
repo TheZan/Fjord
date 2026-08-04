@@ -7,7 +7,9 @@ import type { Theme } from "@/domain/settings";
 import { FjordMark } from "@/presentation/FjordMark";
 import { BranchesPanel } from "@/presentation/BranchesPanel";
 import { CommitGraph } from "@/presentation/CommitGraph";
+import { CommitInspector } from "@/presentation/CommitInspector";
 import { useRepositories } from "@/application/useRepositories";
+import type { CommitSummary } from "@/domain/git";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
@@ -17,6 +19,7 @@ export function App() {
   const { choice, setChoice } = useTheme();
   const { repositories, error, openRepository } = useRepositories();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
@@ -103,7 +106,10 @@ export function App() {
               <li key={repo.id}>
                 <button
                   type="button"
-                  onClick={() => setSelectedRepoId(repo.id === selectedRepoId ? null : repo.id)}
+                  onClick={() => {
+                    setSelectedRepoId(repo.id === selectedRepoId ? null : repo.id);
+                    setSelectedCommit(null);
+                  }}
                   className="rounded px-2 py-1 text-left"
                   style={{
                     background: repo.id === selectedRepoId ? "var(--fjord-tint)" : "transparent",
@@ -120,7 +126,14 @@ export function App() {
         {selectedRepoId && (
           <>
             <BranchesPanel repoId={selectedRepoId} />
-            <CommitGraph repoId={selectedRepoId} />
+            <CommitGraph
+              repoId={selectedRepoId}
+              selectedCommitId={selectedCommit?.id ?? null}
+              onSelectCommit={(commit) =>
+                setSelectedCommit(commit.id === selectedCommit?.id ? null : commit)
+              }
+            />
+            {selectedCommit && <CommitInspector repoId={selectedRepoId} commit={selectedCommit} />}
           </>
         )}
       </div>

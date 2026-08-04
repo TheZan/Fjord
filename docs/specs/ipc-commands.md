@@ -27,7 +27,8 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `refresh_repo_status` | `{ repo_id }` | `RepoStatusSummary` | Forces a live `GitBackend::status` call, updates the cache, returns fresh data — used for pull-to-refresh style UI, not the default path |
 | `get_branches` | `{ repo_id }` | `BranchInfo[]` | |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `CommitPage` | `cursor` from the previous page's `CommitPage.next_cursor`; omitted cursor = start from `HEAD` |
-| `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | |
+| `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | Changed-files summary for the commit inspector (P1-04) — path, change type, add/delete line counts, no content |
+| `get_file_diff` | `{ repo_id, commit_id, path }` | `FileDiffDetail` | Full unified line diff for one file within a commit (P1-05); `isBinary` is `true` and `hunks` empty when either side is binary |
 | `checkout_branch` | `{ repo_id, branch }` | — | |
 | `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | Emits progress via Tauri events (see below), not a blocking return |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | — | Fans out across the bounded worker pool (SDD §5.3); per-repo results stream as events |

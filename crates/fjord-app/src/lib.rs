@@ -36,5 +36,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::add_repository,
             commands::get_branches,
             commands::get_commit_log,
+            commands::get_commit_diff,
+            commands::get_file_diff,
         ])
 }

@@ -5,8 +5,16 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use fjord_domain::{BranchInfo, CommitPage, CommitId, CommitSummary, FileDiff, LogCursor, RepoStatus};
+use fjord_domain::{
+    BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineKind,
+    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+};
 use fjord_ports::{GitBackend, GitError, RepoPath};
+use gix::diff::blob::platform::prepare_diff::Operation;
+use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
+use gix::diff::blob::UnifiedDiff;
+use gix::object::tree::diff::{Change, ChangeDetached};
+use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
 pub struct GixGitBackend;
@@ -25,6 +33,133 @@ impl GixGitBackend {
 
     fn open_git2(repo: &RepoPath) -> Result<git2::Repository, GitError> {
         git2::Repository::open(&repo.0).map_err(|e| GitError::Git2(e.message().to_string()))
+    }
+
+    /// The commit's tree and its first parent's tree (`None` for a root commit), which
+    /// together define the changeset shown for that commit — see docs/specs/git-backend.md.
+    fn commit_trees<'r>(
+        git: &'r gix::Repository,
+        commit_id: &str,
+    ) -> Result<(Option<gix::Tree<'r>>, gix::Tree<'r>), GitError> {
+        let oid = gix::ObjectId::from_hex(commit_id.as_bytes())
+            .map_err(|e| GitError::Gix(e.to_string()))?;
+        let commit = git
+            .find_object(oid)
+            .map_err(|e| GitError::Gix(e.to_string()))?
+            .try_into_commit()
+            .map_err(|e| GitError::Gix(e.to_string()))?;
+        let new_tree = commit.tree().map_err(|e| GitError::Gix(e.to_string()))?;
+
+        let old_tree = match commit.parent_ids().next() {
+            Some(parent_id) => {
+                let parent = parent_id
+                    .object()
+                    .map_err(|e| GitError::Gix(e.to_string()))?
+                    .try_into_commit()
+                    .map_err(|e| GitError::Gix(e.to_string()))?;
+                Some(parent.tree().map_err(|e| GitError::Gix(e.to_string()))?)
+            }
+            None => None,
+        };
+
+        Ok((old_tree, new_tree))
+    }
+
+    /// Changes between a commit and its first parent. Rewrite (rename/copy) tracking is
+    /// deliberately disabled — it's config-dependent and turns this into a fuzzy, expensive
+    /// N×M match; a rename shows up as a delete + an add, which P1-04 doesn't need to resolve.
+    ///
+    /// With path tracking on, `gix_diff::tree_with_rewrites` also emits an entry per changed
+    /// *directory* (mode `Tree`) to make hierarchy reconstruction possible — those aren't
+    /// diffable blobs and aren't "files" in any sense the frontend cares about, so they're
+    /// filtered out here rather than in every caller.
+    fn commit_changes(
+        git: &gix::Repository,
+        commit_id: &str,
+    ) -> Result<Vec<ChangeDetached>, GitError> {
+        let (old_tree, new_tree) = Self::commit_trees(git, commit_id)?;
+        let mut options = gix::diff::Options::default();
+        options.track_rewrites(None);
+        let changes = git
+            .diff_tree_to_tree(old_tree.as_ref(), &new_tree, Some(options))
+            .map_err(|e| GitError::Gix(e.to_string()))?;
+        Ok(changes
+            .into_iter()
+            .filter(|change| change.attach(git, git).entry_mode().is_blob_or_symlink())
+            .collect())
+    }
+
+    fn classify_change(change: &Change<'_, '_, '_>) -> FileChangeType {
+        match change {
+            Change::Addition { .. } => FileChangeType::Added,
+            Change::Deletion { .. } => FileChangeType::Deleted,
+            Change::Modification { .. } => FileChangeType::Modified,
+            Change::Rewrite { .. } => FileChangeType::Renamed,
+        }
+    }
+}
+
+/// Collects unified-diff hunks into `fjord_domain::DiffHunk`s, assigning old/new line numbers
+/// as it walks each hunk's context/addition/deletion lines in order.
+#[derive(Default)]
+struct HunkCollector {
+    hunks: Vec<DiffHunk>,
+}
+
+impl ConsumeHunk for HunkCollector {
+    type Out = Vec<DiffHunk>;
+
+    fn consume_hunk(
+        &mut self,
+        header: HunkHeader,
+        lines: &[(gix::diff::blob::unified_diff::DiffLineKind, &[u8])],
+    ) -> std::io::Result<()> {
+        use gix::diff::blob::unified_diff::DiffLineKind as GixLineKind;
+
+        let mut old_line = header.before_hunk_start;
+        let mut new_line = header.after_hunk_start;
+        let mut out_lines = Vec::with_capacity(lines.len());
+
+        for (kind, content) in lines {
+            let content = String::from_utf8_lossy(content).into_owned();
+            let (kind, old_lineno, new_lineno) = match kind {
+                GixLineKind::Context => {
+                    let line = (Some(old_line), Some(new_line));
+                    old_line += 1;
+                    new_line += 1;
+                    (DiffLineKind::Context, line.0, line.1)
+                }
+                GixLineKind::Add => {
+                    let n = new_line;
+                    new_line += 1;
+                    (DiffLineKind::Addition, None, Some(n))
+                }
+                GixLineKind::Remove => {
+                    let o = old_line;
+                    old_line += 1;
+                    (DiffLineKind::Deletion, Some(o), None)
+                }
+            };
+            out_lines.push(DiffLine {
+                kind,
+                old_lineno,
+                new_lineno,
+                content,
+            });
+        }
+
+        self.hunks.push(DiffHunk {
+            old_start: header.before_hunk_start,
+            old_lines: header.before_hunk_len,
+            new_start: header.after_hunk_start,
+            new_lines: header.after_hunk_len,
+            lines: out_lines,
+        });
+        Ok(())
+    }
+
+    fn finish(self) -> Self::Out {
+        self.hunks
     }
 }
 
@@ -155,7 +290,11 @@ impl GitBackend for GixGitBackend {
 
                 commits.push(CommitSummary {
                     id: CommitId(info.id.to_string()),
-                    parent_ids: info.parent_ids.iter().map(|id| CommitId(id.to_string())).collect(),
+                    parent_ids: info
+                        .parent_ids
+                        .iter()
+                        .map(|id| CommitId(id.to_string()))
+                        .collect(),
                     message: String::from_utf8_lossy(decoded.message).into_owned(),
                     author_name: author.name.to_string(),
                     author_email: author.email.to_string(),
@@ -165,26 +304,140 @@ impl GitBackend for GixGitBackend {
                 });
             }
 
-            Ok(CommitPage { commits, next_cursor })
+            Ok(CommitPage {
+                commits,
+                next_cursor,
+            })
         })
         .await
         .map_err(|e| GitError::Gix(e.to_string()))?
     }
 
-    async fn diff(&self, _repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
-        Err(GitError::NotImplemented("diff lands in Phase 1, see plan.md P1-05"))
+    async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
+        let repo = repo.clone();
+        let commit_id = commit_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open(&repo)?;
+            let changes = Self::commit_changes(&git, &commit_id)?;
+
+            let mut resource_cache = git
+                .diff_resource_cache_for_tree_diff()
+                .map_err(|e| GitError::Gix(e.to_string()))?;
+
+            let mut out = Vec::with_capacity(changes.len());
+            for change in &changes {
+                let attached = change.attach(&git, &git);
+                let path = attached.location().to_string();
+                let change_type = Self::classify_change(&attached);
+
+                let (additions, deletions) = attached
+                    .diff(&mut resource_cache)
+                    .ok()
+                    .and_then(|mut platform| platform.line_counts().ok().flatten())
+                    .map(|counts| (counts.insertions, counts.removals))
+                    .unwrap_or((0, 0));
+
+                resource_cache.clear_resource_cache_keep_allocation();
+                out.push(FileDiff {
+                    path,
+                    change_type,
+                    additions,
+                    deletions,
+                });
+            }
+
+            Ok(out)
+        })
+        .await
+        .map_err(|e| GitError::Gix(e.to_string()))?
+    }
+
+    async fn file_diff(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+        path: &str,
+    ) -> Result<FileDiffDetail, GitError> {
+        let repo = repo.clone();
+        let commit_id = commit_id.to_string();
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open(&repo)?;
+            let changes = Self::commit_changes(&git, &commit_id)?;
+
+            let change = changes
+                .iter()
+                .find(|change| change.attach(&git, &git).location() == path)
+                .ok_or_else(|| {
+                    GitError::Gix(format!(
+                        "no change found for path '{path}' in commit {commit_id}"
+                    ))
+                })?;
+            let attached = change.attach(&git, &git);
+            let change_type = Self::classify_change(&attached);
+
+            let mut resource_cache = git
+                .diff_resource_cache_for_tree_diff()
+                .map_err(|e| GitError::Gix(e.to_string()))?;
+            let platform = attached
+                .diff(&mut resource_cache)
+                .map_err(|e| GitError::Gix(e.to_string()))?;
+            platform
+                .resource_cache
+                .options
+                .skip_internal_diff_if_external_is_configured = false;
+
+            let prep = platform
+                .resource_cache
+                .prepare_diff()
+                .map_err(|e| GitError::Gix(e.to_string()))?;
+
+            let (is_binary, hunks) = match prep.operation {
+                Operation::InternalDiff { algorithm } => {
+                    let input = prep.interned_input();
+                    let diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &input);
+                    let hunks = UnifiedDiff::new(
+                        &diff,
+                        &input,
+                        HunkCollector::default(),
+                        ContextSize::symmetrical(3),
+                    )
+                    .consume()
+                    .map_err(|e| GitError::Gix(e.to_string()))?;
+                    (false, hunks)
+                }
+                Operation::ExternalCommand { .. } | Operation::SourceOrDestinationIsBinary => {
+                    (true, Vec::new())
+                }
+            };
+
+            Ok(FileDiffDetail {
+                path,
+                change_type,
+                is_binary,
+                hunks,
+            })
+        })
+        .await
+        .map_err(|e| GitError::Gix(e.to_string()))?
     }
 
     async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("checkout lands in Phase 1, see plan.md P1-06"))
+        Err(GitError::NotImplemented(
+            "checkout lands in Phase 1, see plan.md P1-06",
+        ))
     }
 
     async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("stage lands in Phase 1, see plan.md P1-06"))
+        Err(GitError::NotImplemented(
+            "stage lands in Phase 1, see plan.md P1-06",
+        ))
     }
 
     async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
-        Err(GitError::NotImplemented("commit lands in Phase 1, see plan.md P1-06"))
+        Err(GitError::NotImplemented(
+            "commit lands in Phase 1, see plan.md P1-06",
+        ))
     }
 
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
@@ -203,11 +456,15 @@ impl GitBackend for GixGitBackend {
     }
 
     async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("pull (fetch + merge) lands in Phase 1, see plan.md P1-06"))
+        Err(GitError::NotImplemented(
+            "pull (fetch + merge) lands in Phase 1, see plan.md P1-06",
+        ))
     }
 
     async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("push lands in Phase 1, see plan.md P1-07"))
+        Err(GitError::NotImplemented(
+            "push lands in Phase 1, see plan.md P1-07",
+        ))
     }
 }
 
@@ -247,5 +504,41 @@ mod tests {
         let backend = GixGitBackend::new();
         let page = backend.log(&this_repo_path(), None, 5).await.unwrap();
         assert!(!page.commits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn diff_reports_changed_files_for_head() {
+        let backend = GixGitBackend::new();
+        let page = backend.log(&this_repo_path(), None, 1).await.unwrap();
+        let head = &page.commits[0].id.0;
+
+        let files = backend.diff(&this_repo_path(), head).await.unwrap();
+        assert!(
+            !files.is_empty(),
+            "HEAD should have touched at least one file"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_diff_reports_hunks_for_a_file_changed_in_head() {
+        let backend = GixGitBackend::new();
+        let page = backend.log(&this_repo_path(), None, 1).await.unwrap();
+        let head = &page.commits[0].id.0;
+        let files = backend.diff(&this_repo_path(), head).await.unwrap();
+        let file = files
+            .first()
+            .expect("HEAD should have touched at least one file");
+
+        let detail = backend
+            .file_diff(&this_repo_path(), head, &file.path)
+            .await
+            .unwrap();
+        assert_eq!(detail.path, file.path);
+        if !detail.is_binary {
+            assert!(!detail.hunks.is_empty());
+            for hunk in &detail.hunks {
+                assert!(!hunk.lines.is_empty());
+            }
+        }
     }
 }

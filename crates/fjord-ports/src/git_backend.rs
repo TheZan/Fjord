@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use fjord_domain::{BranchInfo, CommitPage, FileDiff, LogCursor, RepoStatus};
+use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +51,12 @@ pub trait GitBackend: Send + Sync {
         limit: u32,
     ) -> Result<CommitPage, GitError>;
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError>;
+    async fn file_diff(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+        path: &str,
+    ) -> Result<FileDiffDetail, GitError>;
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;

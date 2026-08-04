@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useCommitLog } from "@/application/useCommitLog";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
+import type { CommitSummary } from "@/domain/git";
 
 const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
 const LANE_PITCH = 18;
@@ -15,7 +16,15 @@ function laneX(lane: number): number {
   return GUTTER_PAD + lane * LANE_PITCH;
 }
 
-export function CommitGraph({ repoId }: { repoId: string }) {
+export function CommitGraph({
+  repoId,
+  selectedCommitId,
+  onSelectCommit,
+}: {
+  repoId: string;
+  selectedCommitId?: string | null;
+  onSelectCommit?: (commit: CommitSummary) => void;
+}) {
   const { t } = useTranslation("workspace");
   const { commits, loading, error, hasMore, loadMore } = useCommitLog(repoId);
   const { rows, laneCount } = computeGraphLayout(commits);
@@ -42,7 +51,13 @@ export function CommitGraph({ repoId }: { repoId: string }) {
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
       {rows.map((row) => (
-        <CommitRow key={row.commit.id} row={row} gutterWidth={gutterWidth} />
+        <CommitRow
+          key={row.commit.id}
+          row={row}
+          gutterWidth={gutterWidth}
+          selected={row.commit.id === selectedCommitId}
+          onSelect={onSelectCommit}
+        />
       ))}
       <div className="p-2 text-center">
         {hasMore ? (
@@ -67,15 +82,33 @@ export function CommitGraph({ repoId }: { repoId: string }) {
   );
 }
 
-function CommitRow({ row, gutterWidth }: { row: GraphRow; gutterWidth: number }) {
+function CommitRow({
+  row,
+  gutterWidth,
+  selected,
+  onSelect,
+}: {
+  row: GraphRow;
+  gutterWidth: number;
+  selected: boolean;
+  onSelect?: (commit: CommitSummary) => void;
+}) {
   const { commit, lane } = row;
   const midY = ROW_HEIGHT / 2;
   const cx = laneX(lane);
 
   return (
-    <div
-      className="flex items-center gap-2 border-b px-2 last:border-b-0"
-      style={{ borderColor: "var(--hairline)", height: ROW_HEIGHT }}
+    <button
+      type="button"
+      disabled={!onSelect}
+      onClick={onSelect ? () => onSelect(commit) : undefined}
+      className="flex w-full items-center gap-2 border-b px-2 text-left last:border-b-0 disabled:cursor-default"
+      style={{
+        borderColor: "var(--hairline)",
+        height: ROW_HEIGHT,
+        background: selected ? "var(--fjord-tint)" : undefined,
+        cursor: onSelect ? "pointer" : undefined,
+      }}
     >
       <svg width={gutterWidth} height={ROW_HEIGHT} style={{ flexShrink: 0 }}>
         {row.passthroughLanes.map((l) => (
@@ -122,6 +155,6 @@ function CommitRow({ row, gutterWidth }: { row: GraphRow; gutterWidth: number })
       <span className="ml-auto shrink-0 font-mono text-xs" style={{ color: "var(--mist)" }}>
         {commit.id.slice(0, 7)}
       </span>
-    </div>
+    </button>
   );
 }

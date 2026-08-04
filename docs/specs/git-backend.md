@@ -15,6 +15,7 @@ pub trait GitBackend: Send + Sync {
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn log(&self, repo: &RepoPath, from: LogCursor, limit: u32) -> Result<CommitPage, GitError>;
     async fn diff(&self, repo: &RepoPath, commit: &CommitId) -> Result<Vec<FileDiff>, GitError>;
+    async fn file_diff(&self, repo: &RepoPath, commit: &CommitId, path: &Path) -> Result<FileDiffDetail, GitError>;
 
     async fn checkout(&self, repo: &RepoPath, branch: &BranchName) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
@@ -37,6 +38,7 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
+| `file_diff` | `gix` | Read-only; unified line diff via `gix-diff`'s blob platform and `imara-diff`. |
 | `checkout` | `gix` | Read + working-tree write, covered. |
 | `stage` / `commit` | `gix` | Index writes are covered. |
 | `fetch` / `pull` | `git2` | Transport/credential handling is the mature path in git2 today. |
