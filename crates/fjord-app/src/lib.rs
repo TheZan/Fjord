@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(linker_messages))]
+
 //! The only crate allowed to depend on `tauri` (docs/SDD.md §5.1). Owns
 //! Tauri command handlers, DI wiring, and app bootstrap. `src-tauri` is a
 //! thin entrypoint that just calls [`builder`] and runs it — see
