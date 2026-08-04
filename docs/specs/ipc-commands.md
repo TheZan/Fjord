@@ -30,7 +30,10 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | Changed-files summary for the commit inspector (P1-04) — path, change type, add/delete line counts, no content |
 | `get_file_diff` | `{ repo_id, commit_id, path }` | `FileDiffDetail` | Full unified line diff for one file within a commit (P1-05); `isBinary` is `true` and `hunks` empty when either side is binary |
 | `checkout_branch` | `{ repo_id, branch }` | — | |
-| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | Emits progress via Tauri events (see below), not a blocking return |
+| `stage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means stage all changes |
+| `unstage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means unstage all paths |
+| `commit_repo` | `{ repo_id, message }` | `string` | Returns the new commit id; `nothing_to_commit` if the index matches `HEAD` |
+| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | P1-06 repo-level commands await completion without blocking the UI thread; P2 bulk operations emit progress events |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | — | Fans out across the bounded worker pool (SDD §5.3); per-repo results stream as events |
 | `open_in_ide` | `{ repo_id, ide? }` | — | `ide` optional, falls back to `Settings.default_ide` |
 
@@ -40,7 +43,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code: string, message: string }` (SDD §8). `code` is a stable, localizable identifier (`repo_not_found`, `merge_conflict`, `auth_failed`, ...) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code: string, message: string }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `merge_conflict`, `auth_failed`, `no_upstream`, `nothing_to_commit`, ...) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
 
 ## What's not a command
 

@@ -2,20 +2,15 @@ use std::sync::Arc;
 
 use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepositoryId};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
     #[error(transparent)]
     Store(#[from] StoreError),
-    #[error("git error: {0}")]
-    Git(String),
-}
-
-impl From<GitError> for RepoError {
-    fn from(err: GitError) -> Self {
-        RepoError::Git(err.to_string())
-    }
+    #[error(transparent)]
+    Git(#[from] GitError),
 }
 
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
@@ -70,6 +65,48 @@ impl RepoService {
             .git
             .file_diff(&RepoPath::new(repo.path), commit_id, path)
             .await?)
+    }
+
+    pub async fn checkout_branch(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.checkout(&RepoPath::new(repo.path), branch).await?)
+    }
+
+    pub async fn stage_files(
+        &self,
+        repo_id: RepositoryId,
+        paths: &[PathBuf],
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.stage(&RepoPath::new(repo.path), paths).await?)
+    }
+
+    pub async fn unstage_files(
+        &self,
+        repo_id: RepositoryId,
+        paths: &[PathBuf],
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.unstage(&RepoPath::new(repo.path), paths).await?)
+    }
+
+    pub async fn commit(&self, repo_id: RepositoryId, message: &str) -> Result<String, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.commit(&RepoPath::new(repo.path), message).await?)
+    }
+
+    pub async fn fetch(&self, repo_id: RepositoryId, remote: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.fetch(&RepoPath::new(repo.path), remote).await?)
+    }
+
+    pub async fn pull(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.pull(&RepoPath::new(repo.path)).await?)
     }
 }
 
@@ -139,6 +176,25 @@ mod tests {
         seen_path: Mutex<Option<PathBuf>>,
     }
 
+    fn repo_entry() -> RepositoryEntry {
+        RepositoryEntry {
+            id: RepositoryId::new(),
+            workspace_id: WorkspaceId::new(),
+            name: "api-gateway".into(),
+            path: PathBuf::from("/repos/api-gateway"),
+            sort_order: 0,
+        }
+    }
+
+    fn service_with_fake_git() -> (RepositoryEntry, Arc<FakeGit>, RepoService) {
+        let repo = repo_entry();
+        let git = Arc::new(FakeGit {
+            seen_path: Mutex::new(None),
+        });
+        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+        (repo, git, service)
+    }
+
     #[async_trait]
     impl GitBackend for FakeGit {
         async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
@@ -188,20 +244,29 @@ mod tests {
                 hunks: vec![],
             })
         }
-        async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
-            unimplemented!()
+        async fn checkout(&self, repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
-        async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
-            unimplemented!()
+        async fn stage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
-        async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
-            unimplemented!()
+        async fn unstage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
-        async fn fetch(&self, _repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
-            unimplemented!()
+        async fn commit(&self, repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok("deadbeef".into())
         }
-        async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
-            unimplemented!()
+        async fn fetch(&self, repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
+        }
+        async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
         async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
             unimplemented!()
@@ -210,17 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_the_repo_id_to_a_path_before_calling_git() {
-        let repo = RepositoryEntry {
-            id: RepositoryId::new(),
-            workspace_id: WorkspaceId::new(),
-            name: "api-gateway".into(),
-            path: PathBuf::from("/repos/api-gateway"),
-            sort_order: 0,
-        };
-        let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
-        });
-        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+        let (repo, git, service) = service_with_fake_git();
 
         let branches = service.get_branches(repo.id).await.unwrap();
         assert_eq!(branches.len(), 1);
@@ -252,17 +307,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_commit_log_resolves_the_repo_id_too() {
-        let repo = RepositoryEntry {
-            id: RepositoryId::new(),
-            workspace_id: WorkspaceId::new(),
-            name: "api-gateway".into(),
-            path: PathBuf::from("/repos/api-gateway"),
-            sort_order: 0,
-        };
-        let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
-        });
-        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+        let (repo, git, service) = service_with_fake_git();
 
         service.get_commit_log(repo.id, None, 20).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
@@ -270,17 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_commit_diff_resolves_the_repo_id_too() {
-        let repo = RepositoryEntry {
-            id: RepositoryId::new(),
-            workspace_id: WorkspaceId::new(),
-            name: "api-gateway".into(),
-            path: PathBuf::from("/repos/api-gateway"),
-            sort_order: 0,
-        };
-        let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
-        });
-        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+        let (repo, git, service) = service_with_fake_git();
 
         let files = service.get_commit_diff(repo.id, "deadbeef").await.unwrap();
         assert_eq!(files.len(), 1);
@@ -289,23 +324,43 @@ mod tests {
 
     #[tokio::test]
     async fn get_file_diff_resolves_the_repo_id_too() {
-        let repo = RepositoryEntry {
-            id: RepositoryId::new(),
-            workspace_id: WorkspaceId::new(),
-            name: "api-gateway".into(),
-            path: PathBuf::from("/repos/api-gateway"),
-            sort_order: 0,
-        };
-        let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
-        });
-        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+        let (repo, git, service) = service_with_fake_git();
 
         let detail = service
             .get_file_diff(repo.id, "deadbeef", "src/main.rs")
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn write_operations_resolve_the_repo_id_too() {
+        let (repo, git, service) = service_with_fake_git();
+
+        service.checkout_branch(repo.id, "main").await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service
+            .stage_files(repo.id, &[PathBuf::from("src/main.rs")])
+            .await
+            .unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service
+            .unstage_files(repo.id, &[PathBuf::from("src/main.rs")])
+            .await
+            .unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        let oid = service.commit(repo.id, "Update").await.unwrap();
+        assert_eq!(oid, "deadbeef");
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service.fetch(repo.id, "origin").await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service.pull(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 }

@@ -1,7 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 
-export function BranchesPanel({ repoId }: { repoId: string }) {
+export function BranchesPanel({
+  repoId,
+  onCheckout,
+}: {
+  repoId: string;
+  onCheckout?: (branch: string) => void;
+}) {
   const { t } = useTranslation("workspace");
   const { branches, loading, error } = useBranches(repoId);
 
@@ -29,7 +35,12 @@ export function BranchesPanel({ repoId }: { repoId: string }) {
       className="w-full max-w-sm rounded-lg border p-3 text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <BranchGroup label={t("branches.local")} branches={local} currentLabel={t("branches.current")} />
+      <BranchGroup
+        label={t("branches.local")}
+        branches={local}
+        currentLabel={t("branches.current")}
+        onCheckout={onCheckout}
+      />
       {remote.length > 0 && (
         <BranchGroup label={t("branches.remote")} branches={remote} currentLabel={t("branches.current")} />
       )}
@@ -41,10 +52,12 @@ function BranchGroup({
   label,
   branches,
   currentLabel,
+  onCheckout,
 }: {
   label: string;
   branches: { name: string; isCurrent: boolean }[];
   currentLabel: string;
+  onCheckout?: (branch: string) => void;
 }) {
   if (branches.length === 0) return null;
   return (
@@ -54,17 +67,21 @@ function BranchGroup({
       </div>
       <ul className="flex flex-col gap-0.5">
         {branches.map((branch) => (
-          <li
-            key={branch.name}
-            className="flex items-center justify-between rounded px-2 py-1"
-            style={branch.isCurrent ? { background: "var(--fjord-tint)", color: "var(--fjord-ink)" } : undefined}
-          >
-            <code className="font-mono text-xs">{branch.name}</code>
-            {branch.isCurrent && (
-              <span className="text-xs" style={{ color: "var(--fjord-ink)" }}>
-                {currentLabel}
-              </span>
-            )}
+          <li key={branch.name}>
+            <button
+              type="button"
+              disabled={branch.isCurrent || !onCheckout}
+              onClick={() => onCheckout?.(branch.name)}
+              className="flex w-full items-center justify-between rounded px-2 py-1 text-left disabled:cursor-default"
+              style={branch.isCurrent ? { background: "var(--fjord-tint)", color: "var(--fjord-ink)" } : undefined}
+            >
+              <code className="font-mono text-xs">{branch.name}</code>
+              {branch.isCurrent && (
+                <span className="text-xs" style={{ color: "var(--fjord-ink)" }}>
+                  {currentLabel}
+                </span>
+              )}
+            </button>
           </li>
         ))}
       </ul>

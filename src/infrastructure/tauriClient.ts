@@ -8,6 +8,13 @@ import type { Settings } from "@/domain/settings";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail } from "@/domain/git";
 
+export function invokeErrorMessage(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String(error.message);
+  }
+  return String(error);
+}
+
 export function getSettings(): Promise<Settings> {
   return invoke("get_settings");
 }
@@ -46,4 +53,28 @@ export function getCommitDiff(repoId: string, commitId: string): Promise<FileDif
 
 export function getFileDiff(repoId: string, commitId: string, path: string): Promise<FileDiffDetail> {
   return invoke("get_file_diff", { repoId, commitId, path });
+}
+
+export function checkoutBranch(repoId: string, branch: string): Promise<void> {
+  return invoke("checkout_branch", { repoId, branch });
+}
+
+export function stageFiles(repoId: string, paths: string[]): Promise<void> {
+  return invoke("stage_files", { repoId, paths });
+}
+
+export function unstageFiles(repoId: string, paths: string[]): Promise<void> {
+  return invoke("unstage_files", { repoId, paths });
+}
+
+export function commitRepo(repoId: string, message: string): Promise<string> {
+  return invoke("commit_repo", { repoId, message });
+}
+
+export function fetchRepo(repoId: string, remote: string | null = null): Promise<void> {
+  return invoke("fetch_repo", { repoId, remote });
+}
+
+export function pullRepo(repoId: string): Promise<void> {
+  return invoke("pull_repo", { repoId });
 }

@@ -240,6 +240,9 @@ mod tests {
         async fn stage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> {
             Ok(())
         }
+        async fn unstage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> {
+            Ok(())
+        }
         async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
             Ok("deadbeef".into())
         }

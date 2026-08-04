@@ -39,9 +39,9 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
 | `file_diff` | `gix` | Read-only; unified line diff via `gix-diff`'s blob platform and `imara-diff`. |
-| `checkout` | `gix` | Read + working-tree write, covered. |
-| `stage` / `commit` | `gix` | Index writes are covered. |
-| `fetch` / `pull` | `git2` | Transport/credential handling is the mature path in git2 today. |
+| `checkout` | `git2` | Working-tree writes are already proven in libgit2 and share error handling with the other mutation paths. |
+| `stage` / `unstage` / `commit` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories. |
+| `fetch` / `pull` | `git2` | Transport/credential handling is the mature path in git2 today. `pull` performs fetch + fast-forward/merge and reports conflicts as `GitError::Conflict`. |
 | `push` | `git2` | Same — credentials, refspec edge cases, remote HTTP/SSH transports. |
 
 This table is expected to change as `gix` matures — that's the entire point of routing through one trait instead of splitting the call sites. When a method's "Engine (today)" column changes, it's a one-line change in `fjord-git`, invisible to `fjord-services` and the frontend.

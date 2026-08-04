@@ -1,4 +1,5 @@
 use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepositoryId};
+use std::path::PathBuf;
 use tauri::State;
 
 use crate::error::AppError;
@@ -42,4 +43,57 @@ pub async fn get_file_diff(
         .repos
         .get_file_diff(repo_id, &commit_id, &path)
         .await?)
+}
+
+#[tauri::command]
+pub async fn checkout_branch(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    branch: String,
+) -> Result<(), AppError> {
+    Ok(state.repos.checkout_branch(repo_id, &branch).await?)
+}
+
+#[tauri::command]
+pub async fn stage_files(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    paths: Vec<PathBuf>,
+) -> Result<(), AppError> {
+    Ok(state.repos.stage_files(repo_id, &paths).await?)
+}
+
+#[tauri::command]
+pub async fn unstage_files(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    paths: Vec<PathBuf>,
+) -> Result<(), AppError> {
+    Ok(state.repos.unstage_files(repo_id, &paths).await?)
+}
+
+#[tauri::command]
+pub async fn commit_repo(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    message: String,
+) -> Result<String, AppError> {
+    Ok(state.repos.commit(repo_id, &message).await?)
+}
+
+#[tauri::command]
+pub async fn fetch_repo(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    remote: Option<String>,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .fetch(repo_id, remote.as_deref().unwrap_or("origin"))
+        .await?)
+}
+
+#[tauri::command]
+pub async fn pull_repo(state: State<'_, AppState>, repo_id: RepositoryId) -> Result<(), AppError> {
+    Ok(state.repos.pull(repo_id).await?)
 }

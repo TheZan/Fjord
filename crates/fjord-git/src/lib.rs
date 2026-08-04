@@ -10,6 +10,8 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
 };
 use fjord_ports::{GitBackend, GitError, RepoPath};
+use git2::build::CheckoutBuilder;
+use git2::{Cred, ErrorCode, FetchOptions, IndexAddOption, RemoteCallbacks};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -32,7 +34,152 @@ impl GixGitBackend {
     }
 
     fn open_git2(repo: &RepoPath) -> Result<git2::Repository, GitError> {
-        git2::Repository::open(&repo.0).map_err(|e| GitError::Git2(e.message().to_string()))
+        git2::Repository::open(&repo.0).map_err(Self::map_git2_error)
+    }
+
+    fn map_git2_error(err: git2::Error) -> GitError {
+        match err.code() {
+            ErrorCode::Auth => GitError::AuthenticationFailed,
+            ErrorCode::Conflict | ErrorCode::MergeConflict | ErrorCode::Unmerged => {
+                GitError::Conflict { paths: vec![] }
+            }
+            _ => GitError::Git2(err.message().to_string()),
+        }
+    }
+
+    fn fetch_options() -> FetchOptions<'static> {
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, username_from_url, allowed| {
+            if allowed.is_ssh_key() {
+                if let Some(username) = username_from_url {
+                    if let Ok(cred) = Cred::ssh_key_from_agent(username) {
+                        return Ok(cred);
+                    }
+                }
+            }
+
+            Cred::default().or_else(|_| {
+                username_from_url
+                    .map(Cred::username)
+                    .unwrap_or_else(Cred::default)
+            })
+        });
+
+        let mut options = FetchOptions::new();
+        options.remote_callbacks(callbacks);
+        options
+    }
+
+    fn fetch_remote(
+        git: &git2::Repository,
+        remote_name: &str,
+        refspecs: &[&str],
+    ) -> Result<(), GitError> {
+        let mut remote = git.find_remote(remote_name).map_err(Self::map_git2_error)?;
+        let mut options = Self::fetch_options();
+        remote
+            .fetch(refspecs, Some(&mut options), None)
+            .map_err(Self::map_git2_error)
+    }
+
+    fn conflict_paths(index: &git2::Index) -> Vec<String> {
+        index
+            .conflicts()
+            .map(|conflicts| {
+                conflicts
+                    .filter_map(Result::ok)
+                    .filter_map(|conflict| conflict.our.or(conflict.their).or(conflict.ancestor))
+                    .map(|entry| String::from_utf8_lossy(&entry.path).into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn current_head_commit(git: &git2::Repository) -> Result<Option<git2::Commit<'_>>, GitError> {
+        match git.head() {
+            Ok(head) => Ok(Some(head.peel_to_commit().map_err(Self::map_git2_error)?)),
+            Err(err) if matches!(err.code(), ErrorCode::UnbornBranch | ErrorCode::NotFound) => {
+                Ok(None)
+            }
+            Err(err) => Err(Self::map_git2_error(err)),
+        }
+    }
+
+    fn fast_forward(
+        git: &git2::Repository,
+        local_refname: &str,
+        remote_commit: &git2::AnnotatedCommit<'_>,
+    ) -> Result<(), GitError> {
+        let mut local_ref = git
+            .find_reference(local_refname)
+            .map_err(Self::map_git2_error)?;
+        local_ref
+            .set_target(
+                remote_commit.id(),
+                &format!("Fast-forward {local_refname} to {}", remote_commit.id()),
+            )
+            .map_err(Self::map_git2_error)?;
+        git.set_head(local_refname).map_err(Self::map_git2_error)?;
+
+        let mut checkout = CheckoutBuilder::new();
+        checkout.safe();
+        git.checkout_head(Some(&mut checkout))
+            .map_err(Self::map_git2_error)
+    }
+
+    fn normal_merge(
+        git: &git2::Repository,
+        local_commit: &git2::AnnotatedCommit<'_>,
+        remote_commit: &git2::AnnotatedCommit<'_>,
+    ) -> Result<(), GitError> {
+        let local = git
+            .find_commit(local_commit.id())
+            .map_err(Self::map_git2_error)?;
+        let remote = git
+            .find_commit(remote_commit.id())
+            .map_err(Self::map_git2_error)?;
+        let ancestor = git
+            .find_commit(
+                git.merge_base(local_commit.id(), remote_commit.id())
+                    .map_err(Self::map_git2_error)?,
+            )
+            .map_err(Self::map_git2_error)?;
+        let mut index = git
+            .merge_trees(
+                &ancestor.tree().map_err(Self::map_git2_error)?,
+                &local.tree().map_err(Self::map_git2_error)?,
+                &remote.tree().map_err(Self::map_git2_error)?,
+                None,
+            )
+            .map_err(Self::map_git2_error)?;
+
+        if index.has_conflicts() {
+            let paths = Self::conflict_paths(&index);
+            let mut checkout = CheckoutBuilder::new();
+            checkout.allow_conflicts(true).conflict_style_merge(true);
+            git.checkout_index(Some(&mut index), Some(&mut checkout))
+                .map_err(Self::map_git2_error)?;
+            return Err(GitError::Conflict { paths });
+        }
+
+        let tree_oid = index.write_tree_to(git).map_err(Self::map_git2_error)?;
+        let tree = git.find_tree(tree_oid).map_err(Self::map_git2_error)?;
+        let signature = git.signature().map_err(Self::map_git2_error)?;
+        let message = format!("Merge {} into {}", remote_commit.id(), local_commit.id());
+        git.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            &message,
+            &tree,
+            &[&local, &remote],
+        )
+        .map_err(Self::map_git2_error)?;
+
+        let mut checkout = CheckoutBuilder::new();
+        checkout.safe();
+        git.checkout_head(Some(&mut checkout))
+            .map_err(Self::map_git2_error)
     }
 
     /// The commit's tree and its first parent's tree (`None` for a root commit), which
@@ -422,22 +569,112 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Gix(e.to_string()))?
     }
 
-    async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
-        Err(GitError::NotImplemented(
-            "checkout lands in Phase 1, see plan.md P1-06",
-        ))
+    async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let branch = branch.to_string();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let refname = if branch.starts_with("refs/") {
+                branch
+            } else {
+                format!("refs/heads/{branch}")
+            };
+
+            git.find_reference(&refname).map_err(Self::map_git2_error)?;
+            git.set_head(&refname).map_err(Self::map_git2_error)?;
+            let mut checkout = CheckoutBuilder::new();
+            checkout.safe();
+            git.checkout_head(Some(&mut checkout))
+                .map_err(Self::map_git2_error)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
-        Err(GitError::NotImplemented(
-            "stage lands in Phase 1, see plan.md P1-06",
-        ))
+    async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let paths = paths.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let mut index = git.index().map_err(Self::map_git2_error)?;
+
+            if paths.is_empty() {
+                index
+                    .add_all(["*"], IndexAddOption::DEFAULT, None)
+                    .map_err(Self::map_git2_error)?;
+            } else {
+                for path in &paths {
+                    index.add_path(path).map_err(Self::map_git2_error)?;
+                }
+            }
+
+            index.write().map_err(Self::map_git2_error)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
-        Err(GitError::NotImplemented(
-            "commit lands in Phase 1, see plan.md P1-06",
-        ))
+    async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let paths = paths.to_vec();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head = git
+                .head()
+                .ok()
+                .and_then(|head| head.peel(git2::ObjectType::Commit).ok());
+
+            if paths.is_empty() {
+                git.reset_default(head.as_ref(), ["*"])
+                    .map_err(Self::map_git2_error)
+            } else {
+                git.reset_default(head.as_ref(), paths.iter())
+                    .map_err(Self::map_git2_error)
+            }
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
+        let repo = repo.clone();
+        let message = message.to_string();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let mut index = git.index().map_err(Self::map_git2_error)?;
+            if index.has_conflicts() {
+                return Err(GitError::Conflict {
+                    paths: Self::conflict_paths(&index),
+                });
+            }
+
+            let tree_oid = index.write_tree().map_err(Self::map_git2_error)?;
+            let tree = git.find_tree(tree_oid).map_err(Self::map_git2_error)?;
+            let parent_commit = Self::current_head_commit(&git)?;
+
+            if parent_commit
+                .as_ref()
+                .is_some_and(|parent| parent.tree_id() == tree_oid)
+            {
+                return Err(GitError::NothingToCommit);
+            }
+
+            let signature = git.signature().map_err(Self::map_git2_error)?;
+            let parent_refs = parent_commit.iter().collect::<Vec<_>>();
+            let oid = git
+                .commit(
+                    Some("HEAD"),
+                    &signature,
+                    &signature,
+                    &message,
+                    &tree,
+                    &parent_refs,
+                )
+                .map_err(Self::map_git2_error)?;
+            Ok(oid.to_string())
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
@@ -445,20 +682,70 @@ impl GitBackend for GixGitBackend {
         let remote = remote.to_string();
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let mut r = git
-                .find_remote(&remote)
-                .map_err(|e| GitError::Git2(e.message().to_string()))?;
-            r.fetch(&[] as &[&str], None, None)
-                .map_err(|e| GitError::Git2(e.message().to_string()))
+            Self::fetch_remote(&git, &remote, &[])
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
-        Err(GitError::NotImplemented(
-            "pull (fetch + merge) lands in Phase 1, see plan.md P1-06",
-        ))
+    async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
+        let repo = repo.clone();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head = git.head().map_err(Self::map_git2_error)?;
+            let head_refname = head.name().map_err(Self::map_git2_error)?.to_string();
+
+            if !head_refname.starts_with("refs/heads/") {
+                return Err(GitError::NoUpstream);
+            }
+
+            let upstream_refname = git
+                .branch_upstream_name(&head_refname)
+                .map_err(|err| match err.code() {
+                    ErrorCode::NotFound => GitError::NoUpstream,
+                    _ => Self::map_git2_error(err),
+                })?
+                .as_str()
+                .map_err(Self::map_git2_error)?
+                .to_string();
+            let remote_name = git
+                .branch_upstream_remote(&head_refname)
+                .map_err(Self::map_git2_error)?
+                .as_str()
+                .map_err(Self::map_git2_error)?
+                .to_string();
+
+            Self::fetch_remote(&git, &remote_name, &[])?;
+
+            let upstream_ref = git
+                .find_reference(&upstream_refname)
+                .map_err(Self::map_git2_error)?;
+            let remote_commit = git
+                .reference_to_annotated_commit(&upstream_ref)
+                .map_err(Self::map_git2_error)?;
+            let analysis = git
+                .merge_analysis(&[&remote_commit])
+                .map_err(Self::map_git2_error)?;
+
+            if analysis.0.is_up_to_date() {
+                return Ok(());
+            }
+
+            if analysis.0.is_fast_forward() {
+                return Self::fast_forward(&git, &head_refname, &remote_commit);
+            }
+
+            if analysis.0.is_normal() {
+                let local_commit = git
+                    .reference_to_annotated_commit(&head)
+                    .map_err(Self::map_git2_error)?;
+                return Self::normal_merge(&git, &local_commit, &remote_commit);
+            }
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
@@ -471,6 +758,9 @@ impl GitBackend for GixGitBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use git2::{Repository, RepositoryInitOptions, Status};
+    use std::path::Path;
+    use tempfile::TempDir;
 
     /// Runs `status`/`branches`/`log` against *this very repository* as the
     /// fixture — the cheapest possible real integration test, per
@@ -483,6 +773,22 @@ mod tests {
             .and_then(|p| p.parent())
             .expect("crates/fjord-git is two levels under the repo root");
         RepoPath(repo_root.to_path_buf())
+    }
+
+    fn empty_repo() -> (TempDir, RepoPath) {
+        let dir = TempDir::new().unwrap();
+        let mut options = RepositoryInitOptions::new();
+        options.initial_head("main");
+        let repo = Repository::init_opts(dir.path(), &options).unwrap();
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "Fjord Test").unwrap();
+        config.set_str("user.email", "fjord@example.com").unwrap();
+        let repo_path = RepoPath(dir.path().to_path_buf());
+        (dir, repo_path)
+    }
+
+    fn write_file(repo: &RepoPath, path: &str, content: &str) {
+        std::fs::write(repo.0.join(path), content).unwrap();
     }
 
     #[tokio::test]
@@ -540,5 +846,81 @@ mod tests {
                 assert!(!hunk.lines.is_empty());
             }
         }
+    }
+
+    #[tokio::test]
+    async fn stage_and_commit_create_head_commit() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let oid = backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        assert_eq!(
+            repo.head()
+                .unwrap()
+                .peel_to_commit()
+                .unwrap()
+                .id()
+                .to_string(),
+            oid
+        );
+    }
+
+    #[tokio::test]
+    async fn unstage_removes_index_change_without_touching_worktree() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "first\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        write_file(&repo_path, "README.md", "second\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend
+            .unstage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+
+        let status = Repository::open(&repo_path.0)
+            .unwrap()
+            .status_file(Path::new("README.md"))
+            .unwrap();
+        assert!(!status.contains(Status::INDEX_MODIFIED));
+        assert!(status.contains(Status::WT_MODIFIED));
+    }
+
+    #[tokio::test]
+    async fn checkout_switches_local_branch() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        drop(head);
+        drop(repo);
+
+        backend.checkout(&repo_path, "feature").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
     }
 }

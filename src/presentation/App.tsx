@@ -10,6 +10,7 @@ import { CommitGraph } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { useRepositories } from "@/application/useRepositories";
 import type { CommitSummary } from "@/domain/git";
+import { checkoutBranch, fetchRepo, invokeErrorMessage, pullRepo } from "@/infrastructure/tauriClient";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
@@ -20,6 +21,23 @@ export function App() {
   const { repositories, error, openRepository } = useRepositories();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
+  const [repoVersion, setRepoVersion] = useState(0);
+  const [repoActionError, setRepoActionError] = useState<string | null>(null);
+  const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
+
+  async function runRepoAction(action: string, run: () => Promise<void>) {
+    setRepoActionError(null);
+    setRepoActionPending(action);
+    try {
+      await run();
+      setSelectedCommit(null);
+      setRepoVersion((version) => version + 1);
+    } catch (e) {
+      setRepoActionError(invokeErrorMessage(e));
+    } finally {
+      setRepoActionPending(null);
+    }
+  }
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
@@ -125,8 +143,40 @@ export function App() {
         )}
         {selectedRepoId && (
           <>
-            <BranchesPanel repoId={selectedRepoId} />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={repoActionPending !== null}
+                onClick={() => runRepoAction("fetch", () => fetchRepo(selectedRepoId))}
+                className="h-9 rounded-lg border px-3 text-sm disabled:opacity-60"
+                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+              >
+                {repoActionPending === "fetch" ? tw("repoActions.fetching") : tw("repoActions.fetch")}
+              </button>
+              <button
+                type="button"
+                disabled={repoActionPending !== null}
+                onClick={() => runRepoAction("pull", () => pullRepo(selectedRepoId))}
+                className="h-9 rounded-lg border px-3 text-sm disabled:opacity-60"
+                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+              >
+                {repoActionPending === "pull" ? tw("repoActions.pulling") : tw("repoActions.pull")}
+              </button>
+            </div>
+            {repoActionError && (
+              <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
+                {repoActionError}
+              </p>
+            )}
+            <BranchesPanel
+              key={`${selectedRepoId}:${repoVersion}:branches`}
+              repoId={selectedRepoId}
+              onCheckout={(branch) =>
+                runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch))
+              }
+            />
             <CommitGraph
+              key={`${selectedRepoId}:${repoVersion}:commits`}
               repoId={selectedRepoId}
               selectedCommitId={selectedCommit?.id ?? null}
               onSelectCommit={(commit) =>

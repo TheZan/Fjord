@@ -27,6 +27,10 @@ pub enum GitError {
     Conflict { paths: Vec<String> },
     #[error("authentication failed")]
     AuthenticationFailed,
+    #[error("current branch has no upstream")]
+    NoUpstream,
+    #[error("nothing to commit")]
+    NothingToCommit,
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -60,6 +64,7 @@ pub trait GitBackend: Send + Sync {
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
+    async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;

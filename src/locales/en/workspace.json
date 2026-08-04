@@ -11,6 +11,12 @@
     "current": "current",
     "empty": "No branches found."
   },
+  "repoActions": {
+    "fetch": "Fetch",
+    "fetching": "Fetching…",
+    "pull": "Pull",
+    "pulling": "Pulling…"
+  },
   "commits": {
     "empty": "No commits found.",
     "loading": "Loading…",

@@ -1,4 +1,4 @@
-use fjord_ports::StoreError;
+use fjord_ports::{GitError, StoreError};
 use fjord_services::{RepoError, WorkspaceError};
 use serde::Serialize;
 
@@ -46,10 +46,24 @@ impl From<RepoError> for AppError {
     fn from(err: RepoError) -> Self {
         match err {
             RepoError::Store(inner) => inner.into(),
-            RepoError::Git(_) => AppError {
-                code: "git_error".to_string(),
-                message: err.to_string(),
-            },
+            RepoError::Git(inner) => git_error_to_app_error(inner),
         }
+    }
+}
+
+fn git_error_to_app_error(err: GitError) -> AppError {
+    let code = match &err {
+        GitError::RepoNotFound(_) => "repository_not_found",
+        GitError::NotAGitRepository(_) => "not_a_git_repository",
+        GitError::Conflict { .. } => "merge_conflict",
+        GitError::AuthenticationFailed => "auth_failed",
+        GitError::NoUpstream => "no_upstream",
+        GitError::NothingToCommit => "nothing_to_commit",
+        GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
+    };
+
+    AppError {
+        code: code.to_string(),
+        message: err.to_string(),
     }
 }
