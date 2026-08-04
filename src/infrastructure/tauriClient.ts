@@ -6,7 +6,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
-import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail, RepoStatus } from "@/domain/git";
+import type {
+  BranchInfo,
+  CommitPage,
+  FileDiff,
+  FileDiffDetail,
+  GlobalSearchResult,
+  RepoStatus,
+} from "@/domain/git";
 
 export function invokeErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
@@ -73,6 +80,14 @@ export function getRepoStatus(repoId: string): Promise<RepoStatus> {
 
 export function getCommitLog(repoId: string, cursor: string | null, limit: number): Promise<CommitPage> {
   return invoke("get_commit_log", { repoId, cursor, limit });
+}
+
+export function globalSearch(
+  query: string,
+  workspaceId: string | null = null,
+  limit = 30,
+): Promise<GlobalSearchResult[]> {
+  return invoke("global_search", { query, workspaceId, limit });
 }
 
 export function getCommitDiff(repoId: string, commitId: string): Promise<FileDiff[]> {

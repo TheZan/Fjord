@@ -38,6 +38,17 @@
     "filterPlaceholder": "Filter by repo or workspace",
     "empty": "No repositories match the filter."
   },
+  "globalSearch": {
+    "title": "Global search",
+    "placeholder": "Search repositories, branches, commits",
+    "loading": "Searching…",
+    "empty": "No matches found.",
+    "kind": {
+      "repository": "Repository",
+      "branch": "Branch",
+      "commit": "Commit"
+    }
+  },
   "commandPalette": {
     "placeholder": "Search commands, repositories, branches",
     "empty": "No commands found.",

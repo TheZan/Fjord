@@ -96,6 +96,26 @@ pub struct BulkRepoResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchResultKind {
+    Repository,
+    Branch,
+    Commit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSearchResult {
+    pub kind: SearchResultKind,
+    pub repo_id: RepositoryId,
+    pub workspace_id: WorkspaceId,
+    pub repo_name: String,
+    pub repo_path: PathBuf,
+    pub branch: Option<String>,
+    pub commit: Option<CommitSummary>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BranchInfo {

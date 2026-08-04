@@ -36,6 +36,18 @@ export interface CommitPage {
   nextCursor: LogCursor | null;
 }
 
+export type SearchResultKind = "repository" | "branch" | "commit";
+
+export interface GlobalSearchResult {
+  kind: SearchResultKind;
+  repoId: string;
+  workspaceId: string;
+  repoName: string;
+  repoPath: string;
+  branch: string | null;
+  commit: CommitSummary | null;
+}
+
 // Mirrors `fjord_domain::{FileChangeType, FileDiff, DiffLineKind, DiffLine,
 // DiffHunk, FileDiffDetail}`.
 

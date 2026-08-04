@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-    RepositoryEntry, RepositoryId, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, GlobalSearchResult,
+    LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitError, IdeLauncher, LaunchError, RepoPath, SettingsStore, StoreError,
@@ -14,6 +14,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 const BULK_WORKER_LIMIT: usize = 6;
+const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -72,6 +73,105 @@ impl RepoService {
             .git
             .log(&RepoPath::new(repo.path), cursor, limit)
             .await?)
+    }
+
+    pub async fn global_search(
+        &self,
+        workspace_id: Option<WorkspaceId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<GlobalSearchResult>, RepoError> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() || limit == 0 {
+            return Ok(vec![]);
+        }
+
+        let repos = match workspace_id {
+            Some(workspace_id) => self.workspaces.list_repositories(workspace_id).await?,
+            None => self.workspaces.list_all_repositories().await?,
+        };
+        let mut results = Vec::new();
+
+        for repo in repos {
+            if results.len() >= limit as usize {
+                break;
+            }
+
+            let repo_path = repo.path.to_string_lossy().to_string();
+            if matches_search(&query, [repo.name.as_str(), repo_path.as_str()]) {
+                results.push(GlobalSearchResult {
+                    kind: SearchResultKind::Repository,
+                    repo_id: repo.id,
+                    workspace_id: repo.workspace_id,
+                    repo_name: repo.name.clone(),
+                    repo_path: repo.path.clone(),
+                    branch: None,
+                    commit: None,
+                });
+            }
+
+            if results.len() >= limit as usize {
+                break;
+            }
+
+            let repo_path = RepoPath::new(repo.path.clone());
+            if let Ok(branches) = self.git.branches(&repo_path).await {
+                for branch in branches {
+                    if results.len() >= limit as usize {
+                        break;
+                    }
+                    if matches_search(&query, [branch.name.as_str()]) {
+                        results.push(GlobalSearchResult {
+                            kind: SearchResultKind::Branch,
+                            repo_id: repo.id,
+                            workspace_id: repo.workspace_id,
+                            repo_name: repo.name.clone(),
+                            repo_path: repo.path.clone(),
+                            branch: Some(branch.name),
+                            commit: None,
+                        });
+                    }
+                }
+            }
+
+            if results.len() >= limit as usize {
+                break;
+            }
+
+            if let Ok(page) = self
+                .git
+                .log(&repo_path, None, SEARCH_COMMIT_SCAN_LIMIT)
+                .await
+            {
+                for commit in page.commits {
+                    if results.len() >= limit as usize {
+                        break;
+                    }
+                    let commit_id = commit.id.0.as_str();
+                    if matches_search(
+                        &query,
+                        [
+                            commit_id,
+                            commit.message.as_str(),
+                            commit.author_name.as_str(),
+                            commit.author_email.as_str(),
+                        ],
+                    ) {
+                        results.push(GlobalSearchResult {
+                            kind: SearchResultKind::Commit,
+                            repo_id: repo.id,
+                            workspace_id: repo.workspace_id,
+                            repo_name: repo.name.clone(),
+                            repo_path: repo.path.clone(),
+                            branch: None,
+                            commit: Some(commit),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(results)
     }
 
     pub async fn get_commit_diff(
@@ -226,6 +326,15 @@ impl RepoService {
     }
 }
 
+fn matches_search<'a, I>(query: &str, values: I) -> bool
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    values
+        .into_iter()
+        .any(|value| value.to_lowercase().contains(query))
+}
+
 async fn run_bulk<F, Fut>(repos: Vec<RepositoryEntry>, operation: F) -> Vec<BulkRepoResult>
 where
     F: Fn(RepositoryEntry) -> Fut + Send + Sync + Clone + 'static,
@@ -267,11 +376,12 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use fjord_domain::{
-        CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepoStatusSummary, RepositoryEntry, Settings, Workspace, WorkspaceId,
+        CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
+        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, Workspace, WorkspaceId,
     };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
+    use time::OffsetDateTime;
 
     struct FakeStore {
         repo: RepositoryEntry,
@@ -313,7 +423,7 @@ mod tests {
             Ok(vec![self.repo.clone()])
         }
         async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError> {
-            unimplemented!()
+            Ok(vec![self.repo.clone()])
         }
         async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
             if id == self.repo.id {
@@ -439,7 +549,15 @@ mod tests {
         ) -> Result<CommitPage, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(CommitPage {
-                commits: vec![],
+                commits: vec![CommitSummary {
+                    id: CommitId("abc123".into()),
+                    parent_ids: vec![],
+                    message: "Add searchable commit".into(),
+                    author_name: "Ada".into(),
+                    author_email: "ada@example.test".into(),
+                    authored_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    refs: vec![],
+                }],
                 next_cursor: None,
             })
         }
@@ -544,6 +662,31 @@ mod tests {
 
         service.get_commit_log(repo.id, None, 20).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn global_search_matches_repositories_branches_and_commits() {
+        let (repo, _, _, service) = service_with_fake_git();
+
+        let repo_results = service.global_search(None, "gateway", 10).await.unwrap();
+        assert!(
+            repo_results
+                .iter()
+                .any(|result| result.kind == SearchResultKind::Repository
+                    && result.repo_id == repo.id)
+        );
+
+        let branch_results = service.global_search(None, "main", 10).await.unwrap();
+        assert!(branch_results
+            .iter()
+            .any(|result| result.kind == SearchResultKind::Branch
+                && result.branch.as_deref() == Some("main")));
+
+        let commit_results = service.global_search(None, "searchable", 10).await.unwrap();
+        assert!(commit_results.iter().any(|result| {
+            result.kind == SearchResultKind::Commit
+                && result.commit.as_ref().map(|commit| commit.id.0.as_str()) == Some("abc123")
+        }));
     }
 
     #[tokio::test]

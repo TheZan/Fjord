@@ -11,13 +11,14 @@ import { CommitInspector } from "@/presentation/CommitInspector";
 import { useBranches } from "@/application/useBranches";
 import { useRepositories } from "@/application/useRepositories";
 import { useRepoStatus } from "@/application/useRepoStatus";
-import type { CommitSummary } from "@/domain/git";
+import type { CommitSummary, GlobalSearchResult } from "@/domain/git";
 import {
   bulkFetch,
   bulkOpenInIde,
   bulkPull,
   checkoutBranch,
   fetchRepo,
+  globalSearch,
   invokeErrorMessage,
   openInIde,
   openMergeTool,
@@ -79,6 +80,10 @@ export function App() {
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
   const [repoFilter, setRepoFilter] = useState("");
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [globalSearchPending, setGlobalSearchPending] = useState(false);
+  const [globalSearchError, setGlobalSearchError] = useState<string | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [repoVersion, setRepoVersion] = useState(0);
@@ -104,6 +109,8 @@ export function App() {
   const flatRepositories = workspaces.flatMap((workspace) =>
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
   );
+  const workspaceNameById = Object.fromEntries(workspaces.map((workspace) => [workspace.id, workspace.name]));
+  const normalizedGlobalSearchQuery = globalSearchQuery.trim();
   const normalizedRepoFilter = repoFilter.trim().toLocaleLowerCase();
   const filteredRepositories = flatRepositories.filter(({ workspace, repo }) => {
     if (!normalizedRepoFilter) return true;
@@ -215,6 +222,37 @@ export function App() {
     setPaletteIndex(0);
   }, [paletteQuery, paletteOpen]);
 
+  useEffect(() => {
+    if (normalizedGlobalSearchQuery.length < 2) {
+      setGlobalSearchResults([]);
+      setGlobalSearchError(null);
+      setGlobalSearchPending(false);
+      return;
+    }
+
+    let cancelled = false;
+    setGlobalSearchPending(true);
+    setGlobalSearchError(null);
+
+    const timer = window.setTimeout(() => {
+      globalSearch(normalizedGlobalSearchQuery, null, 30)
+        .then((results) => {
+          if (!cancelled) setGlobalSearchResults(results);
+        })
+        .catch((e) => {
+          if (!cancelled) setGlobalSearchError(invokeErrorMessage(e));
+        })
+        .finally(() => {
+          if (!cancelled) setGlobalSearchPending(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [normalizedGlobalSearchQuery]);
+
   async function runRepoAction(action: string, run: () => Promise<void>) {
     setRepoActionError(null);
     setRepoActionPending(action);
@@ -275,13 +313,48 @@ export function App() {
     setSelectedCommit(null);
   }
 
-  async function chooseRepository(workspaceId: string, repoId: string) {
+  async function selectRepository(workspaceId: string, repoId: string) {
     if (workspaceId !== selectedWorkspaceId) {
       await selectWorkspace(workspaceId);
     }
 
-    setSelectedRepoId(repoId === selectedRepoId ? null : repoId);
+    setSelectedRepoId(repoId);
     setSelectedCommit(null);
+  }
+
+  async function chooseRepository(workspaceId: string, repoId: string) {
+    if (repoId === selectedRepoId) {
+      setSelectedRepoId(null);
+      setSelectedCommit(null);
+      return;
+    }
+
+    await selectRepository(workspaceId, repoId);
+  }
+
+  async function openGlobalSearchResult(result: GlobalSearchResult) {
+    await selectRepository(result.workspaceId, result.repoId);
+    if (result.kind === "branch" && result.branch) {
+      await runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
+      return;
+    }
+    if (result.kind === "commit" && result.commit) {
+      setSelectedCommit(result.commit);
+    }
+  }
+
+  function globalSearchResultTitle(result: GlobalSearchResult) {
+    if (result.kind === "branch") return result.branch ?? result.repoName;
+    if (result.kind === "commit") return result.commit?.message ?? result.repoName;
+    return result.repoName;
+  }
+
+  function globalSearchResultDetail(result: GlobalSearchResult) {
+    const workspace = workspaceNameById[result.workspaceId] ?? tw("dashboard.unknown");
+    if (result.kind === "commit" && result.commit) {
+      return `${result.repoName} · ${result.commit.id.slice(0, 7)} · ${workspace}`;
+    }
+    return `${result.repoName} · ${workspace}`;
   }
 
   function moveRepositorySelection(direction: -1 | 1) {
@@ -653,6 +726,72 @@ export function App() {
             </div>
           ))}
         </section>
+
+        {flatRepositories.length > 0 && (
+          <section
+            className="rounded border p-3"
+            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-medium">{tw("globalSearch.title")}</h3>
+              <input
+                value={globalSearchQuery}
+                onChange={(event) => setGlobalSearchQuery(event.target.value)}
+                placeholder={tw("globalSearch.placeholder")}
+                className="h-9 min-w-72 rounded border px-3 text-sm outline-none"
+                style={{
+                  borderColor: "var(--hairline)",
+                  background: "var(--page-bg)",
+                  color: "var(--ink)",
+                }}
+              />
+            </div>
+
+            {normalizedGlobalSearchQuery.length >= 2 && (
+              <div className="mt-3">
+                {globalSearchPending && (
+                  <p className="text-sm" style={{ color: "var(--slate)" }}>
+                    {tw("globalSearch.loading")}
+                  </p>
+                )}
+                {globalSearchError && (
+                  <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
+                    {globalSearchError}
+                  </p>
+                )}
+                {!globalSearchPending && !globalSearchError && globalSearchResults.length === 0 && (
+                  <p className="text-sm" style={{ color: "var(--slate)" }}>
+                    {tw("globalSearch.empty")}
+                  </p>
+                )}
+                {globalSearchResults.length > 0 && (
+                  <ul className="max-h-72 overflow-auto">
+                    {globalSearchResults.map((result) => (
+                      <li key={`${result.kind}:${result.repoId}:${result.branch ?? result.commit?.id ?? "repo"}`}>
+                        <button
+                          type="button"
+                          onClick={() => void openGlobalSearchResult(result)}
+                          className="grid w-full grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 rounded px-2 py-2 text-left text-sm"
+                          style={{ background: "transparent", color: "var(--ink)" }}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{globalSearchResultTitle(result)}</span>
+                            <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
+                              {globalSearchResultDetail(result)}
+                            </span>
+                          </span>
+                          <span className="truncate text-right text-xs" style={{ color: "var(--slate)" }}>
+                            {tw(`globalSearch.kind.${result.kind}`)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {flatRepositories.length > 0 && (
           <section

@@ -1,6 +1,6 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-    RepositoryId, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, GlobalSearchResult,
+    LogCursor, RepoStatus, RepositoryId, WorkspaceId,
 };
 use std::path::PathBuf;
 use tauri::State;
@@ -32,6 +32,19 @@ pub async fn get_commit_log(
     limit: u32,
 ) -> Result<CommitPage, AppError> {
     Ok(state.repos.get_commit_log(repo_id, cursor, limit).await?)
+}
+
+#[tauri::command]
+pub async fn global_search(
+    state: State<'_, AppState>,
+    workspace_id: Option<WorkspaceId>,
+    query: String,
+    limit: u32,
+) -> Result<Vec<GlobalSearchResult>, AppError> {
+    Ok(state
+        .repos
+        .global_search(workspace_id, &query, limit)
+        .await?)
 }
 
 #[tauri::command]

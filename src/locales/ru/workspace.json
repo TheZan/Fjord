@@ -38,6 +38,17 @@
     "filterPlaceholder": "Фильтр по repo или workspace",
     "empty": "По фильтру ничего не найдено."
   },
+  "globalSearch": {
+    "title": "Глобальный поиск",
+    "placeholder": "Поиск репозиториев, веток, коммитов",
+    "loading": "Ищу…",
+    "empty": "Совпадений нет.",
+    "kind": {
+      "repository": "Репозиторий",
+      "branch": "Ветка",
+      "commit": "Коммит"
+    }
+  },
   "commandPalette": {
     "placeholder": "Поиск команд, репозиториев, веток",
     "empty": "Команды не найдены.",
