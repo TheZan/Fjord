@@ -11,7 +11,7 @@ use fjord_domain::{
 };
 use fjord_ports::{GitBackend, GitError, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{Cred, ErrorCode, FetchOptions, IndexAddOption, RemoteCallbacks};
+use git2::{Cred, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -47,7 +47,7 @@ impl GixGitBackend {
         }
     }
 
-    fn fetch_options() -> FetchOptions<'static> {
+    fn remote_callbacks() -> RemoteCallbacks<'static> {
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, allowed| {
             if allowed.is_ssh_key() {
@@ -64,8 +64,24 @@ impl GixGitBackend {
                     .unwrap_or_else(Cred::default)
             })
         });
+        callbacks
+    }
 
+    fn fetch_options() -> FetchOptions<'static> {
         let mut options = FetchOptions::new();
+        options.remote_callbacks(Self::remote_callbacks());
+        options
+    }
+
+    fn push_options() -> PushOptions<'static> {
+        let mut callbacks = Self::remote_callbacks();
+        callbacks.push_update_reference(|refname, status| {
+            status
+                .map(|message| Err(git2::Error::from_str(&format!("{refname}: {message}"))))
+                .unwrap_or(Ok(()))
+        });
+
+        let mut options = PushOptions::new();
         options.remote_callbacks(callbacks);
         options
     }
@@ -80,6 +96,17 @@ impl GixGitBackend {
         remote
             .fetch(refspecs, Some(&mut options), None)
             .map_err(Self::map_git2_error)
+    }
+
+    fn current_branch_refname(git: &git2::Repository) -> Result<String, GitError> {
+        let head = git.head().map_err(Self::map_git2_error)?;
+        let head_refname = head.name().map_err(Self::map_git2_error)?.to_string();
+
+        if !head_refname.starts_with("refs/heads/") {
+            return Err(GitError::NoUpstream);
+        }
+
+        Ok(head_refname)
     }
 
     fn conflict_paths(index: &git2::Index) -> Vec<String> {
@@ -693,11 +720,7 @@ impl GitBackend for GixGitBackend {
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let head = git.head().map_err(Self::map_git2_error)?;
-            let head_refname = head.name().map_err(Self::map_git2_error)?.to_string();
-
-            if !head_refname.starts_with("refs/heads/") {
-                return Err(GitError::NoUpstream);
-            }
+            let head_refname = Self::current_branch_refname(&git)?;
 
             let upstream_refname = git
                 .branch_upstream_name(&head_refname)
@@ -748,10 +771,26 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-        Err(GitError::NotImplemented(
-            "push lands in Phase 1, see plan.md P1-07",
-        ))
+    async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let refspec = refspec.to_string();
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let refspec = if refspec.trim().is_empty() {
+                let head_refname = Self::current_branch_refname(&git)?;
+                format!("{head_refname}:{head_refname}")
+            } else {
+                refspec
+            };
+
+            let mut remote = git.find_remote("origin").map_err(Self::map_git2_error)?;
+            let mut options = Self::push_options();
+            remote
+                .push(&[refspec], Some(&mut options))
+                .map_err(Self::map_git2_error)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 }
 
@@ -922,5 +961,35 @@ mod tests {
 
         let repo = Repository::open(&repo_path.0).unwrap();
         assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
+    }
+
+    #[tokio::test]
+    async fn push_updates_origin_branch() {
+        let (_local_dir, repo_path) = empty_repo();
+        let remote_dir = TempDir::new().unwrap();
+        Repository::init_bare(remote_dir.path()).unwrap();
+
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let local_oid = backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .remote("origin", remote_dir.path().to_str().unwrap())
+            .unwrap();
+
+        backend.push(&repo_path, "").await.unwrap();
+
+        let remote = Repository::open_bare(remote_dir.path()).unwrap();
+        let remote_oid = remote
+            .find_reference("refs/heads/main")
+            .unwrap()
+            .target()
+            .unwrap();
+        assert_eq!(remote_oid.to_string(), local_oid);
     }
 }

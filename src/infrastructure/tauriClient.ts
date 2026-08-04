@@ -78,3 +78,7 @@ export function fetchRepo(repoId: string, remote: string | null = null): Promise
 export function pullRepo(repoId: string): Promise<void> {
   return invoke("pull_repo", { repoId });
 }
+
+export function pushRepo(repoId: string): Promise<void> {
+  return invoke("push_repo", { repoId });
+}

@@ -44,5 +44,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::commit_repo,
             commands::fetch_repo,
             commands::pull_repo,
+            commands::push_repo,
         ])
 }

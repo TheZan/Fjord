@@ -15,7 +15,9 @@
     "fetch": "Fetch",
     "fetching": "Fetching…",
     "pull": "Pull",
-    "pulling": "Pulling…"
+    "pulling": "Pulling…",
+    "push": "Push",
+    "pushing": "Pushing…"
   },
   "commits": {
     "empty": "No commits found.",

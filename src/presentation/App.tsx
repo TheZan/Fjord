@@ -10,7 +10,7 @@ import { CommitGraph } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { useRepositories } from "@/application/useRepositories";
 import type { CommitSummary } from "@/domain/git";
-import { checkoutBranch, fetchRepo, invokeErrorMessage, pullRepo } from "@/infrastructure/tauriClient";
+import { checkoutBranch, fetchRepo, invokeErrorMessage, pullRepo, pushRepo } from "@/infrastructure/tauriClient";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
@@ -161,6 +161,15 @@ export function App() {
                 style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
               >
                 {repoActionPending === "pull" ? tw("repoActions.pulling") : tw("repoActions.pull")}
+              </button>
+              <button
+                type="button"
+                disabled={repoActionPending !== null}
+                onClick={() => runRepoAction("push", () => pushRepo(selectedRepoId))}
+                className="h-9 rounded-lg border px-3 text-sm disabled:opacity-60"
+                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+              >
+                {repoActionPending === "push" ? tw("repoActions.pushing") : tw("repoActions.push")}
               </button>
             </div>
             {repoActionError && (

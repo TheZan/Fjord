@@ -108,6 +108,11 @@ impl RepoService {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.pull(&RepoPath::new(repo.path)).await?)
     }
+
+    pub async fn push(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.push(&RepoPath::new(repo.path), "").await?)
+    }
 }
 
 #[cfg(test)]
@@ -268,8 +273,9 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
-        async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-            unimplemented!()
+        async fn push(&self, repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
     }
 
@@ -361,6 +367,9 @@ mod tests {
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
         service.pull(repo.id).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service.push(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 }

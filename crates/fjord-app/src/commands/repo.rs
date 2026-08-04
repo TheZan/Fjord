@@ -97,3 +97,8 @@ pub async fn fetch_repo(
 pub async fn pull_repo(state: State<'_, AppState>, repo_id: RepositoryId) -> Result<(), AppError> {
     Ok(state.repos.pull(repo_id).await?)
 }
+
+#[tauri::command]
+pub async fn push_repo(state: State<'_, AppState>, repo_id: RepositoryId) -> Result<(), AppError> {
+    Ok(state.repos.push(repo_id).await?)
+}

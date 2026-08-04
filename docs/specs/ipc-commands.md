@@ -33,7 +33,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `stage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means stage all changes |
 | `unstage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means unstage all paths |
 | `commit_repo` | `{ repo_id, message }` | `string` | Returns the new commit id; `nothing_to_commit` if the index matches `HEAD` |
-| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | P1-06 repo-level commands await completion without blocking the UI thread; P2 bulk operations emit progress events |
+| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | Repo-level commands await completion without blocking the UI thread; P2 bulk operations emit progress events |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | — | Fans out across the bounded worker pool (SDD §5.3); per-repo results stream as events |
 | `open_in_ide` | `{ repo_id, ide? }` | — | `ide` optional, falls back to `Settings.default_ide` |
 
