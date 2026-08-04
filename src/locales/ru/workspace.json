@@ -20,6 +20,19 @@
     "empty": "Пока нет ни одного репозитория — откройте первый, чтобы начать.",
     "notAGitRepository": "Эта папка не является Git-репозиторием."
   },
+  "dashboard": {
+    "title": "Дашборд",
+    "addTarget": "Репозитории добавляются в {{workspace}}",
+    "repoCount": "Репозитории",
+    "needAttention": "Требуют внимания",
+    "behindOrigin": "Позади origin",
+    "repoCountValue": "{{count}} реп.",
+    "branch": "Ветка",
+    "dirty": "Изменения",
+    "behind": "Позади",
+    "ahead": "Впереди",
+    "unknown": "Неизвестно"
+  },
   "branches": {
     "local": "Локальные",
     "remote": "Удалённые",

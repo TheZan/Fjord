@@ -4,13 +4,14 @@ import {
   addRepository as addRepositoryCommand,
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
+  getWorkspaceStatus,
   listRepositories,
   listWorkspaces,
   removeRepository as removeRepositoryCommand,
   renameWorkspace as renameWorkspaceCommand,
   reorderWorkspaces,
 } from "@/infrastructure/tauriClient";
-import type { RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 
 function sortWorkspaces(workspaces: Workspace[]): Workspace[] {
   return [...workspaces].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -25,6 +26,8 @@ export interface UseRepositoriesResult {
   selectedWorkspace: Workspace | null;
   selectedWorkspaceId: string | null;
   repositories: RepositoryEntry[];
+  repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
+  statusByRepo: Record<string, RepoStatusSummary>;
   loading: boolean;
   error: string | null;
   workspaceActionPending: string | null;
@@ -40,7 +43,8 @@ export interface UseRepositoriesResult {
 export function useRepositories(): UseRepositoriesResult {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const [repositories, setRepositories] = useState<RepositoryEntry[]>([]);
+  const [repositoriesByWorkspace, setRepositoriesByWorkspace] = useState<Record<string, RepositoryEntry[]>>({});
+  const [statusByRepo, setStatusByRepo] = useState<Record<string, RepoStatusSummary>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workspaceActionPending, setWorkspaceActionPending] = useState<string | null>(null);
@@ -49,9 +53,27 @@ export function useRepositories(): UseRepositoriesResult {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
     [selectedWorkspaceId, workspaces],
   );
+  const repositories = useMemo(
+    () => (selectedWorkspaceId ? repositoriesByWorkspace[selectedWorkspaceId] ?? [] : []),
+    [repositoriesByWorkspace, selectedWorkspaceId],
+  );
 
-  const loadRepositories = useCallback(async (workspaceId: string) => {
-    setRepositories(await listRepositories(workspaceId));
+  const loadWorkspaceRepositories = useCallback(async (workspaceId: string) => {
+    const [loadedRepositories, loadedStatuses] = await Promise.all([
+      listRepositories(workspaceId),
+      getWorkspaceStatus(workspaceId),
+    ]);
+
+    setRepositoriesByWorkspace((current) => ({
+      ...current,
+      [workspaceId]: loadedRepositories,
+    }));
+    setStatusByRepo((current) => ({
+      ...current,
+      ...Object.fromEntries(loadedStatuses.map((summary) => [summary.repoId, summary])),
+    }));
+
+    return loadedRepositories;
   }, []);
 
   useEffect(() => {
@@ -61,12 +83,30 @@ export function useRepositories(): UseRepositoriesResult {
       .then(async (loaded) => {
         const ordered = sortWorkspaces(loaded);
         const nextSelectedId = ordered[0]?.id ?? null;
-        const loadedRepositories = nextSelectedId ? await listRepositories(nextSelectedId) : [];
+        const workspaceData = await Promise.all(
+          ordered.map(async (workspace) => {
+            const [loadedRepositories, loadedStatuses] = await Promise.all([
+              listRepositories(workspace.id),
+              getWorkspaceStatus(workspace.id),
+            ]);
+            return { workspaceId: workspace.id, loadedRepositories, loadedStatuses };
+          }),
+        );
         if (cancelled) return;
+
+        const repositoriesByWorkspace = Object.fromEntries(
+          workspaceData.map(({ workspaceId, loadedRepositories }) => [workspaceId, loadedRepositories]),
+        );
+        const statusByRepo = Object.fromEntries(
+          workspaceData.flatMap(({ loadedStatuses }) =>
+            loadedStatuses.map((summary) => [summary.repoId, summary]),
+          ),
+        );
 
         setWorkspaces(ordered);
         setSelectedWorkspaceId(nextSelectedId);
-        setRepositories(loadedRepositories);
+        setRepositoriesByWorkspace(repositoriesByWorkspace);
+        setStatusByRepo(statusByRepo);
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -84,9 +124,9 @@ export function useRepositories(): UseRepositoriesResult {
     async (id: string) => {
       setError(null);
       setSelectedWorkspaceId(id);
-      await loadRepositories(id);
+      await loadWorkspaceRepositories(id);
     },
-    [loadRepositories],
+    [loadWorkspaceRepositories],
   );
 
   const createWorkspace = useCallback(async (name: string) => {
@@ -99,7 +139,7 @@ export function useRepositories(): UseRepositoriesResult {
       const created = await createWorkspaceCommand(trimmed);
       setWorkspaces((current) => sortWorkspaces([...current, created]));
       setSelectedWorkspaceId(created.id);
-      setRepositories(await listRepositories(created.id));
+      await loadWorkspaceRepositories(created.id);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -137,14 +177,24 @@ export function useRepositories(): UseRepositoriesResult {
 
         setWorkspaces(remaining);
         setSelectedWorkspaceId(nextSelectedId);
-        setRepositories(nextSelectedId ? await listRepositories(nextSelectedId) : []);
+        setRepositoriesByWorkspace((current) => {
+          const { [id]: _removed, ...rest } = current;
+          return rest;
+        });
+        setStatusByRepo((current) => {
+          const removedRepoIds = repositoriesByWorkspace[id]?.map((repo) => repo.id) ?? [];
+          return Object.fromEntries(
+            Object.entries(current).filter(([repoId]) => !removedRepoIds.includes(repoId)),
+          );
+        });
+        if (nextSelectedId) await loadWorkspaceRepositories(nextSelectedId);
       } catch (e) {
         setError(String(e));
       } finally {
         setWorkspaceActionPending(null);
       }
     },
-    [selectedWorkspaceId, workspaces],
+    [loadWorkspaceRepositories, repositoriesByWorkspace, selectedWorkspaceId, workspaces],
   );
 
   const moveWorkspace = useCallback(
@@ -181,11 +231,11 @@ export function useRepositories(): UseRepositoriesResult {
     setError(null);
     try {
       await addRepositoryCommand(selectedWorkspaceId, path);
-      await loadRepositories(selectedWorkspaceId);
+      await loadWorkspaceRepositories(selectedWorkspaceId);
     } catch (e) {
       setError(String(e));
     }
-  }, [loadRepositories, selectedWorkspaceId]);
+  }, [loadWorkspaceRepositories, selectedWorkspaceId]);
 
   const removeRepository = useCallback(
     async (id: string) => {
@@ -194,12 +244,16 @@ export function useRepositories(): UseRepositoriesResult {
       setError(null);
       try {
         await removeRepositoryCommand(id);
-        await loadRepositories(selectedWorkspaceId);
+        setStatusByRepo((current) => {
+          const { [id]: _removed, ...rest } = current;
+          return rest;
+        });
+        await loadWorkspaceRepositories(selectedWorkspaceId);
       } catch (e) {
         setError(String(e));
       }
     },
-    [loadRepositories, selectedWorkspaceId],
+    [loadWorkspaceRepositories, selectedWorkspaceId],
   );
 
   return {
@@ -207,6 +261,8 @@ export function useRepositories(): UseRepositoriesResult {
     selectedWorkspace,
     selectedWorkspaceId,
     repositories,
+    repositoriesByWorkspace,
+    statusByRepo,
     loading,
     error,
     workspaceActionPending,

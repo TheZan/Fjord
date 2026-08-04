@@ -20,6 +20,19 @@
     "empty": "No repositories yet — open one to get started.",
     "notAGitRepository": "That folder isn't a Git repository."
   },
+  "dashboard": {
+    "title": "Dashboard",
+    "addTarget": "Adding repositories to {{workspace}}",
+    "repoCount": "Repositories",
+    "needAttention": "Need attention",
+    "behindOrigin": "Behind origin",
+    "repoCountValue": "{{count}} repos",
+    "branch": "Branch",
+    "dirty": "Dirty",
+    "behind": "Behind",
+    "ahead": "Ahead",
+    "unknown": "Unknown"
+  },
   "branches": {
     "local": "Local",
     "remote": "Remote",

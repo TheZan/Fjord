@@ -30,7 +30,8 @@ export function App() {
     workspaces,
     selectedWorkspace,
     selectedWorkspaceId,
-    repositories,
+    repositoriesByWorkspace,
+    statusByRepo,
     loading,
     error,
     workspaceActionPending,
@@ -51,11 +52,21 @@ export function App() {
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
   const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
+  const allRepositories = Object.values(repositoriesByWorkspace).flat();
+  const totalRepoCount = allRepositories.length;
+  const needAttentionCount = allRepositories.filter((repo) => {
+    const status = statusByRepo[repo.id]?.status;
+    return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
+  }).length;
+  const behindOriginCount = allRepositories.filter((repo) => (statusByRepo[repo.id]?.status.behind ?? 0) > 0)
+    .length;
 
   useEffect(() => {
-    setSelectedRepoId(null);
-    setSelectedCommit(null);
-  }, [selectedWorkspaceId]);
+    if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
+      setSelectedRepoId(null);
+      setSelectedCommit(null);
+    }
+  }, [allRepositories, selectedRepoId]);
 
   async function runRepoAction(action: string, run: () => Promise<void>) {
     setRepoActionError(null);
@@ -85,6 +96,21 @@ export function App() {
   function beginRename(workspaceId: string, name: string) {
     setEditingWorkspaceId(workspaceId);
     setEditingWorkspaceName(name);
+  }
+
+  async function chooseWorkspace(workspaceId: string) {
+    await selectWorkspace(workspaceId);
+    setSelectedRepoId(null);
+    setSelectedCommit(null);
+  }
+
+  async function chooseRepository(workspaceId: string, repoId: string) {
+    if (workspaceId !== selectedWorkspaceId) {
+      await selectWorkspace(workspaceId);
+    }
+
+    setSelectedRepoId(repoId === selectedRepoId ? null : repoId);
+    setSelectedCommit(null);
   }
 
   async function removeTrackedRepository(repoId: string) {
@@ -221,7 +247,7 @@ export function App() {
                       <div className="flex items-start gap-2">
                         <button
                           type="button"
-                          onClick={() => void selectWorkspace(workspace.id)}
+                          onClick={() => void chooseWorkspace(workspace.id)}
                           className="min-w-0 flex-1 text-left"
                         >
                           <span className="block truncate text-sm font-medium">{workspace.name}</span>
@@ -346,11 +372,11 @@ export function App() {
       <section className="flex min-w-0 flex-1 flex-col gap-5 p-6">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-xl font-medium">
-              {selectedWorkspace?.name ?? tw("workspaces.noSelection")}
-            </h2>
+            <h2 className="truncate text-xl font-medium">{tw("dashboard.title")}</h2>
             <p className="text-sm" style={{ color: "var(--slate)" }}>
-              {tw("repositories.label")}
+              {selectedWorkspace
+                ? tw("dashboard.addTarget", { workspace: selectedWorkspace.name })
+                : tw("workspaces.noSelection")}
             </p>
           </div>
           <button
@@ -374,54 +400,120 @@ export function App() {
           </p>
         )}
 
-        {selectedWorkspaceId && repositories.length === 0 && (
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            { label: tw("dashboard.repoCount"), value: totalRepoCount },
+            { label: tw("dashboard.needAttention"), value: needAttentionCount },
+            { label: tw("dashboard.behindOrigin"), value: behindOriginCount },
+          ].map((metric) => (
+            <div
+              key={metric.label}
+              className="rounded border p-4"
+              style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+            >
+              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+                {metric.label}
+              </p>
+              <p className="mt-2 text-2xl font-medium">{metric.value}</p>
+            </div>
+          ))}
+        </section>
+
+        {workspaces.length === 0 && (
           <p className="text-sm" style={{ color: "var(--slate)" }}>
-            {tw("repositories.empty")}
+            {tw("workspaces.empty")}
           </p>
         )}
 
-        {repositories.length > 0 && (
-          <ul className="grid gap-2 lg:grid-cols-2">
-            {repositories.map((repo) => (
-              <li
-                key={repo.id}
-                className="rounded border p-3"
-                style={{
-                  borderColor: repo.id === selectedRepoId ? "var(--fjord)" : "var(--hairline)",
-                  background: repo.id === selectedRepoId ? "var(--fjord-tint)" : "var(--paper)",
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedRepoId(repo.id === selectedRepoId ? null : repo.id);
-                      setSelectedCommit(null);
-                    }}
-                    className="min-w-0 flex-1 text-left"
-                  >
-                    <span className="block truncate text-sm font-medium">{repo.name}</span>
-                    <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
-                      {repo.path}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void removeTrackedRepository(repo.id)}
-                    className="h-8 shrink-0 rounded border px-2 text-xs"
-                    style={{
-                      borderColor: "var(--rust)",
-                      background: "var(--paper)",
-                      color: "var(--rust-ink)",
-                    }}
-                  >
-                    {tw("repositories.removeButton")}
-                  </button>
+        <section className="flex flex-col gap-5">
+          {workspaces.map((workspace) => {
+            const groupedRepositories = repositoriesByWorkspace[workspace.id] ?? [];
+
+            return (
+              <div key={workspace.id} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="truncate text-sm font-medium">{workspace.name}</h3>
+                  <span className="text-xs" style={{ color: "var(--mist)" }}>
+                    {tw("dashboard.repoCountValue", { count: groupedRepositories.length })}
+                  </span>
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
+
+                {groupedRepositories.length === 0 ? (
+                  <p className="text-sm" style={{ color: "var(--slate)" }}>
+                    {tw("repositories.empty")}
+                  </p>
+                ) : (
+                  <ul className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                    {groupedRepositories.map((repo) => {
+                      const cachedStatus = statusByRepo[repo.id]?.status;
+                      const isSelected = repo.id === selectedRepoId;
+
+                      return (
+                        <li
+                          key={repo.id}
+                          className="rounded border p-3"
+                          style={{
+                            borderColor: isSelected ? "var(--fjord)" : "var(--hairline)",
+                            background: isSelected ? "var(--fjord-tint)" : "var(--paper)",
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              onClick={() => void chooseRepository(workspace.id, repo.id)}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <span className="block truncate text-sm font-medium">{repo.name}</span>
+                              <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
+                                {repo.path}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeTrackedRepository(repo.id)}
+                              className="h-8 shrink-0 rounded border px-2 text-xs"
+                              style={{
+                                borderColor: "var(--rust)",
+                                background: "var(--paper)",
+                                color: "var(--rust-ink)",
+                              }}
+                            >
+                              {tw("repositories.removeButton")}
+                            </button>
+                          </div>
+
+                          <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.branch")}</dt>
+                              <dd className="truncate">{cachedStatus?.branch ?? tw("dashboard.unknown")}</dd>
+                            </div>
+                            <div>
+                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.dirty")}</dt>
+                              <dd>{cachedStatus?.dirtyCount ?? 0}</dd>
+                            </div>
+                            <div>
+                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.behind")}</dt>
+                              <dd>{cachedStatus?.behind ?? 0}</dd>
+                            </div>
+                            <div>
+                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.ahead")}</dt>
+                              <dd>{cachedStatus?.ahead ?? 0}</dd>
+                            </div>
+                          </dl>
+                          {cachedStatus?.hasConflict && (
+                            <p className="mt-2 text-xs font-medium" style={{ color: "var(--rust-ink)" }}>
+                              {tw("repoStatus.conflict")}
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </section>
 
         {selectedRepoId && (
           <div className="flex min-w-0 flex-col gap-4">
