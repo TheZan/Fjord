@@ -1,10 +1,14 @@
 use std::path::PathBuf;
 
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_ports::StoreError;
+use fjord_services::WorkspaceError;
 use tauri::State;
 
 use crate::error::AppError;
 use crate::state::AppState;
+
+const IMPORT_REPOSITORY_LIMIT: usize = 200;
 
 #[tauri::command]
 pub async fn list_workspaces(state: State<'_, AppState>) -> Result<Vec<Workspace>, AppError> {
@@ -78,10 +82,40 @@ pub async fn add_repository(
 }
 
 #[tauri::command]
+pub async fn import_repositories(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+    root: PathBuf,
+) -> Result<Vec<RepositoryEntry>, AppError> {
+    let paths = fjord_fs::discover_git_repositories(&root, IMPORT_REPOSITORY_LIMIT)?;
+    let mut imported = Vec::new();
+
+    for path in paths {
+        match state.workspaces.add_repository(workspace_id, path).await {
+            Ok(entry) => {
+                let _ = state.workspaces.refresh_repo_status(entry.id).await;
+                state.watch_repository_status(entry.clone());
+                imported.push(entry);
+            }
+            Err(WorkspaceError::Store(StoreError::Database(message)))
+                if is_duplicate_repository_error(&message) => {}
+            Err(WorkspaceError::NotAGitRepository(_)) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Ok(imported)
+}
+
+#[tauri::command]
 pub async fn remove_repository(
     state: State<'_, AppState>,
     id: RepositoryId,
 ) -> Result<(), AppError> {
     state.unwatch_repository_status(id);
     Ok(state.workspaces.remove_repository(id).await?)
+}
+
+fn is_duplicate_repository_error(message: &str) -> bool {
+    message.to_lowercase().contains("unique")
 }

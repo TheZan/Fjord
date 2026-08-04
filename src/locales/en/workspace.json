@@ -16,9 +16,21 @@
   "repositories": {
     "label": "Repositories",
     "openButton": "Open repository",
+    "importButton": "Import folder",
+    "importingButton": "Importing…",
     "removeButton": "Remove",
     "empty": "No repositories yet — open one to get started.",
     "notAGitRepository": "That folder isn't a Git repository."
+  },
+  "onboarding": {
+    "title": "Set up your first workspace",
+    "body": "Create a workspace, then import existing Git repositories from a folder on disk.",
+    "workspacePlaceholder": "Workspace name",
+    "defaultWorkspaceName": "My workspace",
+    "createAndImport": "Create and import",
+    "createOnly": "Create only",
+    "creating": "Creating…",
+    "importing": "Importing…"
   },
   "dashboard": {
     "title": "Dashboard",

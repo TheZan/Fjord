@@ -5,6 +5,7 @@ import {
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
+  importRepositories as importRepositoriesCommand,
   listRepositories,
   listWorkspaces,
   removeRepository as removeRepositoryCommand,
@@ -32,11 +33,12 @@ export interface UseRepositoriesResult {
   error: string | null;
   workspaceActionPending: string | null;
   selectWorkspace: (id: string) => Promise<void>;
-  createWorkspace: (name: string) => Promise<void>;
+  createWorkspace: (name: string) => Promise<Workspace | null>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
   openRepository: () => Promise<void>;
+  importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
   removeRepository: (id: string) => Promise<void>;
 }
 
@@ -129,23 +131,28 @@ export function useRepositories(): UseRepositoriesResult {
     [loadWorkspaceRepositories],
   );
 
-  const createWorkspace = useCallback(async (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
+  const createWorkspace = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
 
-    setError(null);
-    setWorkspaceActionPending("create");
-    try {
-      const created = await createWorkspaceCommand(trimmed);
-      setWorkspaces((current) => sortWorkspaces([...current, created]));
-      setSelectedWorkspaceId(created.id);
-      await loadWorkspaceRepositories(created.id);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setWorkspaceActionPending(null);
-    }
-  }, []);
+      setError(null);
+      setWorkspaceActionPending("create");
+      try {
+        const created = await createWorkspaceCommand(trimmed);
+        setWorkspaces((current) => sortWorkspaces([...current, created]));
+        setSelectedWorkspaceId(created.id);
+        await loadWorkspaceRepositories(created.id);
+        return created;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [loadWorkspaceRepositories],
+  );
 
   const renameWorkspace = useCallback(async (id: string, name: string) => {
     const trimmed = name.trim();
@@ -237,6 +244,29 @@ export function useRepositories(): UseRepositoriesResult {
     }
   }, [loadWorkspaceRepositories, selectedWorkspaceId]);
 
+  const importRepositories = useCallback(
+    async (workspaceId = selectedWorkspaceId) => {
+      if (!workspaceId) return [];
+
+      const root = await pickFolder();
+      if (!root) return [];
+
+      setError(null);
+      setWorkspaceActionPending("import");
+      try {
+        const imported = await importRepositoriesCommand(workspaceId, root);
+        await loadWorkspaceRepositories(workspaceId);
+        return imported;
+      } catch (e) {
+        setError(String(e));
+        return [];
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [loadWorkspaceRepositories, selectedWorkspaceId],
+  );
+
   const removeRepository = useCallback(
     async (id: string) => {
       if (!selectedWorkspaceId) return;
@@ -272,6 +302,7 @@ export function useRepositories(): UseRepositoriesResult {
     deleteWorkspace,
     moveWorkspace,
     openRepository,
+    importRepositories,
     removeRepository,
   };
 }

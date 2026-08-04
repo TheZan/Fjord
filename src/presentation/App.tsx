@@ -74,9 +74,12 @@ export function App() {
     deleteWorkspace,
     moveWorkspace,
     openRepository,
+    importRepositories,
     removeRepository,
   } = useRepositories();
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [onboardingWorkspaceName, setOnboardingWorkspaceName] = useState("");
+  const [onboardingPending, setOnboardingPending] = useState<string | null>(null);
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
   const [repoFilter, setRepoFilter] = useState("");
@@ -100,6 +103,7 @@ export function App() {
   const allRepositories = Object.values(repositoriesByWorkspace).flat();
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
   const totalRepoCount = allRepositories.length;
+  const isFirstRun = !loading && workspaces.length === 0;
   const needAttentionCount = allRepositories.filter((repo) => {
     const status = statusByRepo[repo.id]?.status;
     return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
@@ -294,6 +298,22 @@ export function App() {
   async function submitWorkspace() {
     await createWorkspace(newWorkspaceName);
     setNewWorkspaceName("");
+  }
+
+  async function submitOnboarding(importAfterCreate: boolean) {
+    const fallbackName = tw("onboarding.defaultWorkspaceName");
+    setOnboardingPending(importAfterCreate ? "import" : "create");
+    try {
+      const created = await createWorkspace(onboardingWorkspaceName || fallbackName);
+      if (!created) return;
+
+      setOnboardingWorkspaceName("");
+      if (importAfterCreate) {
+        await importRepositories(created.id);
+      }
+    } finally {
+      setOnboardingPending(null);
+    }
   }
 
   async function submitRename(workspaceId: string) {
@@ -658,7 +678,78 @@ export function App() {
           >
             {tw("repositories.openButton")}
           </button>
+          <button
+            type="button"
+            disabled={!selectedWorkspaceId || workspaceActionPending !== null}
+            onClick={() => void importRepositories()}
+            className="h-9 rounded border px-3 text-sm disabled:opacity-50"
+            style={{
+              borderColor: "var(--hairline)",
+              background: "var(--paper)",
+              color: "var(--ink)",
+            }}
+          >
+            {workspaceActionPending === "import" ? tw("repositories.importingButton") : tw("repositories.importButton")}
+          </button>
         </header>
+
+        {isFirstRun && (
+          <section
+            className="grid gap-4 rounded border p-5 md:grid-cols-[minmax(0,1fr)_auto]"
+            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+          >
+            <div className="min-w-0">
+              <h3 className="text-lg font-medium">{tw("onboarding.title")}</h3>
+              <p className="mt-1 max-w-2xl text-sm" style={{ color: "var(--slate)" }}>
+                {tw("onboarding.body")}
+              </p>
+              <input
+                value={onboardingWorkspaceName}
+                onChange={(event) => setOnboardingWorkspaceName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void submitOnboarding(false);
+                }}
+                placeholder={tw("onboarding.workspacePlaceholder")}
+                className="mt-4 h-10 w-full max-w-md rounded border px-3 text-sm outline-none"
+                style={{
+                  borderColor: "var(--hairline)",
+                  background: "var(--page-bg)",
+                  color: "var(--ink)",
+                }}
+              />
+            </div>
+            <div className="flex flex-col justify-end gap-2">
+              <button
+                type="button"
+                disabled={onboardingPending !== null || workspaceActionPending !== null}
+                onClick={() => void submitOnboarding(true)}
+                className="h-10 rounded border px-3 text-sm disabled:opacity-60"
+                style={{
+                  borderColor: "var(--fjord)",
+                  background: "var(--fjord-tint)",
+                  color: "var(--fjord-ink)",
+                }}
+              >
+                {onboardingPending === "import"
+                  ? tw("onboarding.importing")
+                  : tw("onboarding.createAndImport")}
+              </button>
+              <button
+                type="button"
+                disabled={onboardingPending !== null || workspaceActionPending !== null}
+                onClick={() => void submitOnboarding(false)}
+                className="h-10 rounded border px-3 text-sm disabled:opacity-60"
+                style={{
+                  borderColor: "var(--hairline)",
+                  background: "var(--paper)",
+                  color: "var(--ink)",
+                }}
+              >
+                {onboardingPending === "create" ? tw("onboarding.creating") : tw("onboarding.createOnly")}
+              </button>
+            </div>
+          </section>
+        )}
 
         {selectedWorkspaceId && (
           <section className="flex flex-wrap items-center gap-2">

@@ -42,6 +42,15 @@ impl From<WorkspaceError> for AppError {
     }
 }
 
+impl From<fjord_fs::DiscoveryError> for AppError {
+    fn from(err: fjord_fs::DiscoveryError) -> Self {
+        AppError {
+            code: "repository_discovery_failed".to_string(),
+            message: err.to_string(),
+        }
+    }
+}
+
 impl From<RepoError> for AppError {
     fn from(err: RepoError) -> Self {
         match err {

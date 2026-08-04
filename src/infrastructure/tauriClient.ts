@@ -66,6 +66,10 @@ export function addRepository(workspaceId: string, path: string): Promise<Reposi
   return invoke("add_repository", { workspaceId, path });
 }
 
+export function importRepositories(workspaceId: string, root: string): Promise<RepositoryEntry[]> {
+  return invoke("import_repositories", { workspaceId, root });
+}
+
 export function removeRepository(id: string): Promise<void> {
   return invoke("remove_repository", { id });
 }

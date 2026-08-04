@@ -22,6 +22,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `reorder_workspaces` | `{ ids: string[] }` | — | Full new order, not a delta |
 | `delete_workspace` | `{ id }` | — | Cascades to its `repositories` rows (not the repos on disk) |
 | `add_repository` | `{ workspace_id, path }` | `RepositoryEntry` | Validates `path` is a Git repository before persisting |
+| `import_repositories` | `{ workspace_id, root }` | `RepositoryEntry[]` | Recursively discovers Git repositories under `root`, skips known generated directories and duplicate tracked paths |
 | `remove_repository` | `{ id }` | — | Removes tracking only, never touches disk |
 | `get_workspace_status` | `{ workspace_id }` | `RepoStatusSummary[]` | Reads from `repo_status_cache`; triggers a background refresh, does not block on it |
 | `refresh_repo_status` | `{ repo_id }` | `RepoStatusSummary` | Forces a live `GitBackend::status` call, updates the cache, returns fresh data — used for pull-to-refresh style UI, not the default path |
@@ -47,7 +48,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code: string, message: string }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `merge_conflict`, `auth_failed`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, ...) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code: string, message: string }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `auth_failed`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, ...) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
 
 ## What's not a command
 
