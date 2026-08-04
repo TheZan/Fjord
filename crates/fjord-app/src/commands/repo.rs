@@ -1,5 +1,6 @@
 use fjord_domain::{
-    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, RepositoryId,
+    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+    RepositoryId, WorkspaceId,
 };
 use std::path::PathBuf;
 use tauri::State;
@@ -128,4 +129,32 @@ pub async fn open_in_ide(
     ide: Option<String>,
 ) -> Result<(), AppError> {
     Ok(state.repos.open_in_ide(repo_id, ide.as_deref()).await?)
+}
+
+#[tauri::command]
+pub async fn bulk_fetch(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<BulkRepoResult>, AppError> {
+    Ok(state.repos.bulk_fetch(workspace_id).await?)
+}
+
+#[tauri::command]
+pub async fn bulk_pull(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<BulkRepoResult>, AppError> {
+    Ok(state.repos.bulk_pull(workspace_id).await?)
+}
+
+#[tauri::command]
+pub async fn bulk_open_in_ide(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+    ide: Option<String>,
+) -> Result<Vec<BulkRepoResult>, AppError> {
+    Ok(state
+        .repos
+        .bulk_open_in_ide(workspace_id, ide.as_deref())
+        .await?)
 }

@@ -12,6 +12,9 @@ import { useRepositories } from "@/application/useRepositories";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import type { CommitSummary } from "@/domain/git";
 import {
+  bulkFetch,
+  bulkOpenInIde,
+  bulkPull,
   checkoutBranch,
   fetchRepo,
   invokeErrorMessage,
@@ -53,6 +56,9 @@ export function App() {
   const [repoVersion, setRepoVersion] = useState(0);
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
+  const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
+  const [bulkActionSummary, setBulkActionSummary] = useState<string | null>(null);
+  const [bulkActionError, setBulkActionError] = useState<string | null>(null);
   const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
   const allRepositories = Object.values(repositoriesByWorkspace).flat();
   const totalRepoCount = allRepositories.length;
@@ -92,6 +98,30 @@ export function App() {
       setRepoActionError(invokeErrorMessage(e));
     } finally {
       setRepoActionPending(null);
+    }
+  }
+
+  async function runBulkAction(
+    action: string,
+    run: () => Promise<Array<{ ok: boolean; error: string | null }>>,
+  ) {
+    setBulkActionError(null);
+    setBulkActionSummary(null);
+    setBulkActionPending(action);
+    try {
+      const results = await run();
+      const failed = results.filter((result) => !result.ok).length;
+      setBulkActionSummary(
+        tw("bulk.summary", {
+          succeeded: results.length - failed,
+          failed,
+        }),
+      );
+      setRepoVersion((version) => version + 1);
+    } catch (e) {
+      setBulkActionError(invokeErrorMessage(e));
+    } finally {
+      setBulkActionPending(null);
     }
   }
 
@@ -420,6 +450,48 @@ export function App() {
             {tw("repositories.openButton")}
           </button>
         </header>
+
+        {selectedWorkspaceId && (
+          <section className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={bulkActionPending !== null}
+              onClick={() => runBulkAction("fetch", () => bulkFetch(selectedWorkspaceId))}
+              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+            >
+              {bulkActionPending === "fetch" ? tw("bulk.fetching") : tw("bulk.fetch")}
+            </button>
+            <button
+              type="button"
+              disabled={bulkActionPending !== null}
+              onClick={() => runBulkAction("pull", () => bulkPull(selectedWorkspaceId))}
+              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+            >
+              {bulkActionPending === "pull" ? tw("bulk.pulling") : tw("bulk.pull")}
+            </button>
+            <button
+              type="button"
+              disabled={bulkActionPending !== null}
+              onClick={() => runBulkAction("open-ide", () => bulkOpenInIde(selectedWorkspaceId))}
+              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
+              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
+            >
+              {bulkActionPending === "open-ide" ? tw("bulk.openingIde") : tw("bulk.openIde")}
+            </button>
+            {bulkActionSummary && (
+              <span className="text-sm" style={{ color: "var(--slate)" }}>
+                {bulkActionSummary}
+              </span>
+            )}
+            {bulkActionError && (
+              <span className="text-sm" style={{ color: "var(--rust-ink)" }}>
+                {bulkActionError}
+              </span>
+            )}
+          </section>
+        )}
 
         {error && (
           <p className="text-sm" style={{ color: "var(--rust-ink)" }}>

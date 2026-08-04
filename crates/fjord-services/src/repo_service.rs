@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, RepositoryId,
+    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+    RepositoryEntry, RepositoryId, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitError, IdeLauncher, LaunchError, RepoPath, SettingsStore, StoreError,
@@ -9,6 +10,10 @@ use fjord_ports::{
 };
 use std::path::PathBuf;
 use thiserror::Error;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+
+const BULK_WORKER_LIMIT: usize = 6;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -153,6 +158,108 @@ impl RepoService {
         let configured_ide = ide.or(settings.default_ide.as_deref());
         Ok(self.ide.open(&repo.path, configured_ide).await?)
     }
+
+    pub async fn bulk_fetch(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<BulkRepoResult>, RepoError> {
+        let repos = self.workspaces.list_repositories(workspace_id).await?;
+        Ok(run_bulk(repos, {
+            let git = self.git.clone();
+            move |repo| {
+                let git = git.clone();
+                async move {
+                    git.fetch(&RepoPath::new(repo.path), "origin")
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+            }
+        })
+        .await)
+    }
+
+    pub async fn bulk_pull(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<BulkRepoResult>, RepoError> {
+        let repos = self.workspaces.list_repositories(workspace_id).await?;
+        Ok(run_bulk(repos, {
+            let git = self.git.clone();
+            move |repo| {
+                let git = git.clone();
+                async move {
+                    git.pull(&RepoPath::new(repo.path))
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+            }
+        })
+        .await)
+    }
+
+    pub async fn bulk_open_in_ide(
+        &self,
+        workspace_id: WorkspaceId,
+        ide: Option<&str>,
+    ) -> Result<Vec<BulkRepoResult>, RepoError> {
+        let repos = self.workspaces.list_repositories(workspace_id).await?;
+        let settings = self.settings.get_settings().await?;
+        let configured_ide = ide
+            .map(ToString::to_string)
+            .or(settings.default_ide)
+            .map(std::sync::Arc::new);
+
+        Ok(run_bulk(repos, {
+            let launcher = self.ide.clone();
+            move |repo| {
+                let launcher = launcher.clone();
+                let configured_ide = configured_ide.clone();
+                async move {
+                    launcher
+                        .open(&repo.path, configured_ide.as_deref().map(String::as_str))
+                        .await
+                        .map_err(|e| e.to_string())
+                }
+            }
+        })
+        .await)
+    }
+}
+
+async fn run_bulk<F, Fut>(repos: Vec<RepositoryEntry>, operation: F) -> Vec<BulkRepoResult>
+where
+    F: Fn(RepositoryEntry) -> Fut + Send + Sync + Clone + 'static,
+    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+{
+    let semaphore = std::sync::Arc::new(Semaphore::new(BULK_WORKER_LIMIT));
+    let mut tasks = JoinSet::new();
+
+    for repo in repos {
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("bulk semaphore should stay open");
+        let operation = operation.clone();
+        tasks.spawn(async move {
+            let repo_id = repo.id;
+            let result = operation(repo).await;
+            drop(permit);
+            BulkRepoResult {
+                repo_id,
+                ok: result.is_ok(),
+                error: result.err(),
+            }
+        });
+    }
+
+    let mut results = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        if let Ok(result) = result {
+            results.push(result);
+        }
+    }
+    results
 }
 
 #[cfg(test)]
@@ -203,7 +310,7 @@ mod tests {
             &self,
             _workspace_id: WorkspaceId,
         ) -> Result<Vec<RepositoryEntry>, StoreError> {
-            unimplemented!()
+            Ok(vec![self.repo.clone()])
         }
         async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError> {
             unimplemented!()
@@ -525,6 +632,40 @@ mod tests {
         assert_eq!(
             *ide.opened.lock().unwrap(),
             Some((repo.path, Some("cursor".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn bulk_fetch_runs_against_workspace_repositories() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let results = service.bulk_fetch(repo.workspace_id).await.unwrap();
+
+        assert_eq!(
+            results,
+            vec![BulkRepoResult {
+                repo_id: repo.id,
+                ok: true,
+                error: None,
+            }]
+        );
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn bulk_open_in_ide_uses_configured_default() {
+        let (repo, _, ide, service) = service_with_fake_git();
+
+        let results = service
+            .bulk_open_in_ide(repo.workspace_id, None)
+            .await
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].ok);
+        assert_eq!(
+            *ide.opened.lock().unwrap(),
+            Some((repo.path, Some("code".to_string())))
         );
     }
 }

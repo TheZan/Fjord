@@ -36,12 +36,13 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `commit_repo` | `{ repo_id, message }` | `string` | Returns the new commit id; `nothing_to_commit` if the index matches `HEAD` |
 | `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | Repo-level commands await completion without blocking the UI thread; P2 bulk operations emit progress events |
 | `open_merge_tool` | `{ repo_id }` | — | Launches `git mergetool --no-prompt` in the repository when conflicts are present; the configured external merge tool owns resolution |
-| `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | — | Fans out across the bounded worker pool (SDD §5.3); per-repo results stream as events |
+| `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | `BulkRepoResult[]` | Fans out across the bounded worker pool (SDD §5.3); per-repo result records identify failures without aborting the whole batch |
+| `bulk_open_in_ide` | `{ workspace_id, ide? }` | `BulkRepoResult[]` | Opens every tracked repo in the workspace through `IdeLauncher`, using the same bounded worker pool |
 | `open_in_ide` | `{ repo_id, ide? }` | — | `ide` optional, falls back to `Settings.default_ide` |
 
 ## Long-running operations: events, not blocking returns
 
-`fetch`, `pull`, `push`, and the `bulk_*` commands return once the operation is *started*, not once it's finished. Progress and completion are reported via Tauri events (`repo://status-changed`, `bulk-op://progress`) that the frontend's `application/` layer subscribes to through TanStack Query's cache invalidation — this is what keeps a slow push on one repository from freezing the whole UI, and what makes `bulk_pull` on 24 repositories feel like 24 independent operations instead of one big blocking call (SDD §5.3, §8).
+`fetch`, `pull`, and `push` are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_*` commands run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. A future event-stream layer can expose progress before completion (`bulk-op://progress`) without changing the worker-pool contract.
 
 ## Error shape
 

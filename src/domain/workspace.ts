@@ -27,3 +27,9 @@ export interface RepoStatusSummary {
   };
   lastSyncedAt: string | null;
 }
+
+export interface BulkRepoResult {
+  repoId: string;
+  ok: boolean;
+  error: string | null;
+}

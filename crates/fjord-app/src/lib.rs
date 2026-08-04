@@ -55,5 +55,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::push_repo,
             commands::open_merge_tool,
             commands::open_in_ide,
+            commands::bulk_fetch,
+            commands::bulk_pull,
+            commands::bulk_open_in_ide,
         ])
 }

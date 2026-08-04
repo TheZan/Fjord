@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "@/domain/settings";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail, RepoStatus } from "@/domain/git";
 
 export function invokeErrorMessage(error: unknown): string {
@@ -117,4 +117,16 @@ export function openMergeTool(repoId: string): Promise<void> {
 
 export function openInIde(repoId: string, ide: string | null = null): Promise<void> {
   return invoke("open_in_ide", { repoId, ide });
+}
+
+export function bulkFetch(workspaceId: string): Promise<BulkRepoResult[]> {
+  return invoke("bulk_fetch", { workspaceId });
+}
+
+export function bulkPull(workspaceId: string): Promise<BulkRepoResult[]> {
+  return invoke("bulk_pull", { workspaceId });
+}
+
+export function bulkOpenInIde(workspaceId: string, ide: string | null = null): Promise<BulkRepoResult[]> {
+  return invoke("bulk_open_in_ide", { workspaceId, ide });
 }

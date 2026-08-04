@@ -54,6 +54,15 @@
     "openIde": "Открыть в IDE",
     "openingIde": "Открытие…"
   },
+  "bulk": {
+    "fetch": "Получить все",
+    "fetching": "Получение…",
+    "pull": "Обновить все",
+    "pulling": "Обновление…",
+    "openIde": "Открыть все в IDE",
+    "openingIde": "Открытие…",
+    "summary": "Успешно: {{succeeded}}, с ошибкой: {{failed}}"
+  },
   "repoStatus": {
     "conflict": "Обнаружены merge-конфликты.",
     "openMergeTool": "Открыть merge tool",

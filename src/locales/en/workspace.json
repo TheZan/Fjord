@@ -54,6 +54,15 @@
     "openIde": "Open in IDE",
     "openingIde": "Opening…"
   },
+  "bulk": {
+    "fetch": "Fetch all",
+    "fetching": "Fetching all…",
+    "pull": "Pull all",
+    "pulling": "Pulling all…",
+    "openIde": "Open all in IDE",
+    "openingIde": "Opening…",
+    "summary": "{{succeeded}} succeeded, {{failed}} failed"
+  },
   "repoStatus": {
     "conflict": "Merge conflicts detected.",
     "openMergeTool": "Open merge tool",
