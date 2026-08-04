@@ -23,6 +23,7 @@ pub trait GitBackend: Send + Sync {
     async fn fetch(&self, repo: &RepoPath, remote: &RemoteName) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn push(&self, repo: &RepoPath, refspec: &RefSpec) -> Result<(), GitError>;
+    async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }
 ```
 
@@ -43,6 +44,7 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `stage` / `unstage` / `commit` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories. |
 | `fetch` / `pull` | `git2` | Transport/credential handling is the mature path in git2 today. `pull` performs fetch + fast-forward/merge and reports conflicts as `GitError::Conflict`. |
 | `push` | `git2` | Same — credentials, refspec edge cases, remote HTTP/SSH transports. |
+| `open_merge_tool` | system `git mergetool` | Explicit escape hatch for P1-08 conflict flow; launches the user's configured external merge tool and is not used in hot-path status/log/diff operations. |
 
 This table is expected to change as `gix` matures — that's the entire point of routing through one trait instead of splitting the call sites. When a method's "Engine (today)" column changes, it's a one-line change in `fjord-git`, invisible to `fjord-services` and the frontend.
 

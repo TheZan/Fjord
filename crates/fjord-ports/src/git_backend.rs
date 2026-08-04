@@ -31,6 +31,10 @@ pub enum GitError {
     NoUpstream,
     #[error("nothing to commit")]
     NothingToCommit,
+    #[error("no merge conflicts detected")]
+    NoConflicts,
+    #[error("failed to launch merge tool: {0}")]
+    MergeToolFailed(String),
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -69,4 +73,5 @@ pub trait GitBackend: Send + Sync {
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError>;
+    async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }

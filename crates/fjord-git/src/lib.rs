@@ -3,6 +3,7 @@
 //! docs/specs/git-backend.md for the full routing table and rationale.
 
 use std::path::PathBuf;
+use std::process::Command;
 
 use async_trait::async_trait;
 use fjord_domain::{
@@ -120,6 +121,11 @@ impl GixGitBackend {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    fn has_conflicts(repo: &RepoPath) -> Result<bool, GitError> {
+        let git = Self::open_git2(repo)?;
+        Ok(git.index().map_err(Self::map_git2_error)?.has_conflicts())
     }
 
     fn current_head_commit(git: &git2::Repository) -> Result<Option<git2::Commit<'_>>, GitError> {
@@ -363,15 +369,18 @@ impl GitBackend for GixGitBackend {
                 .filter(|entry| entry.is_ok())
                 .count() as u32;
 
+            let has_conflict = Self::has_conflicts(&repo)?;
+
             // Ahead/behind against the branch's upstream is left at 0 until
-            // P1-06/P1-07 wire up remote-tracking comparison — status/dirty
-            // detection is what P0-03 exists to prove out.
+            // P2 status-cache work wires up remote-tracking comparison —
+            // status/dirty/conflict detection is what the single-repo phases
+            // need to prove out first.
             Ok(RepoStatus {
                 branch,
                 ahead: 0,
                 behind: 0,
                 dirty_count,
-                has_conflict: false,
+                has_conflict,
             })
         })
         .await
@@ -792,6 +801,24 @@ impl GitBackend for GixGitBackend {
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
+
+    async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
+        let repo = repo.clone();
+        tokio::task::spawn_blocking(move || {
+            if !Self::has_conflicts(&repo)? {
+                return Err(GitError::NoConflicts);
+            }
+
+            Command::new("git")
+                .args(["mergetool", "--no-prompt"])
+                .current_dir(&repo.0)
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| GitError::MergeToolFailed(e.to_string()))
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
 }
 
 #[cfg(test)]
@@ -991,5 +1018,59 @@ mod tests {
             .target()
             .unwrap();
         assert_eq!(remote_oid.to_string(), local_oid);
+    }
+
+    #[tokio::test]
+    async fn status_reports_merge_conflicts() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        drop(head);
+        drop(repo);
+
+        backend.checkout(&repo_path, "feature").await.unwrap();
+        write_file(&repo_path, "README.md", "feature\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Feature change").await.unwrap();
+
+        backend.checkout(&repo_path, "main").await.unwrap();
+        write_file(&repo_path, "README.md", "main\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Main change").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        let feature_ref = repo.find_reference("refs/heads/feature").unwrap();
+        let feature = repo.reference_to_annotated_commit(&feature_ref).unwrap();
+        let mut checkout = CheckoutBuilder::new();
+        checkout.allow_conflicts(true).conflict_style_merge(true);
+        repo.merge(&[&feature], None, Some(&mut checkout)).unwrap();
+
+        let status = backend.status(&repo_path).await.unwrap();
+        assert!(status.has_conflict);
+    }
+
+    #[tokio::test]
+    async fn open_merge_tool_requires_conflicts() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+
+        let result = backend.open_merge_tool(&repo_path).await;
+
+        assert!(matches!(result, Err(GitError::NoConflicts)));
     }
 }

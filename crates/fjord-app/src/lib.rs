@@ -35,6 +35,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::list_repositories,
             commands::add_repository,
             commands::get_branches,
+            commands::get_repo_status,
             commands::get_commit_log,
             commands::get_commit_diff,
             commands::get_file_diff,
@@ -45,5 +46,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::fetch_repo,
             commands::pull_repo,
             commands::push_repo,
+            commands::open_merge_tool,
         ])
 }

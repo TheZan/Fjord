@@ -9,6 +9,14 @@ export interface BranchInfo {
   upstream: string | null;
 }
 
+export interface RepoStatus {
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  dirtyCount: number;
+  hasConflict: boolean;
+}
+
 export interface CommitSummary {
   id: string;
   parentIds: string[];

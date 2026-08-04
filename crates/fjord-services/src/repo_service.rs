@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepositoryId};
+use fjord_domain::{
+    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, RepositoryId,
+};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -30,6 +32,11 @@ impl RepoService {
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_status(&self, repo_id: RepositoryId) -> Result<RepoStatus, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.status(&RepoPath::new(repo.path)).await?)
     }
 
     pub async fn get_commit_log(
@@ -112,6 +119,11 @@ impl RepoService {
     pub async fn push(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.push(&RepoPath::new(repo.path), "").await?)
+    }
+
+    pub async fn open_merge_tool(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.open_merge_tool(&RepoPath::new(repo.path)).await?)
     }
 }
 
@@ -203,7 +215,13 @@ mod tests {
     #[async_trait]
     impl GitBackend for FakeGit {
         async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
-            unimplemented!()
+            Ok(RepoStatus {
+                branch: Some("main".into()),
+                ahead: 0,
+                behind: 0,
+                dirty_count: 0,
+                has_conflict: false,
+            })
         }
         async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -274,6 +292,10 @@ mod tests {
             Ok(())
         }
         async fn push(&self, repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
+        }
+        async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
@@ -370,6 +392,17 @@ mod tests {
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
         service.push(repo.id).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn status_and_merge_tool_resolve_the_repo_id_too() {
+        let (repo, git, service) = service_with_fake_git();
+
+        let status = service.get_status(repo.id).await.unwrap();
+        assert_eq!(status.branch.as_deref(), Some("main"));
+
+        service.open_merge_tool(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 }

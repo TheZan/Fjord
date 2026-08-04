@@ -255,6 +255,9 @@ mod tests {
         async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
             Ok(())
         }
+        async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
+            Ok(())
+        }
     }
 
     fn service(valid_repo: bool) -> WorkspaceService {

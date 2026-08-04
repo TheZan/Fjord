@@ -9,8 +9,16 @@ import { BranchesPanel } from "@/presentation/BranchesPanel";
 import { CommitGraph } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { useRepositories } from "@/application/useRepositories";
+import { useRepoStatus } from "@/application/useRepoStatus";
 import type { CommitSummary } from "@/domain/git";
-import { checkoutBranch, fetchRepo, invokeErrorMessage, pullRepo, pushRepo } from "@/infrastructure/tauriClient";
+import {
+  checkoutBranch,
+  fetchRepo,
+  invokeErrorMessage,
+  openMergeTool,
+  pullRepo,
+  pushRepo,
+} from "@/infrastructure/tauriClient";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 
@@ -24,6 +32,7 @@ export function App() {
   const [repoVersion, setRepoVersion] = useState(0);
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
+  const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
 
   async function runRepoAction(action: string, run: () => Promise<void>) {
     setRepoActionError(null);
@@ -176,6 +185,30 @@ export function App() {
               <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
                 {repoActionError}
               </p>
+            )}
+            {repoStatusError && (
+              <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
+                {repoStatusError}
+              </p>
+            )}
+            {repoStatus?.hasConflict && (
+              <div
+                className="flex w-full max-w-lg items-center justify-between gap-3 rounded-lg border p-3 text-sm"
+                style={{ borderColor: "var(--rust)", background: "var(--rust-tint)", color: "var(--rust-ink)" }}
+              >
+                <span>{tw("repoStatus.conflict")}</span>
+                <button
+                  type="button"
+                  disabled={repoActionPending !== null}
+                  onClick={() => runRepoAction("merge-tool", () => openMergeTool(selectedRepoId))}
+                  className="h-8 shrink-0 rounded border px-2 text-xs disabled:opacity-60"
+                  style={{ borderColor: "var(--rust)", background: "var(--paper)", color: "var(--rust-ink)" }}
+                >
+                  {repoActionPending === "merge-tool"
+                    ? tw("repoStatus.openingMergeTool")
+                    : tw("repoStatus.openMergeTool")}
+                </button>
+              </div>
             )}
             <BranchesPanel
               key={`${selectedRepoId}:${repoVersion}:branches`}

@@ -59,6 +59,8 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::AuthenticationFailed => "auth_failed",
         GitError::NoUpstream => "no_upstream",
         GitError::NothingToCommit => "nothing_to_commit",
+        GitError::NoConflicts => "no_conflicts",
+        GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
 

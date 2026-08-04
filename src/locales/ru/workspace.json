@@ -19,6 +19,11 @@
     "push": "Отправить",
     "pushing": "Отправка…"
   },
+  "repoStatus": {
+    "conflict": "Обнаружены merge-конфликты.",
+    "openMergeTool": "Открыть merge tool",
+    "openingMergeTool": "Открытие…"
+  },
   "commits": {
     "empty": "Коммиты не найдены.",
     "loading": "Загрузка…",

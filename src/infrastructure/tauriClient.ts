@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "@/domain/settings";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
-import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail } from "@/domain/git";
+import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail, RepoStatus } from "@/domain/git";
 
 export function invokeErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
@@ -41,6 +41,10 @@ export function addRepository(workspaceId: string, path: string): Promise<Reposi
 
 export function getBranches(repoId: string): Promise<BranchInfo[]> {
   return invoke("get_branches", { repoId });
+}
+
+export function getRepoStatus(repoId: string): Promise<RepoStatus> {
+  return invoke("get_repo_status", { repoId });
 }
 
 export function getCommitLog(repoId: string, cursor: string | null, limit: number): Promise<CommitPage> {
@@ -81,4 +85,8 @@ export function pullRepo(repoId: string): Promise<void> {
 
 export function pushRepo(repoId: string): Promise<void> {
   return invoke("push_repo", { repoId });
+}
+
+export function openMergeTool(repoId: string): Promise<void> {
+  return invoke("open_merge_tool", { repoId });
 }

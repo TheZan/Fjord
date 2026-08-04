@@ -1,4 +1,6 @@
-use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepositoryId};
+use fjord_domain::{
+    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, RepositoryId,
+};
 use std::path::PathBuf;
 use tauri::State;
 
@@ -11,6 +13,14 @@ pub async fn get_branches(
     repo_id: RepositoryId,
 ) -> Result<Vec<BranchInfo>, AppError> {
     Ok(state.repos.get_branches(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_repo_status(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<RepoStatus, AppError> {
+    Ok(state.repos.get_status(repo_id).await?)
 }
 
 #[tauri::command]
@@ -101,4 +111,12 @@ pub async fn pull_repo(state: State<'_, AppState>, repo_id: RepositoryId) -> Res
 #[tauri::command]
 pub async fn push_repo(state: State<'_, AppState>, repo_id: RepositoryId) -> Result<(), AppError> {
     Ok(state.repos.push(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn open_merge_tool(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<(), AppError> {
+    Ok(state.repos.open_merge_tool(repo_id).await?)
 }
