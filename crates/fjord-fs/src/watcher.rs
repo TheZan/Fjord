@@ -24,6 +24,10 @@ pub struct RepoWatcher {
     pub events: mpsc::Receiver<notify::Result<Event>>,
 }
 
+pub struct RepoEventWatcher {
+    _watcher: RecommendedWatcher,
+}
+
 impl RepoWatcher {
     pub fn watch(path: &Path) -> Result<Self, WatchError> {
         let (tx, rx) = mpsc::channel();
@@ -37,6 +41,21 @@ impl RepoWatcher {
             _watcher: watcher,
             events: rx,
         })
+    }
+}
+
+impl RepoEventWatcher {
+    pub fn watch<F>(path: &Path, on_event: F) -> Result<Self, WatchError>
+    where
+        F: FnMut(notify::Result<Event>) + Send + 'static,
+    {
+        let mut watcher =
+            notify::recommended_watcher(on_event).map_err(|e| WatchError::Start(e.to_string()))?;
+        watcher
+            .watch(path, RecursiveMode::Recursive)
+            .map_err(|e| WatchError::Start(e.to_string()))?;
+
+        Ok(Self { _watcher: watcher })
     }
 }
 
@@ -67,6 +86,9 @@ mod tests {
 
     fn uuid_like() -> u128 {
         use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     }
 }

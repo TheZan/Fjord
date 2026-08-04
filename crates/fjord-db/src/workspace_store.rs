@@ -2,9 +2,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use fjord_domain::{RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_domain::{
+    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
+};
 use fjord_ports::{StoreError, WorkspaceStore};
 use sqlx::{Row, SqlitePool};
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -29,9 +32,9 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         let rows = sqlx::query(
             "SELECT id, name, sort_order FROM workspaces ORDER BY sort_order, created_at",
         )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| StoreError::Database(e.to_string()))?;
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
 
         rows.into_iter()
             .map(|row| {
@@ -109,7 +112,9 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                 .map_err(|e| StoreError::Database(e.to_string()))?;
         }
 
-        tx.commit().await.map_err(|e| StoreError::Database(e.to_string()))
+        tx.commit()
+            .await
+            .map_err(|e| StoreError::Database(e.to_string()))
     }
 
     async fn delete_workspace(&self, id: WorkspaceId) -> Result<(), StoreError> {
@@ -121,7 +126,10 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         Ok(())
     }
 
-    async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError> {
+    async fn list_repositories(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepositoryEntry>, StoreError> {
         let rows = sqlx::query(
             "SELECT id, workspace_id, name, path, sort_order FROM repositories WHERE workspace_id = ? ORDER BY sort_order, created_at",
         )
@@ -137,6 +145,31 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                 Ok(RepositoryEntry {
                     id: RepositoryId(id),
                     workspace_id,
+                    name: row.get("name"),
+                    path: PathBuf::from(row.get::<String, _>("path")),
+                    sort_order: row.get("sort_order"),
+                })
+            })
+            .collect()
+    }
+
+    async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT id, workspace_id, name, path, sort_order FROM repositories ORDER BY workspace_id, sort_order, created_at",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        rows.into_iter()
+            .map(|row| {
+                let id = Uuid::from_str(&row.get::<String, _>("id"))
+                    .map_err(|e| StoreError::Database(e.to_string()))?;
+                let workspace_id = Uuid::from_str(&row.get::<String, _>("workspace_id"))
+                    .map_err(|e| StoreError::Database(e.to_string()))?;
+                Ok(RepositoryEntry {
+                    id: RepositoryId(id),
+                    workspace_id: WorkspaceId(workspace_id),
                     name: row.get("name"),
                     path: PathBuf::from(row.get::<String, _>("path")),
                     sort_order: row.get("sort_order"),
@@ -206,6 +239,96 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             .map_err(|e| StoreError::Database(e.to_string()))?;
         Ok(())
     }
+
+    async fn list_workspace_status(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepoStatusSummary>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT r.id AS repo_id, c.branch, c.ahead, c.behind, c.dirty_count, c.has_conflict, c.last_synced_at \
+             FROM repositories r \
+             LEFT JOIN repo_status_cache c ON c.repo_id = r.id \
+             WHERE r.workspace_id = ? \
+             ORDER BY r.sort_order, r.created_at",
+        )
+        .bind(workspace_id.0.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        rows.into_iter()
+            .map(|row| {
+                let repo_id = Uuid::from_str(&row.get::<String, _>("repo_id"))
+                    .map_err(|e| StoreError::Database(e.to_string()))?;
+                let last_synced_at = row
+                    .get::<Option<String>, _>("last_synced_at")
+                    .map(|value| OffsetDateTime::parse(&value, &Rfc3339))
+                    .transpose()
+                    .map_err(|e| StoreError::Database(e.to_string()))?;
+
+                Ok(RepoStatusSummary {
+                    repo_id: RepositoryId(repo_id),
+                    status: RepoStatus {
+                        branch: row.get("branch"),
+                        ahead: row.get::<Option<i64>, _>("ahead").unwrap_or_default() as u32,
+                        behind: row.get::<Option<i64>, _>("behind").unwrap_or_default() as u32,
+                        dirty_count: row.get::<Option<i64>, _>("dirty_count").unwrap_or_default()
+                            as u32,
+                        has_conflict: row
+                            .get::<Option<i64>, _>("has_conflict")
+                            .unwrap_or_default()
+                            != 0,
+                    },
+                    last_synced_at,
+                })
+            })
+            .collect()
+    }
+
+    async fn upsert_repo_status(
+        &self,
+        repo_id: RepositoryId,
+        status: &RepoStatus,
+    ) -> Result<RepoStatusSummary, StoreError> {
+        let last_synced_at = OffsetDateTime::now_utc();
+
+        sqlx::query(
+            "INSERT INTO repo_status_cache (repo_id, branch, ahead, behind, dirty_count, has_conflict, last_synced_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(repo_id) DO UPDATE SET \
+                branch = excluded.branch, \
+                ahead = excluded.ahead, \
+                behind = excluded.behind, \
+                dirty_count = excluded.dirty_count, \
+                has_conflict = excluded.has_conflict, \
+                last_synced_at = excluded.last_synced_at",
+        )
+        .bind(repo_id.0.to_string())
+        .bind(status.branch.as_deref())
+        .bind(status.ahead as i64)
+        .bind(status.behind as i64)
+        .bind(status.dirty_count as i64)
+        .bind(if status.has_conflict { 1_i64 } else { 0_i64 })
+        .bind(last_synced_at.format(&Rfc3339).map_err(|e| StoreError::Database(e.to_string()))?)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        Ok(RepoStatusSummary {
+            repo_id,
+            status: status.clone(),
+            last_synced_at: Some(last_synced_at),
+        })
+    }
+
+    async fn invalidate_repo_status(&self, repo_id: RepositoryId) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM repo_status_cache WHERE repo_id = ?")
+            .bind(repo_id.0.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| StoreError::Database(e.to_string()))?;
+        Ok(())
+    }
 }
 
 impl SqliteWorkspaceStore {
@@ -217,7 +340,10 @@ impl SqliteWorkspaceStore {
         Ok(row.get("next"))
     }
 
-    async fn next_repository_sort_order(&self, workspace_id: WorkspaceId) -> Result<i32, StoreError> {
+    async fn next_repository_sort_order(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<i32, StoreError> {
         let row = sqlx::query(
             "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM repositories WHERE workspace_id = ?",
         )
@@ -234,7 +360,9 @@ mod tests {
     use super::*;
 
     async fn store() -> SqliteWorkspaceStore {
-        let pool = crate::connect(std::path::Path::new(":memory:")).await.unwrap();
+        let pool = crate::connect(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
         SqliteWorkspaceStore::new(pool)
     }
 
@@ -253,7 +381,11 @@ mod tests {
         let other_ws = store.create_workspace("Frontend").await.unwrap();
 
         store
-            .add_repository(ws.id, "api-gateway", std::path::Path::new("/repos/api-gateway"))
+            .add_repository(
+                ws.id,
+                "api-gateway",
+                std::path::Path::new("/repos/api-gateway"),
+            )
             .await
             .unwrap();
 
@@ -266,7 +398,11 @@ mod tests {
         let store = store().await;
         let ws = store.create_workspace("Backend").await.unwrap();
         let created = store
-            .add_repository(ws.id, "api-gateway", std::path::Path::new("/repos/api-gateway"))
+            .add_repository(
+                ws.id,
+                "api-gateway",
+                std::path::Path::new("/repos/api-gateway"),
+            )
             .await
             .unwrap();
 
@@ -279,5 +415,44 @@ mod tests {
         let store = store().await;
         let result = store.get_repository(RepositoryId::new()).await;
         assert!(matches!(result, Err(StoreError::RepositoryNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn status_cache_defaults_then_round_trips_and_invalidates() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let repo = store
+            .add_repository(
+                ws.id,
+                "api-gateway",
+                std::path::Path::new("/repos/api-gateway"),
+            )
+            .await
+            .unwrap();
+
+        let empty = store.list_workspace_status(ws.id).await.unwrap();
+        assert_eq!(empty.len(), 1);
+        assert_eq!(empty[0].repo_id, repo.id);
+        assert_eq!(empty[0].status.dirty_count, 0);
+        assert!(empty[0].last_synced_at.is_none());
+
+        let status = RepoStatus {
+            branch: Some("main".to_string()),
+            ahead: 1,
+            behind: 2,
+            dirty_count: 3,
+            has_conflict: true,
+        };
+        let cached = store.upsert_repo_status(repo.id, &status).await.unwrap();
+        assert_eq!(cached.status, status);
+        assert!(cached.last_synced_at.is_some());
+
+        let listed = store.list_workspace_status(ws.id).await.unwrap();
+        assert_eq!(listed[0].status, status);
+        assert!(listed[0].last_synced_at.is_some());
+
+        store.invalidate_repo_status(repo.id).await.unwrap();
+        let invalidated = store.list_workspace_status(ws.id).await.unwrap();
+        assert!(invalidated[0].last_synced_at.is_none());
     }
 }

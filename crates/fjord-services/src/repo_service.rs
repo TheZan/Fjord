@@ -133,7 +133,7 @@ mod tests {
     use async_trait::async_trait;
     use fjord_domain::{
         CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepositoryEntry, Workspace, WorkspaceId,
+        RepoStatusSummary, RepositoryEntry, Workspace, WorkspaceId,
     };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
@@ -169,6 +169,9 @@ mod tests {
         ) -> Result<Vec<RepositoryEntry>, StoreError> {
             unimplemented!()
         }
+        async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError> {
+            unimplemented!()
+        }
         async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
             if id == self.repo.id {
                 Ok(self.repo.clone())
@@ -185,6 +188,22 @@ mod tests {
             unimplemented!()
         }
         async fn remove_repository(&self, _id: RepositoryId) -> Result<(), StoreError> {
+            unimplemented!()
+        }
+        async fn list_workspace_status(
+            &self,
+            _workspace_id: WorkspaceId,
+        ) -> Result<Vec<RepoStatusSummary>, StoreError> {
+            unimplemented!()
+        }
+        async fn upsert_repo_status(
+            &self,
+            _repo_id: RepositoryId,
+            _status: &RepoStatus,
+        ) -> Result<RepoStatusSummary, StoreError> {
+            unimplemented!()
+        }
+        async fn invalidate_repo_status(&self, _repo_id: RepositoryId) -> Result<(), StoreError> {
             unimplemented!()
         }
     }

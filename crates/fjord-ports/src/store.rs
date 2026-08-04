@@ -2,7 +2,9 @@
 //! See docs/specs/data-model.md for the underlying schema.
 
 use async_trait::async_trait;
-use fjord_domain::{RepositoryEntry, RepositoryId, Settings, Workspace, WorkspaceId};
+use fjord_domain::{
+    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, Settings, Workspace, WorkspaceId,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,7 +25,11 @@ pub trait WorkspaceStore: Send + Sync {
     async fn reorder_workspaces(&self, ids: &[WorkspaceId]) -> Result<(), StoreError>;
     async fn delete_workspace(&self, id: WorkspaceId) -> Result<(), StoreError>;
 
-    async fn list_repositories(&self, workspace_id: WorkspaceId) -> Result<Vec<RepositoryEntry>, StoreError>;
+    async fn list_repositories(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepositoryEntry>, StoreError>;
+    async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError>;
     async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError>;
     async fn add_repository(
         &self,
@@ -32,6 +38,17 @@ pub trait WorkspaceStore: Send + Sync {
         path: &std::path::Path,
     ) -> Result<RepositoryEntry, StoreError>;
     async fn remove_repository(&self, id: RepositoryId) -> Result<(), StoreError>;
+
+    async fn list_workspace_status(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepoStatusSummary>, StoreError>;
+    async fn upsert_repo_status(
+        &self,
+        repo_id: RepositoryId,
+        status: &RepoStatus,
+    ) -> Result<RepoStatusSummary, StoreError>;
+    async fn invalidate_repo_status(&self, repo_id: RepositoryId) -> Result<(), StoreError>;
 }
 
 #[async_trait]

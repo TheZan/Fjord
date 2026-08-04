@@ -84,6 +84,7 @@ pub struct RepoStatus {
 pub struct RepoStatusSummary {
     pub repo_id: RepositoryId,
     pub status: RepoStatus,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_synced_at: Option<OffsetDateTime>,
 }
 
@@ -232,5 +233,24 @@ mod tests {
         let value = serde_json::to_value(commit).unwrap();
 
         assert_eq!(value["authoredAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn repo_status_summary_serializes_last_synced_at_as_rfc3339() {
+        let summary = RepoStatusSummary {
+            repo_id: RepositoryId::new(),
+            status: RepoStatus {
+                branch: Some("main".to_string()),
+                ahead: 0,
+                behind: 0,
+                dirty_count: 0,
+                has_conflict: false,
+            },
+            last_synced_at: Some(OffsetDateTime::from_unix_timestamp(0).unwrap()),
+        };
+
+        let value = serde_json::to_value(summary).unwrap();
+
+        assert_eq!(value["lastSyncedAt"], "1970-01-01T00:00:00Z");
     }
 }

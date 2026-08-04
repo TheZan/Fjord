@@ -6,4 +6,4 @@ mod path_compare;
 mod watcher;
 
 pub use path_compare::paths_equal;
-pub use watcher::{RepoWatcher, WatchError};
+pub use watcher::{RepoEventWatcher, RepoWatcher, WatchError};

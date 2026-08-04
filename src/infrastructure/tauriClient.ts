@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "@/domain/settings";
-import type { RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { BranchInfo, CommitPage, FileDiff, FileDiffDetail, RepoStatus } from "@/domain/git";
 
 export function invokeErrorMessage(error: unknown): string {
@@ -45,6 +45,14 @@ export function deleteWorkspace(id: string): Promise<void> {
 
 export function listRepositories(workspaceId: string): Promise<RepositoryEntry[]> {
   return invoke("list_repositories", { workspaceId });
+}
+
+export function getWorkspaceStatus(workspaceId: string): Promise<RepoStatusSummary[]> {
+  return invoke("get_workspace_status", { workspaceId });
+}
+
+export function refreshRepoStatus(repoId: string): Promise<RepoStatusSummary> {
+  return invoke("refresh_repo_status", { repoId });
 }
 
 export function addRepository(workspaceId: string, path: string): Promise<RepositoryEntry> {

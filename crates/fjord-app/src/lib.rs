@@ -36,6 +36,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::reorder_workspaces,
             commands::delete_workspace,
             commands::list_repositories,
+            commands::get_workspace_status,
+            commands::refresh_repo_status,
             commands::add_repository,
             commands::remove_repository,
             commands::get_branches,

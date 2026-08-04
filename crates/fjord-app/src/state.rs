@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
+use fjord_domain::{RepositoryEntry, RepositoryId};
+use fjord_fs::RepoEventWatcher;
 use fjord_git::GixGitBackend;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 
@@ -11,21 +14,75 @@ pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
+    status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
 
 pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
     std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
     let db_path = app_data_dir.join("fjord.db");
 
-    let pool = fjord_db::connect(&db_path).await.map_err(|e| e.to_string())?;
+    let pool = fjord_db::connect(&db_path)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
     let git_backend = Arc::new(GixGitBackend::new());
+    let workspace_service = Arc::new(WorkspaceService::new(
+        workspace_store.clone(),
+        git_backend.clone(),
+    ));
+    let existing_repos = workspace_service
+        .list_all_repositories()
+        .await
+        .map_err(|e| e.to_string())?;
 
-    Ok(AppState {
+    let state = AppState {
         settings: Arc::new(SettingsService::new(settings_store)),
-        workspaces: Arc::new(WorkspaceService::new(workspace_store.clone(), git_backend.clone())),
+        workspaces: workspace_service,
         repos: Arc::new(RepoService::new(workspace_store, git_backend)),
-    })
+        status_watchers: Arc::new(Mutex::new(HashMap::new())),
+    };
+
+    for repo in existing_repos {
+        state.watch_repository_status(repo);
+    }
+
+    Ok(state)
+}
+
+impl AppState {
+    pub fn watch_repository_status(&self, repo: RepositoryEntry) {
+        let repo_id = repo.id;
+        let mut watchers = self.status_watchers.lock().unwrap();
+        if watchers.contains_key(&repo_id) {
+            return;
+        }
+
+        let workspaces = self.workspaces.clone();
+        let watcher = RepoEventWatcher::watch(&repo.path, move |event| {
+            if event.is_err() {
+                return;
+            }
+
+            let workspaces = workspaces.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = workspaces.invalidate_repo_status(repo_id).await;
+                let _ = workspaces.refresh_repo_status(repo_id).await;
+            });
+        });
+
+        match watcher {
+            Ok(watcher) => {
+                watchers.insert(repo_id, watcher);
+            }
+            Err(error) => {
+                tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to watch repository status");
+            }
+        }
+    }
+
+    pub fn unwatch_repository_status(&self, repo_id: RepositoryId) {
+        self.status_watchers.lock().unwrap().remove(&repo_id);
+    }
 }

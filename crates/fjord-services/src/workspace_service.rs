@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fjord_domain::{RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
 use thiserror::Error;
 
@@ -71,6 +71,40 @@ impl WorkspaceService {
         Ok(self.store.list_repositories(workspace_id).await?)
     }
 
+    pub async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, WorkspaceError> {
+        Ok(self.store.list_all_repositories().await?)
+    }
+
+    pub async fn get_workspace_status(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepoStatusSummary>, WorkspaceError> {
+        let cached = self.store.list_workspace_status(workspace_id).await?;
+        let repos = self.store.list_repositories(workspace_id).await?;
+
+        for repo in repos {
+            spawn_status_refresh(self.store.clone(), self.git.clone(), repo);
+        }
+
+        Ok(cached)
+    }
+
+    pub async fn refresh_repo_status(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<RepoStatusSummary, WorkspaceError> {
+        let repo = self.store.get_repository(repo_id).await?;
+        let status = self.git.status(&RepoPath::new(repo.path)).await?;
+        Ok(self.store.upsert_repo_status(repo_id, &status).await?)
+    }
+
+    pub async fn invalidate_repo_status(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<(), WorkspaceError> {
+        Ok(self.store.invalidate_repo_status(repo_id).await?)
+    }
+
     /// Validates `path` is a real Git repository (via `GitBackend::status`,
     /// which is the cheapest call that requires a valid repo) before
     /// persisting it — the store itself has no way to know the difference
@@ -98,6 +132,18 @@ fn repo_display_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+fn spawn_status_refresh(
+    store: Arc<dyn WorkspaceStore>,
+    git: Arc<dyn GitBackend>,
+    repo: RepositoryEntry,
+) {
+    tokio::spawn(async move {
+        if let Ok(status) = git.status(&RepoPath::new(repo.path)).await {
+            let _ = store.upsert_repo_status(repo.id, &status).await;
+        }
+    });
 }
 
 #[cfg(test)]
@@ -163,6 +209,9 @@ mod tests {
                 .cloned()
                 .collect())
         }
+        async fn list_all_repositories(&self) -> Result<Vec<RepositoryEntry>, StoreError> {
+            Ok(self.repos.lock().unwrap().clone())
+        }
         async fn get_repository(&self, id: RepositoryId) -> Result<RepositoryEntry, StoreError> {
             self.repos
                 .lock()
@@ -190,6 +239,43 @@ mod tests {
         }
         async fn remove_repository(&self, id: RepositoryId) -> Result<(), StoreError> {
             self.repos.lock().unwrap().retain(|r| r.id != id);
+            Ok(())
+        }
+        async fn list_workspace_status(
+            &self,
+            workspace_id: WorkspaceId,
+        ) -> Result<Vec<RepoStatusSummary>, StoreError> {
+            Ok(self
+                .repos
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.workspace_id == workspace_id)
+                .map(|r| RepoStatusSummary {
+                    repo_id: r.id,
+                    status: fjord_domain::RepoStatus {
+                        branch: None,
+                        ahead: 0,
+                        behind: 0,
+                        dirty_count: 0,
+                        has_conflict: false,
+                    },
+                    last_synced_at: None,
+                })
+                .collect())
+        }
+        async fn upsert_repo_status(
+            &self,
+            repo_id: RepositoryId,
+            status: &fjord_domain::RepoStatus,
+        ) -> Result<RepoStatusSummary, StoreError> {
+            Ok(RepoStatusSummary {
+                repo_id,
+                status: status.clone(),
+                last_synced_at: Some(time::OffsetDateTime::UNIX_EPOCH),
+            })
+        }
+        async fn invalidate_repo_status(&self, _repo_id: RepositoryId) -> Result<(), StoreError> {
             Ok(())
         }
     }
@@ -338,5 +424,37 @@ mod tests {
         service.remove_repository(entry.id).await.unwrap();
 
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn workspace_status_returns_cached_rows_and_schedules_refresh() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let entry = service
+            .add_repository(ws.id, PathBuf::from("/repos/api-gateway"))
+            .await
+            .unwrap();
+
+        let cached = service.get_workspace_status(ws.id).await.unwrap();
+
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].repo_id, entry.id);
+        assert!(cached[0].last_synced_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_repo_status_reads_live_git_and_updates_cache() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let entry = service
+            .add_repository(ws.id, PathBuf::from("/repos/api-gateway"))
+            .await
+            .unwrap();
+
+        let refreshed = service.refresh_repo_status(entry.id).await.unwrap();
+
+        assert_eq!(refreshed.repo_id, entry.id);
+        assert_eq!(refreshed.status.branch.as_deref(), Some("main"));
+        assert!(refreshed.last_synced_at.is_some());
     }
 }

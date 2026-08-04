@@ -1143,6 +1143,7 @@ dependencies = [
  "fjord-domain",
  "fjord-ports",
  "thiserror 2.0.19",
+ "time",
  "tokio",
 ]
 

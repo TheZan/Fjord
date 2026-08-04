@@ -15,3 +15,15 @@ export interface RepositoryEntry {
   path: string;
   sortOrder: number;
 }
+
+export interface RepoStatusSummary {
+  repoId: string;
+  status: {
+    branch: string | null;
+    ahead: number;
+    behind: number;
+    dirtyCount: number;
+    hasConflict: boolean;
+  };
+  lastSyncedAt: string | null;
+}

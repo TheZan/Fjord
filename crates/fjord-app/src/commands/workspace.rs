@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use fjord_domain::{RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use tauri::State;
 
 use crate::error::AppError;
@@ -50,12 +50,31 @@ pub async fn list_repositories(
 }
 
 #[tauri::command]
+pub async fn get_workspace_status(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<RepoStatusSummary>, AppError> {
+    Ok(state.workspaces.get_workspace_status(workspace_id).await?)
+}
+
+#[tauri::command]
+pub async fn refresh_repo_status(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<RepoStatusSummary, AppError> {
+    Ok(state.workspaces.refresh_repo_status(repo_id).await?)
+}
+
+#[tauri::command]
 pub async fn add_repository(
     state: State<'_, AppState>,
     workspace_id: WorkspaceId,
     path: PathBuf,
 ) -> Result<RepositoryEntry, AppError> {
-    Ok(state.workspaces.add_repository(workspace_id, path).await?)
+    let entry = state.workspaces.add_repository(workspace_id, path).await?;
+    let _ = state.workspaces.refresh_repo_status(entry.id).await;
+    state.watch_repository_status(entry.clone());
+    Ok(entry)
 }
 
 #[tauri::command]
@@ -63,5 +82,6 @@ pub async fn remove_repository(
     state: State<'_, AppState>,
     id: RepositoryId,
 ) -> Result<(), AppError> {
+    state.unwatch_repository_status(id);
     Ok(state.workspaces.remove_repository(id).await?)
 }

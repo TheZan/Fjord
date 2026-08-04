@@ -9,6 +9,7 @@ fjord-domain.workspace = true
 fjord-ports.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+time.workspace = true
