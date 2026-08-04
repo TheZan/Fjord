@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "@/domain/settings";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
-import type { BranchInfo } from "@/domain/git";
+import type { BranchInfo, CommitPage } from "@/domain/git";
 
 export function getSettings(): Promise<Settings> {
   return invoke("get_settings");
@@ -34,4 +34,8 @@ export function addRepository(workspaceId: string, path: string): Promise<Reposi
 
 export function getBranches(repoId: string): Promise<BranchInfo[]> {
   return invoke("get_branches", { repoId });
+}
+
+export function getCommitLog(repoId: string, cursor: string | null, limit: number): Promise<CommitPage> {
+  return invoke("get_commit_log", { repoId, cursor, limit });
 }

@@ -6,6 +6,7 @@ import { SUPPORTED_LOCALES } from "@/locales/registry";
 import type { Theme } from "@/domain/settings";
 import { FjordMark } from "@/presentation/FjordMark";
 import { BranchesPanel } from "@/presentation/BranchesPanel";
+import { CommitGraph } from "@/presentation/CommitGraph";
 import { useRepositories } from "@/application/useRepositories";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
@@ -116,7 +117,12 @@ export function App() {
             ))}
           </ul>
         )}
-        {selectedRepoId && <BranchesPanel repoId={selectedRepoId} />}
+        {selectedRepoId && (
+          <>
+            <BranchesPanel repoId={selectedRepoId} />
+            <CommitGraph repoId={selectedRepoId} />
+          </>
+        )}
       </div>
     </main>
   );

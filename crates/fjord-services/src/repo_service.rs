@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fjord_domain::{BranchInfo, RepositoryId};
+use fjord_domain::{BranchInfo, CommitPage, LogCursor, RepositoryId};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
 use thiserror::Error;
 
@@ -35,6 +35,16 @@ impl RepoService {
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_commit_log(
+        &self,
+        repo_id: RepositoryId,
+        cursor: Option<LogCursor>,
+        limit: u32,
+    ) -> Result<CommitPage, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.log(&RepoPath::new(repo.path), cursor, limit).await?)
     }
 }
 
@@ -76,7 +86,10 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![BranchInfo { name: "main".into(), is_current: true, is_remote: false, upstream: None }])
         }
-        async fn log(&self, _repo: &RepoPath, _from: Option<LogCursor>, _limit: u32) -> Result<CommitPage, GitError> { unimplemented!() }
+        async fn log(&self, repo: &RepoPath, _from: Option<LogCursor>, _limit: u32) -> Result<CommitPage, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(CommitPage { commits: vec![], next_cursor: None })
+        }
         async fn diff(&self, _repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> { unimplemented!() }
         async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> { unimplemented!() }
         async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> { unimplemented!() }
@@ -119,5 +132,21 @@ mod tests {
 
         let result = service.get_branches(RepositoryId::new()).await;
         assert!(matches!(result, Err(RepoError::Store(StoreError::RepositoryNotFound(_)))));
+    }
+
+    #[tokio::test]
+    async fn get_commit_log_resolves_the_repo_id_too() {
+        let repo = RepositoryEntry {
+            id: RepositoryId::new(),
+            workspace_id: WorkspaceId::new(),
+            name: "api-gateway".into(),
+            path: PathBuf::from("/repos/api-gateway"),
+            sort_order: 0,
+        };
+        let git = Arc::new(FakeGit { seen_path: Mutex::new(None) });
+        let service = RepoService::new(Arc::new(FakeStore { repo: repo.clone() }), git.clone());
+
+        service.get_commit_log(repo.id, None, 20).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 }

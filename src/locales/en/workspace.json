@@ -10,5 +10,11 @@
     "remote": "Remote",
     "current": "current",
     "empty": "No branches found."
+  },
+  "commits": {
+    "empty": "No commits found.",
+    "loading": "Loading…",
+    "loadEarlier": "Load earlier commits",
+    "end": "Beginning of history"
   }
 }
