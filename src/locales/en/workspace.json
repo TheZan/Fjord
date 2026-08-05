@@ -129,7 +129,9 @@
   },
   "settings": {
     "title": "Settings",
-    "close": "Done"
+    "close": "Done",
+    "openCommand": "Open Settings",
+    "openCommandDetail": "Theme, language, and default IDE"
   },
   "toolbar": {
     "branch": "Branch",

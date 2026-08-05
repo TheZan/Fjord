@@ -203,6 +203,13 @@ export function App() {
   }
 
   const paletteItems: PaletteItem[] = [
+    {
+      id: "settings:open",
+      label: tw("settings.openCommand"),
+      detail: tw("settings.openCommandDetail"),
+      kind: tw("commandPalette.action"),
+      run: () => setSettingsOpen(true),
+    },
     ...flatRows.map(({ workspace, repo }) => ({
       id: `repo:${repo.id}`,
       label: repo.name,

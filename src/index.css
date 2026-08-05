@@ -22,6 +22,8 @@
   --mist: #8b95a2;
   --hairline: #dee3e7;
   --hairline-strong: #c9d0d6;
+  --hover: #f5f8fa;
+  --hover-strong: #eef4f6;
 
   --fjord: #0e6e86;
   --fjord-ink: #08424f;
@@ -50,6 +52,8 @@
     --mist: #6c7681;
     --hairline: #232b33;
     --hairline-strong: #303941;
+    --hover: #182029;
+    --hover-strong: #1f2a34;
 
     --fjord: #4fbad1;
     --fjord-ink: #cdeef4;
@@ -78,6 +82,8 @@
   --mist: #6c7681;
   --hairline: #232b33;
   --hairline-strong: #303941;
+  --hover: #182029;
+  --hover-strong: #1f2a34;
 
   --fjord: #4fbad1;
   --fjord-ink: #cdeef4;
@@ -105,6 +111,8 @@
   --mist: #8b95a2;
   --hairline: #dee3e7;
   --hairline-strong: #c9d0d6;
+  --hover: #f5f8fa;
+  --hover-strong: #eef4f6;
 
   --fjord: #0e6e86;
   --fjord-ink: #08424f;
@@ -126,6 +134,54 @@
 body {
   background: var(--page-bg);
   color: var(--ink);
+}
+
+.interactive-row,
+.interactive-control,
+.interactive-card {
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.interactive-row:hover:not(:disabled),
+.interactive-row:focus-visible:not(:disabled) {
+  background: var(--hover) !important;
+}
+
+.interactive-row[data-selected="true"],
+.interactive-row[data-selected="true"]:hover,
+.interactive-row[data-selected="true"]:focus-visible {
+  background: var(--fjord-tint) !important;
+  color: var(--fjord-ink) !important;
+}
+
+.interactive-control:hover:not(:disabled),
+.interactive-control:focus-visible:not(:disabled) {
+  background: var(--hover-strong) !important;
+}
+
+.interactive-control[data-selected="true"],
+.interactive-control[data-selected="true"]:hover,
+.interactive-control[data-selected="true"]:focus-visible {
+  background: var(--fjord-tint) !important;
+  color: var(--fjord-ink) !important;
+}
+
+.interactive-control[data-variant="primary"]:hover:not(:disabled),
+.interactive-control[data-variant="primary"]:focus-visible:not(:disabled) {
+  background: var(--fjord-tint) !important;
+  border-color: var(--fjord-ink) !important;
+  color: var(--fjord-ink) !important;
+}
+
+.interactive-card:hover,
+.interactive-card:focus-within {
+  border-color: var(--hairline-strong) !important;
+  box-shadow: 0 10px 30px rgba(18, 24, 31, 0.08);
 }
 
 /* Scrollbars.

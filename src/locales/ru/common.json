@@ -10,6 +10,11 @@
     "retry": "Повторить"
   },
   "settings": {
+    "sections": {
+      "general": "Основное",
+      "appearance": "Внешний вид",
+      "tools": "Инструменты"
+    },
     "theme": {
       "label": "Тема",
       "light": "Светлая",
@@ -18,6 +23,25 @@
     },
     "locale": {
       "label": "Язык"
+    },
+    "defaultIde": {
+      "label": "IDE по умолчанию",
+      "auto": "Авто",
+      "vscode": "VS Code",
+      "vscodeInsiders": "VS Code Insiders",
+      "cursor": "Cursor",
+      "windsurf": "Windsurf",
+      "zed": "Zed",
+      "idea": "IntelliJ IDEA",
+      "webstorm": "WebStorm",
+      "pycharm": "PyCharm",
+      "clion": "CLion",
+      "rider": "Rider",
+      "rustrover": "RustRover",
+      "custom": "Своя команда",
+      "customPlaceholder": "editor-command",
+      "customValue": "Сохраняется как custom:<command>.",
+      "saveCustom": "Сохранить"
     }
   }
 }

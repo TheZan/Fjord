@@ -94,7 +94,7 @@ export function RepoToolbar({
             onClick={onBack}
             title={t("nav.back")}
             aria-label={t("nav.back")}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+            className="interactive-control flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
             style={{ color: "var(--slate)" }}
           >
             <IconBack />
@@ -299,9 +299,9 @@ function ToolButton({
       onClick={onClick}
       disabled={disabled}
       title={label}
-      className="relative flex w-[3.75rem] flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors disabled:opacity-35"
+      data-selected={active}
+      className="interactive-control relative flex w-[3.75rem] flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors disabled:opacity-35"
       style={{
-        background: active ? "var(--fjord-tint)" : "transparent",
         color: active ? "var(--fjord-ink)" : "var(--ink)",
       }}
     >

@@ -63,7 +63,8 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium transition-colors disabled:opacity-45 ${BUTTON_HEIGHT[size]} ${className}`}
+      data-variant={variant}
+      className={`interactive-control inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium transition-colors disabled:opacity-45 ${BUTTON_HEIGHT[size]} ${className}`}
       style={{ borderWidth: "0.5px", ...buttonStyle(variant), ...style }}
     />
   );

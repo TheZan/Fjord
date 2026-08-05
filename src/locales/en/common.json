@@ -10,6 +10,11 @@
     "retry": "Try again"
   },
   "settings": {
+    "sections": {
+      "general": "General",
+      "appearance": "Appearance",
+      "tools": "Tools"
+    },
     "theme": {
       "label": "Theme",
       "light": "Light",
@@ -18,6 +23,25 @@
     },
     "locale": {
       "label": "Language"
+    },
+    "defaultIde": {
+      "label": "Default IDE",
+      "auto": "Auto",
+      "vscode": "VS Code",
+      "vscodeInsiders": "VS Code Insiders",
+      "cursor": "Cursor",
+      "windsurf": "Windsurf",
+      "zed": "Zed",
+      "idea": "IntelliJ IDEA",
+      "webstorm": "WebStorm",
+      "pycharm": "PyCharm",
+      "clion": "CLion",
+      "rider": "Rider",
+      "rustrover": "RustRover",
+      "custom": "Custom command",
+      "customPlaceholder": "editor-command",
+      "customValue": "Saved as custom:<command>.",
+      "saveCustom": "Save"
     }
   }
 }

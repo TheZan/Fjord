@@ -53,7 +53,7 @@ export function FileDiffView({
           <button
             type="button"
             onClick={onBack}
-            className="shrink-0 text-[11px]"
+            className="interactive-control shrink-0 rounded px-1.5 py-0.5 text-[11px]"
             style={{ color: "var(--slate)" }}
           >
             ← {t("diff.back")}

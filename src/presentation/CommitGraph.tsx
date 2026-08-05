@@ -131,7 +131,7 @@ export function CommitGraph({
             type="button"
             onClick={loadMore}
             disabled={loading}
-            className="text-xs"
+            className="interactive-control rounded px-2 py-1 text-xs"
             style={{ color: "var(--mist)" }}
           >
             {loading ? t("commits.loading") : t("commits.loadEarlier")}
@@ -171,11 +171,11 @@ function WorkingRow({
     <button
       type="button"
       onClick={onSelect}
-      className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b pr-2 text-left"
+      data-selected={selected}
+      className="interactive-row grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b pr-2 text-left"
       style={{
         borderColor: "var(--hairline)",
         height: ROW_HEIGHT,
-        background: selected ? "var(--fjord-tint)" : undefined,
       }}
     >
       <svg width={gutterWidth} height={ROW_HEIGHT} style={{ flexShrink: 0, overflow: "hidden" }}>
@@ -223,11 +223,11 @@ function CommitRow({
       type="button"
       disabled={!onSelect}
       onClick={onSelect ? () => onSelect(commit) : undefined}
-      className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b pr-2 text-left last:border-b-0 disabled:cursor-default"
+      data-selected={selected}
+      className="interactive-row grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b pr-2 text-left last:border-b-0 disabled:cursor-default"
       style={{
         borderColor: "var(--hairline)",
         height: ROW_HEIGHT,
-        background: selected ? "var(--fjord-tint)" : undefined,
         cursor: onSelect ? "pointer" : undefined,
       }}
     >

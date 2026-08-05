@@ -88,12 +88,12 @@ export function AllReposView({
                   <button
                     type="button"
                     onClick={() => onSelect(workspace.id, repo.id)}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_8rem_9rem] items-center gap-3 px-3.5 text-left"
+                    data-selected={isSelected}
+                    className="interactive-row grid w-full grid-cols-[minmax(0,1fr)_8rem_9rem] items-center gap-3 px-3.5 text-left"
                     style={{
                       borderTopWidth: virtualRow.index === 0 ? 0 : "0.5px",
                       borderTopStyle: "solid",
                       borderTopColor: "var(--hairline)",
-                      background: isSelected ? "var(--fjord-tint)" : "transparent",
                       color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                       height: ROW_HEIGHT,
                     }}

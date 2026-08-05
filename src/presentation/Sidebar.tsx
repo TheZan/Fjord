@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FjordMark } from "@/presentation/FjordMark";
-import { Button, GroupLabel, Input } from "@/presentation/ui";
+import { GroupLabel, Input } from "@/presentation/ui";
 import type { Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
 
@@ -67,6 +67,16 @@ export function Sidebar({
       <div className="flex items-center gap-2 px-4 pb-3 pt-4">
         <FjordMark size={18} style={{ color: "var(--brand)" }} />
         <span className="text-[15px] font-medium">{t("app.title")}</span>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="interactive-control ml-auto flex h-8 w-8 items-center justify-center rounded-md"
+          style={{ color: "var(--slate)" }}
+          aria-label={tw("settings.title")}
+          title={tw("settings.title")}
+        >
+          <SettingsIcon />
+        </button>
       </div>
 
       <nav className="flex flex-col gap-0.5 px-2">
@@ -83,7 +93,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setAdding((value) => !value)}
-          className="flex h-4 w-4 items-center justify-center rounded text-sm leading-none"
+          className="interactive-control flex h-4 w-4 items-center justify-center rounded text-sm leading-none"
           style={{ color: "var(--mist)" }}
           aria-label={tw("workspaces.createButton")}
         >
@@ -135,9 +145,9 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => onSelectWorkspace(workspace.id)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]"
+                data-selected={isSelected}
+                className="interactive-row flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]"
                 style={{
-                  background: isSelected ? "var(--fjord-tint)" : "transparent",
                   color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                 }}
               >
@@ -157,7 +167,7 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={() => setMenuId(menuId === workspace.id ? null : workspace.id)}
-                className="absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
+                className="interactive-control absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
                 style={{ color: "var(--slate)" }}
                 aria-label={tw("workspaces.rename")}
               >
@@ -217,15 +227,22 @@ export function Sidebar({
         })}
       </div>
 
-      <div
-        className="border-t px-2 py-2"
-        style={{ borderTopWidth: "0.5px", borderColor: "var(--hairline)" }}
-      >
-        <Button variant="ghost" size="sm" onClick={onOpenSettings} className="w-full justify-start">
-          {tw("settings.title")}
-        </Button>
-      </div>
     </aside>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
+      <path
+        d="M7.1 2.25h1.8l.34 1.42c.3.11.57.27.83.47l1.4-.43.9 1.56-1.06 1a4.1 4.1 0 0 1 0 .96l1.06 1-.9 1.56-1.4-.43c-.26.2-.53.36-.83.47l-.34 1.42H7.1l-.34-1.42a3.66 3.66 0 0 1-.83-.47l-1.4.43-.9-1.56 1.06-1a4.1 4.1 0 0 1 0-.96l-1.06-1 .9-1.56 1.4.43c.26-.2.53-.36.83-.47l.34-1.42Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.15"
+      />
+      <circle cx="8" cy="7.75" r="1.55" fill="none" stroke="currentColor" strokeWidth="1.15" />
+    </svg>
   );
 }
 
@@ -242,9 +259,9 @@ function NavItem({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md px-2 py-1.5 text-left text-[13px]"
+      data-selected={active}
+      className="interactive-row rounded-md px-2 py-1.5 text-left text-[13px]"
       style={{
-        background: active ? "var(--fjord-tint)" : "transparent",
         color: active ? "var(--fjord-ink)" : "var(--slate)",
         fontWeight: active ? 500 : 400,
       }}
@@ -270,7 +287,7 @@ function MenuItem({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="px-2.5 py-1 text-left text-xs disabled:opacity-45"
+      className="interactive-row px-2.5 py-1 text-left text-xs disabled:opacity-45"
       style={{ color: danger ? "var(--rust-ink)" : "var(--ink)" }}
     >
       {children}

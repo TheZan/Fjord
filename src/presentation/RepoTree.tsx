@@ -83,7 +83,12 @@ export function RepoTree({
             style={{ color: "var(--mist)" }}
           >
             <span>{t("tree.filterCount", { matched: matchedCount, total: totalCount })}</span>
-            <button type="button" onClick={() => setFilter("")} style={{ color: "var(--fjord-ink)" }}>
+            <button
+              type="button"
+              onClick={() => setFilter("")}
+              className="interactive-control rounded px-1"
+              style={{ color: "var(--fjord-ink)" }}
+            >
               {t("tree.clearFilter")}
             </button>
           </div>
@@ -162,7 +167,7 @@ function TreeSection({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-medium uppercase tracking-wide"
+        className="interactive-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-medium uppercase tracking-wide"
         style={{ color: "var(--mist)" }}
       >
         <span className="inline-block w-3 shrink-0 text-center" style={{ color: "var(--slate)" }}>
@@ -201,8 +206,9 @@ function BranchRow({
         type="button"
         disabled={branch.isCurrent || !onCheckout}
         onClick={() => onCheckout?.(branch.name)}
-        className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left disabled:cursor-default"
-        style={branch.isCurrent ? { background: "var(--fjord-tint)", color: "var(--fjord-ink)" } : undefined}
+        data-selected={branch.isCurrent}
+        className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left disabled:cursor-default"
+        style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
       >
         <code className="min-w-0 truncate font-mono text-xs">{branch.name}</code>
         {branch.isCurrent && (
@@ -217,7 +223,7 @@ function BranchRow({
 
 function TagRow({ tag }: { tag: TagInfo }) {
   return (
-    <li className="flex items-center justify-between gap-2 rounded px-2 py-1">
+    <li className="interactive-row flex items-center justify-between gap-2 rounded px-2 py-1">
       <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
       <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
         {tag.targetCommitId.slice(0, 7)}

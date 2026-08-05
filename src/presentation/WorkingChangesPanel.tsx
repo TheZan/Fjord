@@ -209,7 +209,7 @@ function FileSection({
           type="button"
           disabled={busy}
           onClick={() => onAct(files.map((file) => file.path))}
-          className="text-[11px] disabled:opacity-40"
+          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
           style={{ color: "var(--fjord-ink)" }}
         >
           {bulkLabel}
@@ -252,7 +252,7 @@ function FileSection({
                   if (!busy) onAct([file.path]);
                 }
               }}
-              className="rounded px-1.5 py-0.5 text-[10px] opacity-0 group-hover:opacity-100"
+              className="interactive-control rounded px-1.5 py-0.5 text-[10px] opacity-0 group-hover:opacity-100"
               style={{ background: "var(--page-bg)", color: "var(--fjord-ink)" }}
             >
               {actionLabel}

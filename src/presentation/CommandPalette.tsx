@@ -108,9 +108,9 @@ export function CommandPalette({
                     type="button"
                     onMouseEnter={() => setIndex(itemIndex)}
                     onClick={() => void run(item)}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2.5 py-1.5 text-left"
+                    data-selected={isSelected}
+                    className="interactive-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2.5 py-1.5 text-left"
                     style={{
-                      background: isSelected ? "var(--fjord-tint)" : "transparent",
                       color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                     }}
                   >

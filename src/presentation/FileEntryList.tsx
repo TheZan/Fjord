@@ -91,7 +91,7 @@ function IconButton({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="flex h-6 w-6 items-center justify-center rounded disabled:opacity-30"
+      className="interactive-control flex h-6 w-6 items-center justify-center rounded disabled:opacity-30"
       style={{ color: "var(--slate)" }}
     >
       <svg
@@ -131,9 +131,9 @@ export function FileViewTabs({
           key={value}
           type="button"
           onClick={() => onChange(value)}
-          className="rounded px-2 py-0.5 text-[11px] font-medium"
+          data-selected={mode === value}
+          className="interactive-control rounded px-2 py-0.5 text-[11px] font-medium"
           style={{
-            background: mode === value ? "var(--fjord-tint)" : "transparent",
             color: mode === value ? "var(--fjord-ink)" : "var(--slate)",
           }}
         >
@@ -255,7 +255,7 @@ function TreeNodeRow<T extends { path: string }>({
       <button
         type="button"
         onClick={() => onToggle(node.path)}
-        className="flex w-full items-center gap-1 rounded px-2 py-1 text-left"
+        className="interactive-row flex w-full items-center gap-1 rounded px-2 py-1 text-left"
         style={{ paddingLeft: `${0.5 + depth * 0.75}rem`, color: "var(--slate)" }}
       >
         <span className="w-3 shrink-0 text-center text-[10px]">{isCollapsed ? "▸" : "▾"}</span>
@@ -308,10 +308,10 @@ function FileRow<T extends { path: string }>({
         type="button"
         onClick={() => onSelect(file)}
         title={file.path}
-        className="flex w-full items-center gap-2 rounded py-1 pr-2 text-left"
+        data-selected={selected}
+        className="interactive-row flex w-full items-center gap-2 rounded py-1 pr-2 text-left"
         style={{
           paddingLeft: `${0.5 + depth * 0.75}rem`,
-          background: selected ? "var(--fjord-tint)" : "transparent",
           color: selected ? "var(--fjord-ink)" : "var(--ink)",
         }}
       >

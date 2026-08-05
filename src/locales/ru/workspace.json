@@ -129,7 +129,9 @@
   },
   "settings": {
     "title": "Настройки",
-    "close": "Готово"
+    "close": "Готово",
+    "openCommand": "Открыть настройки",
+    "openCommandDetail": "Тема, язык и IDE по умолчанию"
   },
   "toolbar": {
     "branch": "Ветка",
