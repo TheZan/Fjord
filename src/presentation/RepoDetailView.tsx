@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
@@ -9,7 +8,7 @@ import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
 import { Button, Muted } from "@/presentation/ui";
-import type { CommitSummary, RepoStatus } from "@/domain/git";
+import type { CommitSummary, RepoStatus, WorkingChanges } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
 /**
@@ -28,6 +27,9 @@ export function RepoDetailView({
   operationProgress,
   selectedCommit,
   workingSelected,
+  changes,
+  changesLoading,
+  changesError,
   onBack,
   onAction,
   onCancelOperation,
@@ -53,6 +55,9 @@ export function RepoDetailView({
   } | null;
   selectedCommit: CommitSummary | null;
   workingSelected: boolean;
+  changes: WorkingChanges;
+  changesLoading: boolean;
+  changesError: string | null;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
   onCancelOperation: () => void;
@@ -68,11 +73,6 @@ export function RepoDetailView({
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
-  const {
-    changes,
-    loading: changesLoading,
-    error: changesError,
-  } = useWorkingChanges(repo.id);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 

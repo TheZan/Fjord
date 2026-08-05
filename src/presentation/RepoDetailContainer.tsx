@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useCommitLog } from "@/application/useCommitLog";
 import { queryKeys } from "@/application/queryKeys";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
+import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { CommitSummary } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
@@ -49,12 +51,19 @@ export function RepoDetailContainer({
   const queryClient = useQueryClient();
   const operations = useOperationProgress();
   const { status, error: statusError } = useRepoStatus(repo.id);
+  const { commits, loading: commitsLoading } = useCommitLog(repo.id);
+  const {
+    changes,
+    loading: changesLoading,
+    error: changesError,
+  } = useWorkingChanges(repo.id);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
+  const workingFileCount = changes.staged.length + changes.unstaged.length;
 
   async function invalidateRepoData() {
     await Promise.all([
@@ -114,6 +123,40 @@ export function RepoDetailContainer({
     // intentionally recreated with current repo/query state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command?.id, repo.id]);
+
+  useEffect(() => {
+    setSelectedCommit(null);
+    setWorkingSelected(false);
+  }, [repo.id]);
+
+  useEffect(() => {
+    if (changesLoading) return;
+
+    if (workingFileCount > 0) {
+      if (!selectedCommit && !workingSelected) setWorkingSelected(true);
+      return;
+    }
+
+    if (commitsLoading) return;
+
+    if (workingSelected) {
+      setWorkingSelected(false);
+      setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
+      return;
+    }
+
+    if (!selectedCommit) {
+      setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
+    }
+  }, [
+    changesLoading,
+    commits,
+    commitsLoading,
+    selectedCommit,
+    status?.branch,
+    workingFileCount,
+    workingSelected,
+  ]);
 
   function onAction(action: RepoAction) {
     const networkTask = startNetworkAction(action);
@@ -182,6 +225,9 @@ export function RepoDetailContainer({
       }}
       selectedCommit={selectedCommit}
       workingSelected={workingSelected}
+      changes={changes}
+      changesLoading={changesLoading}
+      changesError={changesError}
       onBack={onBack}
       onAction={onAction}
       onCheckout={(branch) => void runRepoAction("checkout", () => checkoutBranch(repo.id, branch))}
@@ -197,6 +243,14 @@ export function RepoDetailContainer({
       onCommit={onCommit}
     />
   );
+}
+
+function currentBranchTip(commits: CommitSummary[], branch: string | null) {
+  if (branch) {
+    const branchCommit = commits.find((commit) => commit.refs.includes(branch));
+    if (branchCommit) return branchCommit;
+  }
+  return commits[0] ?? null;
 }
 
 function toToolbarProgress(event: OperationProgressEvent | null) {
