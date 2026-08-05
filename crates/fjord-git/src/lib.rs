@@ -357,6 +357,65 @@ impl GixGitBackend {
         git.set_head(refname).map_err(Self::map_git2_error)
     }
 
+    fn checkout_refname_for_branch(
+        git: &git2::Repository,
+        branch: &str,
+    ) -> Result<String, GitError> {
+        if let Some(remote_branch) = branch.strip_prefix("refs/remotes/") {
+            return Self::local_tracking_refname(git, remote_branch);
+        }
+
+        if branch.starts_with("refs/") {
+            git.find_reference(branch).map_err(Self::map_git2_error)?;
+            return Ok(branch.to_string());
+        }
+
+        let local_refname = format!("refs/heads/{branch}");
+        if git.find_reference(&local_refname).is_ok() {
+            return Ok(local_refname);
+        }
+
+        let remote_refname = format!("refs/remotes/{branch}");
+        if git.find_reference(&remote_refname).is_ok() {
+            return Self::local_tracking_refname(git, branch);
+        }
+
+        git.find_reference(&local_refname)
+            .map_err(Self::map_git2_error)?;
+        Ok(local_refname)
+    }
+
+    fn local_tracking_refname(
+        git: &git2::Repository,
+        remote_branch: &str,
+    ) -> Result<String, GitError> {
+        let local_name = Self::local_name_for_remote_branch(remote_branch).ok_or_else(|| {
+            GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
+        })?;
+        let local_refname = format!("refs/heads/{local_name}");
+        if git.find_reference(&local_refname).is_ok() {
+            return Ok(local_refname);
+        }
+
+        let remote_refname = format!("refs/remotes/{remote_branch}");
+        let remote_ref = git
+            .find_reference(&remote_refname)
+            .map_err(Self::map_git2_error)?;
+        let target = remote_ref.peel_to_commit().map_err(Self::map_git2_error)?;
+        let mut created = git
+            .branch(local_name, &target, false)
+            .map_err(Self::map_git2_error)?;
+        created
+            .set_upstream(Some(remote_branch))
+            .map_err(Self::map_git2_error)?;
+        Ok(local_refname)
+    }
+
+    fn local_name_for_remote_branch(remote_branch: &str) -> Option<&str> {
+        let (_, local_name) = remote_branch.split_once('/')?;
+        (!local_name.trim().is_empty()).then_some(local_name)
+    }
+
     /// An owned signature. `Repository::signature` borrows the repo, which
     /// deadlocks the borrow checker against the `&mut Repository` the stash
     /// APIs require — so read the identity out and rebuild it detached.
@@ -918,11 +977,7 @@ impl GitBackend for GixGitBackend {
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let refname = if branch.starts_with("refs/") {
-                branch
-            } else {
-                format!("refs/heads/{branch}")
-            };
+            let refname = Self::checkout_refname_for_branch(&git, &branch)?;
 
             Self::checkout_refname(&git, &refname)
         })
@@ -1271,7 +1326,7 @@ impl GitBackend for GixGitBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git2::{Repository, RepositoryInitOptions, Status};
+    use git2::{BranchType, Repository, RepositoryInitOptions, Status};
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -1494,6 +1549,45 @@ mod tests {
 
         let repo = Repository::open(&repo_path.0).unwrap();
         assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
+    }
+
+    #[tokio::test]
+    async fn checkout_remote_branch_creates_local_tracking_branch() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        repo.remote("origin", "https://example.invalid/fjord.git")
+            .unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.reference(
+            "refs/remotes/origin/feature",
+            head.id(),
+            true,
+            "seed remote",
+        )
+        .unwrap();
+        drop(head);
+        drop(repo);
+
+        backend
+            .checkout(&repo_path, "origin/feature")
+            .await
+            .unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
+        let branch = repo.find_branch("feature", BranchType::Local).unwrap();
+        assert_eq!(
+            branch.upstream().unwrap().name().unwrap(),
+            Some("origin/feature")
+        );
     }
 
     #[tokio::test]

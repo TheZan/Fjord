@@ -122,7 +122,12 @@ export function RepoTree({
             noMatches={normalizedFilter !== "" && remote.length === 0}
           >
             {remote.map((branch) => (
-              <BranchRow key={branch.name} branch={branch} currentLabel={t("branches.current")} />
+              <BranchRow
+                key={branch.name}
+                branch={branch}
+                currentLabel={t("branches.current")}
+                onCheckout={onCheckout}
+              />
             ))}
           </TreeSection>
         )}
@@ -205,7 +210,10 @@ function BranchRow({
       <button
         type="button"
         disabled={branch.isCurrent || !onCheckout}
-        onClick={() => onCheckout?.(branch.name)}
+        onDoubleClick={() => onCheckout?.(branch.name)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onCheckout?.(branch.name);
+        }}
         data-selected={branch.isCurrent}
         className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left disabled:cursor-default"
         style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
