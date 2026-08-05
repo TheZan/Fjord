@@ -8,12 +8,13 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use ts_rs::TS;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct WorkspaceId(pub Uuid);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct RepositoryId(pub Uuid);
 
 impl WorkspaceId {
@@ -45,16 +46,18 @@ impl Default for RepositoryId {
 // a translation layer — single-field newtypes (WorkspaceId, CommitId, ...)
 // serialize transparently and don't need it.
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub name: String,
     pub sort_order: i32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RepositoryEntry {
     pub id: RepositoryId,
     pub workspace_id: WorkspaceId,
@@ -62,13 +65,15 @@ pub struct RepositoryEntry {
     /// Absolute path, platform-native separators. Comparison/dedup goes
     /// through `fjord-fs`'s normalization helper, never a raw string compare
     /// — see docs/specs/data-model.md.
+    #[ts(type = "string")]
     pub path: PathBuf,
     pub sort_order: i32,
 }
 
 /// Live status for a single repository, as returned by `GitBackend::status`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RepoStatus {
     pub branch: Option<String>,
     pub ahead: u32,
@@ -79,45 +84,52 @@ pub struct RepoStatus {
 
 /// The cached counterpart of `RepoStatus` — always safe to drop and rebuild
 /// from a live `RepoStatus` call. See docs/specs/data-model.md.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RepoStatusSummary {
     pub repo_id: RepositoryId,
     pub status: RepoStatus,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[ts(type = "string | null")]
     pub last_synced_at: Option<OffsetDateTime>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct BulkRepoResult {
     pub repo_id: RepositoryId,
     pub ok: bool,
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
 pub enum SearchResultKind {
     Repository,
     Branch,
     Commit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct GlobalSearchResult {
     pub kind: SearchResultKind,
     pub repo_id: RepositoryId,
     pub workspace_id: WorkspaceId,
     pub repo_name: String,
+    #[ts(type = "string")]
     pub repo_path: PathBuf,
     pub branch: Option<String>,
     pub commit: Option<CommitSummary>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct BranchInfo {
     pub name: String,
     pub is_current: bool,
@@ -125,8 +137,9 @@ pub struct BranchInfo {
     pub upstream: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct TagInfo {
     pub name: String,
     pub target_commit_id: CommitId,
@@ -134,18 +147,20 @@ pub struct TagInfo {
 
 /// One entry of the stash stack. `index` is the `stash@{n}` position — 0 is
 /// the most recent, which is what a plain "pop" applies.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct StashEntry {
     pub index: u32,
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct CommitId(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct CommitSummary {
     pub id: CommitId,
     pub parent_ids: Vec<CommitId>,
@@ -153,6 +168,7 @@ pub struct CommitSummary {
     pub author_name: String,
     pub author_email: String,
     #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
     pub authored_at: OffsetDateTime,
     pub refs: Vec<String>,
 }
@@ -160,18 +176,20 @@ pub struct CommitSummary {
 /// Opaque pagination cursor for `GitBackend::log`. Callers must not parse
 /// or construct one themselves — round-trip whatever `CommitPage.next_cursor`
 /// returned. See docs/specs/git-backend.md and docs/specs/ipc-commands.md.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct LogCursor(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct CommitPage {
     pub commits: Vec<CommitSummary>,
     pub next_cursor: Option<LogCursor>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
 pub enum FileChangeType {
     Added,
     Modified,
@@ -179,8 +197,9 @@ pub enum FileChangeType {
     Renamed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct FileDiff {
     pub path: String,
     pub change_type: FileChangeType,
@@ -191,8 +210,9 @@ pub struct FileDiff {
 /// One entry of the working directory as the commit panel sees it. A file
 /// that is partially staged legitimately appears in both lists of
 /// [`WorkingChanges`], which is why this carries no "staged" flag of its own.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct WorkingFile {
     pub path: String,
     pub change_type: FileChangeType,
@@ -202,23 +222,26 @@ pub struct WorkingFile {
 
 /// Split of the working directory into what a commit would include (`staged`)
 /// and what it would leave behind (`unstaged`).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct WorkingChanges {
     pub staged: Vec<WorkingFile>,
     pub unstaged: Vec<WorkingFile>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
 pub enum DiffLineKind {
     Context,
     Addition,
     Deletion,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct DiffLine {
     pub kind: DiffLineKind,
     /// 1-based line number in the old (before) version, absent for added lines.
@@ -229,8 +252,9 @@ pub struct DiffLine {
 }
 
 /// One `@@ -old_start,old_lines +new_start,new_lines @@` block of a unified diff.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct DiffHunk {
     pub old_start: u32,
     pub old_lines: u32,
@@ -241,8 +265,9 @@ pub struct DiffHunk {
 
 /// Full line-by-line diff for a single file, as returned by `GitBackend::file_diff`.
 /// See docs/tasks.md P1-05.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct FileDiffDetail {
     pub path: String,
     pub change_type: FileChangeType,
@@ -251,8 +276,9 @@ pub struct FileDiffDetail {
     pub hunks: Vec<DiffHunk>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
 pub enum Theme {
     Light,
     Dark,
@@ -260,8 +286,9 @@ pub enum Theme {
     System,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct Settings {
     /// BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
     pub locale: String,

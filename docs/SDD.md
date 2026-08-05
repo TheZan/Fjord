@@ -138,7 +138,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 
 - ✅ The four layers exist and the dependency direction is respected; all IPC goes through the typed client in `infrastructure/tauriClient.ts`.
 - ✅ **Data fetching**: TanStack Query wraps Tauri IPC in the `application/` hooks (`P4-07`). Queries are keyed by workspace/repo scope, commit history uses `useInfiniteQuery`, workspace mutations use `useMutation`, and repository/workspace mutations invalidate the affected query keys instead of relying on remounts or manual cancellation flags.
-- ⚠️ **Domain types**: the target is TS types **generated from the Rust side** (via `specta` or `ts-rs`) so the contract cannot drift. Currently the types in `src/domain/` are hand-maintained mirrors of `fjord-domain`, kept in sync by convention and review. Generation is tracked as `P4-11`.
+- ✅ **Domain types**: TypeScript domain declarations are generated from `fjord-domain` with `ts-rs` (`P4-11`). The committed source of truth is `src/domain/generated.ts`, the public `src/domain/*` modules re-export those generated types, and the `fjord-domain` `export_types` test fails if the generated file drifts from Rust.
 - ⚠️ **Component size**: `App.tsx` has accreted palette/modal/action state and passes 15+ props into `RepoDetailView` (prop drilling). Decomposition is tracked as `P4-12`.
 - ✅ **Error boundaries**: a global boundary wraps `App` in `main.tsx` and a per-view boundary (keyed by the active view, so navigation resets it) wraps the main pane — an unhandled render exception shows a localized fallback with retry/reload instead of blanking the window (`P4-10`).
 
@@ -249,7 +249,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 |---|---|
 | `gix` push/merge/rebase support matures slower than expected | `GitBackend` trait already isolates this — worst case, those calls stay on `git2` indefinitely with no architectural cost |
 | Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks in CI are still open (`P4-18`) |
-| Hand-maintained TS types drift from Rust domain | Reviews catch it today; `P4-11` (generated types) removes the class of bug |
+| Generated TS domain types drift from Rust domain | `cargo test --workspace` includes the `fjord-domain` export drift check (`P4-11`) |
 | Large-monorepo performance is partly a claim: dev-profile numbers only | Re-record benchmarks in release profile with larger fixtures (`P4-18`) before optimizing blind |
 | SVG commit graph DOM cost on deep histories | Commit rows are virtualized (`P4-08`); re-evaluate a canvas renderer only if profiling still shows SVG edge cost inside the visible window |
 | Custom title bar vs. native OS conventions | Default to native decorations per-platform; only override where there's a clear UX win |
