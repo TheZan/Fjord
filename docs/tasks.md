@@ -75,7 +75,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 - [ ] **P4-07** — Migrate `src/application/*` hooks from manual `useState`+`useEffect` to TanStack Query (`useQuery`/`useMutation`, keys per repo/workspace, invalidation after mutations). Removes duplicated loading/error/cancelled plumbing in ~9 hooks and repeated IPC calls on view switches. See SDD §6.1.
 - [ ] **P4-08** — Frontend list virtualization (e.g. `@tanstack/react-virtual`) for the commit graph and repository lists; draw SVG graph edges only within the viewport. See SDD §5.3.
 - [ ] **P4-09** — Component and contract tests: React Testing Library for key screens/hooks with the IPC boundary mocked at `infrastructure/`. Best done after P4-07 to avoid rewriting. See SDD §8.
-- [ ] **P4-10** — React error boundaries: a global boundary plus per-view boundaries with localized fallback UI.
+- [x] **P4-10** — React error boundaries: a global boundary plus per-view boundaries with localized fallback UI.
 
 ### 4c. Mid-term architectural refactoring (1–2 months)
 

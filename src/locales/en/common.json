@@ -3,6 +3,12 @@
     "title": "Fjord",
     "tagline": "A Git workspace manager, not just another Git client."
   },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "body": "An unexpected error occurred while rendering this view. You can retry, or reload the app if it keeps happening.",
+    "reload": "Reload app",
+    "retry": "Try again"
+  },
   "settings": {
     "theme": {
       "label": "Theme",

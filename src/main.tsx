@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 
 import { App } from "@/presentation/App";
+import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { ThemeProvider } from "@/infrastructure/theme/ThemeProvider";
 import { i18n, initI18n } from "@/infrastructure/i18n";
 import { getSettings } from "@/infrastructure/tauriClient";
@@ -26,7 +27,9 @@ async function bootstrap() {
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <ThemeProvider>
-            <App />
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
           </ThemeProvider>
         </I18nextProvider>
       </QueryClientProvider>

@@ -140,7 +140,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 - ⚠️ **Data fetching**: the target design is TanStack Query over Tauri IPC (cache, deduplication, invalidation after mutations). The library is installed and a `QueryClientProvider` is mounted, but every `application/` hook currently uses manual `useState` + `useEffect` with `cancelled` flags — no cache, repeated IPC calls on every view switch. Migration is tracked as `P4-07`.
 - ⚠️ **Domain types**: the target is TS types **generated from the Rust side** (via `specta` or `ts-rs`) so the contract cannot drift. Currently the types in `src/domain/` are hand-maintained mirrors of `fjord-domain`, kept in sync by convention and review. Generation is tracked as `P4-11`.
 - ⚠️ **Component size**: `App.tsx` has accreted palette/modal/action state and passes 15+ props into `RepoDetailView` (prop drilling). Decomposition is tracked as `P4-12`.
-- 🚧 **Error boundaries**: IPC errors are handled per-hook and rendered locally, but there is no global React error boundary — an unhandled render exception blanks the window (`P4-10`).
+- ✅ **Error boundaries**: a global boundary wraps `App` in `main.tsx` and a per-view boundary (keyed by the active view, so navigation resets it) wraps the main pane — an unhandled render exception shows a localized fallback with retry/reload instead of blanking the window (`P4-10`).
 
 ### 6.2 Internationalization
 

@@ -26,6 +26,7 @@ import {
 } from "@/infrastructure/tauriClient";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
+import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { Onboarding } from "@/presentation/Onboarding";
 import { OverviewView } from "@/presentation/OverviewView";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
@@ -395,6 +396,7 @@ export function App() {
           </div>
         )}
 
+        <ErrorBoundary key={selectedRepo ? `repo:${selectedRepo.id}` : `view:${view}`}>
         {selectedRepo ? (
           <RepoDetailView
             repo={selectedRepo}
@@ -455,6 +457,7 @@ export function App() {
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
           />
         )}
+        </ErrorBoundary>
       </main>
 
       {paletteOpen && (
