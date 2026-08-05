@@ -89,7 +89,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 ### 4d. Long-term (quarter+)
 
 - [x] **P4-17** — Progress events and cancellation for long git operations (fetch/pull/push, bulk ops): `docs/specs/operation-events.md` defines the `fjord-operation-progress` contract, Tauri commands accept `operation_id` and expose `cancel_operation`, `GitOperationContext` carries progress/cancellation into libgit2, and the repo toolbar/dashboard show cancellable progress UI. See SDD §8.
-- [ ] **P4-18** — Release-profile benchmarks with budgets: re-record [`benchmarks/`](benchmarks/) checkpoints with `--release` and larger fixtures (50–200k commits), adopt the budgets from SDD §11, and run them periodically in CI with regression alerts.
+- [x] **P4-18** — Release-profile benchmarks with budgets: `fjord-bench` accepts budget flags and exits non-zero on regressions, [`benchmarks/p4-18-release.md`](benchmarks/p4-18-release.md) records release checkpoints for a 50k-commit repo and 24-repo/60k-total-commit workspace, and `.github/workflows/benchmarks.yml` runs the budget checks weekly/on demand.
 
 ## Out of scope for this board
 

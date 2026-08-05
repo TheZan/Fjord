@@ -30,8 +30,8 @@ Design language: minimalist, premium, in the spirit of Linear / Raycast / Arc Br
 - **G3 — Internationalization (i18n)**: ship with English and Russian, switchable at runtime, and structured so a third locale is a content-only addition (no code changes). ✅
 - **G4 — Theming**: light / dark / system, defaulting to system, switchable at runtime without restart. ✅
 - **G5 — Clean Architecture**: strict dependency direction, framework-agnostic domain/use-case core, swappable infrastructure (git engine, database, IPC transport). ✅
-- **G6 — Performance at scale**: stays fast on large monorepos (tens of thousands of commits, large working trees) and on workspaces containing dozens of repositories. ⚠️ backend caching/concurrency in place; frontend virtualization missing (§5.3)
-- **G7 — Cross-platform parity**: first-class, equally fast experience on Windows, macOS, and Linux. ⚠️ code is cross-platform by design, but there is no CI verifying all three targets (§5.4)
+- **G6 — Performance at scale**: stays fast on large monorepos (tens of thousands of commits, large working trees) and on workspaces containing dozens of repositories. ✅ backend caching/concurrency, frontend virtualization, and release-profile benchmark budgets are in place (§5.3, §11)
+- **G7 — Cross-platform parity**: first-class, equally fast experience on Windows, macOS, and Linux. ✅ CI verifies all three targets (§5.4)
 
 ## 3. Non-goals (for v1)
 
@@ -213,7 +213,7 @@ Implemented in `fjord-app/src/logging.rs` (`P4-14`):
 
 ## 11. Non-functional requirements and benchmarks
 
-Performance budgets (targets, measured on **release** builds; enforcement via benchmark checkpoints is `P4-18`):
+Performance budgets (targets, measured on **release** builds; enforced by the scheduled/manual release benchmark workflow from `P4-18`):
 
 | Scenario | Budget |
 |---|---|
@@ -222,12 +222,13 @@ Performance budgets (targets, measured on **release** builds; enforcement via be
 | `log` page (200 commits) on a 100k-commit repo | < 150 ms |
 | Commit-graph interaction (select/scroll) at 1k loaded commits | no dropped frames (< 16 ms/frame) |
 
-Measured checkpoints so far (recorded in [`benchmarks/`](benchmarks/), **dev profile** — treat as upper bounds, not representative numbers):
+Measured checkpoints so far (recorded in [`benchmarks/`](benchmarks/)):
 
 - [`p1-09.md`](benchmarks/p1-09.md) — single-repo open/status/log against synthetic fixtures (e.g. status ≈ 69 ms at 1 000 commits, dev profile).
 - [`p2-07.md`](benchmarks/p2-07.md) — dashboard refresh on a 24-repo synthetic workspace (cached read ≈ 0.5 ms; parallel uncached refresh bounded by the slowest repo).
+- [`p4-18-release.md`](benchmarks/p4-18-release.md) — release-profile budget checkpoint: 50k-commit single-repo log page ≈ 9.7 ms; 24-repo/60k-total-commit workspace live refresh ≈ 62 ms and cached dashboard read ≈ 0.1 ms.
 
-Methodology gap: checkpoints were recorded with the dev profile; re-record with `--release` and larger fixtures (50–200k commits) before drawing optimization conclusions.
+Release benchmark regression checks run weekly and on demand through `.github/workflows/benchmarks.yml`.
 
 ## 12. Implementation status
 
@@ -248,9 +249,9 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 | Risk | Mitigation |
 |---|---|
 | `gix` push/merge/rebase support matures slower than expected | `GitBackend` trait already isolates this — worst case, those calls stay on `git2` indefinitely with no architectural cost |
-| Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks in CI are still open (`P4-18`) |
+| Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks run weekly/on demand (`P4-18`) |
 | Generated TS domain types drift from Rust domain | `cargo test --workspace` includes the `fjord-domain` export drift check (`P4-11`) |
-| Large-monorepo performance is partly a claim: dev-profile numbers only | Re-record benchmarks in release profile with larger fixtures (`P4-18`) before optimizing blind |
+| Large-monorepo performance is partly a claim | Release-profile benchmarks now cover 50k single-repo history and a 60k-total-commit workspace (`P4-18`); expand toward 100k–200k fixtures when CI runtime budget allows |
 | SVG commit graph DOM cost on deep histories | Commit rows are virtualized (`P4-08`); re-evaluate a canvas renderer only if profiling still shows SVG edge cost inside the visible window |
 | Custom title bar vs. native OS conventions | Default to native decorations per-platform; only override where there's a clear UX win |
 
@@ -259,4 +260,4 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 - [`SDD.md`](SDD.md) (this document) — architecture, decisions, current state.
 - [`tasks.md`](tasks.md) — task board with statuses. **Replaces `plan.md`** (removed in v0.3; task IDs referenced from code and commits are unchanged).
 - [`specs/`](specs/) — per-subsystem contracts: [`git-backend.md`](specs/git-backend.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
-- [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`).
+- [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).

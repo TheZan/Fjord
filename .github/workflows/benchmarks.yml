@@ -1,0 +1,41 @@
+name: Release Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Single-repo log budget
+        run: >
+          cargo run --release -p fjord-bench --
+          --repo target/fjord-bench/p4-18-single-50k
+          --commits 50000
+          --files 200
+          --log-limit 200
+          --force
+          --budget-log-ms 150
+
+      - name: Workspace dashboard budgets
+        run: >
+          cargo run --release -p fjord-bench --
+          --repo target/fjord-bench/p4-18-workspace-60k
+          --workspace-repos 24
+          --commits 2500
+          --files 50
+          --force
+          --budget-live-refresh-ms 1000
+          --budget-cached-dashboard-ms 5

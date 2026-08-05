@@ -34,6 +34,9 @@ struct Args {
     files: usize,
     workspace_repos: usize,
     log_limit: u32,
+    budget_log_ms: Option<f64>,
+    budget_live_refresh_ms: Option<f64>,
+    budget_cached_dashboard_ms: Option<f64>,
     force: bool,
     profile_open: bool,
 }
@@ -46,6 +49,9 @@ impl Default for Args {
             files: 50,
             workspace_repos: 1,
             log_limit: 50,
+            budget_log_ms: None,
+            budget_live_refresh_ms: None,
+            budget_cached_dashboard_ms: None,
             force: false,
             profile_open: false,
         }
@@ -71,6 +77,24 @@ fn parse_args() -> Result<Args, String> {
             }
             "--log-limit" => {
                 args.log_limit = parse_u32(next_value(&mut iter, "--log-limit")?, "--log-limit")?
+            }
+            "--budget-log-ms" => {
+                args.budget_log_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-log-ms")?,
+                    "--budget-log-ms",
+                )?)
+            }
+            "--budget-live-refresh-ms" => {
+                args.budget_live_refresh_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-live-refresh-ms")?,
+                    "--budget-live-refresh-ms",
+                )?)
+            }
+            "--budget-cached-dashboard-ms" => {
+                args.budget_cached_dashboard_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-cached-dashboard-ms")?,
+                    "--budget-cached-dashboard-ms",
+                )?)
             }
             "--force" => args.force = true,
             "--profile-open" => args.profile_open = true,
@@ -109,8 +133,18 @@ fn parse_u32(value: String, flag: &str) -> Result<u32, String> {
         .map_err(|_| format!("{flag} must be a positive integer"))
 }
 
+fn parse_f64(value: String, flag: &str) -> Result<f64, String> {
+    let parsed = value
+        .parse()
+        .map_err(|_| format!("{flag} must be a positive number"))?;
+    if parsed <= 0.0 {
+        return Err(format!("{flag} must be greater than zero"));
+    }
+    Ok(parsed)
+}
+
 fn usage() -> String {
-    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--force] [--profile-open]".to_string()
+    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--budget-log-ms N] [--budget-live-refresh-ms N] [--budget-cached-dashboard-ms N] [--force] [--profile-open]".to_string()
 }
 
 fn prepare_repo_dir(path: &Path, force: bool) -> Result<bool, String> {
@@ -353,6 +387,25 @@ fn ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
+fn check_budget(name: &str, actual_ms: f64, budget_ms: Option<f64>) -> Result<(), String> {
+    let Some(budget_ms) = budget_ms else {
+        return Ok(());
+    };
+
+    let passed = actual_ms <= budget_ms;
+    println!(
+        "budget_{name}_ms={budget_ms:.3} actual_{name}_ms={actual_ms:.3} budget_{name}_ok={passed}"
+    );
+
+    if passed {
+        Ok(())
+    } else {
+        Err(format!(
+            "{name} exceeded budget: {actual_ms:.3} ms > {budget_ms:.3} ms"
+        ))
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args = parse_args()?;
@@ -400,7 +453,9 @@ async fn main() -> Result<(), String> {
     println!("log_commits={}", log.commits.len());
     println!("open_ms={:.3}", open_elapsed.as_secs_f64() * 1000.0);
     println!("status_ms={:.3}", status_elapsed.as_secs_f64() * 1000.0);
-    println!("log_ms={:.3}", log_elapsed.as_secs_f64() * 1000.0);
+    let log_ms = log_elapsed.as_secs_f64() * 1000.0;
+    println!("log_ms={log_ms:.3}");
+    check_budget("log", log_ms, args.budget_log_ms)?;
 
     Ok(())
 }
@@ -505,15 +560,23 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         "live_refresh_ms={:.3}",
         live_refresh_elapsed.as_secs_f64() * 1000.0
     );
+    let live_refresh_ms = live_refresh_elapsed.as_secs_f64() * 1000.0;
     println!(
         "cached_dashboard_ms={:.3}",
         cached_dashboard_elapsed.as_secs_f64() * 1000.0
     );
+    let cached_dashboard_ms = cached_dashboard_elapsed.as_secs_f64() * 1000.0;
     println!("global_search_hits={}", search_hits.len());
     println!(
         "global_search_ms={:.3}",
         search_elapsed.as_secs_f64() * 1000.0
     );
+    check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms)?;
+    check_budget(
+        "cached_dashboard",
+        cached_dashboard_ms,
+        args.budget_cached_dashboard_ms,
+    )?;
 
     Ok(())
 }
