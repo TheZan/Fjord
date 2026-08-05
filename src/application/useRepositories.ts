@@ -114,12 +114,18 @@ export function useRepositories(): UseRepositoriesResult {
     [repositoriesByWorkspace, selectedWorkspaceId],
   );
 
-  const createWorkspaceMutation = useMutation({ mutationFn: createWorkspaceCommand });
+  const createWorkspaceMutation = useMutation({
+    mutationFn: (name: string) => createWorkspaceCommand(name),
+  });
   const renameWorkspaceMutation = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => renameWorkspaceCommand(id, name),
   });
-  const deleteWorkspaceMutation = useMutation({ mutationFn: deleteWorkspaceCommand });
-  const reorderWorkspacesMutation = useMutation({ mutationFn: reorderWorkspaces });
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: (id: string) => deleteWorkspaceCommand(id),
+  });
+  const reorderWorkspacesMutation = useMutation({
+    mutationFn: (ids: string[]) => reorderWorkspaces(ids),
+  });
   const addRepositoryMutation = useMutation({
     mutationFn: ({ workspaceId, path }: { workspaceId: string; path: string }) =>
       addRepositoryCommand(workspaceId, path),
@@ -128,7 +134,9 @@ export function useRepositories(): UseRepositoriesResult {
     mutationFn: ({ workspaceId, root }: { workspaceId: string; root: string }) =>
       importRepositoriesCommand(workspaceId, root),
   });
-  const removeRepositoryMutation = useMutation({ mutationFn: removeRepositoryCommand });
+  const removeRepositoryMutation = useMutation({
+    mutationFn: (id: string) => removeRepositoryCommand(id),
+  });
 
   const invalidateWorkspace = useCallback(
     async (workspaceId: string) => {

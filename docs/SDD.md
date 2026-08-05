@@ -188,7 +188,8 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
   - ✅ `fjord-git`: integration tests against real fixture repositories (including this repository itself as the cheapest fixture).
   - ✅ `fjord-db`: store tests against a real SQLite database.
   - ✅ Frontend: unit tests for the pure algorithmic parts (`fileTree`, `graphLayout`) under `vitest`.
-  - 🚧 Missing: React component tests (RTL), contract tests mocking the IPC boundary at `infrastructure/`, integration tests of Tauri commands in `fjord-app`, `IdeLauncher` tests on real paths.
+  - ✅ Frontend component/hook tests: React Testing Library under jsdom, including `useRepositories` tests with the IPC boundary mocked at `infrastructure/` (`P4-09`).
+  - 🚧 Missing: integration tests of Tauri commands in `fjord-app`, `IdeLauncher` tests on real paths.
   - ✅ All of the above run in CI on every push/PR (`P0-09`, see §5.4).
 
 ## 9. Security
