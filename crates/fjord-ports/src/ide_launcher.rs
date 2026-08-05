@@ -10,6 +10,8 @@ use thiserror::Error;
 pub enum LaunchError {
     #[error("no IDE configured and none could be auto-detected")]
     NoIdeAvailable,
+    #[error("'{0}' is not a known IDE; use the 'custom:<command>' form to launch a custom editor")]
+    IdeNotAllowed(String),
     #[error("no terminal emulator could be found")]
     NoTerminalAvailable,
     #[error("failed to launch: {0}")]

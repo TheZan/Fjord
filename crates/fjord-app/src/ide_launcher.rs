@@ -95,9 +95,29 @@ fn known_terminal_commands() -> &'static [&'static str] {
     ]
 }
 
+/// Prefix that turns an arbitrary `ide` value into an intentional custom
+/// editor. Anything else must resolve through the allowlist below — an
+/// unrecognized bare string is rejected instead of being executed as a
+/// program name (docs/tasks.md P4-04, SDD §9).
+const CUSTOM_IDE_PREFIX: &str = "custom:";
+
 fn resolve_launch_command(ide: Option<&str>) -> Result<LaunchCommand, LaunchError> {
-    if let Some(ide) = ide.and_then(normalize_ide) {
-        return Ok(LaunchCommand::new(ide_command(&ide)));
+    if let Some(ide) = ide.map(str::trim).filter(|ide| !ide.is_empty()) {
+        if let Some(custom) = ide.strip_prefix(CUSTOM_IDE_PREFIX) {
+            let custom = custom.trim();
+            if custom.is_empty() {
+                return Err(LaunchError::IdeNotAllowed(ide.to_string()));
+            }
+            return Ok(LaunchCommand::new(custom));
+        }
+
+        let normalized = ide.to_ascii_lowercase();
+        let command = ide_command(&normalized);
+        return known_ide_commands()
+            .iter()
+            .find(|candidate| **candidate == command)
+            .map(|candidate| LaunchCommand::new(*candidate))
+            .ok_or_else(|| LaunchError::IdeNotAllowed(ide.to_string()));
     }
 
     for candidate in known_ide_commands() {
@@ -109,23 +129,21 @@ fn resolve_launch_command(ide: Option<&str>) -> Result<LaunchCommand, LaunchErro
     Err(LaunchError::NoIdeAvailable)
 }
 
-fn normalize_ide(ide: &str) -> Option<String> {
-    let trimmed = ide.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_ascii_lowercase())
-}
-
 fn ide_command(ide: &str) -> &str {
     match ide {
         "vscode" | "visual-studio-code" => "code",
-        "vscode-insiders" | "code-insiders" => "code-insiders",
-        "intellij" | "idea" => "idea",
+        "vscode-insiders" => "code-insiders",
+        "intellij" => "idea",
         other => other,
     }
 }
 
+/// The allowlist of launchable IDE CLI commands. `resolve_launch_command`
+/// only ever spawns one of these (or an explicit `custom:` editor).
 fn known_ide_commands() -> &'static [&'static str] {
     &[
         "code",
+        "code-insiders",
         "cursor",
         "windsurf",
         "zed",
@@ -149,16 +167,27 @@ fn command_available(command: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
+/// Shell-free `command -v` replacement: walks `PATH` directly instead of
+/// interpolating the name into `sh -c` (P4-04 — the old pattern was one
+/// unsanitized caller away from a shell injection).
 #[cfg(not(windows))]
 fn command_available(command: &str) -> bool {
-    Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {command}"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    use std::os::unix::fs::PermissionsExt;
+
+    fn is_executable(path: &Path) -> bool {
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+
+    if command.contains('/') {
+        return is_executable(Path::new(command));
+    }
+
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path_var).any(|dir| is_executable(&dir.join(command)))
 }
 
 #[cfg(test)]
@@ -178,10 +207,38 @@ mod tests {
     }
 
     #[test]
-    fn explicit_custom_ide_is_allowed() {
+    fn known_ide_commands_pass_the_allowlist() {
         assert_eq!(
-            resolve_launch_command(Some("custom-editor")).unwrap(),
-            LaunchCommand::new("custom-editor")
+            resolve_launch_command(Some("code-insiders")).unwrap(),
+            LaunchCommand::new("code-insiders")
         );
+        assert_eq!(
+            resolve_launch_command(Some("RustRover")).unwrap(),
+            LaunchCommand::new("rustrover")
+        );
+    }
+
+    #[test]
+    fn unknown_ide_is_rejected() {
+        assert!(matches!(
+            resolve_launch_command(Some("evil; rm -rf /")),
+            Err(LaunchError::IdeNotAllowed(_))
+        ));
+        assert!(matches!(
+            resolve_launch_command(Some("custom-editor")),
+            Err(LaunchError::IdeNotAllowed(_))
+        ));
+    }
+
+    #[test]
+    fn custom_prefix_is_the_explicit_escape_hatch() {
+        assert_eq!(
+            resolve_launch_command(Some("custom:my-editor")).unwrap(),
+            LaunchCommand::new("my-editor")
+        );
+        assert!(matches!(
+            resolve_launch_command(Some("custom:   ")),
+            Err(LaunchError::IdeNotAllowed(_))
+        ));
     }
 }

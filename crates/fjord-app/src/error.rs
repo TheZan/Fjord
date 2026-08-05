@@ -64,6 +64,7 @@ impl From<RepoError> for AppError {
 fn launch_error_to_app_error(err: LaunchError) -> AppError {
     let code = match &err {
         LaunchError::NoIdeAvailable => "no_ide_available",
+        LaunchError::IdeNotAllowed(_) => "ide_not_allowed",
         LaunchError::NoTerminalAvailable => "no_terminal_available",
         LaunchError::SpawnFailed(_) => "ide_launch_failed",
     };
