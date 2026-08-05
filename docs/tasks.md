@@ -84,7 +84,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 - [ ] **P4-13** — Parallelize `RepoService::global_search` through the existing bounded worker pool; benchmark on a 24+-repo workspace in `fjord-bench`.
 - [ ] **P4-14** — File logging: `tracing-subscriber` + `tracing-appender` (rotating) in the app data dir, per the contract in SDD §10.
 - [ ] **P4-15** — Watcher coverage: recursive working-tree watch (with ignores for generated directories) plus a debounce layer inside `fjord-fs`, so edits below the repo root invalidate the status cache. Integration-test it. See SDD §5.3.
-- [ ] **P4-16** — i18n tooling from [`specs/i18n.md`](specs/i18n.md): `scripts/check-i18n.ts` (catalog key diff, wire into CI) and `locales/glossary.md`.
+- [x] **P4-16** — i18n tooling from [`specs/i18n.md`](specs/i18n.md): `scripts/check-i18n.ts` (catalog key diff, `npm run check-i18n`) and `src/locales/en/glossary.md`. CI wiring happens with P0-09.
 
 ### 4d. Long-term (quarter+)
 

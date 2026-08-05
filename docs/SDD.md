@@ -150,9 +150,9 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 - ✅ **Locale detection**: OS locale on first launch if supported, else English; user override persisted through `SettingsStore`, applied instantly without restart.
 - ✅ Russian plural forms are handled correctly via i18next plural suffixes.
 - **Preserving technical terms** («не затирать технические термины»):
-  1. 🚧 A **glossary file** (`locales/glossary.md`) listing Git vocabulary that stays untranslated or uses one fixed rendering (`commit`, `rebase`, `stash` stay Latin; `branch` → «ветка»). Not written yet (`P4-16`).
+  1. ✅ A **glossary file** (`src/locales/en/glossary.md`) listing Git vocabulary that stays untranslated or uses one fixed rendering (`commit`, `rebase`, `stash` stay Latin; `branch` → «ветка»). Written as part of `P4-16`.
   2. ✅ Terms inside translated sentences are interpolated as variables (`t('mergedInto', { branch })`) — branch names, SHAs, and command names are never mangled by translation.
-- 🚧 **CI check**: a script (`scripts/check-i18n.ts`) diffing every non-English catalog's key set against `en/*.json`, failing the build on missing/orphaned keys. Specified in [`specs/i18n.md`](specs/i18n.md), not implemented (`P4-16`).
+- ⚠️ **CI check**: `scripts/check-i18n.ts` diffs every non-English catalog's key set against `en/*.json` (plural suffixes normalized) and exits non-zero on missing/orphaned keys — run via `npm run check-i18n` (`P4-16`). Wiring it into CI is part of `P0-09`, which is still open.
 
 ### 6.3 Theming ✅
 
