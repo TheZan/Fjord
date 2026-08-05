@@ -63,7 +63,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 
 ### 4a. Quick wins (days)
 
-- [ ] **P4-01** — Set a strict Content Security Policy (currently `csp: null` in `src-tauri/tauri.conf.json`). See SDD §9. Verify both dev and production builds still work.
+- [x] **P4-01** — Set a strict Content Security Policy (currently `csp: null` in `src-tauri/tauri.conf.json`). See SDD §9. Verify both dev and production builds still work.
 - [ ] **P4-02** — Graceful startup errors: replace the `expect` calls in `fjord-app` bootstrap (app data dir, DB open) with an error dialog instead of a panic. See SDD §9.
 - [ ] **P4-03** — Memoize the commit-graph layout: wrap `computeGraphLayout(commits)` in `useMemo` in `CommitGraph.tsx`. Verify with React Profiler.
 - [ ] **P4-04** — Harden `IdeLauncher`: explicit allowlist for launchable IDEs (keep "custom editor" as an explicit, clearly-scoped setting) and shell-free availability lookup instead of `sh -c` string formatting. Unit-test `resolve_launch_command`. See SDD §9.
