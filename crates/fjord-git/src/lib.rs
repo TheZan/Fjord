@@ -1236,6 +1236,27 @@ mod tests {
         std::fs::write(repo.0.join(path), content).unwrap();
     }
 
+    async fn repo_with_changed_head() -> (TempDir, RepoPath, String) {
+        let (dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+
+        write_file(&repo_path, "README.md", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        write_file(&repo_path, "README.md", "base\nupdated\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let head = backend.commit(&repo_path, "Update readme").await.unwrap();
+
+        (dir, repo_path, head)
+    }
+
     #[tokio::test]
     async fn status_reports_a_branch_name() {
         let backend = GixGitBackend::new();
@@ -1293,38 +1314,35 @@ mod tests {
 
     #[tokio::test]
     async fn diff_reports_changed_files_for_head() {
+        let (_dir, repo_path, head) = repo_with_changed_head().await;
         let backend = GixGitBackend::new();
-        let page = backend.log(&this_repo_path(), None, 1).await.unwrap();
-        let head = &page.commits[0].id.0;
 
-        let files = backend.diff(&this_repo_path(), head).await.unwrap();
-        assert!(
-            !files.is_empty(),
-            "HEAD should have touched at least one file"
-        );
+        let files = backend.diff(&repo_path, &head).await.unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "README.md");
+        assert_eq!(files[0].change_type, FileChangeType::Modified);
+        assert_eq!(files[0].additions, 1);
+        assert_eq!(files[0].deletions, 0);
     }
 
     #[tokio::test]
     async fn file_diff_reports_hunks_for_a_file_changed_in_head() {
+        let (_dir, repo_path, head) = repo_with_changed_head().await;
         let backend = GixGitBackend::new();
-        let page = backend.log(&this_repo_path(), None, 1).await.unwrap();
-        let head = &page.commits[0].id.0;
-        let files = backend.diff(&this_repo_path(), head).await.unwrap();
-        let file = files
-            .first()
-            .expect("HEAD should have touched at least one file");
 
         let detail = backend
-            .file_diff(&this_repo_path(), head, &file.path)
+            .file_diff(&repo_path, &head, "README.md")
             .await
             .unwrap();
-        assert_eq!(detail.path, file.path);
-        if !detail.is_binary {
-            assert!(!detail.hunks.is_empty());
-            for hunk in &detail.hunks {
-                assert!(!hunk.lines.is_empty());
-            }
-        }
+        assert_eq!(detail.path, "README.md");
+        assert!(!detail.is_binary);
+        assert!(!detail.hunks.is_empty());
+        assert!(detail
+            .hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .any(|line| line.kind == DiffLineKind::Addition && line.content == "updated"));
     }
 
     #[tokio::test]
