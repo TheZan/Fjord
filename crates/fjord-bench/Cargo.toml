@@ -8,5 +8,7 @@ license.workspace = true
 fjord-db.workspace = true
 fjord-git.workspace = true
 fjord-ports.workspace = true
+fjord-services.workspace = true
+async-trait.workspace = true
 git2 = "0.21"
 tokio.workspace = true

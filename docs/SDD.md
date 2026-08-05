@@ -113,7 +113,7 @@ Approach, item by item:
 - ✅ **gix for the hot read paths** (status, diff, log) — avoids libgit2's process-wide locking and is competitive-to-faster on large trees.
 - ✅ **Commit graph is paginated/lazy** on the backend: `log(repo, cursor, limit)` with a "Load earlier commits" affordance in the UI.
 - 🚧 **Frontend list virtualization** (e.g. `@tanstack/react-virtual`) for lists that scale with repo/commit/file count. Not implemented: commit graph and repository lists currently render every row (`P4-08`). This is the missing half of the pagination story — the backend never loads a 200k-commit history at once, but the frontend renders every loaded row into the DOM.
-- ⚠️ **Global search** currently walks repositories sequentially in `RepoService::global_search`; it should reuse the bounded worker pool (`P4-13`).
+- ✅ **Global search** fans out across repositories through the same bounded worker pool as bulk operations, preserving deterministic result order before the global limit cut (`P4-13`); `fjord-bench --workspace-repos N` reports `global_search_ms`.
 
 Measured numbers and budgets: see §11.
 

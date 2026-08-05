@@ -6,10 +6,24 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use fjord_db::SqliteWorkspaceStore;
+use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_git::GixGitBackend;
-use fjord_ports::{GitBackend, RepoPath, WorkspaceStore};
+use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
+use fjord_services::RepoService;
 use git2::{Repository, RepositoryInitOptions, Signature};
+
+/// `RepoService` needs an `IdeLauncher`; the benchmark never launches one.
+struct NoopIdeLauncher;
+
+#[async_trait::async_trait]
+impl IdeLauncher for NoopIdeLauncher {
+    async fn open(&self, _path: &Path, _ide: Option<&str>) -> Result<(), LaunchError> {
+        Ok(())
+    }
+    async fn open_terminal(&self, _path: &Path) -> Result<(), LaunchError> {
+        Ok(())
+    }
+}
 
 const MARKER_FILE: &str = ".fjord-synthetic-repo";
 
@@ -373,11 +387,12 @@ async fn main() -> Result<(), String> {
 async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     let generated = prepare_workspace_dir(&args.repo, args.force)?;
 
-    let backend = GixGitBackend::new();
+    let backend = Arc::new(GixGitBackend::new());
     let pool = fjord_db::connect(Path::new(":memory:"))
         .await
         .map_err(|e| e.to_string())?;
-    let store = SqliteWorkspaceStore::new(pool);
+    let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
+    let store = Arc::new(SqliteWorkspaceStore::new(pool));
     let workspace = store
         .create_workspace("Synthetic workspace")
         .await
@@ -424,6 +439,21 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let cached_dashboard_elapsed = cached_dashboard_start.elapsed();
 
+    // Global search across every repo in the workspace (P4-13): a commit
+    // query is the worst case — it forces a bounded `log` scan per repo.
+    let repo_service = RepoService::new(
+        store.clone(),
+        settings_store,
+        backend.clone(),
+        Arc::new(NoopIdeLauncher),
+    );
+    let search_start = Instant::now();
+    let search_hits = repo_service
+        .global_search(Some(workspace.id), "synthetic commit 1", 30)
+        .await
+        .map_err(|e| e.to_string())?;
+    let search_elapsed = search_start.elapsed();
+
     let need_attention = dashboard
         .iter()
         .filter(|summary| {
@@ -457,6 +487,11 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     println!(
         "cached_dashboard_ms={:.3}",
         cached_dashboard_elapsed.as_secs_f64() * 1000.0
+    );
+    println!("global_search_hits={}", search_hits.len());
+    println!(
+        "global_search_ms={:.3}",
+        search_elapsed.as_secs_f64() * 1000.0
     );
 
     Ok(())

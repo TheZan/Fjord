@@ -96,87 +96,43 @@ impl RepoService {
             Some(workspace_id) => self.workspaces.list_repositories(workspace_id).await?,
             None => self.workspaces.list_all_repositories().await?,
         };
-        let mut results = Vec::new();
 
-        for repo in repos {
-            if results.len() >= limit as usize {
-                break;
-            }
+        // Repositories are searched concurrently through the same bounded
+        // pool as bulk operations (docs/tasks.md P4-13) — the wall-clock
+        // cost tracks the slowest repo, not the sum. Each repo caps its own
+        // hits at `limit`; the merged list preserves the store's repository
+        // order (so results stay deterministic) before the global cut.
+        let semaphore = std::sync::Arc::new(Semaphore::new(BULK_WORKER_LIMIT));
+        let mut tasks = JoinSet::new();
 
-            let repo_path = repo.path.to_string_lossy().to_string();
-            if matches_search(&query, [repo.name.as_str(), repo_path.as_str()]) {
-                results.push(GlobalSearchResult {
-                    kind: SearchResultKind::Repository,
-                    repo_id: repo.id,
-                    workspace_id: repo.workspace_id,
-                    repo_name: repo.name.clone(),
-                    repo_path: repo.path.clone(),
-                    branch: None,
-                    commit: None,
-                });
-            }
-
-            if results.len() >= limit as usize {
-                break;
-            }
-
-            let repo_path = RepoPath::new(repo.path.clone());
-            if let Ok(branches) = self.git.branches(&repo_path).await {
-                for branch in branches {
-                    if results.len() >= limit as usize {
-                        break;
-                    }
-                    if matches_search(&query, [branch.name.as_str()]) {
-                        results.push(GlobalSearchResult {
-                            kind: SearchResultKind::Branch,
-                            repo_id: repo.id,
-                            workspace_id: repo.workspace_id,
-                            repo_name: repo.name.clone(),
-                            repo_path: repo.path.clone(),
-                            branch: Some(branch.name),
-                            commit: None,
-                        });
-                    }
-                }
-            }
-
-            if results.len() >= limit as usize {
-                break;
-            }
-
-            if let Ok(page) = self
-                .git
-                .log(&repo_path, None, SEARCH_COMMIT_SCAN_LIMIT)
+        for (index, repo) in repos.into_iter().enumerate() {
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
                 .await
-            {
-                for commit in page.commits {
-                    if results.len() >= limit as usize {
-                        break;
-                    }
-                    let commit_id = commit.id.0.as_str();
-                    if matches_search(
-                        &query,
-                        [
-                            commit_id,
-                            commit.message.as_str(),
-                            commit.author_name.as_str(),
-                            commit.author_email.as_str(),
-                        ],
-                    ) {
-                        results.push(GlobalSearchResult {
-                            kind: SearchResultKind::Commit,
-                            repo_id: repo.id,
-                            workspace_id: repo.workspace_id,
-                            repo_name: repo.name.clone(),
-                            repo_path: repo.path.clone(),
-                            branch: None,
-                            commit: Some(commit),
-                        });
-                    }
-                }
-            }
+                .expect("search semaphore should stay open");
+            let git = self.git.clone();
+            let query = query.clone();
+            tasks.spawn(async move {
+                let hits = search_repository(git, repo, &query, limit as usize).await;
+                drop(permit);
+                (index, hits)
+            });
         }
 
+        let mut per_repo = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            if let Ok(entry) = result {
+                per_repo.push(entry);
+            }
+        }
+        per_repo.sort_by_key(|(index, _)| *index);
+
+        let mut results: Vec<GlobalSearchResult> = per_repo
+            .into_iter()
+            .flat_map(|(_, hits)| hits)
+            .collect();
+        results.truncate(limit as usize);
         Ok(results)
     }
 
@@ -400,6 +356,85 @@ where
     values
         .into_iter()
         .any(|value| value.to_lowercase().contains(query))
+}
+
+/// Searches a single repository's name/path, branches, and a bounded slice
+/// of recent commits. `query` is already trimmed and lowercased. Hits are
+/// capped at `limit` — the caller applies the global limit after merging.
+async fn search_repository(
+    git: std::sync::Arc<dyn GitBackend>,
+    repo: RepositoryEntry,
+    query: &str,
+    limit: usize,
+) -> Vec<GlobalSearchResult> {
+    let mut hits = Vec::new();
+
+    let repo_path_text = repo.path.to_string_lossy().to_string();
+    if matches_search(query, [repo.name.as_str(), repo_path_text.as_str()]) {
+        hits.push(GlobalSearchResult {
+            kind: SearchResultKind::Repository,
+            repo_id: repo.id,
+            workspace_id: repo.workspace_id,
+            repo_name: repo.name.clone(),
+            repo_path: repo.path.clone(),
+            branch: None,
+            commit: None,
+        });
+    }
+
+    let repo_path = RepoPath::new(repo.path.clone());
+    if let Ok(branches) = git.branches(&repo_path).await {
+        for branch in branches {
+            if hits.len() >= limit {
+                return hits;
+            }
+            if matches_search(query, [branch.name.as_str()]) {
+                hits.push(GlobalSearchResult {
+                    kind: SearchResultKind::Branch,
+                    repo_id: repo.id,
+                    workspace_id: repo.workspace_id,
+                    repo_name: repo.name.clone(),
+                    repo_path: repo.path.clone(),
+                    branch: Some(branch.name),
+                    commit: None,
+                });
+            }
+        }
+    }
+
+    if hits.len() >= limit {
+        return hits;
+    }
+
+    if let Ok(page) = git.log(&repo_path, None, SEARCH_COMMIT_SCAN_LIMIT).await {
+        for commit in page.commits {
+            if hits.len() >= limit {
+                break;
+            }
+            let commit_id = commit.id.0.as_str();
+            if matches_search(
+                query,
+                [
+                    commit_id,
+                    commit.message.as_str(),
+                    commit.author_name.as_str(),
+                    commit.author_email.as_str(),
+                ],
+            ) {
+                hits.push(GlobalSearchResult {
+                    kind: SearchResultKind::Commit,
+                    repo_id: repo.id,
+                    workspace_id: repo.workspace_id,
+                    repo_name: repo.name.clone(),
+                    repo_path: repo.path.clone(),
+                    branch: None,
+                    commit: Some(commit),
+                });
+            }
+        }
+    }
+
+    hits
 }
 
 async fn run_bulk<F, Fut>(repos: Vec<RepositoryEntry>, operation: F) -> Vec<BulkRepoResult>
@@ -831,6 +866,17 @@ mod tests {
             result.kind == SearchResultKind::Commit
                 && result.commit.as_ref().map(|commit| commit.id.0.as_str()) == Some("abc123")
         }));
+    }
+
+    #[tokio::test]
+    async fn global_search_respects_the_global_limit() {
+        let (_, _, _, service) = service_with_fake_git();
+
+        // "a" hits the repository name, the branch, and the commit message —
+        // the limit must cut the merged list, not just each category.
+        let results = service.global_search(None, "a", 2).await.unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].kind, SearchResultKind::Repository);
     }
 
     #[tokio::test]
