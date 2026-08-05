@@ -67,7 +67,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 - [x] **P4-02** — Graceful startup errors: replace the `expect` calls in `fjord-app` bootstrap (app data dir, DB open) with an error dialog instead of a panic. See SDD §9.
 - [x] **P4-03** — Memoize the commit-graph layout: wrap `computeGraphLayout(commits)` in `useMemo` in `CommitGraph.tsx`. Verify with React Profiler.
 - [x] **P4-04** — Harden `IdeLauncher`: explicit allowlist for launchable IDEs (keep "custom editor" as an explicit, clearly-scoped setting) and shell-free availability lookup instead of `sh -c` string formatting. Unit-test `resolve_launch_command`. See SDD §9.
-- [ ] **P4-05** — Localize the hardcoded `"My workspace"` default in `App.tsx` through the i18n catalog.
+- [x] **P4-05** — Localize the hardcoded `"My workspace"` default in `App.tsx` through the i18n catalog. (Already localized as `onboarding.defaultWorkspaceName` in both catalogs — verified, nothing left to change.)
 - [x] **P4-06** — Sync documentation with the implementation: SDD reworked to v0.3 (statuses, security/observability/NFR sections, actual schema), `plan.md` merged into this file, README roadmap/stack updated.
 
 ### 4b. High-importance fixes (1–3 weeks)
