@@ -37,12 +37,17 @@ export function RepoTree({
   const normalizedFilter = filter.trim().toLocaleLowerCase();
   const matches = (name: string) => !normalizedFilter || name.toLocaleLowerCase().includes(normalizedFilter);
 
-  const hasRemote = branches.some((branch) => branch.isRemote);
-  const local = branches.filter((branch) => !branch.isRemote && matches(branch.name));
-  const remote = branches.filter((branch) => branch.isRemote && matches(branch.name));
+  const visibleLocalBranches = branches.filter((branch) => !branch.isRemote);
+  const local = visibleLocalBranches.filter((branch) => matches(branch.name));
+  const visibleRemoteBranches = branches.filter(
+    (branch) => branch.isRemote && remoteBranchDisplayName(branch.name) !== null,
+  );
+  const remote = visibleRemoteBranches.filter((branch) =>
+    matches(remoteBranchDisplayName(branch.name) ?? branch.name),
+  );
   const filteredTags = tags.filter((tag) => matches(tag.name));
 
-  const totalCount = branches.length + tags.length;
+  const totalCount = visibleLocalBranches.length + visibleRemoteBranches.length + tags.length;
   const matchedCount = local.length + remote.length + filteredTags.length;
 
   function toggle(key: SectionKey) {
@@ -113,7 +118,7 @@ export function RepoTree({
           ))}
         </TreeSection>
 
-        {hasRemote && (
+        {visibleRemoteBranches.length > 0 && (
           <TreeSection
             label={t("tree.remote")}
             count={remote.length}
@@ -205,6 +210,9 @@ function BranchRow({
   currentLabel: string;
   onCheckout?: (branch: string) => void;
 }) {
+  const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
+  if (displayName === null) return null;
+
   return (
     <li>
       <button
@@ -218,7 +226,7 @@ function BranchRow({
         className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left disabled:cursor-default"
         style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
       >
-        <code className="min-w-0 truncate font-mono text-xs">{branch.name}</code>
+        <code className="min-w-0 truncate font-mono text-xs">{displayName}</code>
         {branch.isCurrent && (
           <span className="shrink-0 text-xs" style={{ color: "var(--fjord-ink)" }}>
             {currentLabel}
@@ -227,6 +235,13 @@ function BranchRow({
       </button>
     </li>
   );
+}
+
+function remoteBranchDisplayName(name: string) {
+  const slash = name.indexOf("/");
+  if (slash === -1) return name === "HEAD" ? null : name;
+  const localName = name.slice(slash + 1);
+  return localName === "HEAD" || localName.trim() === "" ? null : localName;
 }
 
 function TagRow({ tag }: { tag: TagInfo }) {

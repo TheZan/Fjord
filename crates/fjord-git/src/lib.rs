@@ -362,7 +362,7 @@ impl GixGitBackend {
         branch: &str,
     ) -> Result<String, GitError> {
         if let Some(remote_branch) = branch.strip_prefix("refs/remotes/") {
-            return Self::local_tracking_refname(git, remote_branch);
+            return Self::checkout_remote_tracking_branch(git, remote_branch);
         }
 
         if branch.starts_with("refs/") {
@@ -375,9 +375,8 @@ impl GixGitBackend {
             return Ok(local_refname);
         }
 
-        let remote_refname = format!("refs/remotes/{branch}");
-        if git.find_reference(&remote_refname).is_ok() {
-            return Self::local_tracking_refname(git, branch);
+        if Self::remote_branch_parts(git, branch).is_some() {
+            return Self::checkout_remote_tracking_branch(git, branch);
         }
 
         git.find_reference(&local_refname)
@@ -385,15 +384,30 @@ impl GixGitBackend {
         Ok(local_refname)
     }
 
-    fn local_tracking_refname(
+    fn checkout_remote_tracking_branch(
         git: &git2::Repository,
         remote_branch: &str,
     ) -> Result<String, GitError> {
-        let local_name = Self::local_name_for_remote_branch(remote_branch).ok_or_else(|| {
-            GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
-        })?;
+        let (remote_name, local_name) =
+            Self::remote_branch_parts(git, remote_branch).ok_or_else(|| {
+                GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
+            })?;
+        let refspec = format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}");
+        Self::fetch_remote_with_context(
+            git,
+            remote_name,
+            &[refspec.as_str()],
+            GitOperationContext::default(),
+        )?;
+
         let local_refname = format!("refs/heads/{local_name}");
         if git.find_reference(&local_refname).is_ok() {
+            if let Ok(mut local_branch) = git.find_branch(local_name, git2::BranchType::Local) {
+                local_branch
+                    .set_upstream(Some(remote_branch))
+                    .map_err(Self::map_git2_error)?;
+            }
+            Self::fast_forward_local_to_remote(git, &local_refname, remote_branch)?;
             return Ok(local_refname);
         }
 
@@ -411,9 +425,65 @@ impl GixGitBackend {
         Ok(local_refname)
     }
 
-    fn local_name_for_remote_branch(remote_branch: &str) -> Option<&str> {
-        let (_, local_name) = remote_branch.split_once('/')?;
-        (!local_name.trim().is_empty()).then_some(local_name)
+    fn fast_forward_local_to_remote(
+        git: &git2::Repository,
+        local_refname: &str,
+        remote_branch: &str,
+    ) -> Result<(), GitError> {
+        let remote_refname = format!("refs/remotes/{remote_branch}");
+        let mut local_ref = git
+            .find_reference(local_refname)
+            .map_err(Self::map_git2_error)?;
+        let remote_ref = git
+            .find_reference(&remote_refname)
+            .map_err(Self::map_git2_error)?;
+        let local_oid = local_ref
+            .peel_to_commit()
+            .map_err(Self::map_git2_error)?
+            .id();
+        let remote_oid = remote_ref
+            .peel_to_commit()
+            .map_err(Self::map_git2_error)?
+            .id();
+        let (ahead, behind) = git
+            .graph_ahead_behind(local_oid, remote_oid)
+            .map_err(Self::map_git2_error)?;
+
+        if behind == 0 {
+            return Ok(());
+        }
+        if ahead > 0 {
+            return Err(GitError::Git2(format!(
+                "{local_refname} has diverged from {remote_refname}"
+            )));
+        }
+
+        if Self::current_branch_refname(git).is_ok_and(|current| current == local_refname) {
+            let remote_commit = git
+                .reference_to_annotated_commit(&remote_ref)
+                .map_err(Self::map_git2_error)?;
+            return Self::fast_forward(git, local_refname, &remote_commit);
+        }
+
+        local_ref
+            .set_target(
+                remote_oid,
+                &format!("Fast-forward {local_refname} to {remote_oid}"),
+            )
+            .map_err(Self::map_git2_error)?;
+        Ok(())
+    }
+
+    fn remote_branch_parts<'a>(
+        git: &git2::Repository,
+        remote_branch: &'a str,
+    ) -> Option<(&'a str, &'a str)> {
+        let (remote_name, local_name) = remote_branch.split_once('/')?;
+        if local_name.trim().is_empty() || local_name == "HEAD" {
+            return None;
+        }
+        git.find_remote(remote_name).ok()?;
+        Some((remote_name, local_name))
     }
 
     /// An owned signature. `Repository::signature` borrows the repo, which
@@ -646,8 +716,15 @@ impl GitBackend for GixGitBackend {
                 .map_err(|e| GitError::Gix(e.to_string()))?
             {
                 let branch = branch.map_err(|e| GitError::Gix(e.to_string()))?;
+                let name = branch.name().shorten().to_string();
+                if name
+                    .split_once('/')
+                    .is_some_and(|(_, local_name)| local_name == "HEAD")
+                {
+                    continue;
+                }
                 out.push(BranchInfo {
-                    name: branch.name().shorten().to_string(),
+                    name,
                     is_current: false,
                     is_remote: true,
                     upstream: None,
@@ -1326,7 +1403,7 @@ impl GitBackend for GixGitBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use git2::{BranchType, Repository, RepositoryInitOptions, Status};
+    use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -1399,6 +1476,37 @@ mod tests {
         let backend = GixGitBackend::new();
         let branches = backend.branches(&this_repo_path()).await.unwrap();
         assert!(branches.iter().any(|b| b.is_current));
+    }
+
+    #[tokio::test]
+    async fn branches_excludes_remote_head_aliases() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.reference("refs/remotes/origin/main", head.id(), true, "seed remote")
+            .unwrap();
+        repo.reference(
+            "refs/remotes/origin/HEAD",
+            head.id(),
+            true,
+            "seed remote head",
+        )
+        .unwrap();
+        drop(head);
+        drop(repo);
+
+        let branches = backend.branches(&repo_path).await.unwrap();
+
+        assert!(branches.iter().any(|branch| branch.name == "origin/main"));
+        assert!(!branches.iter().any(|branch| branch.name == "origin/HEAD"));
     }
 
     #[tokio::test]
@@ -1554,6 +1662,9 @@ mod tests {
     #[tokio::test]
     async fn checkout_remote_branch_creates_local_tracking_branch() {
         let (_dir, repo_path) = empty_repo();
+        let remote_dir = TempDir::new().unwrap();
+        Repository::init_bare(remote_dir.path()).unwrap();
+
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "# Fjord\n");
         backend
@@ -1563,18 +1674,24 @@ mod tests {
         backend.commit(&repo_path, "Initial commit").await.unwrap();
 
         let repo = Repository::open(&repo_path.0).unwrap();
-        repo.remote("origin", "https://example.invalid/fjord.git")
+        repo.remote("origin", remote_dir.path().to_str().unwrap())
             .unwrap();
         let head = repo.head().unwrap().peel_to_commit().unwrap();
-        repo.reference(
-            "refs/remotes/origin/feature",
-            head.id(),
-            true,
-            "seed remote",
-        )
-        .unwrap();
+        repo.branch("feature", &head, false).unwrap();
         drop(head);
         drop(repo);
+
+        backend
+            .push(&repo_path, "refs/heads/feature:refs/heads/feature")
+            .await
+            .unwrap();
+
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .find_branch("feature", BranchType::Local)
+            .unwrap()
+            .delete()
+            .unwrap();
 
         backend
             .checkout(&repo_path, "origin/feature")
@@ -1587,6 +1704,99 @@ mod tests {
         assert_eq!(
             branch.upstream().unwrap().name().unwrap(),
             Some("origin/feature")
+        );
+    }
+
+    #[tokio::test]
+    async fn checkout_remote_branch_fast_forwards_existing_local_branch() {
+        let (_dir, repo_path) = empty_repo();
+        let remote_dir = TempDir::new().unwrap();
+        Repository::init_bare(remote_dir.path()).unwrap();
+
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "main\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .remote("origin", remote_dir.path().to_str().unwrap())
+            .unwrap();
+        backend
+            .push(&repo_path, "refs/heads/main:refs/heads/main")
+            .await
+            .unwrap();
+
+        backend
+            .create_branch(&repo_path, "feature", true)
+            .await
+            .unwrap();
+        write_file(&repo_path, "README.md", "feature v1\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let stale_oid = backend.commit(&repo_path, "Feature v1").await.unwrap();
+        backend
+            .push(&repo_path, "refs/heads/feature:refs/heads/feature")
+            .await
+            .unwrap();
+        backend.checkout(&repo_path, "main").await.unwrap();
+
+        let clone_dir = TempDir::new().unwrap();
+        Repository::clone(remote_dir.path().to_str().unwrap(), clone_dir.path()).unwrap();
+        let clone_path = RepoPath(clone_dir.path().to_path_buf());
+        let clone = Repository::open(&clone_path.0).unwrap();
+        let mut config = clone.config().unwrap();
+        config.set_str("user.name", "Fjord Test").unwrap();
+        config.set_str("user.email", "fjord@example.com").unwrap();
+        config.set_bool("core.autocrlf", false).unwrap();
+        let feature = clone
+            .find_reference("refs/remotes/origin/feature")
+            .unwrap()
+            .peel_to_commit()
+            .unwrap();
+        clone.branch("feature", &feature, false).unwrap();
+        clone.set_head("refs/heads/feature").unwrap();
+        clone
+            .checkout_head(Some(CheckoutBuilder::new().safe()))
+            .unwrap();
+        drop(feature);
+        drop(config);
+        drop(clone);
+
+        write_file(&clone_path, "README.md", "feature v2\n");
+        backend
+            .stage(&clone_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let remote_oid = backend.commit(&clone_path, "Feature v2").await.unwrap();
+        backend
+            .push(&clone_path, "refs/heads/feature:refs/heads/feature")
+            .await
+            .unwrap();
+
+        backend
+            .checkout(&repo_path, "origin/feature")
+            .await
+            .unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
+        assert_eq!(
+            repo.find_reference("refs/heads/feature")
+                .unwrap()
+                .target()
+                .unwrap(),
+            Oid::from_str(&remote_oid).unwrap()
+        );
+        assert_ne!(stale_oid, remote_oid);
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "feature v2\n"
         );
     }
 
