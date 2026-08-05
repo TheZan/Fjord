@@ -151,18 +151,21 @@ export function CommitGraph({
     );
   }
 
+  const searchResultLabel =
+    visibleLoading && searchActive
+      ? t("commits.loading")
+      : t("commits.searchCount", { count: searchActive ? rows.length : 0 });
+
   return (
     <div
-      ref={parentRef}
-      className="h-full w-full overflow-auto rounded-lg border text-sm"
+      className="relative h-full w-full overflow-hidden rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <GraphHeader gutterWidth={gutterWidth} />
       {searchOpen && (
         <GraphSearchBar
-          gutterWidth={gutterWidth}
           inputRef={searchInputRef}
           searchQuery={searchQuery}
+          resultLabel={searchResultLabel}
           onSearchQueryChange={setSearchQuery}
           onClose={() => {
             setSearchOpen(false);
@@ -170,73 +173,76 @@ export function CommitGraph({
           }}
         />
       )}
-      {workingFileCount > 0 && onSelectWorking && (
-        <WorkingRow
-          gutterWidth={gutterWidth}
-          fileCount={workingFileCount}
-          selected={workingSelected}
-          onSelect={onSelectWorking}
-        />
-      )}
-      <div
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          position: "relative",
-          width: "100%",
-        }}
-      >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const row = rows[virtualRow.index];
-
-          return (
-            <div
-              key={row.commit.id}
-              style={{
-                height: `${virtualRow.size}px`,
-                left: 0,
-                position: "absolute",
-                top: 0,
-                transform: `translateY(${virtualRow.start}px)`,
-                width: "100%",
-              }}
-            >
-              <CommitRow
-                row={row}
-                gutterWidth={gutterWidth}
-                locale={i18n.language}
-                currentBranch={currentBranch ?? null}
-                branchByName={branchByName}
-                tagNames={tagNames}
-                selected={row.commit.id === selectedCommitId}
-                onSelect={onSelectCommit}
-                onCheckout={onCheckout}
-              />
-            </div>
-          );
-        })}
-      </div>
-      <div className="p-2 text-center">
-        {searchActive ? (
-          <span className="text-xs" style={{ color: "var(--mist)" }}>
-            {visibleLoading
-              ? t("commits.loading")
-              : rows.length === 0
-                ? t("commits.searchEmpty")
-                : t("commits.searchCount", { count: rows.length })}
-          </span>
-        ) : hasMore ? (
-          loading && (
-            <span className="text-xs" style={{ color: "var(--mist)" }}>
-              {t("commits.loading")}
-            </span>
-          )
-        ) : (
-          !loading && (
-            <span className="text-xs" style={{ color: "var(--mist)" }}>
-              {t("commits.end")}
-            </span>
-          )
+      <div ref={parentRef} className="h-full w-full overflow-auto">
+        <GraphHeader gutterWidth={gutterWidth} />
+        {workingFileCount > 0 && onSelectWorking && (
+          <WorkingRow
+            gutterWidth={gutterWidth}
+            fileCount={workingFileCount}
+            selected={workingSelected}
+            onSelect={onSelectWorking}
+          />
         )}
+        <div
+          style={{
+            height: `${rowVirtualizer.getTotalSize()}px`,
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index];
+
+            return (
+              <div
+                key={row.commit.id}
+                style={{
+                  height: `${virtualRow.size}px`,
+                  left: 0,
+                  position: "absolute",
+                  top: 0,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  width: "100%",
+                }}
+              >
+                <CommitRow
+                  row={row}
+                  gutterWidth={gutterWidth}
+                  locale={i18n.language}
+                  currentBranch={currentBranch ?? null}
+                  branchByName={branchByName}
+                  tagNames={tagNames}
+                  selected={row.commit.id === selectedCommitId}
+                  onSelect={onSelectCommit}
+                  onCheckout={onCheckout}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="p-2 text-center">
+          {searchActive ? (
+            <span className="text-xs" style={{ color: "var(--mist)" }}>
+              {visibleLoading
+                ? t("commits.loading")
+                : rows.length === 0
+                  ? t("commits.searchEmpty")
+                  : t("commits.searchCount", { count: rows.length })}
+            </span>
+          ) : hasMore ? (
+            loading && (
+              <span className="text-xs" style={{ color: "var(--mist)" }}>
+                {t("commits.loading")}
+              </span>
+            )
+          ) : (
+            !loading && (
+              <span className="text-xs" style={{ color: "var(--mist)" }}>
+                {t("commits.end")}
+              </span>
+            )
+          )}
+        </div>
       </div>
     </div>
   );
@@ -277,15 +283,15 @@ function GraphHeader({ gutterWidth }: { gutterWidth: number }) {
 }
 
 function GraphSearchBar({
-  gutterWidth,
   inputRef,
   searchQuery,
+  resultLabel,
   onSearchQueryChange,
   onClose,
 }: {
-  gutterWidth: number;
   inputRef: RefObject<HTMLInputElement | null>;
   searchQuery: string;
+  resultLabel: string;
   onSearchQueryChange: (query: string) => void;
   onClose: () => void;
 }) {
@@ -293,52 +299,50 @@ function GraphSearchBar({
 
   return (
     <div
-      className="sticky z-10 grid items-center gap-3 border-b px-2"
+      className="absolute right-3 top-3 z-30 flex w-[min(46rem,calc(100%-1.5rem))] items-center gap-2 rounded-md border px-2 py-1.5 shadow-lg"
       style={{
-        top: HEADER_HEIGHT,
-        background: "var(--paper)",
-        borderColor: "var(--hairline)",
-        color: "var(--mist)",
-        gridTemplateColumns: `${REF_COLUMN_WIDTH} ${gutterWidth}px minmax(0, 1fr) 8rem 9rem`,
-        minHeight: 40,
+        background: "color-mix(in srgb, var(--fjord) 78%, var(--paper))",
+        borderColor: "color-mix(in srgb, var(--fjord) 70%, white)",
+        color: "white",
       }}
     >
-      <span />
-      <span />
-      <div className="flex min-w-0 items-center gap-2">
-        <input
-          ref={inputRef}
-          type="search"
-          value={searchQuery}
-          onChange={(event) => onSearchQueryChange(event.target.value)}
-          placeholder={t("commits.searchPlaceholder")}
-          aria-label={t("commits.searchPlaceholder")}
-          className="h-7 w-full max-w-[26rem] min-w-[12rem] rounded-md border px-2.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-[var(--fjord)]"
-          style={{
-            borderWidth: "0.5px",
-            borderColor: "var(--hairline-strong)",
-            background: "var(--page-bg)",
-            color: "var(--ink)",
-          }}
-        />
-        <button
-          type="button"
-          onClick={onClose}
-          className="interactive-control inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-xs font-medium"
-          style={{
-            borderWidth: "0.5px",
-            borderColor: "var(--hairline-strong)",
-            color: "var(--mist)",
-          }}
-          aria-label={t("commits.closeSearch")}
-          title={t("commits.closeSearch")}
-        >
-          x
-        </button>
-      </div>
-      <span />
-      <span />
+      <SearchIcon />
+      <input
+        ref={inputRef}
+        type="search"
+        value={searchQuery}
+        onChange={(event) => onSearchQueryChange(event.target.value)}
+        placeholder={t("commits.searchPlaceholder")}
+        aria-label={t("commits.searchPlaceholder")}
+        className="h-8 min-w-0 flex-1 rounded-md border px-2.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-white"
+        style={{
+          borderWidth: "1px",
+          borderColor: "color-mix(in srgb, white 38%, transparent)",
+          background: "color-mix(in srgb, var(--page-bg) 75%, var(--fjord))",
+          color: "var(--ink)",
+        }}
+      />
+      <span className="shrink-0 whitespace-nowrap text-sm font-medium tabular-nums">{resultLabel}</span>
+      <button
+        type="button"
+        onClick={onClose}
+        className="interactive-control inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-lg font-semibold leading-none"
+        style={{ color: "white" }}
+        aria-label={t("commits.closeSearch")}
+        title={t("commits.closeSearch")}
+      >
+        x
+      </button>
     </div>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" aria-hidden="true">
+      <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+      <path d="m10.4 10.4 3.1 3.1" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
   );
 }
 
