@@ -54,7 +54,8 @@ Fjord starts from the workspace, not the repository. Group your repositories the
 - [x] Single-repo view: branches, commit graph, diffs
 - [x] Workspaces: multi-repo grouping, live status, bulk operations, dashboard
 - [x] Command palette, global search
-- [ ] Cross-platform packaging and first public release
+- [x] Cross-platform packaging pipeline and update channel
+- [ ] First public release
 
 Detailed task-level status lives in [`docs/tasks.md`](docs/tasks.md); architecture and current-state notes in [`docs/SDD.md`](docs/SDD.md).
 
