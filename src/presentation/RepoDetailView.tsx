@@ -125,7 +125,7 @@ export function RepoDetailView({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_21rem]">
+      <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_24rem]">
         <div className="min-h-0 overflow-y-auto">
           <RepoTree key={`${repo.id}:${repoVersion}:tree`} repoId={repo.id} onCheckout={onCheckout} />
         </div>
@@ -169,14 +169,12 @@ export function RepoDetailView({
               onCommit={onCommit}
             />
           ) : selectedCommit ? (
-            <div className="h-full overflow-y-auto">
-              <CommitInspector
-                repoId={repo.id}
-                commit={selectedCommit}
-                selectedFilePath={selectedCommitFile}
-                onSelectFile={setSelectedCommitFile}
-              />
-            </div>
+            <CommitInspector
+              repoId={repo.id}
+              commit={selectedCommit}
+              selectedFilePath={selectedCommitFile}
+              onSelectFile={setSelectedCommitFile}
+            />
           ) : (
             <Muted className="text-[12px]">{t("inspector.empty")}</Muted>
           )}

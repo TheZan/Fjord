@@ -1,6 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
+import {
+  FileEntryList,
+  FileTreeControls,
+  FileViewTabs,
+  useFileTreeCollapse,
+  type FileTreeCollapse,
+  type FileViewMode,
+} from "@/presentation/FileEntryList";
+import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Textarea } from "@/presentation/ui";
 import type { WorkingChanges, WorkingFile } from "@/domain/git";
 
@@ -39,6 +48,14 @@ export function WorkingChangesPanel({
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
+  const [viewMode, setViewMode] = useState<FileViewMode>("path");
+  // Both sections fold together, so the one pair of controls in the header
+  // means what it says. Each list collapses differently, hence the union.
+  const directoryPaths = useMemo(
+    () => [...directoryPathsOf(changes.unstaged), ...directoryPathsOf(changes.staged)],
+    [changes],
+  );
+  const collapse = useFileTreeCollapse(directoryPaths);
 
   const total = changes.staged.length + changes.unstaged.length;
   const canCommit = changes.staged.length > 0 && summary.trim().length > 0 && !busy;
@@ -57,11 +74,20 @@ export function WorkingChangesPanel({
       className="flex h-full min-h-0 w-full flex-col rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <div className="border-b px-3 py-2" style={{ borderColor: "var(--hairline)" }}>
-        <p className="text-[13px] font-medium">{t("working.title")}</p>
-        <p className="text-[11px]" style={{ color: "var(--mist)" }}>
-          {t("working.fileCount", { count: total })}
-        </p>
+      <div
+        className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2"
+        style={{ borderColor: "var(--hairline)" }}
+      >
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-medium">{t("working.title")}</p>
+          <p className="text-[11px]" style={{ color: "var(--mist)" }}>
+            {t("working.fileCount", { count: total })}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {viewMode === "tree" && <FileTreeControls collapse={collapse} />}
+          <FileViewTabs mode={viewMode} onChange={setViewMode} />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -85,6 +111,8 @@ export function WorkingChangesPanel({
           label={t("working.unstaged")}
           files={changes.unstaged}
           staged={false}
+          viewMode={viewMode}
+          collapse={collapse}
           actionLabel={t("working.stage")}
           bulkLabel={t("working.stageAll")}
           busy={busy}
@@ -96,6 +124,8 @@ export function WorkingChangesPanel({
           label={t("working.staged")}
           files={changes.staged}
           staged
+          viewMode={viewMode}
+          collapse={collapse}
           actionLabel={t("working.unstage")}
           bulkLabel={t("working.unstageAll")}
           busy={busy}
@@ -142,6 +172,8 @@ function FileSection({
   label,
   files,
   staged,
+  viewMode,
+  collapse,
   actionLabel,
   bulkLabel,
   busy,
@@ -152,6 +184,8 @@ function FileSection({
   label: string;
   files: WorkingFile[];
   staged: boolean;
+  viewMode: FileViewMode;
+  collapse: FileTreeCollapse;
   actionLabel: string;
   bulkLabel: string;
   busy: boolean;
@@ -161,6 +195,9 @@ function FileSection({
 }) {
   const { t } = useTranslation("workspace");
   if (files.length === 0) return null;
+
+  const selectedPath =
+    selectedFile && selectedFile.staged === staged ? selectedFile.path : null;
 
   return (
     <div className="p-2">
@@ -179,48 +216,50 @@ function FileSection({
         </button>
       </div>
 
-      <ul className="flex flex-col gap-0.5">
-        {files.map((file) => {
-          const selected = selectedFile?.path === file.path && selectedFile.staged === staged;
-          return (
-            <li key={`${staged}:${file.path}`} className="group relative">
-              <button
-                type="button"
-                onClick={() => onSelectFile({ path: file.path, staged })}
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left"
-                style={{
-                  background: selected ? "var(--fjord-tint)" : "transparent",
-                  color: selected ? "var(--fjord-ink)" : "var(--ink)",
-                }}
-              >
-                <span
-                  className="w-4 shrink-0 text-center font-mono text-xs font-semibold"
-                  style={{ color: CHANGE_TYPE_COLOR[file.changeType] }}
-                  title={t(`commitInspector.changeType.${file.changeType}`)}
-                >
-                  {t(`commitInspector.changeTypeMark.${file.changeType}`)}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.path}</span>
-                {file.conflicted && (
-                  <span className="shrink-0 text-[10px]" style={{ color: "var(--rust-ink)" }}>
-                    {t("working.conflicted")}
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onAct([file.path])}
-                className="absolute right-1 top-1/2 hidden -translate-y-1/2 rounded px-1.5 py-0.5 text-[10px] group-hover:block disabled:opacity-40"
-                style={{ background: "var(--page-bg)", color: "var(--fjord-ink)" }}
-              >
-                {actionLabel}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <FileEntryList
+        files={files}
+        mode={viewMode}
+        collapse={collapse}
+        selectedPath={selectedPath}
+        onSelect={(file) => onSelectFile({ path: file.path, staged })}
+        renderMark={(file) => (
+          <span
+            style={{ color: CHANGE_TYPE_COLOR[file.changeType] }}
+            title={t(`commitInspector.changeType.${file.changeType}`)}
+          >
+            {t(`commitInspector.changeTypeMark.${file.changeType}`)}
+          </span>
+        )}
+        renderTrailing={(file) => (
+          <span className="flex shrink-0 items-center gap-1.5">
+            {file.conflicted && (
+              <span className="text-[10px]" style={{ color: "var(--rust-ink)" }}>
+                {t("working.conflicted")}
+              </span>
+            )}
+            <span
+              role="button"
+              tabIndex={busy ? -1 : 0}
+              aria-disabled={busy}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!busy) onAct([file.path]);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (!busy) onAct([file.path]);
+                }
+              }}
+              className="rounded px-1.5 py-0.5 text-[10px] opacity-0 group-hover:opacity-100"
+              style={{ background: "var(--page-bg)", color: "var(--fjord-ink)" }}
+            >
+              {actionLabel}
+            </span>
+          </span>
+        )}
+      />
     </div>
   );
 }

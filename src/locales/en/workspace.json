@@ -73,6 +73,12 @@
     "empty": "No changes to display.",
     "back": "Back to graph"
   },
+  "fileView": {
+    "path": "List",
+    "tree": "Tree",
+    "collapseAll": "Collapse all",
+    "expandAll": "Expand all"
+  },
   "inspector": {
     "empty": "Select a commit to see its details."
   },
