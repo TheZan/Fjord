@@ -58,6 +58,7 @@
     "graph": "Graphe",
     "message": "Message du commit",
     "searchPlaceholder": "Rechercher un message de commit",
+    "closeSearch": "Fermer la recherche de commits",
     "searchEmpty": "Aucun commit correspondant.",
     "searchCount": "Résultats : {{count}}"
   },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -6,7 +6,6 @@ import { useCommitLog } from "@/application/useCommitLog";
 import { useCommitSearch } from "@/application/useCommitSearch";
 import { useTags } from "@/application/useTags";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
-import { Input } from "@/presentation/ui";
 import type { CommitSummary } from "@/domain/git";
 
 const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
@@ -61,13 +60,15 @@ export function CommitGraph({
   onSelectWorking?: () => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
+  const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
   const { commits, loading, error, hasMore, loadMore } = useCommitLog(repoId);
-  const search = useCommitSearch(repoId, debouncedSearchQuery);
+  const search = useCommitSearch(repoId, effectiveSearchQuery);
   const { branches } = useBranches(repoId);
   const { tags } = useTags(repoId);
-  const searchActive = debouncedSearchQuery.trim().length > 0;
+  const searchActive = effectiveSearchQuery.trim().length > 0;
   const visibleCommits = searchActive ? search.commits : commits;
   const visibleLoading = searchActive ? search.loading : loading;
   const visibleError = searchActive ? search.error : error;
@@ -79,6 +80,7 @@ export function CommitGraph({
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
   const parentRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -88,7 +90,36 @@ export function CommitGraph({
 
   useEffect(() => {
     parentRef.current?.scrollTo({ top: 0 });
-  }, [debouncedSearchQuery]);
+  }, [effectiveSearchQuery]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const wantsFind = (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f";
+      if (wantsFind) {
+        event.preventDefault();
+        setSearchOpen(true);
+        window.requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        });
+        return;
+      }
+
+      if (event.key === "Escape" && searchOpen) {
+        event.preventDefault();
+        setSearchOpen(false);
+        setSearchQuery("");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchOpen]);
 
   useEffect(() => {
     if (searchActive || !hasMore) return;
@@ -126,7 +157,19 @@ export function CommitGraph({
       className="h-full w-full overflow-auto rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <GraphHeader gutterWidth={gutterWidth} searchQuery={searchQuery} onSearchQueryChange={setSearchQuery} />
+      <GraphHeader gutterWidth={gutterWidth} />
+      {searchOpen && (
+        <GraphSearchBar
+          gutterWidth={gutterWidth}
+          inputRef={searchInputRef}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery("");
+          }}
+        />
+      )}
       {workingFileCount > 0 && onSelectWorking && (
         <WorkingRow
           gutterWidth={gutterWidth}
@@ -210,20 +253,12 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-function GraphHeader({
-  gutterWidth,
-  searchQuery,
-  onSearchQueryChange,
-}: {
-  gutterWidth: number;
-  searchQuery: string;
-  onSearchQueryChange: (query: string) => void;
-}) {
+function GraphHeader({ gutterWidth }: { gutterWidth: number }) {
   const { t } = useTranslation("workspace");
 
   return (
     <div
-      className="sticky top-0 z-10 grid items-center gap-3 border-b px-2 text-[10px] font-medium uppercase tracking-[0.08em]"
+      className="sticky top-0 z-20 grid items-center gap-3 border-b px-2 text-[10px] font-medium uppercase tracking-[0.08em]"
       style={{
         background: "var(--paper)",
         borderColor: "var(--hairline)",
@@ -234,14 +269,73 @@ function GraphHeader({
     >
       <span>{t("commits.branchTag")}</span>
       <span>{t("commits.graph")}</span>
-      <Input
-        type="search"
-        value={searchQuery}
-        onChange={(event) => onSearchQueryChange(event.target.value)}
-        placeholder={t("commits.searchPlaceholder")}
-        aria-label={t("commits.searchPlaceholder")}
-        className="h-6 max-w-[20rem] bg-[var(--page-bg)] text-xs normal-case tracking-normal"
-      />
+      <span>{t("commits.message")}</span>
+      <span />
+      <span />
+    </div>
+  );
+}
+
+function GraphSearchBar({
+  gutterWidth,
+  inputRef,
+  searchQuery,
+  onSearchQueryChange,
+  onClose,
+}: {
+  gutterWidth: number;
+  inputRef: RefObject<HTMLInputElement | null>;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+
+  return (
+    <div
+      className="sticky z-10 grid items-center gap-3 border-b px-2"
+      style={{
+        top: HEADER_HEIGHT,
+        background: "var(--paper)",
+        borderColor: "var(--hairline)",
+        color: "var(--mist)",
+        gridTemplateColumns: `${REF_COLUMN_WIDTH} ${gutterWidth}px minmax(0, 1fr) 8rem 9rem`,
+        minHeight: 40,
+      }}
+    >
+      <span />
+      <span />
+      <div className="flex min-w-0 items-center gap-2">
+        <input
+          ref={inputRef}
+          type="search"
+          value={searchQuery}
+          onChange={(event) => onSearchQueryChange(event.target.value)}
+          placeholder={t("commits.searchPlaceholder")}
+          aria-label={t("commits.searchPlaceholder")}
+          className="h-7 w-full max-w-[26rem] min-w-[12rem] rounded-md border px-2.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-[var(--fjord)]"
+          style={{
+            borderWidth: "0.5px",
+            borderColor: "var(--hairline-strong)",
+            background: "var(--page-bg)",
+            color: "var(--ink)",
+          }}
+        />
+        <button
+          type="button"
+          onClick={onClose}
+          className="interactive-control inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border text-xs font-medium"
+          style={{
+            borderWidth: "0.5px",
+            borderColor: "var(--hairline-strong)",
+            color: "var(--mist)",
+          }}
+          aria-label={t("commits.closeSearch")}
+          title={t("commits.closeSearch")}
+        >
+          x
+        </button>
+      </div>
       <span />
       <span />
     </div>
