@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useCommitLog } from "@/application/useCommitLog";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
@@ -54,6 +55,13 @@ export function CommitGraph({
   const { rows, laneCount } = useMemo(() => computeGraphLayout(commits), [commits]);
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
 
   if (error) {
     return (
@@ -72,7 +80,8 @@ export function CommitGraph({
 
   return (
     <div
-      className="w-full overflow-hidden rounded-lg border text-sm"
+      ref={parentRef}
+      className="h-full w-full overflow-auto rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
       {workingFileCount > 0 && onSelectWorking && (
@@ -83,16 +92,39 @@ export function CommitGraph({
           onSelect={onSelectWorking}
         />
       )}
-      {rows.map((row) => (
-        <CommitRow
-          key={row.commit.id}
-          row={row}
-          gutterWidth={gutterWidth}
-          locale={i18n.language}
-          selected={row.commit.id === selectedCommitId}
-          onSelect={onSelectCommit}
-        />
-      ))}
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const row = rows[virtualRow.index];
+
+          return (
+            <div
+              key={row.commit.id}
+              style={{
+                height: `${virtualRow.size}px`,
+                left: 0,
+                position: "absolute",
+                top: 0,
+                transform: `translateY(${virtualRow.start}px)`,
+                width: "100%",
+              }}
+            >
+              <CommitRow
+                row={row}
+                gutterWidth={gutterWidth}
+                locale={i18n.language}
+                selected={row.commit.id === selectedCommitId}
+                onSelect={onSelectCommit}
+              />
+            </div>
+          );
+        })}
+      </div>
       <div className="p-2 text-center">
         {hasMore ? (
           <button

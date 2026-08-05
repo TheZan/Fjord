@@ -73,7 +73,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 ### 4b. High-importance fixes (1–3 weeks)
 
 - [x] **P4-07** — Migrate `src/application/*` hooks from manual `useState`+`useEffect` to TanStack Query (`useQuery`/`useMutation`, keys per repo/workspace, invalidation after mutations). Simple fetch hooks now use `useQuery`, commit history uses `useInfiniteQuery`, workspace CRUD/import/remove use `useMutation`, and repo actions invalidate repo/workspace query keys. See SDD §6.1.
-- [ ] **P4-08** — Frontend list virtualization (e.g. `@tanstack/react-virtual`) for the commit graph and repository lists; draw SVG graph edges only within the viewport. See SDD §5.3.
+- [x] **P4-08** — Frontend list virtualization (`@tanstack/react-virtual`) for the commit graph, all-repositories list, and dashboard repo-card grid; SVG graph edges are now only mounted for virtual rows within/near the viewport. See SDD §5.3.
 - [ ] **P4-09** — Component and contract tests: React Testing Library for key screens/hooks with the IPC boundary mocked at `infrastructure/`. Best done after P4-07 to avoid rewriting. See SDD §8.
 - [x] **P4-10** — React error boundaries: a global boundary plus per-view boundaries with localized fallback UI.
 

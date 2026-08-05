@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { RepoCard } from "@/presentation/RepoCard";
 import { Button, Muted } from "@/presentation/ui";
@@ -18,6 +20,9 @@ interface OverviewProps {
   importPending: boolean;
 }
 
+const CARD_ROW_HEIGHT = 112;
+const CARD_GRID_GAP = 12;
+
 export function OverviewView({
   workspace,
   repositories,
@@ -35,7 +40,7 @@ export function OverviewView({
   const { t } = useTranslation("workspace");
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
       <header className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[17px] font-medium">
@@ -84,19 +89,98 @@ export function OverviewView({
       {repositories.length === 0 ? (
         <Muted className="text-[13px]">{t("repositories.empty")}</Muted>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {repositories.map((repo) => (
-            <RepoCard
-              key={repo.id}
-              repo={repo}
-              status={statusByRepo[repo.id]?.status}
-              selected={repo.id === selectedRepoId}
-              onSelect={() => onSelectRepo(repo.id)}
-              onRemove={() => onRemoveRepo(repo.id)}
-            />
-          ))}
-        </div>
+        <VirtualRepoGrid
+          repositories={repositories}
+          statusByRepo={statusByRepo}
+          selectedRepoId={selectedRepoId}
+          onSelectRepo={onSelectRepo}
+          onRemoveRepo={onRemoveRepo}
+        />
       )}
+    </div>
+  );
+}
+
+function VirtualRepoGrid({
+  repositories,
+  statusByRepo,
+  selectedRepoId,
+  onSelectRepo,
+  onRemoveRepo,
+}: {
+  repositories: RepositoryEntry[];
+  statusByRepo: Record<string, RepoStatusSummary>;
+  selectedRepoId: string | null;
+  onSelectRepo: (repoId: string) => void;
+  onRemoveRepo: (repoId: string) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const columns = width >= 1024 ? 3 : width >= 640 ? 2 : 1;
+  const rows = useMemo(() => {
+    const result: RepositoryEntry[][] = [];
+    for (let index = 0; index < repositories.length; index += columns) {
+      result.push(repositories.slice(index, index + columns));
+    }
+    return result;
+  }, [columns, repositories]);
+
+  useEffect(() => {
+    const element = parentRef.current;
+    if (!element) return;
+
+    setWidth(element.clientWidth);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => CARD_ROW_HEIGHT + CARD_GRID_GAP,
+    overscan: 6,
+  });
+
+  return (
+    <div ref={parentRef} className="min-h-[18rem] flex-1 overflow-auto">
+      <div
+        style={{
+          height: `${rowVirtualizer.getTotalSize()}px`,
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+          <div
+            key={virtualRow.index}
+            className="grid gap-3"
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              height: CARD_ROW_HEIGHT,
+              left: 0,
+              position: "absolute",
+              top: 0,
+              transform: `translateY(${virtualRow.start}px)`,
+              width: "100%",
+            }}
+          >
+            {rows[virtualRow.index].map((repo) => (
+              <RepoCard
+                key={repo.id}
+                repo={repo}
+                status={statusByRepo[repo.id]?.status}
+                selected={repo.id === selectedRepoId}
+                onSelect={() => onSelectRepo(repo.id)}
+                onRemove={() => onRemoveRepo(repo.id)}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

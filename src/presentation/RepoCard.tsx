@@ -39,8 +39,8 @@ export function RepoCard({
           : { tone: "moss" as const, label: t("cardStatus.synced") };
 
   return (
-    <Card selected={selected} className="group relative">
-      <button type="button" onClick={onSelect} className="flex w-full flex-col gap-2 p-3 text-left">
+    <Card selected={selected} className="group relative h-full">
+      <button type="button" onClick={onSelect} className="flex h-full w-full flex-col gap-2 p-3 text-left">
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-[13px] font-medium">{repo.name}</span>
           <Pill tone={state.tone}>{state.label}</Pill>

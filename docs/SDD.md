@@ -112,7 +112,7 @@ Approach, item by item:
 - ✅ **Bulk operations run concurrently**, bounded by a worker pool (Tokio `Semaphore` + `JoinSet`, currently 6 concurrent) — "Pull all" on 24 repos takes roughly as long as the slowest one, not the sum.
 - ✅ **gix for the hot read paths** (status, diff, log) — avoids libgit2's process-wide locking and is competitive-to-faster on large trees.
 - ✅ **Commit graph is paginated/lazy** on the backend: `log(repo, cursor, limit)` with a "Load earlier commits" affordance in the UI.
-- 🚧 **Frontend list virtualization** (e.g. `@tanstack/react-virtual`) for lists that scale with repo/commit/file count. Not implemented: commit graph and repository lists currently render every row (`P4-08`). This is the missing half of the pagination story — the backend never loads a 200k-commit history at once, but the frontend renders every loaded row into the DOM.
+- ✅ **Frontend list virtualization** via `@tanstack/react-virtual` for lists that scale with repo/commit count (`P4-08`). The commit graph, all-repositories list, and dashboard repo-card grid only mount visible rows plus overscan; SVG graph edges are drawn only for virtualized commit rows within/near the viewport.
 - ✅ **Global search** fans out across repositories through the same bounded worker pool as bulk operations, preserving deterministic result order before the global limit cut (`P4-13`); `fjord-bench --workspace-repos N` reports `global_search_ms`.
 
 Measured numbers and budgets: see §11.
@@ -250,7 +250,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 | Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks in CI are still open (`P4-18`) |
 | Hand-maintained TS types drift from Rust domain | Reviews catch it today; `P4-11` (generated types) removes the class of bug |
 | Large-monorepo performance is partly a claim: dev-profile numbers only | Re-record benchmarks in release profile with larger fixtures (`P4-18`) before optimizing blind |
-| SVG commit graph DOM cost on deep histories | Virtualize first (`P4-08`); re-evaluate a canvas renderer only if still needed after that |
+| SVG commit graph DOM cost on deep histories | Commit rows are virtualized (`P4-08`); re-evaluate a canvas renderer only if profiling still shows SVG edge cost inside the visible window |
 | Custom title bar vs. native OS conventions | Default to native decorations per-platform; only override where there's a clear UX win |
 
 ## 14. Documentation map
