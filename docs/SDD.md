@@ -198,7 +198,7 @@ Threat model in one line: the WebView renders only local data (no remote content
 - ✅ **Content Security Policy**: `tauri.conf.json` sets a strict CSP (self-only sources; `style-src 'unsafe-inline'` is required by React inline styles; a slightly looser `devCsp` allows the Vite dev server and HMR websocket) so a markup-injection bug cannot escalate to IPC access (`P4-01`).
 - ✅ **Tauri capabilities**: `src-tauri/capabilities/default.json` grants only the core defaults plus the dialog/opener plugin permissions the app actually uses; no broad filesystem or shell capabilities are exposed to the WebView.
 - ⚠️ **External process launching** (`fjord-app/src/ide_launcher.rs`): the `ide` string from settings/IPC is resolved against known-IDE launch tables, but an unrecognized value is executed as a program name as an intentional "custom editor" escape hatch, and the Unix `command_available` check runs `sh -c "command -v {name}"` with formatted input. Today only constants from static tables reach that path, so there is **no injection through IPC as-is** — but the pattern is fragile. Target: an explicit allowlist plus shell-free lookup (`P4-04`).
-- ⚠️ **Startup robustness**: app-data-dir resolution and DB open use `expect` in `fjord-app` bootstrap — a missing/locked data dir panics instead of showing an error dialog (`P4-02`).
+- ✅ **Startup robustness**: bootstrap failures (app data dir resolution, DB open) surface a blocking error dialog and a non-zero exit code instead of a panic (`P4-02`).
 - ✅ **Input validation**: repository paths from IPC are canonicalized and checked for being actual Git repositories before use; IDs are opaque NewTypes generated backend-side.
 
 ## 10. Observability 🚧

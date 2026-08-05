@@ -11,24 +11,43 @@ mod ide_launcher;
 mod state;
 
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 pub use error::AppError;
 pub use state::AppState;
 
+/// Resolves the app data dir and boots [`AppState`]. Kept separate from the
+/// `setup` closure so every failure funnels into one user-facing error path
+/// instead of a panic (docs/tasks.md P4-02, SDD §9).
+fn initialize(app: &tauri::App) -> Result<AppState, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("could not resolve the application data directory: {e}"))?;
+
+    tauri::async_runtime::block_on(state::bootstrap(&app_data_dir))
+        .map_err(|e| format!("could not initialize application state: {e}"))
+}
+
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir should be resolvable on every supported platform");
-
-            let state = tauri::async_runtime::block_on(state::bootstrap(&app_data_dir))
-                .expect("failed to initialize app state");
-
-            app.manage(state);
-            Ok(())
+        .setup(|app| match initialize(app) {
+            Ok(state) => {
+                app.manage(state);
+                Ok(())
+            }
+            Err(message) => {
+                tracing::error!(error = %message, "startup failed");
+                app.dialog()
+                    .message(format!(
+                        "Fjord could not start.\n\n{message}\n\nCheck that the application data directory is accessible and not locked by another process."
+                    ))
+                    .kind(MessageDialogKind::Error)
+                    .title("Fjord — startup error")
+                    .blocking_show();
+                Err(message.into())
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
