@@ -29,7 +29,6 @@ export type RepoAction =
 export function RepoToolbar({
   repo,
   status,
-  repoVersion,
   actionPending,
   onBack,
   onAction,
@@ -38,7 +37,6 @@ export function RepoToolbar({
 }: {
   repo: RepositoryEntry;
   status: RepoStatus | null;
-  repoVersion: number;
   actionPending: string | null;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
@@ -46,7 +44,7 @@ export function RepoToolbar({
   onOpenSearch: () => void;
 }) {
   const { t } = useTranslation("workspace");
-  const { stashes } = useStashes(repo.id, repoVersion);
+  const { stashes } = useStashes(repo.id);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchName, setBranchName] = useState("");
   const branchRef = useRef<HTMLDivElement>(null);

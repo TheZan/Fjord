@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/application/queryKeys";
 import { getRepoStatus, invokeErrorMessage } from "@/infrastructure/tauriClient";
 import type { RepoStatus } from "@/domain/git";
 
@@ -8,38 +9,16 @@ export interface UseRepoStatusResult {
   error: string | null;
 }
 
-export function useRepoStatus(repoId: string | null, version: number): UseRepoStatusResult {
-  const [status, setStatus] = useState<RepoStatus | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function useRepoStatus(repoId: string | null): UseRepoStatusResult {
+  const query = useQuery({
+    queryKey: repoId ? queryKeys.repos.status(repoId) : queryKeys.repos.all,
+    queryFn: () => getRepoStatus(repoId!),
+    enabled: repoId !== null,
+  });
 
-  useEffect(() => {
-    if (!repoId) {
-      setStatus(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    getRepoStatus(repoId)
-      .then((result) => {
-        if (!cancelled) setStatus(result);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(invokeErrorMessage(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repoId, version]);
-
-  return { status, loading, error };
+  return {
+    status: query.data ?? null,
+    loading: query.isFetching,
+    error: query.error ? invokeErrorMessage(query.error) : null,
+  };
 }

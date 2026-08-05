@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/application/queryKeys";
 import { getCommitLog } from "@/infrastructure/tauriClient";
 import type { CommitSummary } from "@/domain/git";
 
@@ -14,48 +16,29 @@ export interface UseCommitLogResult {
 
 /** Paginated commit history for `repoId`, resetting whenever it changes. */
 export function useCommitLog(repoId: string | null): UseCommitLogResult {
-  const [commits, setCommits] = useState<CommitSummary[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const query = useInfiniteQuery({
+    queryKey: repoId ? queryKeys.repos.commits(repoId) : queryKeys.repos.all,
+    queryFn: ({ pageParam }) => getCommitLog(repoId!, pageParam, PAGE_SIZE),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: repoId !== null,
+  });
 
-  const fetchPage = useCallback(
-    (targetRepoId: string, afterCursor: string | null, replace: boolean, cancelledRef: { current: boolean }) => {
-      setLoading(true);
-      setError(null);
-
-      getCommitLog(targetRepoId, afterCursor, PAGE_SIZE)
-        .then((page) => {
-          if (cancelledRef.current) return;
-          setCommits((prev) => (replace ? page.commits : [...prev, ...page.commits]));
-          setCursor(page.nextCursor);
-        })
-        .catch((e) => {
-          if (!cancelledRef.current) setError(String(e));
-        })
-        .finally(() => {
-          if (!cancelledRef.current) setLoading(false);
-        });
-    },
-    [],
+  const commits = useMemo(
+    () => query.data?.pages.flatMap((page) => page.commits) ?? [],
+    [query.data],
   );
 
-  useEffect(() => {
-    setCommits([]);
-    setCursor(null);
-    if (!repoId) return;
-
-    const cancelledRef = { current: false };
-    fetchPage(repoId, null, true, cancelledRef);
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [repoId, fetchPage]);
-
   const loadMore = useCallback(() => {
-    if (!repoId || !cursor || loading) return;
-    fetchPage(repoId, cursor, false, { current: false });
-  }, [repoId, cursor, loading, fetchPage]);
+    if (!query.hasNextPage || query.isFetchingNextPage) return;
+    void query.fetchNextPage();
+  }, [query]);
 
-  return { commits, loading, error, hasMore: cursor !== null, loadMore };
+  return {
+    commits,
+    loading: query.isFetching,
+    error: query.error ? String(query.error) : null,
+    hasMore: query.hasNextPage,
+    loadMore,
+  };
 }

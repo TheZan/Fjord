@@ -27,7 +27,6 @@ export function RepoDetailView({
   actionError,
   selectedCommit,
   workingSelected,
-  repoVersion,
   onBack,
   onAction,
   onCheckout,
@@ -46,7 +45,6 @@ export function RepoDetailView({
   actionError: string | null;
   selectedCommit: CommitSummary | null;
   workingSelected: boolean;
-  repoVersion: number;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
   onCheckout: (branch: string) => void;
@@ -65,7 +63,7 @@ export function RepoDetailView({
     changes,
     loading: changesLoading,
     error: changesError,
-  } = useWorkingChanges(repo.id, repoVersion);
+  } = useWorkingChanges(repo.id);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -97,7 +95,6 @@ export function RepoDetailView({
       <RepoToolbar
         repo={repo}
         status={status}
-        repoVersion={repoVersion}
         actionPending={actionPending}
         onBack={onBack}
         onAction={onAction}
@@ -127,7 +124,7 @@ export function RepoDetailView({
 
       <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_24rem]">
         <div className="min-h-0 overflow-y-auto">
-          <RepoTree key={`${repo.id}:${repoVersion}:tree`} repoId={repo.id} onCheckout={onCheckout} />
+          <RepoTree repoId={repo.id} onCheckout={onCheckout} />
         </div>
 
         <div className="min-h-0">
@@ -143,7 +140,6 @@ export function RepoDetailView({
           ) : (
             <div className="h-full overflow-y-auto">
               <CommitGraph
-                key={`${repo.id}:${repoVersion}:commits`}
                 repoId={repo.id}
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={onSelectCommit}

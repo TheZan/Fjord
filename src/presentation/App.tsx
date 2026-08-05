@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
+import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import type { CommitSummary, GlobalSearchResult } from "@/domain/git";
@@ -43,6 +45,7 @@ import type { View } from "@/presentation/view";
  * feature stacked onto a single scrolling page.
  */
 export function App() {
+  const queryClient = useQueryClient();
   const { t: tw } = useTranslation("workspace");
   const {
     workspaces,
@@ -71,7 +74,6 @@ export function App() {
   // The WIP row and a commit are alternate selections of the same middle
   // pane, so they're kept mutually exclusive rather than both being live.
   const [workingSelected, setWorkingSelected] = useState(false);
-  const [repoVersion, setRepoVersion] = useState(0);
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export function App() {
   const [paletteQuery, setPaletteQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
 
-  const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
+  const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId);
   const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
 
   const allRepositories = useMemo(
@@ -177,8 +179,19 @@ export function App() {
    * merely launch something external — opening a terminal or an IDE used to
    * clear the selected commit and close an open diff for no reason.
    */
+  async function invalidateRepoData(repoId: string) {
+    const workspaceId = allRepositories.find((repo) => repo.id === repoId)?.workspaceId;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.repos.detail(repoId) }),
+      workspaceId
+        ? queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(workspaceId) })
+        : Promise.resolve(),
+    ]);
+  }
+
   async function runRepoAction(
     action: string,
+    repoId: string,
     run: () => Promise<void>,
     mutates = true,
   ): Promise<boolean> {
@@ -188,7 +201,7 @@ export function App() {
       await run();
       if (mutates) {
         setSelectedCommit(null);
-        setRepoVersion((version) => version + 1);
+        await invalidateRepoData(repoId);
       }
       return true;
     } catch (e) {
@@ -203,9 +216,9 @@ export function App() {
    * Staging changes what the commit panel shows but not which history entry
    * is open, so unlike the other mutations these keep the WIP row selected.
    */
-  function runWorkingAction(action: string, run: () => Promise<void>): Promise<boolean> {
-    return runRepoAction(action, run, false).then((ok) => {
-      if (ok) setRepoVersion((version) => version + 1);
+  function runWorkingAction(action: string, repoId: string, run: () => Promise<void>): Promise<boolean> {
+    return runRepoAction(action, repoId, run, false).then(async (ok) => {
+      if (ok) await invalidateRepoData(repoId);
       return ok;
     });
   }
@@ -220,7 +233,14 @@ export function App() {
       const results = await run();
       const failed = results.filter((result) => !result.ok).length;
       setBulkActionNotice(tw("bulk.summary", { succeeded: results.length - failed, failed }));
-      setRepoVersion((version) => version + 1);
+      if (selectedWorkspaceId) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(selectedWorkspaceId) }),
+          ...workspaceRepos.map((repo) =>
+            queryClient.invalidateQueries({ queryKey: queryKeys.repos.detail(repo.id) }),
+          ),
+        ]);
+      }
     } catch (e) {
       setBulkActionNotice(invokeErrorMessage(e));
     } finally {
@@ -249,31 +269,31 @@ export function App() {
       "merge-tool": () => openMergeTool(id),
     };
     const launchesExternalTool = action === "terminal" || action === "open-ide";
-    void runRepoAction(action, runners[action], !launchesExternalTool);
+    void runRepoAction(action, id, runners[action], !launchesExternalTool);
   }
 
   function onCreateBranch(name: string) {
     if (!selectedRepoId) return;
     const id = selectedRepoId;
-    void runRepoAction("create-branch", () => createBranch(id, name, true));
+    void runRepoAction("create-branch", id, () => createBranch(id, name, true));
   }
 
   function onStage(paths: string[]) {
     if (!selectedRepoId) return;
     const id = selectedRepoId;
-    void runWorkingAction("stage", () => stageFiles(id, paths));
+    void runWorkingAction("stage", id, () => stageFiles(id, paths));
   }
 
   function onUnstage(paths: string[]) {
     if (!selectedRepoId) return;
     const id = selectedRepoId;
-    void runWorkingAction("unstage", () => unstageFiles(id, paths));
+    void runWorkingAction("unstage", id, () => unstageFiles(id, paths));
   }
 
   async function onCommit(message: string): Promise<boolean> {
     if (!selectedRepoId) return false;
     const id = selectedRepoId;
-    return runWorkingAction("commit", () => commitRepo(id, message).then(() => undefined));
+    return runWorkingAction("commit", id, () => commitRepo(id, message).then(() => undefined));
   }
 
   async function selectRepository(workspaceId: string, repoId: string) {
@@ -291,7 +311,7 @@ export function App() {
   async function openSearchResult(result: GlobalSearchResult) {
     await selectRepository(result.workspaceId, result.repoId);
     if (result.kind === "branch" && result.branch) {
-      void runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
+      void runRepoAction("checkout", result.repoId, () => checkoutBranch(result.repoId, result.branch!));
     } else if (result.kind === "commit" && result.commit) {
       setWorkingSelected(false);
       setSelectedCommit(result.commit);
@@ -331,7 +351,7 @@ export function App() {
       kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
       run: () =>
         selectedRepoId
-          ? void runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch.name))
+          ? void runRepoAction("checkout", selectedRepoId, () => checkoutBranch(selectedRepoId, branch.name))
           : undefined,
     })),
   ];
@@ -406,7 +426,6 @@ export function App() {
             actionError={repoActionError}
             selectedCommit={selectedCommit}
             workingSelected={workingSelected}
-            repoVersion={repoVersion}
             onBack={() => {
               setSelectedRepoId(null);
               setSelectedCommit(null);
@@ -414,7 +433,7 @@ export function App() {
             }}
             onAction={onRepoAction}
             onCheckout={(branch) =>
-              void runRepoAction("checkout", () => checkoutBranch(selectedRepo.id, branch))
+              void runRepoAction("checkout", selectedRepo.id, () => checkoutBranch(selectedRepo.id, branch))
             }
             onCreateBranch={onCreateBranch}
             onOpenSearch={() => {

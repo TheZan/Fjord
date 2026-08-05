@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/application/queryKeys";
 import { getFileDiff, getWorkingFileDiff, invokeErrorMessage } from "@/infrastructure/tauriClient";
 import type { FileDiffDetail } from "@/domain/git";
 
@@ -22,10 +23,6 @@ export function useFileDiff(
   path: string | null,
   source: DiffSource | null,
 ): UseFileDiffResult {
-  const [diff, setDiff] = useState<FileDiffDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   // Depending on the object directly would refetch on every render, since
   // callers build the source inline.
   const sourceKey = source
@@ -34,40 +31,19 @@ export function useFileDiff(
       : `working:${source.staged}`
     : null;
 
-  useEffect(() => {
-    if (!repoId || !path || !source) {
-      setDiff(null);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+  const query = useQuery({
+    queryKey:
+      repoId && path && sourceKey ? queryKeys.repos.fileDiff(repoId, path, sourceKey) : queryKeys.repos.all,
+    queryFn: () =>
+      source!.kind === "commit"
+        ? getFileDiff(repoId!, source!.commitId, path!)
+        : getWorkingFileDiff(repoId!, path!, source!.staged),
+    enabled: repoId !== null && path !== null && source !== null,
+  });
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDiff(null);
-
-    const request =
-      source.kind === "commit"
-        ? getFileDiff(repoId, source.commitId, path)
-        : getWorkingFileDiff(repoId, path, source.staged);
-
-    request
-      .then((result) => {
-        if (!cancelled) setDiff(result);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(invokeErrorMessage(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoId, path, sourceKey]);
-
-  return { diff, loading, error };
+  return {
+    diff: query.data ?? null,
+    loading: query.isFetching,
+    error: query.error ? invokeErrorMessage(query.error) : null,
+  };
 }

@@ -137,7 +137,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 ```
 
 - ✅ The four layers exist and the dependency direction is respected; all IPC goes through the typed client in `infrastructure/tauriClient.ts`.
-- ⚠️ **Data fetching**: the target design is TanStack Query over Tauri IPC (cache, deduplication, invalidation after mutations). The library is installed and a `QueryClientProvider` is mounted, but every `application/` hook currently uses manual `useState` + `useEffect` with `cancelled` flags — no cache, repeated IPC calls on every view switch. Migration is tracked as `P4-07`.
+- ✅ **Data fetching**: TanStack Query wraps Tauri IPC in the `application/` hooks (`P4-07`). Queries are keyed by workspace/repo scope, commit history uses `useInfiniteQuery`, workspace mutations use `useMutation`, and repository/workspace mutations invalidate the affected query keys instead of relying on remounts or manual cancellation flags.
 - ⚠️ **Domain types**: the target is TS types **generated from the Rust side** (via `specta` or `ts-rs`) so the contract cannot drift. Currently the types in `src/domain/` are hand-maintained mirrors of `fjord-domain`, kept in sync by convention and review. Generation is tracked as `P4-11`.
 - ⚠️ **Component size**: `App.tsx` has accreted palette/modal/action state and passes 15+ props into `RepoDetailView` (prop drilling). Decomposition is tracked as `P4-12`.
 - ✅ **Error boundaries**: a global boundary wraps `App` in `main.tsx` and a per-view boundary (keyed by the active view, so navigation resets it) wraps the main pane — an unhandled render exception shows a localized fallback with retry/reload instead of blanking the window (`P4-10`).

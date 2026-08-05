@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/application/queryKeys";
 import { getCommitDiff } from "@/infrastructure/tauriClient";
 import type { FileDiff } from "@/domain/git";
 
@@ -10,37 +11,15 @@ export interface UseCommitDiffResult {
 
 /** Changed-files summary for `commitId` in `repoId`, refetching whenever either changes. */
 export function useCommitDiff(repoId: string | null, commitId: string | null): UseCommitDiffResult {
-  const [files, setFiles] = useState<FileDiff[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: repoId && commitId ? queryKeys.repos.commitDiff(repoId, commitId) : queryKeys.repos.all,
+    queryFn: () => getCommitDiff(repoId!, commitId!),
+    enabled: repoId !== null && commitId !== null,
+  });
 
-  useEffect(() => {
-    if (!repoId || !commitId) {
-      setFiles([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setFiles([]);
-
-    getCommitDiff(repoId, commitId)
-      .then((result) => {
-        if (!cancelled) setFiles(result);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repoId, commitId]);
-
-  return { files, loading, error };
+  return {
+    files: query.data ?? [],
+    loading: query.isFetching,
+    error: query.error ? String(query.error) : null,
+  };
 }
