@@ -140,18 +140,17 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::Duration;
+    use tempfile::TempDir;
 
     #[test]
     fn reports_a_file_creation() {
-        let dir = tempfile_dir();
-        let watcher = RepoWatcher::watch(&dir).unwrap();
+        let dir = TempDir::new().unwrap();
+        let watcher = RepoWatcher::watch(dir.path()).unwrap();
 
-        fs::write(dir.join("touched.txt"), b"hi").unwrap();
+        fs::write(dir.path().join("touched.txt"), b"hi").unwrap();
 
         let event = watcher.events.recv_timeout(Duration::from_secs(5));
         assert!(event.is_ok(), "expected a filesystem event within 5s");
-
-        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -178,12 +177,12 @@ mod tests {
 
     #[test]
     fn nested_edits_trigger_a_single_debounced_callback() {
-        let dir = tempfile_dir();
-        let nested = dir.join("src").join("deeply").join("nested");
+        let dir = TempDir::new().unwrap();
+        let nested = dir.path().join("src").join("deeply").join("nested");
         fs::create_dir_all(&nested).unwrap();
 
         let (tx, rx) = mpsc::channel();
-        let _watcher = RepoEventWatcher::watch_repository(&dir, move || {
+        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move || {
             let _ = tx.send(());
         })
         .unwrap();
@@ -204,18 +203,16 @@ mod tests {
             rx.recv_timeout(DEBOUNCE_QUIET * 4).is_err(),
             "burst should be debounced into a single callback"
         );
-
-        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn ignored_directories_do_not_trigger_callbacks() {
-        let dir = tempfile_dir();
-        let generated = dir.join("node_modules").join("some-pkg");
+        let dir = TempDir::new().unwrap();
+        let generated = dir.path().join("node_modules").join("some-pkg");
         fs::create_dir_all(&generated).unwrap();
 
         let (tx, rx) = mpsc::channel();
-        let _watcher = RepoEventWatcher::watch_repository(&dir, move || {
+        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move || {
             let _ = tx.send(());
         })
         .unwrap();
@@ -226,21 +223,5 @@ mod tests {
             rx.recv_timeout(DEBOUNCE_QUIET * 4).is_err(),
             "generated-directory churn should be filtered out"
         );
-
-        fs::remove_dir_all(&dir).ok();
-    }
-
-    fn tempfile_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("fjord-fs-test-{}", uuid_like()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn uuid_like() -> u128 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
     }
 }

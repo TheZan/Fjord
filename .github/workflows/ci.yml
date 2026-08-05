@@ -1,10 +1,10 @@
 # CI on all three supported platforms (docs/tasks.md P0-09, SDD §5.4).
 #
-# Two jobs:
+# Three jobs:
 #   - frontend: type-check + Vite build, vitest, and the i18n catalog drift
 #     check (scripts/check-i18n.ts) — platform-independent, runs once.
-#   - backend: fmt, clippy (warnings are errors), and the full cargo test
-#     suite on Windows / macOS / Linux.
+#   - backend-lint: fmt and clippy (warnings are errors), once on Linux.
+#   - backend-test: the full cargo test suite on Windows / macOS / Linux.
 
 name: CI
 
@@ -20,8 +20,8 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -30,18 +30,13 @@ jobs:
       - run: npm test
       - run: npm run check-i18n
 
-  backend:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  backend-lint:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Tauri's Linux build needs the WebKitGTK stack.
       - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
@@ -58,6 +53,27 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  backend-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tauri's Linux build needs the WebKitGTK stack.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Tests
         run: cargo test --workspace

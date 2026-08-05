@@ -74,40 +74,28 @@ fn should_skip_dir(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use tempfile::TempDir;
 
     #[test]
     fn discovers_nested_git_repositories() {
-        let root = tempfile_dir();
-        let app = root.join("app");
-        let nested = root.join("libs").join("core");
+        let root = TempDir::new().unwrap();
+        let app = root.path().join("app");
+        let nested = root.path().join("libs").join("core");
         fs::create_dir_all(app.join(".git")).unwrap();
         fs::create_dir_all(nested.join(".git")).unwrap();
 
-        let repos = discover_git_repositories(&root, 10).unwrap();
+        let repos = discover_git_repositories(root.path(), 10).unwrap();
 
         assert_eq!(repos, vec![app, nested]);
-        fs::remove_dir_all(root).ok();
     }
 
     #[test]
     fn does_not_descend_into_known_heavy_directories() {
-        let root = tempfile_dir();
-        fs::create_dir_all(root.join("target").join("generated").join(".git")).unwrap();
+        let root = TempDir::new().unwrap();
+        fs::create_dir_all(root.path().join("target").join("generated").join(".git")).unwrap();
 
-        let repos = discover_git_repositories(&root, 10).unwrap();
+        let repos = discover_git_repositories(root.path(), 10).unwrap();
 
         assert!(repos.is_empty());
-        fs::remove_dir_all(root).ok();
-    }
-
-    fn tempfile_dir() -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("fjord-discovery-test-{nonce}"));
-        fs::create_dir_all(&dir).unwrap();
-        dir
     }
 }

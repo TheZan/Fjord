@@ -1114,6 +1114,7 @@ name = "fjord-fs"
 version = "0.1.0"
 dependencies = [
  "notify",
+ "tempfile",
  "thiserror 2.0.19",
 ]
 
