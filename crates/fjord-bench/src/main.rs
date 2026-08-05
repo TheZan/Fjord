@@ -3,6 +3,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use fjord_db::SqliteWorkspaceStore;
@@ -20,6 +21,7 @@ struct Args {
     workspace_repos: usize,
     log_limit: u32,
     force: bool,
+    profile_open: bool,
 }
 
 impl Default for Args {
@@ -31,6 +33,7 @@ impl Default for Args {
             workspace_repos: 1,
             log_limit: 50,
             force: false,
+            profile_open: false,
         }
     }
 }
@@ -56,6 +59,7 @@ fn parse_args() -> Result<Args, String> {
                 args.log_limit = parse_u32(next_value(&mut iter, "--log-limit")?, "--log-limit")?
             }
             "--force" => args.force = true,
+            "--profile-open" => args.profile_open = true,
             "--help" | "-h" => return Err(usage()),
             other => return Err(format!("unknown argument: {other}\n\n{}", usage())),
         }
@@ -92,7 +96,7 @@ fn parse_u32(value: String, flag: &str) -> Result<u32, String> {
 }
 
 fn usage() -> String {
-    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--force]".to_string()
+    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--force] [--profile-open]".to_string()
 }
 
 fn prepare_repo_dir(path: &Path, force: bool) -> Result<bool, String> {
@@ -212,9 +216,114 @@ fn commit_all(repo: &Repository, message: &str) -> Result<(), String> {
     .map_err(|e| e.message().to_string())
 }
 
+/// Times the exact set of reads the UI fires when a repository is opened,
+/// first one at a time and then all at once. Run against a real checkout
+/// (`--repo <path> --profile-open`) — synthetic repos have a handful of refs
+/// and hide everything that makes a large repository slow.
+///
+/// The concurrent total is the interesting number: if it tracks the *sum*
+/// of the individual timings rather than the slowest one, the reads are
+/// serializing behind a lock somewhere rather than actually overlapping.
+async fn run_open_profile(args: Args) -> Result<(), String> {
+    if !args.repo.join(".git").exists() {
+        return Err(format!("{} is not a git repository", args.repo.display()));
+    }
+
+    let backend = Arc::new(GixGitBackend::new());
+    let repo = RepoPath::new(args.repo.clone());
+
+    println!("repo={}", args.repo.display());
+
+    let open_start = Instant::now();
+    Repository::open(&args.repo).map_err(|e| e.message().to_string())?;
+    println!("open_ms={:.1}", ms(open_start.elapsed()));
+
+    let start = Instant::now();
+    let status = backend.status(&repo).await.map_err(|e| e.to_string())?;
+    let status_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let branches = backend.branches(&repo).await.map_err(|e| e.to_string())?;
+    let branches_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let tags = backend.tags(&repo).await.map_err(|e| e.to_string())?;
+    let tags_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let log = backend
+        .log(&repo, None, args.log_limit)
+        .await
+        .map_err(|e| e.to_string())?;
+    let log_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let changes = backend
+        .working_changes(&repo)
+        .await
+        .map_err(|e| e.to_string())?;
+    let changes_ms = ms(start.elapsed());
+
+    println!("branches={} tags={}", branches.len(), tags.len());
+    println!(
+        "log_commits={} dirty={} working_files={}",
+        log.commits.len(),
+        status.dirty_count,
+        changes.staged.len() + changes.unstaged.len()
+    );
+    println!("--- sequential ---");
+    println!("status_ms={status_ms:.1}");
+    println!("branches_ms={branches_ms:.1}");
+    println!("tags_ms={tags_ms:.1}");
+    println!("log_ms={log_ms:.1}");
+    println!("working_changes_ms={changes_ms:.1}");
+    let sum = status_ms + branches_ms + tags_ms + log_ms + changes_ms;
+    let slowest = [status_ms, branches_ms, tags_ms, log_ms, changes_ms]
+        .into_iter()
+        .fold(0.0_f64, f64::max);
+    println!("sum_ms={sum:.1}");
+
+    // Same five reads, issued together the way the UI does on open.
+    let concurrent_start = Instant::now();
+    let (a, b, c, d, e) = tokio::join!(
+        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.status(&repo).await } },
+        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.branches(&repo).await } },
+        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.tags(&repo).await } },
+        { let backend = backend.clone(); let repo = repo.clone(); let limit = args.log_limit; async move { backend.log(&repo, None, limit).await } },
+        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.working_changes(&repo).await } },
+    );
+    a.map_err(|e| e.to_string())?;
+    b.map_err(|e| e.to_string())?;
+    c.map_err(|e| e.to_string())?;
+    d.map_err(|e| e.to_string())?;
+    e.map_err(|e| e.to_string())?;
+    let concurrent_ms = ms(concurrent_start.elapsed());
+
+    println!("--- concurrent (as the UI opens a repo) ---");
+    println!("concurrent_ms={concurrent_ms:.1}");
+    println!("slowest_single_ms={slowest:.1}");
+    println!(
+        "verdict={}",
+        if concurrent_ms > sum * 0.8 {
+            "SERIALIZED (concurrent ≈ sum, reads are not overlapping)"
+        } else {
+            "overlapping"
+        }
+    );
+
+    Ok(())
+}
+
+fn ms(duration: std::time::Duration) -> f64 {
+    duration.as_secs_f64() * 1000.0
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args = parse_args()?;
+    if args.profile_open {
+        return run_open_profile(args).await;
+    }
     if args.workspace_repos > 1 {
         return run_workspace_benchmark(args).await;
     }

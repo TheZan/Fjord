@@ -45,23 +45,41 @@ impl GixGitBackend {
         git2::Repository::open(&repo.0).map_err(Self::map_git2_error)
     }
 
-    async fn acquire_repo_lock(repo: &RepoPath) -> tokio::sync::OwnedMutexGuard<()> {
-        static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>> =
+    fn repo_lock(repo: &RepoPath) -> Arc<tokio::sync::RwLock<()>> {
+        static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::RwLock<()>>>>> =
             OnceLock::new();
 
         let key = std::fs::canonicalize(&repo.0).unwrap_or_else(|_| repo.0.clone());
-        let lock = {
-            let mut locks = LOCKS
-                .get_or_init(|| Mutex::new(HashMap::new()))
-                .lock()
-                .expect("repo lock registry should not be poisoned");
-            locks
-                .entry(key)
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
+        let mut locks = LOCKS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .expect("repo lock registry should not be poisoned");
+        locks
+            .entry(key)
+            .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(())))
+            .clone()
+    }
 
-        lock.lock_owned().await
+    /// Shared guard for operations that only read. Concurrent readers
+    /// overlap; a writer still excludes them.
+    ///
+    /// This was an exclusive mutex taken by *every* method, reads included,
+    /// which quietly serialized repository opening: the UI fires status,
+    /// branches, tags, log and working-changes together, so their wall-clock
+    /// cost was the sum rather than the slowest one. On a repo with 826
+    /// refs and 922 tags that measured 861 ms concurrent against a 518 ms
+    /// slowest read (`cargo run -p fjord-bench -- --repo <path>
+    /// --profile-open`).
+    async fn acquire_repo_read_lock(repo: &RepoPath) -> tokio::sync::OwnedRwLockReadGuard<()> {
+        Self::repo_lock(repo).read_owned().await
+    }
+
+    /// Exclusive guard for operations that mutate the repository — checkout,
+    /// staging, commit, fetch/pull/push, stash. Two of these interleaving
+    /// (or running while a read observes a half-applied state) is what the
+    /// lock exists to prevent.
+    async fn acquire_repo_write_lock(repo: &RepoPath) -> tokio::sync::OwnedRwLockWriteGuard<()> {
+        Self::repo_lock(repo).write_owned().await
     }
 
     fn map_git2_error(err: git2::Error) -> GitError {
@@ -473,7 +491,7 @@ impl Default for GixGitBackend {
 impl GitBackend for GixGitBackend {
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
 
@@ -510,7 +528,7 @@ impl GitBackend for GixGitBackend {
 
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
             let current = git
@@ -556,7 +574,7 @@ impl GitBackend for GixGitBackend {
 
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
             let platform = git.references().map_err(|e| GitError::Gix(e.to_string()))?;
@@ -590,7 +608,7 @@ impl GitBackend for GixGitBackend {
         limit: u32,
     ) -> Result<CommitPage, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
 
@@ -651,7 +669,7 @@ impl GitBackend for GixGitBackend {
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
         let repo = repo.clone();
         let commit_id = commit_id.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
             let changes = Self::commit_changes(&git, &commit_id)?;
@@ -697,7 +715,7 @@ impl GitBackend for GixGitBackend {
         let repo = repo.clone();
         let commit_id = commit_id.to_string();
         let path = path.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
             let changes = Self::commit_changes(&git, &commit_id)?;
@@ -761,7 +779,7 @@ impl GitBackend for GixGitBackend {
 
     async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let mut options = git2::StatusOptions::new();
@@ -825,7 +843,7 @@ impl GitBackend for GixGitBackend {
     ) -> Result<FileDiffDetail, GitError> {
         let repo = repo.clone();
         let path = path.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let mut options = git2::DiffOptions::new();
@@ -868,7 +886,7 @@ impl GitBackend for GixGitBackend {
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
         let repo = repo.clone();
         let branch = branch.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let refname = if branch.starts_with("refs/") {
@@ -891,7 +909,7 @@ impl GitBackend for GixGitBackend {
     ) -> Result<(), GitError> {
         let repo = repo.clone();
         let name = name.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let head = Self::current_head_commit(&git)?.ok_or_else(|| {
@@ -914,7 +932,7 @@ impl GitBackend for GixGitBackend {
 
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let mut git = Self::open_git2(&repo)?;
             let mut out = Vec::new();
@@ -935,7 +953,7 @@ impl GitBackend for GixGitBackend {
     async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {
         let repo = repo.clone();
         let message = message.map(ToString::to_string);
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let mut git = Self::open_git2(&repo)?;
             let signature = Self::owned_signature(&git)?;
@@ -957,7 +975,7 @@ impl GitBackend for GixGitBackend {
 
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let mut git = Self::open_git2(&repo)?;
             match git.stash_pop(0, None) {
@@ -973,7 +991,7 @@ impl GitBackend for GixGitBackend {
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
         let repo = repo.clone();
         let paths = paths.to_vec();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let mut index = git.index().map_err(Self::map_git2_error)?;
@@ -1000,7 +1018,7 @@ impl GitBackend for GixGitBackend {
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
         let repo = repo.clone();
         let paths = paths.to_vec();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let head = git
@@ -1023,7 +1041,7 @@ impl GitBackend for GixGitBackend {
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
         let repo = repo.clone();
         let message = message.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let mut index = git.index().map_err(Self::map_git2_error)?;
@@ -1065,7 +1083,7 @@ impl GitBackend for GixGitBackend {
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
         let repo = repo.clone();
         let remote = remote.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             Self::fetch_remote(&git, &remote, &[])
@@ -1076,7 +1094,7 @@ impl GitBackend for GixGitBackend {
 
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let head = git.head().map_err(Self::map_git2_error)?;
@@ -1134,7 +1152,7 @@ impl GitBackend for GixGitBackend {
     async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError> {
         let repo = repo.clone();
         let refspec = refspec.to_string();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
             let refspec = if refspec.trim().is_empty() {
@@ -1156,7 +1174,7 @@ impl GitBackend for GixGitBackend {
 
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
         let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             if !Self::has_conflicts(&repo)? {
                 return Err(GitError::NoConflicts);
@@ -1202,6 +1220,13 @@ mod tests {
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Fjord Test").unwrap();
         config.set_str("user.email", "fjord@example.com").unwrap();
+        // Pin end-of-line handling for the fixture. Without this the repo
+        // inherits the developer's global `core.autocrlf`, which on Windows
+        // is typically `true` — so git rewrites LF to CRLF when it restores
+        // a file (stash pop, checkout) and byte-for-byte content assertions
+        // fail on Windows while passing everywhere else. These tests are
+        // about git operations, not about EOL conversion.
+        config.set_bool("core.autocrlf", false).unwrap();
         let repo_path = RepoPath(dir.path().to_path_buf());
         (dir, repo_path)
     }

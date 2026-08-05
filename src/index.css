@@ -6,6 +6,11 @@
    ThemeProvider sets and which must win once JS has resolved a choice. */
 
 :root {
+  /* Tells the engine which way native UI should lean — text selection,
+     focus rings, and any control we haven't styled ourselves. Kept in sync
+     with the token block it sits in. */
+  color-scheme: light;
+
   /* Brand mark color (assets/logo/README.md) — fixed, not theme-dependent;
      distinct from --fjord (the UI accent token) even though both read as
      "teal": this one is the mark's own identity, not a semantic UI role. */
@@ -37,6 +42,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --page-bg: #0b0f13;
     --paper: #131920;
     --ink: #e7ecef;
@@ -64,6 +70,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --page-bg: #0b0f13;
   --paper: #131920;
   --ink: #e7ecef;
@@ -90,6 +97,7 @@
 }
 
 :root[data-theme="light"] {
+  color-scheme: light;
   --page-bg: #eef1f3;
   --paper: #ffffff;
   --ink: #12181f;
@@ -118,4 +126,48 @@
 body {
   background: var(--page-bg);
   color: var(--ink);
+}
+
+/* Scrollbars.
+ *
+ * WebView2 otherwise paints the Windows default — a wide, light-grey bar
+ * that reads as a seam down the side of every scrollable pane and ignores
+ * the theme entirely. `color-scheme` alone would only darken it; these
+ * rules make it part of the palette.
+ *
+ * The thumb is inset with a transparent border rather than a smaller
+ * width, so the hit target stays full-width while the visible bar reads as
+ * a thin capsule. Track stays transparent so panes keep their own surface
+ * color right up to the edge.
+ *
+ * Deliberately *not* using the standard `scrollbar-width`/`scrollbar-color`
+ * pair: setting either one makes Chromium ignore every
+ * `::-webkit-scrollbar` rule for that element, which cost us the inset
+ * capsule and the hover/active states (measured: 12px stock-thin instead of
+ * the 11px declared below). The webkit pseudo-elements are also the more
+ * portable choice here — all three Tauri webviews are Blink or WebKit,
+ * and WebKit doesn't implement the standard properties. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--hairline-strong);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--mist);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--slate);
 }
