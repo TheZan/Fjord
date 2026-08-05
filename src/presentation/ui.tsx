@@ -11,6 +11,7 @@ import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
+  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
 
@@ -75,6 +76,22 @@ export function Input({ className = "", style, ...props }: InputHTMLAttributes<H
     <input
       {...props}
       className={`h-8 rounded-md border px-2.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-[var(--fjord)] ${className}`}
+      style={{
+        borderWidth: "0.5px",
+        borderColor: "var(--hairline-strong)",
+        background: "var(--page-bg)",
+        color: "var(--ink)",
+        ...style,
+      }}
+    />
+  );
+}
+
+export function Select({ className = "", style, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={`interactive-control h-8 rounded-md border px-2.5 text-[13px] outline-none focus:border-[var(--fjord)] disabled:opacity-45 ${className}`}
       style={{
         borderWidth: "0.5px",
         borderColor: "var(--hairline-strong)",

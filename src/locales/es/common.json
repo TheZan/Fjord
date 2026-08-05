@@ -1,0 +1,47 @@
+{
+  "app": {
+    "title": "Fjord",
+    "tagline": "Un gestor de workspaces Git, no solo otro cliente Git."
+  },
+  "errorBoundary": {
+    "title": "Algo salió mal",
+    "body": "Se produjo un error inesperado al renderizar esta vista. Puedes intentarlo de nuevo o recargar la app si sigue ocurriendo.",
+    "reload": "Recargar app",
+    "retry": "Intentar de nuevo"
+  },
+  "settings": {
+    "sections": {
+      "general": "General",
+      "appearance": "Apariencia",
+      "tools": "Herramientas"
+    },
+    "theme": {
+      "label": "Tema",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "system": "Sistema"
+    },
+    "locale": {
+      "label": "Idioma"
+    },
+    "defaultIde": {
+      "label": "IDE predeterminado",
+      "auto": "Automático",
+      "vscode": "VS Code",
+      "vscodeInsiders": "VS Code Insiders",
+      "cursor": "Cursor",
+      "windsurf": "Windsurf",
+      "zed": "Zed",
+      "idea": "IntelliJ IDEA",
+      "webstorm": "WebStorm",
+      "pycharm": "PyCharm",
+      "clion": "CLion",
+      "rider": "Rider",
+      "rustrover": "RustRover",
+      "custom": "Comando personalizado",
+      "customPlaceholder": "comando-editor",
+      "customValue": "Se guarda como custom:<command>.",
+      "saveCustom": "Guardar"
+    }
+  }
+}

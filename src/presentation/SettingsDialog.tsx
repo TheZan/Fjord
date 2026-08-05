@@ -4,7 +4,7 @@ import { setLocale } from "@/infrastructure/i18n";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
 import { getSettings, updateSettings } from "@/infrastructure/tauriClient";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
-import { Button, GroupLabel, Input, Muted } from "@/presentation/ui";
+import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
 import type { Settings, Theme } from "@/domain/settings";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
@@ -106,6 +106,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const selectedIde = currentSettings.defaultIde?.startsWith(CUSTOM_IDE_PREFIX)
     ? "custom"
     : currentSettings.defaultIde;
+  const selectedLocale = SUPPORTED_LOCALES.some((locale) => locale.code === currentSettings.locale)
+    ? currentSettings.locale
+    : DEFAULT_SETTINGS.locale;
 
   return (
     <div
@@ -170,19 +173,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <div className="flex-1 overflow-y-auto p-5">
             {activeSection === "general" && (
               <SettingsGroup title={t("settings.locale.label")}>
-                <div className="grid grid-cols-2 gap-1.5">
+                <Select
+                  value={selectedLocale}
+                  disabled={pendingKey === "locale"}
+                  onChange={(event) => void chooseLocale(event.target.value)}
+                  className="w-64 max-w-full"
+                >
                   {SUPPORTED_LOCALES.map((locale) => (
-                    <Button
-                      key={locale.code}
-                      size="sm"
-                      variant={currentSettings.locale === locale.code ? "primary" : "secondary"}
-                      disabled={pendingKey === "locale"}
-                      onClick={() => void chooseLocale(locale.code)}
-                    >
+                    <option key={locale.code} value={locale.code}>
                       {locale.label}
-                    </Button>
+                    </option>
                   ))}
-                </div>
+                </Select>
               </SettingsGroup>
             )}
 

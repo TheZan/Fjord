@@ -1,0 +1,186 @@
+{
+  "allRepositories": {
+    "title": "Alle Repositorys",
+    "filterPlaceholder": "Nach Repo oder Workspace filtern",
+    "empty": "Keine Repositorys entsprechen dem Filter."
+  },
+  "branches": {
+    "current": "aktuell"
+  },
+  "bulk": {
+    "fetch": "Alle fetchen",
+    "fetching": "Fetch läuft…",
+    "pull": "Alle pullen",
+    "pulling": "Pull läuft…",
+    "openIde": "Alle in IDE öffnen",
+    "openingIde": "Wird geöffnet…",
+    "summary": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen"
+  },
+  "cardStatus": {
+    "synced": "Synchronisiert",
+    "dirty": "Geändert",
+    "ahead": "Voraus",
+    "behind": "Zurück",
+    "conflict": "Konflikt",
+    "upToDate": "Aktuell",
+    "changes": "{{count}} Änderungen"
+  },
+  "commandPalette": {
+    "placeholder": "Befehle, Repositorys, Branches suchen",
+    "empty": "Keine Befehle gefunden.",
+    "repository": "Repository",
+    "action": "Aktion",
+    "localBranch": "Lokaler Branch",
+    "remoteBranch": "Remote-Branch",
+    "commit": "Commit"
+  },
+  "commitInspector": {
+    "empty": "Keine geänderten Dateien.",
+    "changeType": {
+      "added": "Hinzugefügt",
+      "modified": "Geändert",
+      "deleted": "Gelöscht",
+      "renamed": "Umbenannt"
+    },
+    "changeTypeMark": {
+      "added": "A",
+      "modified": "M",
+      "deleted": "D",
+      "renamed": "R"
+    }
+  },
+  "commits": {
+    "empty": "Keine Commits gefunden.",
+    "loading": "Lädt…",
+    "loadEarlier": "Ältere Commits laden",
+    "end": "Anfang des Verlaufs"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "addTarget": "Repositorys werden zu {{workspace}} hinzugefügt",
+    "repoCount": "Repositorys",
+    "needAttention": "Benötigen Aufmerksamkeit",
+    "behindOrigin": "Hinter origin",
+    "repoCountValue": "{{count}} Repos",
+    "branch": "Branch",
+    "dirty": "Änderungen",
+    "behind": "Zurück",
+    "ahead": "Voraus",
+    "unknown": "Unbekannt"
+  },
+  "diff": {
+    "binary": "Binärdatei wird nicht angezeigt.",
+    "empty": "Keine Änderungen zum Anzeigen.",
+    "back": "Zurück zum Graphen"
+  },
+  "fileView": {
+    "path": "Liste",
+    "tree": "Baum",
+    "collapseAll": "Alle einklappen",
+    "expandAll": "Alle ausklappen"
+  },
+  "inspector": {
+    "empty": "Wähle einen Commit aus, um Details zu sehen."
+  },
+  "nav": {
+    "overview": "Übersicht",
+    "allRepositories": "Alle Repositorys",
+    "back": "Zurück"
+  },
+  "onboarding": {
+    "title": "Ersten Workspace einrichten",
+    "body": "Erstelle einen Workspace und importiere dann vorhandene Git-Repositorys aus einem Ordner auf der Festplatte.",
+    "workspacePlaceholder": "Workspace-Name",
+    "defaultWorkspaceName": "Mein Workspace",
+    "createAndImport": "Erstellen und importieren",
+    "createOnly": "Nur erstellen",
+    "creating": "Wird erstellt…",
+    "importing": "Wird importiert…"
+  },
+  "operations": {
+    "running": "Läuft…",
+    "progress": "{{completed}} / {{total}}",
+    "cancel": "Abbrechen",
+    "cancelled": "Abgebrochen."
+  },
+  "repoActions": {
+    "fetch": "Fetch",
+    "fetching": "Fetch läuft…",
+    "pull": "Pull",
+    "pulling": "Pull läuft…",
+    "push": "Push",
+    "pushing": "Push läuft…",
+    "openIde": "In IDE öffnen",
+    "openingIde": "Wird geöffnet…"
+  },
+  "repoStatus": {
+    "conflict": "Merge-Konflikte erkannt.",
+    "openMergeTool": "Merge-Tool öffnen",
+    "openingMergeTool": "Wird geöffnet…"
+  },
+  "repositories": {
+    "label": "Repositorys",
+    "openButton": "Repository öffnen",
+    "importButton": "Ordner importieren",
+    "importingButton": "Wird importiert…",
+    "removeButton": "Entfernen",
+    "empty": "Noch keine Repositorys; öffne eines, um loszulegen.",
+    "notAGitRepository": "Dieser Ordner ist kein Git-Repository."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "close": "Fertig",
+    "openCommand": "Einstellungen öffnen",
+    "openCommandDetail": "Design, Sprache und Standard-IDE"
+  },
+  "toolbar": {
+    "branch": "Branch",
+    "branchPlaceholder": "Name des neuen Branches",
+    "createBranch": "Erstellen",
+    "stash": "Stash",
+    "pop": "Pop",
+    "terminal": "Terminal",
+    "search": "Suchen"
+  },
+  "tree": {
+    "local": "Lokal",
+    "remote": "Remote",
+    "tags": "Tags",
+    "filterPlaceholder": "Branches und Tags filtern",
+    "filterCount": "{{matched}} / {{total}}",
+    "clearFilter": "Leeren",
+    "noMatches": "Keine Treffer.",
+    "empty": "Keine Branches oder Tags gefunden."
+  },
+  "working": {
+    "title": "Nicht committete Änderungen",
+    "fileCount_one": "{{count}} Datei",
+    "fileCount_other": "{{count}} Dateien",
+    "clean": "Arbeitsverzeichnis ist sauber.",
+    "staged": "Gestaged",
+    "unstaged": "Nicht gestaged",
+    "stage": "Stagen",
+    "unstage": "Unstagen",
+    "stageAll": "Alle stagen",
+    "unstageAll": "Alle unstagen",
+    "conflicted": "Konflikt",
+    "summaryPlaceholder": "Commit-Zusammenfassung",
+    "descriptionPlaceholder": "Beschreibung (optional)",
+    "commit_one": "{{count}} Datei committen",
+    "commit_other": "{{count}} Dateien committen"
+  },
+  "workspaces": {
+    "label": "Workspaces",
+    "loading": "Lädt",
+    "empty": "Noch keine Workspaces.",
+    "noSelection": "Kein Workspace ausgewählt",
+    "createPlaceholder": "Workspace-Name",
+    "createButton": "Erstellen",
+    "rename": "Umbenennen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten"
+  }
+}

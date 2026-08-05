@@ -1,12 +1,17 @@
 // See docs/specs/i18n.md. Catalogs are imported statically for now — with
-// two locales and a handful of namespaces this is simpler and just as
-// correct as dynamic per-locale chunks; revisit if/when the catalog list
-// grows enough to matter for bundle size.
+// a small locale set and a handful of namespaces this is simpler and just as
+// correct as dynamic per-locale chunks; revisit if/when the catalog list grows.
 
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
+import deCommon from "@/locales/de/common.json";
+import deWorkspace from "@/locales/de/workspace.json";
 import enCommon from "@/locales/en/common.json";
 import ruCommon from "@/locales/ru/common.json";
+import esCommon from "@/locales/es/common.json";
+import esWorkspace from "@/locales/es/workspace.json";
+import frCommon from "@/locales/fr/common.json";
+import frWorkspace from "@/locales/fr/workspace.json";
 import enWorkspace from "@/locales/en/workspace.json";
 import ruWorkspace from "@/locales/ru/workspace.json";
 import { DEFAULT_LOCALE } from "@/locales/registry";
@@ -23,6 +28,9 @@ export async function initI18n(initialLocale: string): Promise<void> {
     resources: {
       en: { common: enCommon, workspace: enWorkspace },
       ru: { common: ruCommon, workspace: ruWorkspace },
+      es: { common: esCommon, workspace: esWorkspace },
+      de: { common: deCommon, workspace: deWorkspace },
+      fr: { common: frCommon, workspace: frWorkspace },
     },
     ns: ["common", "workspace"],
     defaultNS: "common",
