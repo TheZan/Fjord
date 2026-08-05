@@ -188,6 +188,9 @@
     "cancel": "Cancel",
     "delete": "Delete",
     "moveUp": "Up",
-    "moveDown": "Down"
+    "moveDown": "Down",
+    "expand": "Expand workspace",
+    "collapse": "Collapse workspace",
+    "noRepositories": "No repositories"
   }
 }

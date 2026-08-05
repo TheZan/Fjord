@@ -56,6 +56,7 @@ export function App() {
     renameWorkspace,
     deleteWorkspace,
     moveWorkspace,
+    moveWorkspaceTo,
     openRepository,
     importRepositories,
     removeRepository,
@@ -268,9 +269,12 @@ export function App() {
           setRepoDetailCommand(null);
         }}
         workspaces={workspaces}
+        repositoriesByWorkspace={repositoriesByWorkspace}
+        statusByRepo={statusByRepo}
         repoCountByWorkspace={repoCountByWorkspace}
         attentionByWorkspace={attentionByWorkspace}
         selectedWorkspaceId={selectedWorkspaceId}
+        selectedRepoId={selectedRepoId}
         onSelectWorkspace={(id) => {
           void selectWorkspace(id);
           setSelectedRepoId(null);
@@ -281,6 +285,8 @@ export function App() {
         onRenameWorkspace={(id, name) => void renameWorkspace(id, name)}
         onDeleteWorkspace={(id) => void deleteWorkspace(id)}
         onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
+        onMoveWorkspaceTo={(id, targetId) => void moveWorkspaceTo(id, targetId)}
+        onSelectRepository={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
         pending={workspaceActionPending}
         onOpenSettings={() => setSettingsOpen(true)}
       />

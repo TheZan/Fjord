@@ -134,4 +134,20 @@ describe("useRepositories", () => {
       "mobile",
     ]);
   });
+
+  it("reorders workspaces by drop target", async () => {
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.moveWorkspaceTo("backend", "frontend");
+    });
+
+    expect(tauriClient.reorderWorkspaces).toHaveBeenCalledWith(["backend", "frontend"]);
+    expect(result.current.workspaces.map((workspace) => workspace.id)).toEqual([
+      "backend",
+      "frontend",
+    ]);
+  });
 });

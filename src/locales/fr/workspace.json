@@ -188,6 +188,9 @@
     "cancel": "Annuler",
     "delete": "Supprimer",
     "moveUp": "Monter",
-    "moveDown": "Descendre"
+    "moveDown": "Descendre",
+    "expand": "Déplier le workspace",
+    "collapse": "Replier le workspace",
+    "noRepositories": "Aucun dépôt"
   }
 }

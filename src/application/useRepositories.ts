@@ -45,6 +45,7 @@ export interface UseRepositoriesResult {
   renameWorkspace: (id: string, name: string) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
+  moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
   openRepository: () => Promise<void>;
   importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
   removeRepository: (id: string) => Promise<void>;
@@ -257,6 +258,33 @@ export function useRepositories(): UseRepositoriesResult {
     [queryClient, reorderWorkspacesMutation, workspaces],
   );
 
+  const moveWorkspaceTo = useCallback(
+    async (id: string, targetId: string) => {
+      if (id === targetId) return;
+      const currentIndex = workspaces.findIndex((workspace) => workspace.id === id);
+      const targetIndex = workspaces.findIndex((workspace) => workspace.id === targetId);
+      if (currentIndex < 0 || targetIndex < 0) return;
+
+      const reordered = [...workspaces];
+      const [moved] = reordered.splice(currentIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      const locallyOrdered = withLocalOrder(reordered);
+
+      setLocalError(null);
+      setWorkspaceActionPending(id);
+      try {
+        await reorderWorkspacesMutation.mutateAsync(locallyOrdered.map((workspace) => workspace.id));
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), locallyOrdered);
+      } catch (e) {
+        setLocalError(invokeErrorMessage(e));
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() });
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [queryClient, reorderWorkspacesMutation, workspaces],
+  );
+
   const openRepository = useCallback(async () => {
     if (!selectedWorkspaceId) return;
 
@@ -332,6 +360,7 @@ export function useRepositories(): UseRepositoriesResult {
     renameWorkspace,
     deleteWorkspace,
     moveWorkspace,
+    moveWorkspaceTo,
     openRepository,
     importRepositories,
     removeRepository,

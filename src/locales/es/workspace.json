@@ -188,6 +188,9 @@
     "cancel": "Cancelar",
     "delete": "Eliminar",
     "moveUp": "Subir",
-    "moveDown": "Bajar"
+    "moveDown": "Bajar",
+    "expand": "Expandir workspace",
+    "collapse": "Contraer workspace",
+    "noRepositories": "Sin repositorios"
   }
 }

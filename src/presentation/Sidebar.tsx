@@ -1,22 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FjordMark } from "@/presentation/FjordMark";
 import { GroupLabel, Input } from "@/presentation/ui";
-import type { Workspace } from "@/domain/workspace";
+import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
 
 interface SidebarProps {
   view: View;
   onViewChange: (view: View) => void;
   workspaces: Workspace[];
+  repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
+  statusByRepo: Record<string, RepoStatusSummary>;
   repoCountByWorkspace: Record<string, number>;
   attentionByWorkspace: Record<string, number>;
   selectedWorkspaceId: string | null;
+  selectedRepoId: string | null;
   onSelectWorkspace: (id: string) => void;
+  onSelectRepository: (workspaceId: string, repoId: string) => void;
   onCreateWorkspace: (name: string) => void;
   onRenameWorkspace: (id: string, name: string) => void;
   onDeleteWorkspace: (id: string) => void;
   onMoveWorkspace: (id: string, direction: -1 | 1) => void;
+  onMoveWorkspaceTo: (id: string, targetId: string) => void;
   pending: string | null;
   onOpenSettings: () => void;
 }
@@ -25,14 +30,19 @@ export function Sidebar({
   view,
   onViewChange,
   workspaces,
+  repositoriesByWorkspace,
+  statusByRepo,
   repoCountByWorkspace,
   attentionByWorkspace,
   selectedWorkspaceId,
+  selectedRepoId,
   onSelectWorkspace,
+  onSelectRepository,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   onMoveWorkspace,
+  onMoveWorkspaceTo,
   pending,
   onOpenSettings,
 }: SidebarProps) {
@@ -43,6 +53,27 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    setExpandedIds((current) => {
+      if (current.has(selectedWorkspaceId)) return current;
+      const next = new Set(current);
+      next.add(selectedWorkspaceId);
+      return next;
+    });
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    setExpandedIds((current) => {
+      const existing = new Set(workspaces.map((workspace) => workspace.id));
+      const next = new Set([...current].filter((id) => existing.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [workspaces]);
 
   function submitNew() {
     if (!newName.trim()) {
@@ -57,6 +88,15 @@ export function Sidebar({
   function submitRename(id: string) {
     if (editingName.trim()) onRenameWorkspace(id, editingName);
     setEditingId(null);
+  }
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -122,6 +162,10 @@ export function Sidebar({
         {workspaces.map((workspace) => {
           const isSelected = workspace.id === selectedWorkspaceId;
           const attention = attentionByWorkspace[workspace.id] ?? 0;
+          const repos = repositoriesByWorkspace[workspace.id] ?? [];
+          const expanded = expandedIds.has(workspace.id);
+          const dragging = draggedWorkspaceId === workspace.id;
+          const dropTarget = dropTargetId === workspace.id && draggedWorkspaceId !== workspace.id;
 
           if (editingId === workspace.id) {
             return (
@@ -141,16 +185,69 @@ export function Sidebar({
           }
 
           return (
-            <div key={workspace.id} className="group relative">
-              <button
-                type="button"
-                onClick={() => onSelectWorkspace(workspace.id)}
+            <div
+              key={workspace.id}
+              draggable={pending === null}
+              onDragStart={(event) => {
+                setDraggedWorkspaceId(workspace.id);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", workspace.id);
+              }}
+              onDragOver={(event) => {
+                if (!draggedWorkspaceId || draggedWorkspaceId === workspace.id) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTargetId(workspace.id);
+              }}
+              onDragLeave={() => {
+                setDropTargetId((current) => (current === workspace.id ? null : current));
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const draggedId = draggedWorkspaceId ?? event.dataTransfer.getData("text/plain");
+                setDraggedWorkspaceId(null);
+                setDropTargetId(null);
+                if (draggedId && draggedId !== workspace.id) onMoveWorkspaceTo(draggedId, workspace.id);
+              }}
+              onDragEnd={() => {
+                setDraggedWorkspaceId(null);
+                setDropTargetId(null);
+              }}
+              className="group relative rounded-md"
+              style={{
+                opacity: dragging ? 0.55 : 1,
+                outline: dropTarget ? "1px solid var(--fjord)" : "none",
+                outlineOffset: dropTarget ? "2px" : 0,
+              }}
+            >
+              <div
                 data-selected={isSelected}
-                className="interactive-row flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]"
+                className="interactive-row flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left text-[13px] active:cursor-grabbing"
                 style={{
                   color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                 }}
               >
+                <span className="flex h-5 w-3 shrink-0 items-center justify-center" style={{ color: "var(--mist)" }}>
+                  <DragHandleIcon />
+                </span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleExpanded(workspace.id);
+                  }}
+                  className="interactive-control flex h-5 w-5 shrink-0 items-center justify-center rounded"
+                  style={{ color: "var(--mist)" }}
+                  aria-label={expanded ? tw("workspaces.collapse") : tw("workspaces.expand")}
+                  title={expanded ? tw("workspaces.collapse") : tw("workspaces.expand")}
+                >
+                  <ChevronIcon open={expanded} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkspace(workspace.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: attention > 0 ? "var(--amber)" : "var(--moss)" }}
@@ -162,7 +259,8 @@ export function Sidebar({
                 >
                   {repoCountByWorkspace[workspace.id] ?? 0}
                 </span>
-              </button>
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -222,12 +320,114 @@ export function Sidebar({
                   </MenuItem>
                 </div>
               )}
+
+              {expanded && (
+                <div className="flex flex-col gap-0.5 pb-1 pl-7 pr-1 pt-1">
+                  {repos.length === 0 ? (
+                    <span className="truncate px-2 py-1 text-[11px]" style={{ color: "var(--mist)" }}>
+                      {tw("workspaces.noRepositories")}
+                    </span>
+                  ) : (
+                    repos.map((repo) => (
+                      <RepositoryItem
+                        key={repo.id}
+                        repo={repo}
+                        status={statusByRepo[repo.id]?.status}
+                        selected={repo.id === selectedRepoId}
+                        onSelect={() => onSelectRepository(workspace.id, repo.id)}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
     </aside>
+  );
+}
+
+function RepositoryItem({
+  repo,
+  status,
+  selected,
+  onSelect,
+}: {
+  repo: RepositoryEntry;
+  status: RepoStatusSummary["status"] | undefined;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const dirty = status?.dirtyCount ?? 0;
+  const ahead = status?.ahead ?? 0;
+  const behind = status?.behind ?? 0;
+  const tone = status?.hasConflict
+    ? "var(--rust)"
+    : dirty > 0
+      ? "var(--amber)"
+      : ahead > 0 || behind > 0
+        ? "var(--fjord)"
+        : "var(--moss)";
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      data-selected={selected}
+      className="interactive-row grid w-full grid-cols-[0.5rem_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left"
+      title={repo.path}
+      style={{
+        color: selected ? "var(--fjord-ink)" : "var(--slate)",
+      }}
+    >
+      <span className="row-span-2 h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
+      <span className="min-w-0 truncate text-[12px] font-medium">{repo.name}</span>
+      <span className="min-w-0 truncate text-[10px]" style={{ color: "var(--mist)" }}>
+        {status?.branch ?? repo.path}
+        {(dirty > 0 || ahead > 0 || behind > 0) && (
+          <span className="ml-1.5 inline-flex gap-1 tabular-nums">
+            {dirty > 0 && (
+              <span style={{ color: "var(--amber-ink)" }}>
+                {t("cardStatus.changes", { count: dirty })}
+              </span>
+            )}
+            {ahead > 0 && <span>↑{ahead}</span>}
+            {behind > 0 && <span>↓{behind}</span>}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden="true">
+      <path
+        d={open ? "M3 4.5 6 7.5 9 4.5" : "M4.5 3 7.5 6 4.5 9"}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 8 14" className="h-3.5 w-2" aria-hidden="true">
+      <circle cx="2" cy="3" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="3" r="0.8" fill="currentColor" />
+      <circle cx="2" cy="7" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="7" r="0.8" fill="currentColor" />
+      <circle cx="2" cy="11" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="11" r="0.8" fill="currentColor" />
+    </svg>
   );
 }
 
