@@ -182,7 +182,7 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
 
 - ✅ **Errors**: `thiserror` typed errors per crate (`GitError`, `StoreError`, service-level enums), mapped at the `commands` boundary to a small serializable `AppError { code, message }` — the frontend switches on `code` (stable, localizable) and never parses Rust `Display` strings. Error *messages* shown to the user go through the i18n catalog.
 - ✅ **Async runtime**: Tokio throughout the backend; blocking git work wrapped in `spawn_blocking`. 🚧 Long-running operations (fetch/pull/push, bulk ops) do **not** yet report progress via Tauri events or support cancellation — the UI waits silently until completion (`P4-17`). The event contract needs its own spec before implementation.
-- 🚧 **Logging/tracing**: the target is `tracing` + a rotating file appender in the app data dir so bug reports can include real diagnostics. Not wired yet (`P4-14`). See §10.
+- ✅ **Logging/tracing**: `tracing` + a daily-rotating file appender in the app data dir so bug reports can include real diagnostics (`P4-14`). See §10.
 - **Testing** (current state; gaps tracked in `P4-09`):
   - ✅ `fjord-domain` / `fjord-services`: unit tests with in-memory fakes of the port traits — no real Git or SQLite needed.
   - ✅ `fjord-git`: integration tests against real fixture repositories (including this repository itself as the cheapest fixture).
@@ -201,14 +201,14 @@ Threat model in one line: the WebView renders only local data (no remote content
 - ✅ **Startup robustness**: bootstrap failures (app data dir resolution, DB open) surface a blocking error dialog and a non-zero exit code instead of a panic (`P4-02`).
 - ✅ **Input validation**: repository paths from IPC are canonicalized and checked for being actual Git repositories before use; IDs are opaque NewTypes generated backend-side.
 
-## 10. Observability 🚧
+## 10. Observability
 
-Nothing is implemented yet; this section records the agreed design so `P4-14` has a contract to build against.
+Implemented in `fjord-app/src/logging.rs` (`P4-14`):
 
-- `tracing` spans in services and adapters; `tracing-subscriber` with an env-filter (default `info`, `debug` for `fjord_*` crates in dev builds).
-- A rotating file appender (`tracing-appender`) writing to the app data dir; retention of a small fixed number of files.
-- Log lines never include file *contents* or diff bodies — paths, repo names, and timings only (logs may be attached to public bug reports).
-- A "reveal log folder" affordance in settings once file logging exists.
+- ✅ `tracing-subscriber` with an env-filter — default `info`, `debug` for `fjord_*` crates in dev builds, overridable via `RUST_LOG`.
+- ✅ A daily-rotating file appender (`tracing-appender`) writing to `<app data dir>/logs/fjord.*.log`; retention of the 5 most recent files. Initialized before state bootstrap so startup failures leave a trace on disk; a logging failure never blocks the app itself.
+- ✅ Log lines never include file *contents* or diff bodies — paths, repo names, and timings only (logs may be attached to public bug reports).
+- 🚧 A "reveal log folder" affordance in settings.
 
 ## 11. Non-functional requirements and benchmarks
 

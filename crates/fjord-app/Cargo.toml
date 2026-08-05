@@ -18,6 +18,8 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 tauri = "2"
 tauri-plugin-dialog = "2.7"

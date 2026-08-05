@@ -8,6 +8,7 @@
 mod commands;
 mod error;
 mod ide_launcher;
+mod logging;
 mod state;
 
 use tauri::Manager;
@@ -24,6 +25,13 @@ fn initialize(app: &tauri::App) -> Result<AppState, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("could not resolve the application data directory: {e}"))?;
+
+    // File logging first, so bootstrap failures below leave a trace on disk
+    // (SDD §10). The guard keeps the appender's worker thread alive.
+    if let Some(guard) = logging::init(&app_data_dir) {
+        app.manage(guard);
+        tracing::info!(version = env!("CARGO_PKG_VERSION"), "fjord starting");
+    }
 
     tauri::async_runtime::block_on(state::bootstrap(&app_data_dir))
         .map_err(|e| format!("could not initialize application state: {e}"))

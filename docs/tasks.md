@@ -82,7 +82,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 - [ ] **P4-11** — Generate TS domain types from Rust (`specta` or `ts-rs`) instead of hand-maintaining `src/domain/*`; add a drift check to CI. See SDD §6.1.
 - [ ] **P4-12** — Decompose `App.tsx` (~474 lines): extract palette/modal/action state into contexts or route-level containers; eliminate the 15+-prop drilling into `RepoDetailView`. Best after P4-07.
 - [x] **P4-13** — Parallelize `RepoService::global_search` through the existing bounded worker pool; benchmark on a 24+-repo workspace in `fjord-bench` (`global_search_ms` in the workspace scenario; ≈130 ms for 24×120-commit repos, dev profile).
-- [ ] **P4-14** — File logging: `tracing-subscriber` + `tracing-appender` (rotating) in the app data dir, per the contract in SDD §10.
+- [x] **P4-14** — File logging: `tracing-subscriber` + `tracing-appender` (rotating) in the app data dir, per the contract in SDD §10. (The "reveal log folder" settings affordance from §10 remains open.)
 - [ ] **P4-15** — Watcher coverage: recursive working-tree watch (with ignores for generated directories) plus a debounce layer inside `fjord-fs`, so edits below the repo root invalidate the status cache. Integration-test it. See SDD §5.3.
 - [x] **P4-16** — i18n tooling from [`specs/i18n.md`](specs/i18n.md): `scripts/check-i18n.ts` (catalog key diff, `npm run check-i18n`) and `src/locales/en/glossary.md`. CI wiring happens with P0-09.
 
