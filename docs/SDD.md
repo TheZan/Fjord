@@ -15,7 +15,7 @@ Status markers used throughout this document:
 - ⚠️ — partially implemented, or the implementation diverges from the target described here.
 - 🚧 — planned / designed but not implemented yet.
 
-**Implementation snapshot (2026-08):** Phases 0–2 are implemented (the notable exception is CI, `P0-09`). Phase 3 is partially done (command palette, global search, onboarding). See §12 and [`tasks.md`](tasks.md).
+**Implementation snapshot (2026-08):** Phases 0–2 are implemented. Phase 3 is partially done (command palette, global search, onboarding). See §12 and [`tasks.md`](tasks.md).
 
 ## 1. Vision
 
@@ -123,7 +123,7 @@ Measured numbers and budgets: see §11.
 - ✅ **File watching** via `notify` (FSEvents / ReadDirectoryChangesW / inotify behind one API) — no per-OS branches in application code.
 - ✅ **External process integration** ("Open in IDE", "Open terminal here", merge tool) lives behind the `IdeLauncher` port, with per-OS resolution in `fjord-app`. `services` issues a single `open_in_ide(repo)` call and never branches on target OS. ⚠️ Security caveats of the current implementation: see §9.
 - ✅ **Window chrome**: native decorations per platform; custom title bar only where it earns its keep.
-- 🚧 **CI builds and tests on all three targets** — designed "from day one", still not set up (`P0-09`). This is the single most important open foundation item: cross-platform parity is currently verified manually.
+- ✅ **CI builds and tests on all three targets** (`P0-09`): `.github/workflows/ci.yml` runs `cargo fmt`/`clippy -D warnings`/`cargo test --workspace` on a Windows/macOS/Linux matrix, plus a frontend job (`tsc` + Vite build, `vitest`, i18n catalog check).
 
 ## 6. Frontend architecture (React + TypeScript)
 
@@ -152,7 +152,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 - **Preserving technical terms** («не затирать технические термины»):
   1. ✅ A **glossary file** (`src/locales/en/glossary.md`) listing Git vocabulary that stays untranslated or uses one fixed rendering (`commit`, `rebase`, `stash` stay Latin; `branch` → «ветка»). Written as part of `P4-16`.
   2. ✅ Terms inside translated sentences are interpolated as variables (`t('mergedInto', { branch })`) — branch names, SHAs, and command names are never mangled by translation.
-- ⚠️ **CI check**: `scripts/check-i18n.ts` diffs every non-English catalog's key set against `en/*.json` (plural suffixes normalized) and exits non-zero on missing/orphaned keys — run via `npm run check-i18n` (`P4-16`). Wiring it into CI is part of `P0-09`, which is still open.
+- ✅ **CI check**: `scripts/check-i18n.ts` diffs every non-English catalog's key set against `en/*.json` (plural suffixes normalized) and exits non-zero on missing/orphaned keys — run via `npm run check-i18n` locally and in the CI frontend job (`P4-16`).
 
 ### 6.3 Theming ✅
 
@@ -189,7 +189,7 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
   - ✅ `fjord-db`: store tests against a real SQLite database.
   - ✅ Frontend: unit tests for the pure algorithmic parts (`fileTree`, `graphLayout`) under `vitest`.
   - 🚧 Missing: React component tests (RTL), contract tests mocking the IPC boundary at `infrastructure/`, integration tests of Tauri commands in `fjord-app`, `IdeLauncher` tests on real paths.
-  - 🚧 None of the tests run automatically — there is no CI (`P0-09`).
+  - ✅ All of the above run in CI on every push/PR (`P0-09`, see §5.4).
 
 ## 9. Security
 
@@ -234,7 +234,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 
 | Area | Status |
 |---|---|
-| Phase 0 — Foundation (workspace scaffold, ports, git/db adapters, shell, theming, i18n, IPC pattern, bench harness) | ✅ done, **except CI (`P0-09`)** |
+| Phase 0 — Foundation (workspace scaffold, ports, git/db adapters, shell, theming, i18n, IPC pattern, bench harness, CI) | ✅ done |
 | Phase 1 — Single-repo core (branches, graph, inspector, diff, mutations, push, conflicts, benchmark) | ✅ done |
 | Phase 2 — Workspace layer (CRUD, status cache, dashboard, list-detail, bulk ops, IDE launcher, benchmark) | ✅ done |
 | Phase 3 — Polish and release | ⚠️ partial: palette (`P3-01`), global search (`P3-02`), onboarding (`P3-04`) done; packaging (`P3-03`) and contributor docs (`P3-05`) open |
@@ -247,7 +247,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 | Risk | Mitigation |
 |---|---|
 | `gix` push/merge/rebase support matures slower than expected | `GitBackend` trait already isolates this — worst case, those calls stay on `git2` indefinitely with no architectural cost |
-| No CI → platform-specific and locale regressions land silently | `P0-09` is the top open foundation item; i18n check (`P4-16`) and benchmarks (`P4-18`) hang off it |
+| Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks in CI are still open (`P4-18`) |
 | Hand-maintained TS types drift from Rust domain | Reviews catch it today; `P4-11` (generated types) removes the class of bug |
 | Large-monorepo performance is partly a claim: dev-profile numbers only | Re-record benchmarks in release profile with larger fixtures (`P4-18`) before optimizing blind |
 | SVG commit graph DOM cost on deep histories | Virtualize first (`P4-08`); re-evaluate a canvas renderer only if still needed after that |

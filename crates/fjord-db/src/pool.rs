@@ -24,7 +24,11 @@ pub async fn connect(db_path: &Path) -> Result<SqlitePool, DbError> {
     // connection — capping the pool at 1 here is what lets tests use
     // `connect(Path::new(":memory:"))` and reliably see their own writes,
     // instead of each pooled connection getting its own empty database.
-    let max_connections = if db_path.as_os_str() == ":memory:" { 1 } else { 5 };
+    let max_connections = if db_path.as_os_str() == ":memory:" {
+        1
+    } else {
+        5
+    };
 
     let pool = SqlitePoolOptions::new()
         .max_connections(max_connections)

@@ -300,11 +300,32 @@ async fn run_open_profile(args: Args) -> Result<(), String> {
     // Same five reads, issued together the way the UI does on open.
     let concurrent_start = Instant::now();
     let (a, b, c, d, e) = tokio::join!(
-        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.status(&repo).await } },
-        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.branches(&repo).await } },
-        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.tags(&repo).await } },
-        { let backend = backend.clone(); let repo = repo.clone(); let limit = args.log_limit; async move { backend.log(&repo, None, limit).await } },
-        { let backend = backend.clone(); let repo = repo.clone(); async move { backend.working_changes(&repo).await } },
+        {
+            let backend = backend.clone();
+            let repo = repo.clone();
+            async move { backend.status(&repo).await }
+        },
+        {
+            let backend = backend.clone();
+            let repo = repo.clone();
+            async move { backend.branches(&repo).await }
+        },
+        {
+            let backend = backend.clone();
+            let repo = repo.clone();
+            async move { backend.tags(&repo).await }
+        },
+        {
+            let backend = backend.clone();
+            let repo = repo.clone();
+            let limit = args.log_limit;
+            async move { backend.log(&repo, None, limit).await }
+        },
+        {
+            let backend = backend.clone();
+            let repo = repo.clone();
+            async move { backend.working_changes(&repo).await }
+        },
     );
     a.map_err(|e| e.to_string())?;
     b.map_err(|e| e.to_string())?;

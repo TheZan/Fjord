@@ -18,7 +18,7 @@ Goal: an empty app that boots, themes, and localizes correctly, on all three pla
 - [x] **P0-06** — Theming end-to-end: CSS token set, `ThemeProvider`, system-theme detection plus Tauri native theme-change listener, persisted choice round-trips through `SettingsStore`. See [`specs/theming.md`](specs/theming.md).
 - [x] **P0-07** — i18n end-to-end: `react-i18next` wired, `en`/`ru` catalogs, locale switcher, persisted choice, fallback chain verified. See [`specs/i18n.md`](specs/i18n.md).
 - [x] **P0-08** — Initial Tauri command surface (`get_settings`, `update_settings`) end-to-end through all layers, establishing the `commands → services → ports` call pattern. See [`specs/ipc-commands.md`](specs/ipc-commands.md).
-- [ ] **P0-09** — CI: build and test matrix on Windows, macOS, Linux. **Still open — the most important unfinished foundation item** (no `.github/workflows`; all tests run manually today). Should also run `cargo clippy`/`fmt`, `tsc`, `vitest`, and the i18n check from P4-16 once it exists.
+- [x] **P0-09** — CI: build and test matrix on Windows, macOS, Linux (`.github/workflows/ci.yml`): `cargo fmt`/`clippy -D warnings`/`cargo test --workspace` per OS, plus a frontend job running `tsc` + Vite build, `vitest`, and the i18n check from P4-16.
 - [x] **P0-10** — Benchmark harness: synthetic-repository generator (parametrized by commit/file count) — implemented as the `fjord-bench` crate; reports live in [`benchmarks/`](benchmarks/).
 
 ## Phase 1 — Single-repo core
@@ -84,7 +84,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 - [x] **P4-13** — Parallelize `RepoService::global_search` through the existing bounded worker pool; benchmark on a 24+-repo workspace in `fjord-bench` (`global_search_ms` in the workspace scenario; ≈130 ms for 24×120-commit repos, dev profile).
 - [x] **P4-14** — File logging: `tracing-subscriber` + `tracing-appender` (rotating) in the app data dir, per the contract in SDD §10. (The "reveal log folder" settings affordance from §10 remains open.)
 - [ ] **P4-15** — Watcher coverage: recursive working-tree watch (with ignores for generated directories) plus a debounce layer inside `fjord-fs`, so edits below the repo root invalidate the status cache. Integration-test it. See SDD §5.3.
-- [x] **P4-16** — i18n tooling from [`specs/i18n.md`](specs/i18n.md): `scripts/check-i18n.ts` (catalog key diff, `npm run check-i18n`) and `src/locales/en/glossary.md`. CI wiring happens with P0-09.
+- [x] **P4-16** — i18n tooling from [`specs/i18n.md`](specs/i18n.md): `scripts/check-i18n.ts` (catalog key diff, `npm run check-i18n`, wired into CI) and `src/locales/en/glossary.md`.
 
 ### 4d. Long-term (quarter+)
 

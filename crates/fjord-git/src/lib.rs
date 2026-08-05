@@ -916,10 +916,11 @@ impl GitBackend for GixGitBackend {
                 GitError::Git2("cannot create a branch before the first commit".to_string())
             })?;
 
-            git.branch(&name, &head, false).map_err(|err| match err.code() {
-                ErrorCode::Exists => GitError::BranchExists(name.clone()),
-                _ => Self::map_git2_error(err),
-            })?;
+            git.branch(&name, &head, false)
+                .map_err(|err| match err.code() {
+                    ErrorCode::Exists => GitError::BranchExists(name.clone()),
+                    _ => Self::map_git2_error(err),
+                })?;
 
             if checkout {
                 Self::checkout_refname(&git, &format!("refs/heads/{name}"))?;
@@ -1468,7 +1469,11 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        assert_eq!(added(&staged), vec!["staged"], "staged side is index vs HEAD");
+        assert_eq!(
+            added(&staged),
+            vec!["staged"],
+            "staged side is index vs HEAD"
+        );
         assert_eq!(
             added(&unstaged),
             vec!["worktree"],

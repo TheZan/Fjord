@@ -66,7 +66,9 @@ mod tests {
     use super::*;
 
     async fn in_memory_pool() -> SqlitePool {
-        let pool = crate::connect(std::path::Path::new(":memory:")).await.unwrap();
+        let pool = crate::connect(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
         pool
     }
 

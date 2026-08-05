@@ -128,10 +128,8 @@ impl RepoService {
         }
         per_repo.sort_by_key(|(index, _)| *index);
 
-        let mut results: Vec<GlobalSearchResult> = per_repo
-            .into_iter()
-            .flat_map(|(_, hits)| hits)
-            .collect();
+        let mut results: Vec<GlobalSearchResult> =
+            per_repo.into_iter().flat_map(|(_, hits)| hits).collect();
         results.truncate(limit as usize);
         Ok(results)
     }
@@ -479,8 +477,8 @@ mod tests {
     use async_trait::async_trait;
     use fjord_domain::{
         CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
-        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo, Workspace,
-        WorkingChanges, WorkingFile, WorkspaceId,
+        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
+        WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
