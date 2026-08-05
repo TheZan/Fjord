@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use async_trait::async_trait;
@@ -17,9 +17,7 @@ use fjord_domain::{
 };
 use fjord_ports::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{
-    Cred, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, StashFlags,
-};
+use git2::{Cred, ErrorCode, IndexAddOption, PushOptions, RemoteCallbacks, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -119,12 +117,6 @@ impl GixGitBackend {
         callbacks
     }
 
-    fn fetch_options(context: GitOperationContext) -> FetchOptions<'static> {
-        let mut options = FetchOptions::new();
-        options.remote_callbacks(Self::remote_callbacks(context));
-        options
-    }
-
     fn push_options(context: GitOperationContext) -> PushOptions<'static> {
         let push_context = context.clone();
         let update_context = context.clone();
@@ -149,27 +141,69 @@ impl GixGitBackend {
         options
     }
 
-    fn fetch_remote_with_context(
-        git: &git2::Repository,
+    fn fetch_remote_with_system_git(
+        repo: &RepoPath,
         remote_name: &str,
         refspecs: &[&str],
+        context: GitOperationContext,
+    ) -> Result<(), GitError> {
+        let mut args = vec!["fetch", "--prune", remote_name];
+        args.extend(refspecs.iter().copied());
+        Self::run_system_git(repo, &args, context)
+    }
+
+    fn run_system_git(
+        repo: &RepoPath,
+        args: &[&str],
         context: GitOperationContext,
     ) -> Result<(), GitError> {
         if context.is_cancelled() {
             return Err(GitError::Cancelled);
         }
 
-        let mut remote = git.find_remote(remote_name).map_err(Self::map_git2_error)?;
-        let mut options = Self::fetch_options(context.clone());
-        remote
-            .fetch(refspecs, Some(&mut options), None)
-            .map_err(|error| {
-                if context.is_cancelled() {
-                    GitError::Cancelled
-                } else {
-                    Self::map_git2_error(error)
-                }
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&repo.0)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|err| {
+                GitError::Git2(format!("failed to run git {}: {err}", args.join(" ")))
+            })?;
+
+        if context.is_cancelled() {
+            return Err(GitError::Cancelled);
+        }
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let message = stderr
+            .trim()
+            .split('\n')
+            .next()
+            .filter(|line| !line.is_empty())
+            .or_else(|| {
+                stdout
+                    .trim()
+                    .split('\n')
+                    .next()
+                    .filter(|line| !line.is_empty())
             })
+            .unwrap_or("git command failed");
+        let lowered = message.to_ascii_lowercase();
+        if lowered.contains("authentication failed")
+            || lowered.contains("could not read username")
+            || lowered.contains("permission denied")
+        {
+            return Err(GitError::AuthenticationFailed);
+        }
+
+        Err(GitError::Git2(format!(
+            "git {} failed: {message}",
+            args.join(" ")
+        )))
     }
 
     fn current_branch_refname(git: &git2::Repository) -> Result<String, GitError> {
@@ -359,10 +393,11 @@ impl GixGitBackend {
 
     fn checkout_refname_for_branch(
         git: &git2::Repository,
+        repo: &RepoPath,
         branch: &str,
     ) -> Result<String, GitError> {
         if let Some(remote_branch) = branch.strip_prefix("refs/remotes/") {
-            return Self::checkout_remote_tracking_branch(git, remote_branch);
+            return Self::checkout_remote_tracking_branch(git, repo, remote_branch);
         }
 
         if branch.starts_with("refs/") {
@@ -376,7 +411,7 @@ impl GixGitBackend {
         }
 
         if Self::remote_branch_parts(git, branch).is_some() {
-            return Self::checkout_remote_tracking_branch(git, branch);
+            return Self::checkout_remote_tracking_branch(git, repo, branch);
         }
 
         git.find_reference(&local_refname)
@@ -386,6 +421,7 @@ impl GixGitBackend {
 
     fn checkout_remote_tracking_branch(
         git: &git2::Repository,
+        repo: &RepoPath,
         remote_branch: &str,
     ) -> Result<String, GitError> {
         let (remote_name, local_name) =
@@ -393,8 +429,8 @@ impl GixGitBackend {
                 GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
             })?;
         let refspec = format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}");
-        Self::fetch_remote_with_context(
-            git,
+        Self::fetch_remote_with_system_git(
+            repo,
             remote_name,
             &[refspec.as_str()],
             GitOperationContext::default(),
@@ -1054,7 +1090,7 @@ impl GitBackend for GixGitBackend {
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let refname = Self::checkout_refname_for_branch(&git, &branch)?;
+            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch)?;
 
             Self::checkout_refname(&git, &refname)
         })
@@ -1257,8 +1293,7 @@ impl GitBackend for GixGitBackend {
         let remote = remote.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            let git = Self::open_git2(&repo)?;
-            Self::fetch_remote_with_context(&git, &remote, &[], context)
+            Self::fetch_remote_with_system_git(&repo, &remote, &[], context)
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1301,7 +1336,7 @@ impl GitBackend for GixGitBackend {
                 .map_err(Self::map_git2_error)?
                 .to_string();
 
-            Self::fetch_remote_with_context(&git, &remote_name, &[], context.clone())?;
+            Self::fetch_remote_with_system_git(&repo, &remote_name, &[], context.clone())?;
             if context.is_cancelled() {
                 return Err(GitError::Cancelled);
             }
