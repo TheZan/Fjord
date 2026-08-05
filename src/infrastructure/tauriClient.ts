@@ -13,6 +13,9 @@ import type {
   FileDiffDetail,
   GlobalSearchResult,
   RepoStatus,
+  StashEntry,
+  TagInfo,
+  WorkingChanges,
 } from "@/domain/git";
 
 export function invokeErrorMessage(error: unknown): string {
@@ -78,6 +81,10 @@ export function getBranches(repoId: string): Promise<BranchInfo[]> {
   return invoke("get_branches", { repoId });
 }
 
+export function getTags(repoId: string): Promise<TagInfo[]> {
+  return invoke("get_tags", { repoId });
+}
+
 export function getRepoStatus(repoId: string): Promise<RepoStatus> {
   return invoke("get_repo_status", { repoId });
 }
@@ -104,6 +111,38 @@ export function getFileDiff(repoId: string, commitId: string, path: string): Pro
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
   return invoke("checkout_branch", { repoId, branch });
+}
+
+export function getWorkingChanges(repoId: string): Promise<WorkingChanges> {
+  return invoke("get_working_changes", { repoId });
+}
+
+export function getWorkingFileDiff(
+  repoId: string,
+  path: string,
+  staged: boolean,
+): Promise<FileDiffDetail> {
+  return invoke("get_working_file_diff", { repoId, path, staged });
+}
+
+export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {
+  return invoke("create_branch", { repoId, name, checkout });
+}
+
+export function getStashes(repoId: string): Promise<StashEntry[]> {
+  return invoke("get_stashes", { repoId });
+}
+
+export function stashPush(repoId: string, message: string | null = null): Promise<void> {
+  return invoke("stash_push", { repoId, message });
+}
+
+export function stashPop(repoId: string): Promise<void> {
+  return invoke("stash_pop", { repoId });
+}
+
+export function openTerminal(repoId: string): Promise<void> {
+  return invoke("open_terminal", { repoId });
 }
 
 export function stageFiles(repoId: string, paths: string[]): Promise<void> {

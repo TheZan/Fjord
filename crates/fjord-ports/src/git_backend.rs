@@ -5,7 +5,10 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use fjord_domain::{BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus};
+use fjord_domain::{
+    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
+    WorkingChanges,
+};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +36,12 @@ pub enum GitError {
     NothingToCommit,
     #[error("no merge conflicts detected")]
     NoConflicts,
+    #[error("branch already exists: {0}")]
+    BranchExists(String),
+    #[error("nothing to stash")]
+    NothingToStash,
+    #[error("stash is empty")]
+    StashEmpty,
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
     #[error("operation not yet implemented on this backend: {0}")]
@@ -52,6 +61,7 @@ pub enum GitError {
 pub trait GitBackend: Send + Sync {
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
+    async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(
         &self,
         repo: &RepoPath,
@@ -66,7 +76,30 @@ pub trait GitBackend: Send + Sync {
         path: &str,
     ) -> Result<FileDiffDetail, GitError>;
 
+    /// Uncommitted work, split into staged and unstaged — what the commit
+    /// panel lists and what `commit` would actually record.
+    async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError>;
+    /// Line-level diff of an uncommitted file: index-vs-HEAD when `staged`,
+    /// worktree-vs-index otherwise.
+    async fn working_file_diff(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        staged: bool,
+    ) -> Result<FileDiffDetail, GitError>;
+
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
+    /// Creates `name` at the current HEAD, optionally switching to it.
+    async fn create_branch(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        checkout: bool,
+    ) -> Result<(), GitError>;
+    async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError>;
+    async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError>;
+    /// Applies and drops `stash@{0}`, the most recent entry.
+    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;

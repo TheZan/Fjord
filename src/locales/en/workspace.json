@@ -5,10 +5,7 @@
     "empty": "No repositories match the filter."
   },
   "branches": {
-    "local": "Local",
-    "remote": "Remote",
-    "current": "current",
-    "empty": "No branches found."
+    "current": "current"
   },
   "bulk": {
     "fetch": "Fetch all",
@@ -73,7 +70,8 @@
   },
   "diff": {
     "binary": "Binary file not shown.",
-    "empty": "No changes to display."
+    "empty": "No changes to display.",
+    "back": "Back to graph"
   },
   "inspector": {
     "empty": "Select a commit to see its details."
@@ -120,6 +118,42 @@
   "settings": {
     "title": "Settings",
     "close": "Done"
+  },
+  "toolbar": {
+    "branch": "Branch",
+    "branchPlaceholder": "New branch name",
+    "createBranch": "Create",
+    "stash": "Stash",
+    "pop": "Pop",
+    "terminal": "Terminal",
+    "search": "Search"
+  },
+  "tree": {
+    "local": "Local",
+    "remote": "Remote",
+    "tags": "Tags",
+    "filterPlaceholder": "Filter branches and tags",
+    "filterCount": "{{matched}} / {{total}}",
+    "clearFilter": "Clear",
+    "noMatches": "No matches.",
+    "empty": "No branches or tags found."
+  },
+  "working": {
+    "title": "Uncommitted changes",
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} files",
+    "clean": "Working directory is clean.",
+    "staged": "Staged",
+    "unstaged": "Unstaged",
+    "stage": "Stage",
+    "unstage": "Unstage",
+    "stageAll": "Stage all",
+    "unstageAll": "Unstage all",
+    "conflicted": "conflict",
+    "summaryPlaceholder": "Commit summary",
+    "descriptionPlaceholder": "Description (optional)",
+    "commit_one": "Commit {{count}} file",
+    "commit_other": "Commit {{count}} files"
   },
   "workspaces": {
     "label": "Workspaces",

@@ -9,19 +9,27 @@ import {
   bulkOpenInIde,
   bulkPull,
   checkoutBranch,
+  commitRepo,
+  createBranch,
   fetchRepo,
   globalSearch,
   invokeErrorMessage,
   openInIde,
   openMergeTool,
+  openTerminal,
   pullRepo,
   pushRepo,
+  stageFiles,
+  stashPop,
+  stashPush,
+  unstageFiles,
 } from "@/infrastructure/tauriClient";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
 import { Onboarding } from "@/presentation/Onboarding";
 import { OverviewView } from "@/presentation/OverviewView";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
+import type { RepoAction } from "@/presentation/RepoToolbar";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
@@ -59,6 +67,9 @@ export function App() {
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
+  // The WIP row and a commit are alternate selections of the same middle
+  // pane, so they're kept mutually exclusive rather than both being live.
+  const [workingSelected, setWorkingSelected] = useState(false);
   const [repoVersion, setRepoVersion] = useState(0);
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
@@ -160,18 +171,42 @@ export function App() {
     };
   }, [paletteQuery, paletteOpen]);
 
-  async function runRepoAction(action: string, run: () => Promise<void>) {
+  /**
+   * `mutates` distinguishes actions that change the repository from ones that
+   * merely launch something external — opening a terminal or an IDE used to
+   * clear the selected commit and close an open diff for no reason.
+   */
+  async function runRepoAction(
+    action: string,
+    run: () => Promise<void>,
+    mutates = true,
+  ): Promise<boolean> {
     setRepoActionError(null);
     setRepoActionPending(action);
     try {
       await run();
-      setSelectedCommit(null);
-      setRepoVersion((version) => version + 1);
+      if (mutates) {
+        setSelectedCommit(null);
+        setRepoVersion((version) => version + 1);
+      }
+      return true;
     } catch (e) {
       setRepoActionError(invokeErrorMessage(e));
+      return false;
     } finally {
       setRepoActionPending(null);
     }
+  }
+
+  /**
+   * Staging changes what the commit panel shows but not which history entry
+   * is open, so unlike the other mutations these keep the WIP row selected.
+   */
+  function runWorkingAction(action: string, run: () => Promise<void>): Promise<boolean> {
+    return runRepoAction(action, run, false).then((ok) => {
+      if (ok) setRepoVersion((version) => version + 1);
+      return ok;
+    });
   }
 
   async function runBulkAction(
@@ -199,23 +234,57 @@ export function App() {
     void runBulkAction(action, () => runner(selectedWorkspaceId));
   }
 
-  function onRepoAction(action: "fetch" | "pull" | "push" | "open-ide" | "merge-tool") {
+  function onRepoAction(action: RepoAction) {
     if (!selectedRepoId) return;
     const id = selectedRepoId;
-    const runners = {
+    const runners: Record<RepoAction, () => Promise<void>> = {
       fetch: () => fetchRepo(id),
       pull: () => pullRepo(id),
       push: () => pushRepo(id),
+      stash: () => stashPush(id),
+      "stash-pop": () => stashPop(id),
+      terminal: () => openTerminal(id),
       "open-ide": () => openInIde(id),
       "merge-tool": () => openMergeTool(id),
     };
-    void runRepoAction(action, runners[action]);
+    const launchesExternalTool = action === "terminal" || action === "open-ide";
+    void runRepoAction(action, runners[action], !launchesExternalTool);
+  }
+
+  function onCreateBranch(name: string) {
+    if (!selectedRepoId) return;
+    const id = selectedRepoId;
+    void runRepoAction("create-branch", () => createBranch(id, name, true));
+  }
+
+  function onStage(paths: string[]) {
+    if (!selectedRepoId) return;
+    const id = selectedRepoId;
+    void runWorkingAction("stage", () => stageFiles(id, paths));
+  }
+
+  function onUnstage(paths: string[]) {
+    if (!selectedRepoId) return;
+    const id = selectedRepoId;
+    void runWorkingAction("unstage", () => unstageFiles(id, paths));
+  }
+
+  async function onCommit(message: string): Promise<boolean> {
+    if (!selectedRepoId) return false;
+    const id = selectedRepoId;
+    return runWorkingAction("commit", () => commitRepo(id, message).then(() => undefined));
   }
 
   async function selectRepository(workspaceId: string, repoId: string) {
     if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
     setSelectedCommit(null);
+    setWorkingSelected(false);
+  }
+
+  function selectCommit(commit: CommitSummary) {
+    setWorkingSelected(false);
+    setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
   async function openSearchResult(result: GlobalSearchResult) {
@@ -223,6 +292,7 @@ export function App() {
     if (result.kind === "branch" && result.branch) {
       void runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
     } else if (result.kind === "commit" && result.commit) {
+      setWorkingSelected(false);
       setSelectedCommit(result.commit);
     }
   }
@@ -333,18 +403,30 @@ export function App() {
             actionPending={repoActionPending}
             actionError={repoActionError}
             selectedCommit={selectedCommit}
+            workingSelected={workingSelected}
             repoVersion={repoVersion}
             onBack={() => {
               setSelectedRepoId(null);
               setSelectedCommit(null);
+              setWorkingSelected(false);
             }}
             onAction={onRepoAction}
             onCheckout={(branch) =>
               void runRepoAction("checkout", () => checkoutBranch(selectedRepo.id, branch))
             }
-            onSelectCommit={(commit) =>
-              setSelectedCommit(commit.id === selectedCommit?.id ? null : commit)
-            }
+            onCreateBranch={onCreateBranch}
+            onOpenSearch={() => {
+              setPaletteQuery("");
+              setPaletteOpen(true);
+            }}
+            onSelectCommit={selectCommit}
+            onSelectWorking={() => {
+              setSelectedCommit(null);
+              setWorkingSelected(true);
+            }}
+            onStage={onStage}
+            onUnstage={onUnstage}
+            onCommit={onCommit}
           />
         ) : view === "overview" ? (
           <OverviewView

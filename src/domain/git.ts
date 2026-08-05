@@ -9,6 +9,27 @@ export interface BranchInfo {
   upstream: string | null;
 }
 
+export interface TagInfo {
+  name: string;
+  targetCommitId: string;
+}
+
+export interface StashEntry {
+  index: number;
+  message: string;
+}
+
+export interface WorkingFile {
+  path: string;
+  changeType: FileChangeType;
+  conflicted: boolean;
+}
+
+export interface WorkingChanges {
+  staged: WorkingFile[];
+  unstaged: WorkingFile[];
+}
+
 export interface RepoStatus {
   branch: string | null;
   ahead: number;

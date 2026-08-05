@@ -126,6 +126,22 @@ pub struct BranchInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagInfo {
+    pub name: String,
+    pub target_commit_id: CommitId,
+}
+
+/// One entry of the stash stack. `index` is the `stash@{n}` position — 0 is
+/// the most recent, which is what a plain "pop" applies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashEntry {
+    pub index: u32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +186,27 @@ pub struct FileDiff {
     pub change_type: FileChangeType,
     pub additions: u32,
     pub deletions: u32,
+}
+
+/// One entry of the working directory as the commit panel sees it. A file
+/// that is partially staged legitimately appears in both lists of
+/// [`WorkingChanges`], which is why this carries no "staged" flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingFile {
+    pub path: String,
+    pub change_type: FileChangeType,
+    /// `true` when the entry is an unresolved merge conflict.
+    pub conflicted: bool,
+}
+
+/// Split of the working directory into what a commit would include (`staged`)
+/// and what it would leave behind (`unstaged`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingChanges {
+    pub staged: Vec<WorkingFile>,
+    pub unstaged: Vec<WorkingFile>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

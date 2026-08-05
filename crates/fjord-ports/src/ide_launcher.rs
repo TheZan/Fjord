@@ -10,6 +10,8 @@ use thiserror::Error;
 pub enum LaunchError {
     #[error("no IDE configured and none could be auto-detected")]
     NoIdeAvailable,
+    #[error("no terminal emulator could be found")]
+    NoTerminalAvailable,
     #[error("failed to launch: {0}")]
     SpawnFailed(String),
 }
@@ -19,4 +21,9 @@ pub trait IdeLauncher: Send + Sync {
     /// Opens `path` in `ide` if given, otherwise the user's configured
     /// default (or a sensible auto-detected fallback).
     async fn open(&self, path: &Path, ide: Option<&str>) -> Result<(), LaunchError>;
+
+    /// Opens the OS terminal emulator with `path` as its working directory —
+    /// the "Open terminal here" case SDD §5.4 names as belonging to this port
+    /// rather than to `GitBackend` (it isn't a Git operation).
+    async fn open_terminal(&self, path: &Path) -> Result<(), LaunchError>;
 }

@@ -5,10 +5,7 @@
     "empty": "По фильтру ничего не найдено."
   },
   "branches": {
-    "local": "Локальные",
-    "remote": "Удалённые",
-    "current": "текущая",
-    "empty": "Ветки не найдены."
+    "current": "текущая"
   },
   "bulk": {
     "fetch": "Получить все",
@@ -73,7 +70,8 @@
   },
   "diff": {
     "binary": "Бинарный файл не отображается.",
-    "empty": "Нет изменений для отображения."
+    "empty": "Нет изменений для отображения.",
+    "back": "Назад к графу"
   },
   "inspector": {
     "empty": "Выберите коммит, чтобы увидеть детали."
@@ -120,6 +118,44 @@
   "settings": {
     "title": "Настройки",
     "close": "Готово"
+  },
+  "toolbar": {
+    "branch": "Ветка",
+    "branchPlaceholder": "Имя новой ветки",
+    "createBranch": "Создать",
+    "stash": "Спрятать",
+    "pop": "Вернуть",
+    "terminal": "Терминал",
+    "search": "Поиск"
+  },
+  "tree": {
+    "local": "Локальные",
+    "remote": "Удалённые",
+    "tags": "Теги",
+    "filterPlaceholder": "Фильтр по веткам и тегам",
+    "filterCount": "{{matched}} / {{total}}",
+    "clearFilter": "Очистить",
+    "noMatches": "Совпадений нет.",
+    "empty": "Ветки и теги не найдены."
+  },
+  "working": {
+    "title": "Незакоммиченные изменения",
+    "fileCount_one": "{{count}} файл",
+    "fileCount_few": "{{count}} файла",
+    "fileCount_many": "{{count}} файлов",
+    "clean": "Рабочая директория чистая.",
+    "staged": "В индексе",
+    "unstaged": "Не в индексе",
+    "stage": "В индекс",
+    "unstage": "Из индекса",
+    "stageAll": "Всё в индекс",
+    "unstageAll": "Всё из индекса",
+    "conflicted": "конфликт",
+    "summaryPlaceholder": "Заголовок коммита",
+    "descriptionPlaceholder": "Описание (необязательно)",
+    "commit_one": "Закоммитить {{count}} файл",
+    "commit_few": "Закоммитить {{count}} файла",
+    "commit_many": "Закоммитить {{count}} файлов"
   },
   "workspaces": {
     "label": "Рабочие пространства",

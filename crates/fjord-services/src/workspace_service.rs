@@ -152,7 +152,7 @@ mod tests {
     use async_trait::async_trait;
     use fjord_domain::{
         BranchInfo, CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepositoryId,
+        RepositoryId, StashEntry, TagInfo, WorkingChanges,
     };
     use std::path::PathBuf as StdPathBuf;
     use std::sync::Mutex;
@@ -302,6 +302,9 @@ mod tests {
         async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
             Ok(vec![])
         }
+        async fn tags(&self, _repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+            Ok(vec![])
+        }
         async fn log(
             &self,
             _repo: &RepoPath,
@@ -334,6 +337,43 @@ mod tests {
             })
         }
         async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn working_changes(&self, _repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+            Ok(WorkingChanges::default())
+        }
+        async fn working_file_diff(
+            &self,
+            _repo: &RepoPath,
+            path: &str,
+            _staged: bool,
+        ) -> Result<FileDiffDetail, GitError> {
+            Ok(FileDiffDetail {
+                path: path.to_string(),
+                change_type: FileChangeType::Modified,
+                is_binary: false,
+                hunks: vec![],
+            })
+        }
+        async fn create_branch(
+            &self,
+            _repo: &RepoPath,
+            _name: &str,
+            _checkout: bool,
+        ) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+            Ok(vec![])
+        }
+        async fn stash_push(
+            &self,
+            _repo: &RepoPath,
+            _message: Option<&str>,
+        ) -> Result<(), GitError> {
+            Ok(())
+        }
+        async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
             Ok(())
         }
         async fn stage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> {
