@@ -25,7 +25,18 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
   });
 
   const commits = useMemo(
-    () => query.data?.pages.flatMap((page) => page.commits) ?? [],
+    () => {
+      const seen = new Set<string>();
+      return (
+        query.data?.pages
+          .flatMap((page) => page.commits)
+          .filter((commit) => {
+            if (seen.has(commit.id)) return false;
+            seen.add(commit.id);
+            return true;
+          }) ?? []
+      );
+    },
     [query.data],
   );
 

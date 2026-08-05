@@ -39,9 +39,11 @@ fn initialize(app: &tauri::App) -> Result<AppState, String> {
 }
 
 pub fn builder() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .setup(|app| match initialize(app) {
             Ok(state) => {
                 app.manage(state);
