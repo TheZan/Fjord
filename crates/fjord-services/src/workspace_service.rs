@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
@@ -33,11 +34,24 @@ impl From<GitError> for WorkspaceError {
 pub struct WorkspaceService {
     store: Arc<dyn WorkspaceStore>,
     git: Arc<dyn GitBackend>,
+    runtime: tokio::runtime::Handle,
+    status_refreshes: Arc<Mutex<HashMap<RepositoryId, PendingStatusRefresh>>>,
+}
+
+#[derive(Debug, Default)]
+struct PendingStatusRefresh {
+    pending: bool,
+    invalidate: bool,
 }
 
 impl WorkspaceService {
     pub fn new(store: Arc<dyn WorkspaceStore>, git: Arc<dyn GitBackend>) -> Self {
-        Self { store, git }
+        Self {
+            store,
+            git,
+            runtime: tokio::runtime::Handle::current(),
+            status_refreshes: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub async fn list_workspaces(&self) -> Result<Vec<Workspace>, WorkspaceError> {
@@ -83,7 +97,7 @@ impl WorkspaceService {
         let repos = self.store.list_repositories(workspace_id).await?;
 
         for repo in repos {
-            spawn_status_refresh(self.store.clone(), self.git.clone(), repo);
+            self.schedule_repo_status_refresh(repo.id, false);
         }
 
         Ok(cached)
@@ -93,9 +107,7 @@ impl WorkspaceService {
         &self,
         repo_id: RepositoryId,
     ) -> Result<RepoStatusSummary, WorkspaceError> {
-        let repo = self.store.get_repository(repo_id).await?;
-        let status = self.git.status(&RepoPath::new(repo.path)).await?;
-        Ok(self.store.upsert_repo_status(repo_id, &status).await?)
+        refresh_repo_status_once(self.store.as_ref(), self.git.as_ref(), repo_id).await
     }
 
     pub async fn invalidate_repo_status(
@@ -103,6 +115,25 @@ impl WorkspaceService {
         repo_id: RepositoryId,
     ) -> Result<(), WorkspaceError> {
         Ok(self.store.invalidate_repo_status(repo_id).await?)
+    }
+
+    pub fn schedule_repo_status_refresh(&self, repo_id: RepositoryId, invalidate_first: bool) {
+        let mut refreshes = self.status_refreshes.lock().unwrap();
+        if let Some(refresh) = refreshes.get_mut(&repo_id) {
+            refresh.pending = true;
+            refresh.invalidate |= invalidate_first;
+            return;
+        }
+
+        refreshes.insert(repo_id, PendingStatusRefresh::default());
+        spawn_status_refresh_worker(
+            self.runtime.clone(),
+            self.status_refreshes.clone(),
+            self.store.clone(),
+            self.git.clone(),
+            repo_id,
+            invalidate_first,
+        );
     }
 
     /// Validates `path` is a real Git repository (via `GitBackend::status`,
@@ -134,16 +165,52 @@ fn repo_display_name(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
-fn spawn_status_refresh(
+fn spawn_status_refresh_worker(
+    runtime: tokio::runtime::Handle,
+    refreshes: Arc<Mutex<HashMap<RepositoryId, PendingStatusRefresh>>>,
     store: Arc<dyn WorkspaceStore>,
     git: Arc<dyn GitBackend>,
-    repo: RepositoryEntry,
+    repo_id: RepositoryId,
+    invalidate_first: bool,
 ) {
-    tokio::spawn(async move {
-        if let Ok(status) = git.status(&RepoPath::new(repo.path)).await {
-            let _ = store.upsert_repo_status(repo.id, &status).await;
+    runtime.spawn(async move {
+        let mut invalidate = invalidate_first;
+
+        loop {
+            if invalidate {
+                let _ = store.invalidate_repo_status(repo_id).await;
+            }
+
+            let _ = refresh_repo_status_once(store.as_ref(), git.as_ref(), repo_id).await;
+
+            invalidate = {
+                let mut refreshes = refreshes.lock().unwrap();
+                let Some(refresh) = refreshes.get_mut(&repo_id) else {
+                    return;
+                };
+
+                if refresh.pending {
+                    refresh.pending = false;
+                    let invalidate = refresh.invalidate;
+                    refresh.invalidate = false;
+                    invalidate
+                } else {
+                    refreshes.remove(&repo_id);
+                    return;
+                }
+            };
         }
     });
+}
+
+async fn refresh_repo_status_once(
+    store: &dyn WorkspaceStore,
+    git: &dyn GitBackend,
+    repo_id: RepositoryId,
+) -> Result<RepoStatusSummary, WorkspaceError> {
+    let repo = store.get_repository(repo_id).await?;
+    let status = git.status(&RepoPath::new(repo.path)).await?;
+    Ok(store.upsert_repo_status(repo_id, &status).await?)
 }
 
 #[cfg(test)]
@@ -155,7 +222,9 @@ mod tests {
         RepositoryId, StashEntry, TagInfo, WorkingChanges,
     };
     use std::path::PathBuf as StdPathBuf;
-    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
 
     struct FakeWorkspaceStore {
         workspaces: Mutex<Vec<Workspace>>,
@@ -282,11 +351,47 @@ mod tests {
 
     struct FakeGitBackend {
         valid_repo: bool,
+        status_probe: Option<Arc<StatusProbe>>,
+    }
+
+    struct StatusProbe {
+        calls: AtomicUsize,
+        in_flight: AtomicUsize,
+        max_in_flight: AtomicUsize,
+        started_tx: Mutex<mpsc::Sender<usize>>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl StatusProbe {
+        fn new(started_tx: mpsc::Sender<usize>, release_rx: mpsc::Receiver<()>) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                in_flight: AtomicUsize::new(0),
+                max_in_flight: AtomicUsize::new(0),
+                started_tx: Mutex::new(started_tx),
+                release_rx: Mutex::new(release_rx),
+            }
+        }
+
+        fn record_status_call(&self) {
+            let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+
+            let calls = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            self.started_tx.lock().unwrap().send(calls).unwrap();
+            self.release_rx.lock().unwrap().recv().unwrap();
+
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 
     #[async_trait]
     impl GitBackend for FakeGitBackend {
         async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {
+            if let Some(probe) = &self.status_probe {
+                probe.record_status_call();
+            }
+
             if self.valid_repo {
                 Ok(RepoStatus {
                     branch: Some("main".into()),
@@ -405,7 +510,10 @@ mod tests {
                 workspaces: Mutex::new(vec![]),
                 repos: Mutex::new(vec![]),
             }),
-            Arc::new(FakeGitBackend { valid_repo }),
+            Arc::new(FakeGitBackend {
+                valid_repo,
+                status_probe: None,
+            }),
         )
     }
 
@@ -480,6 +588,50 @@ mod tests {
         assert_eq!(cached.len(), 1);
         assert_eq!(cached[0].repo_id, entry.id);
         assert!(cached[0].last_synced_at.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn scheduled_status_refreshes_are_coalesced_per_repo() {
+        let workspace_id = WorkspaceId::new();
+        let repo = RepositoryEntry {
+            id: RepositoryId::new(),
+            workspace_id,
+            name: "api-gateway".into(),
+            path: PathBuf::from("/repos/api-gateway"),
+            sort_order: 0,
+        };
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let probe = Arc::new(StatusProbe::new(started_tx, release_rx));
+        let service = WorkspaceService::new(
+            Arc::new(FakeWorkspaceStore {
+                workspaces: Mutex::new(vec![Workspace {
+                    id: workspace_id,
+                    name: "Backend".into(),
+                    sort_order: 0,
+                }]),
+                repos: Mutex::new(vec![repo.clone()]),
+            }),
+            Arc::new(FakeGitBackend {
+                valid_repo: true,
+                status_probe: Some(probe.clone()),
+            }),
+        );
+
+        service.schedule_repo_status_refresh(repo.id, false);
+        service.schedule_repo_status_refresh(repo.id, false);
+        service.schedule_repo_status_refresh(repo.id, false);
+
+        assert_eq!(started_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+        assert!(started_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+        release_tx.send(()).unwrap();
+        assert_eq!(started_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+
+        release_tx.send(()).unwrap();
+        assert!(started_rx.recv_timeout(Duration::from_millis(200)).is_err());
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(probe.max_in_flight.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

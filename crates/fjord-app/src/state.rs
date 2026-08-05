@@ -79,8 +79,7 @@ impl AppState {
 
             let workspaces = workspaces.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = workspaces.invalidate_repo_status(repo_id).await;
-                let _ = workspaces.refresh_repo_status(repo_id).await;
+                workspaces.schedule_repo_status_refresh(repo_id, true);
             });
         });
 
