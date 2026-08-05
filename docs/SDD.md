@@ -139,7 +139,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 - ✅ The four layers exist and the dependency direction is respected; all IPC goes through the typed client in `infrastructure/tauriClient.ts`.
 - ✅ **Data fetching**: TanStack Query wraps Tauri IPC in the `application/` hooks (`P4-07`). Queries are keyed by workspace/repo scope, commit history uses `useInfiniteQuery`, workspace mutations use `useMutation`, and repository/workspace mutations invalidate the affected query keys instead of relying on remounts or manual cancellation flags.
 - ✅ **Domain types**: TypeScript domain declarations are generated from `fjord-domain` with `ts-rs` (`P4-11`). The committed source of truth is `src/domain/generated.ts`, the public `src/domain/*` modules re-export those generated types, and the `fjord-domain` `export_types` test fails if the generated file drifts from Rust.
-- ⚠️ **Component size**: `App.tsx` has accreted palette/modal/action state and passes 15+ props into `RepoDetailView` (prop drilling). Decomposition is tracked as `P4-12`.
+- ✅ **Component size**: `App.tsx` now stays at the shell/orchestration layer (`P4-12`): command palette state/search lives in `useCommandPaletteState`, repo detail action/selection state lives in `RepoDetailContainer`, and the shell passes a narrow route command into the detail view instead of owning the 15+ prop bundle.
 - ✅ **Error boundaries**: a global boundary wraps `App` in `main.tsx` and a per-view boundary (keyed by the active view, so navigation resets it) wraps the main pane — an unhandled render exception shows a localized fallback with retry/reload instead of blanking the window (`P4-10`).
 
 ### 6.2 Internationalization

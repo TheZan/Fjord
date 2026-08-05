@@ -80,7 +80,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 ### 4c. Mid-term architectural refactoring (1–2 months)
 
 - [x] **P4-11** — Generate TS domain types from Rust (`ts-rs`) instead of hand-maintaining `src/domain/*`; `fjord-domain` exports `src/domain/generated.ts`, thin frontend domain modules re-export it, and `cargo test --workspace` fails on type drift. See SDD §6.1.
-- [ ] **P4-12** — Decompose `App.tsx` (~474 lines): extract palette/modal/action state into contexts or route-level containers; eliminate the 15+-prop drilling into `RepoDetailView`. Best after P4-07.
+- [x] **P4-12** — Decompose `App.tsx` (~474 lines): command palette state/search moved to `useCommandPaletteState`, repo action/selection/status orchestration moved to `RepoDetailContainer`, and `App.tsx` now passes a narrow route command into the detail route instead of drilling the 15+ prop bundle into `RepoDetailView`.
 - [x] **P4-13** — Parallelize `RepoService::global_search` through the existing bounded worker pool; benchmark on a 24+-repo workspace in `fjord-bench` (`global_search_ms` in the workspace scenario; ≈130 ms for 24×120-commit repos, dev profile).
 - [x] **P4-14** — File logging: `tracing-subscriber` + `tracing-appender` (rotating) in the app data dir, per the contract in SDD §10. (The "reveal log folder" settings affordance from §10 remains open.)
 - [x] **P4-15** — Watcher coverage: recursive working-tree watch (with ignores for generated directories) plus a debounce layer inside `fjord-fs`, so edits below the repo root invalidate the status cache. Integration-test it. See SDD §5.3.

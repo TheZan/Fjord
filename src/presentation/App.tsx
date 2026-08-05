@@ -4,38 +4,27 @@ import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
-import { useRepoStatus } from "@/application/useRepoStatus";
-import type { CommitSummary, GlobalSearchResult } from "@/domain/git";
+import type { GlobalSearchResult } from "@/domain/git";
 import {
   bulkFetch,
   bulkOpenInIde,
   bulkPull,
-  checkoutBranch,
-  commitRepo,
-  createBranch,
-  fetchRepo,
-  globalSearch,
   invokeErrorMessage,
-  openInIde,
-  openMergeTool,
-  openTerminal,
-  pullRepo,
-  pushRepo,
-  stageFiles,
-  stashPop,
-  stashPush,
-  unstageFiles,
 } from "@/infrastructure/tauriClient";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { Onboarding } from "@/presentation/Onboarding";
 import { OverviewView } from "@/presentation/OverviewView";
-import { RepoDetailView } from "@/presentation/RepoDetailView";
-import type { RepoAction } from "@/presentation/RepoToolbar";
+import {
+  RepoDetailContainer,
+  type RepoDetailCommand,
+  type RepoDetailCommandPayload,
+} from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
+import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
 import type { View } from "@/presentation/view";
 
 /**
@@ -70,19 +59,19 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
-  // The WIP row and a commit are alternate selections of the same middle
-  // pane, so they're kept mutually exclusive rather than both being live.
-  const [workingSelected, setWorkingSelected] = useState(false);
-  const [repoActionError, setRepoActionError] = useState<string | null>(null);
-  const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
+  const [repoDetailCommand, setRepoDetailCommand] = useState<RepoDetailCommand | null>(null);
+  const [, setRepoDetailCommandId] = useState(0);
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
 
-  const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId);
+  const {
+    closePalette,
+    open: paletteOpen,
+    openPalette,
+    query: paletteQuery,
+    remoteItems: remotePaletteItems,
+    setQuery: setPaletteQuery,
+  } = useCommandPaletteState({ onSearchResult: (result) => void openSearchResult(result) });
   const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
 
   const allRepositories = useMemo(
@@ -130,98 +119,9 @@ export function App() {
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
       setSelectedRepoId(null);
-      setSelectedCommit(null);
+      setRepoDetailCommand(null);
     }
   }, [allRepositories, selectedRepoId]);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteQuery("");
-        setPaletteOpen(true);
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  // Global search now runs through the palette instead of a separate card on
-  // the dashboard — two always-visible search fields on one screen was one of
-  // the things making it feel cluttered.
-  useEffect(() => {
-    const query = paletteQuery.trim();
-    if (!paletteOpen || query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      globalSearch(query, null, 20)
-        .then((results) => {
-          if (!cancelled) setSearchResults(results);
-        })
-        .catch(() => {
-          if (!cancelled) setSearchResults([]);
-        });
-    }, 200);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [paletteQuery, paletteOpen]);
-
-  /**
-   * `mutates` distinguishes actions that change the repository from ones that
-   * merely launch something external — opening a terminal or an IDE used to
-   * clear the selected commit and close an open diff for no reason.
-   */
-  async function invalidateRepoData(repoId: string) {
-    const workspaceId = allRepositories.find((repo) => repo.id === repoId)?.workspaceId;
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.repos.detail(repoId) }),
-      workspaceId
-        ? queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(workspaceId) })
-        : Promise.resolve(),
-    ]);
-  }
-
-  async function runRepoAction(
-    action: string,
-    repoId: string,
-    run: () => Promise<void>,
-    mutates = true,
-  ): Promise<boolean> {
-    setRepoActionError(null);
-    setRepoActionPending(action);
-    try {
-      await run();
-      if (mutates) {
-        setSelectedCommit(null);
-        await invalidateRepoData(repoId);
-      }
-      return true;
-    } catch (e) {
-      setRepoActionError(invokeErrorMessage(e));
-      return false;
-    } finally {
-      setRepoActionPending(null);
-    }
-  }
-
-  /**
-   * Staging changes what the commit panel shows but not which history entry
-   * is open, so unlike the other mutations these keep the WIP row selected.
-   */
-  function runWorkingAction(action: string, repoId: string, run: () => Promise<void>): Promise<boolean> {
-    return runRepoAction(action, repoId, run, false).then(async (ok) => {
-      if (ok) await invalidateRepoData(repoId);
-      return ok;
-    });
-  }
 
   async function runBulkAction(
     action: string,
@@ -255,66 +155,26 @@ export function App() {
     void runBulkAction(action, () => runner(selectedWorkspaceId));
   }
 
-  function onRepoAction(action: RepoAction) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    const runners: Record<RepoAction, () => Promise<void>> = {
-      fetch: () => fetchRepo(id),
-      pull: () => pullRepo(id),
-      push: () => pushRepo(id),
-      stash: () => stashPush(id),
-      "stash-pop": () => stashPop(id),
-      terminal: () => openTerminal(id),
-      "open-ide": () => openInIde(id),
-      "merge-tool": () => openMergeTool(id),
-    };
-    const launchesExternalTool = action === "terminal" || action === "open-ide";
-    void runRepoAction(action, id, runners[action], !launchesExternalTool);
-  }
-
-  function onCreateBranch(name: string) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runRepoAction("create-branch", id, () => createBranch(id, name, true));
-  }
-
-  function onStage(paths: string[]) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runWorkingAction("stage", id, () => stageFiles(id, paths));
-  }
-
-  function onUnstage(paths: string[]) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runWorkingAction("unstage", id, () => unstageFiles(id, paths));
-  }
-
-  async function onCommit(message: string): Promise<boolean> {
-    if (!selectedRepoId) return false;
-    const id = selectedRepoId;
-    return runWorkingAction("commit", id, () => commitRepo(id, message).then(() => undefined));
+  function sendRepoDetailCommand(command: RepoDetailCommandPayload) {
+    setRepoDetailCommandId((id) => {
+      const nextId = id + 1;
+      setRepoDetailCommand({ ...command, id: nextId });
+      return nextId;
+    });
   }
 
   async function selectRepository(workspaceId: string, repoId: string) {
+    setRepoDetailCommand(null);
     if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
-    setSelectedCommit(null);
-    setWorkingSelected(false);
-  }
-
-  function selectCommit(commit: CommitSummary) {
-    setWorkingSelected(false);
-    setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
   async function openSearchResult(result: GlobalSearchResult) {
     await selectRepository(result.workspaceId, result.repoId);
     if (result.kind === "branch" && result.branch) {
-      void runRepoAction("checkout", result.repoId, () => checkoutBranch(result.repoId, result.branch!));
+      sendRepoDetailCommand({ kind: "checkout", branch: result.branch });
     } else if (result.kind === "commit" && result.commit) {
-      setWorkingSelected(false);
-      setSelectedCommit(result.commit);
+      sendRepoDetailCommand({ kind: "selectCommit", commit: result.commit });
     }
   }
 
@@ -332,7 +192,7 @@ export function App() {
           label: tw(action === "open-ide" ? "repoActions.openIde" : `repoActions.${action}`),
           detail: selectedRepo.name,
           kind: tw("commandPalette.action"),
-          run: () => onRepoAction(action),
+          run: () => sendRepoDetailCommand({ kind: "repoAction", action }),
         }))
       : []),
     ...(selectedWorkspaceId
@@ -351,20 +211,10 @@ export function App() {
       kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
       run: () =>
         selectedRepoId
-          ? void runRepoAction("checkout", selectedRepoId, () => checkoutBranch(selectedRepoId, branch.name))
+          ? sendRepoDetailCommand({ kind: "checkout", branch: branch.name })
           : undefined,
     })),
   ];
-
-  const remotePaletteItems: PaletteItem[] = searchResults
-    .filter((result) => result.kind === "commit")
-    .map((result, index) => ({
-      id: `search:${result.repoId}:${result.commit?.id ?? index}`,
-      label: result.commit?.message.split("\n")[0] ?? result.repoName,
-      detail: `${result.repoName} · ${result.commit?.id.slice(0, 7) ?? ""}`,
-      kind: tw("commandPalette.commit"),
-      run: () => openSearchResult(result),
-    }));
 
   if (isFirstRun) {
     return (
@@ -418,36 +268,14 @@ export function App() {
 
         <ErrorBoundary key={selectedRepo ? `repo:${selectedRepo.id}` : `view:${view}`}>
         {selectedRepo ? (
-          <RepoDetailView
+          <RepoDetailContainer
             repo={selectedRepo}
-            status={repoStatus}
-            statusError={repoStatusError}
-            actionPending={repoActionPending}
-            actionError={repoActionError}
-            selectedCommit={selectedCommit}
-            workingSelected={workingSelected}
+            command={repoDetailCommand}
             onBack={() => {
               setSelectedRepoId(null);
-              setSelectedCommit(null);
-              setWorkingSelected(false);
+              setRepoDetailCommand(null);
             }}
-            onAction={onRepoAction}
-            onCheckout={(branch) =>
-              void runRepoAction("checkout", selectedRepo.id, () => checkoutBranch(selectedRepo.id, branch))
-            }
-            onCreateBranch={onCreateBranch}
-            onOpenSearch={() => {
-              setPaletteQuery("");
-              setPaletteOpen(true);
-            }}
-            onSelectCommit={selectCommit}
-            onSelectWorking={() => {
-              setSelectedCommit(null);
-              setWorkingSelected(true);
-            }}
-            onStage={onStage}
-            onUnstage={onUnstage}
-            onCommit={onCommit}
+            onOpenSearch={openPalette}
           />
         ) : view === "overview" ? (
           <OverviewView
@@ -485,7 +313,7 @@ export function App() {
           remoteItems={remotePaletteItems}
           query={paletteQuery}
           onQueryChange={setPaletteQuery}
-          onClose={() => setPaletteOpen(false)}
+          onClose={closePalette}
         />
       )}
 
