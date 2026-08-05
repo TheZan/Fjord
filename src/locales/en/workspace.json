@@ -53,7 +53,10 @@
     "empty": "No commits found.",
     "loading": "Loading…",
     "loadEarlier": "Load earlier commits",
-    "end": "Beginning of history"
+    "end": "Beginning of history",
+    "branchTag": "Branch / Tag",
+    "graph": "Graph",
+    "message": "Commit message"
   },
   "dashboard": {
     "title": "Dashboard",

@@ -53,7 +53,10 @@
     "empty": "Aucun commit trouvé.",
     "loading": "Chargement…",
     "loadEarlier": "Charger les commits précédents",
-    "end": "Début de l'historique"
+    "end": "Début de l'historique",
+    "branchTag": "Branche / tag",
+    "graph": "Graphe",
+    "message": "Message du commit"
   },
   "dashboard": {
     "title": "Tableau de bord",

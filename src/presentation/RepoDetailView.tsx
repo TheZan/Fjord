@@ -155,6 +155,7 @@ export function RepoDetailView({
                 currentBranch={status?.branch ?? null}
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={onSelectCommit}
+                onCheckout={onCheckout}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
                 onSelectWorking={onSelectWorking}

@@ -178,6 +178,13 @@ body {
   color: var(--fjord-ink) !important;
 }
 
+.commit-ref-badge[data-active="true"],
+.commit-ref-badge[data-active="true"]:hover,
+.commit-ref-badge[data-active="true"]:focus-visible {
+  background: var(--fjord) !important;
+  color: white !important;
+}
+
 .interactive-card:hover,
 .interactive-card:focus-within {
   border-color: var(--hairline-strong) !important;

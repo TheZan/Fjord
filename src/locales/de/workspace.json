@@ -53,7 +53,10 @@
     "empty": "Keine Commits gefunden.",
     "loading": "Lädt…",
     "loadEarlier": "Ältere Commits laden",
-    "end": "Anfang des Verlaufs"
+    "end": "Anfang des Verlaufs",
+    "branchTag": "Branch / Tag",
+    "graph": "Graph",
+    "message": "Commit-Nachricht"
   },
   "dashboard": {
     "title": "Dashboard",

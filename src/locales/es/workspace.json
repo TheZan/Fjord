@@ -53,7 +53,10 @@
     "empty": "No se encontraron commits.",
     "loading": "Cargando…",
     "loadEarlier": "Cargar commits anteriores",
-    "end": "Inicio del historial"
+    "end": "Inicio del historial",
+    "branchTag": "Rama / tag",
+    "graph": "Grafo",
+    "message": "Mensaje del commit"
   },
   "dashboard": {
     "title": "Panel",
