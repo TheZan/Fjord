@@ -10,6 +10,7 @@ import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } fr
 import type {
   BranchInfo,
   CommitPage,
+  CommitSummary,
   FileDiff,
   FileDiffDetail,
   GlobalSearchResult,
@@ -163,6 +164,10 @@ export function getRepoStatus(repoId: string): Promise<RepoStatus> {
 
 export function getCommitLog(repoId: string, cursor: string | null, limit: number): Promise<CommitPage> {
   return invoke("get_commit_log", { repoId, cursor, limit });
+}
+
+export function searchCommitLog(repoId: string, query: string, limit: number): Promise<CommitSummary[]> {
+  return invoke("search_commit_log", { repoId, query, limit });
 }
 
 export function globalSearch(

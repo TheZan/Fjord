@@ -218,8 +218,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use fjord_domain::{
-        BranchInfo, CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepositoryId, StashEntry, TagInfo, WorkingChanges,
+        BranchInfo, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
+        RepoStatus, RepositoryId, StashEntry, TagInfo, WorkingChanges,
     };
     use std::path::PathBuf as StdPathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -420,6 +420,14 @@ mod tests {
                 commits: vec![],
                 next_cursor: None,
             })
+        }
+        async fn search_commits(
+            &self,
+            _repo: &RepoPath,
+            _query: &str,
+            _limit: u32,
+        ) -> Result<Vec<CommitSummary>, GitError> {
+            Ok(vec![])
         }
         async fn diff(
             &self,

@@ -1,10 +1,12 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useCommitLog } from "@/application/useCommitLog";
+import { useCommitSearch } from "@/application/useCommitSearch";
 import { useTags } from "@/application/useTags";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
+import { Input } from "@/presentation/ui";
 import type { CommitSummary } from "@/domain/git";
 
 const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
@@ -13,6 +15,8 @@ const ROW_HEIGHT = 30;
 const HEADER_HEIGHT = 28;
 const GUTTER_PAD = 9;
 const REF_COLUMN_WIDTH = "11.5rem";
+const AUTO_LOAD_THRESHOLD_PX = ROW_HEIGHT * 14;
+const SEARCH_DEBOUNCE_MS = 180;
 /**
  * How many lanes the graph column is allowed to show. A busy repository can
  * produce dozens; rendering them all made the SVG wider than the pane and
@@ -57,12 +61,19 @@ export function CommitGraph({
   onSelectWorking?: () => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const { commits, loading, error, hasMore, loadMore } = useCommitLog(repoId);
+  const search = useCommitSearch(repoId, debouncedSearchQuery);
   const { branches } = useBranches(repoId);
   const { tags } = useTags(repoId);
+  const searchActive = debouncedSearchQuery.trim().length > 0;
+  const visibleCommits = searchActive ? search.commits : commits;
+  const visibleLoading = searchActive ? search.loading : loading;
+  const visibleError = searchActive ? search.error : error;
   // Lane assignment is O(commits × lanes) — memoized so unrelated state
   // changes (selection, loading flags) don't recompute the whole layout.
-  const { rows, laneCount } = useMemo(() => computeGraphLayout(commits), [commits]);
+  const { rows, laneCount } = useMemo(() => computeGraphLayout(visibleCommits), [visibleCommits]);
   const branchByName = useMemo(() => new Map(branches.map((branch) => [branch.name, branch])), [branches]);
   const tagNames = useMemo(() => new Set(tags.map((tag) => tag.name)), [tags]);
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
@@ -75,14 +86,33 @@ export function CommitGraph({
     overscan: 12,
   });
 
-  if (error) {
+  useEffect(() => {
+    parentRef.current?.scrollTo({ top: 0 });
+  }, [debouncedSearchQuery]);
+
+  useEffect(() => {
+    if (searchActive || !hasMore) return;
+    const element = parentRef.current;
+    if (!element) return;
+
+    const maybeLoadMore = () => {
+      const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+      if (remaining <= AUTO_LOAD_THRESHOLD_PX) loadMore();
+    };
+
+    maybeLoadMore();
+    element.addEventListener("scroll", maybeLoadMore, { passive: true });
+    return () => element.removeEventListener("scroll", maybeLoadMore);
+  }, [hasMore, loadMore, rows.length, searchActive]);
+
+  if (visibleError) {
     return (
       <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
-        {error}
+        {visibleError}
       </p>
     );
   }
-  if (commits.length === 0 && !loading) {
+  if (commits.length === 0 && !loading && !searchActive) {
     return (
       <p className="text-sm" style={{ color: "var(--slate)" }}>
         {t("commits.empty")}
@@ -96,7 +126,7 @@ export function CommitGraph({
       className="h-full w-full overflow-auto rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <GraphHeader gutterWidth={gutterWidth} />
+      <GraphHeader gutterWidth={gutterWidth} searchQuery={searchQuery} onSearchQueryChange={setSearchQuery} />
       {workingFileCount > 0 && onSelectWorking && (
         <WorkingRow
           gutterWidth={gutterWidth}
@@ -143,16 +173,20 @@ export function CommitGraph({
         })}
       </div>
       <div className="p-2 text-center">
-        {hasMore ? (
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={loading}
-            className="interactive-control rounded px-2 py-1 text-xs"
-            style={{ color: "var(--mist)" }}
-          >
-            {loading ? t("commits.loading") : t("commits.loadEarlier")}
-          </button>
+        {searchActive ? (
+          <span className="text-xs" style={{ color: "var(--mist)" }}>
+            {visibleLoading
+              ? t("commits.loading")
+              : rows.length === 0
+                ? t("commits.searchEmpty")
+                : t("commits.searchCount", { count: rows.length })}
+          </span>
+        ) : hasMore ? (
+          loading && (
+            <span className="text-xs" style={{ color: "var(--mist)" }}>
+              {t("commits.loading")}
+            </span>
+          )
         ) : (
           !loading && (
             <span className="text-xs" style={{ color: "var(--mist)" }}>
@@ -165,7 +199,26 @@ export function CommitGraph({
   );
 }
 
-function GraphHeader({ gutterWidth }: { gutterWidth: number }) {
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(handle);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
+function GraphHeader({
+  gutterWidth,
+  searchQuery,
+  onSearchQueryChange,
+}: {
+  gutterWidth: number;
+  searchQuery: string;
+  onSearchQueryChange: (query: string) => void;
+}) {
   const { t } = useTranslation("workspace");
 
   return (
@@ -181,7 +234,14 @@ function GraphHeader({ gutterWidth }: { gutterWidth: number }) {
     >
       <span>{t("commits.branchTag")}</span>
       <span>{t("commits.graph")}</span>
-      <span>{t("commits.message")}</span>
+      <Input
+        type="search"
+        value={searchQuery}
+        onChange={(event) => onSearchQueryChange(event.target.value)}
+        placeholder={t("commits.searchPlaceholder")}
+        aria-label={t("commits.searchPlaceholder")}
+        className="h-6 max-w-[20rem] bg-[var(--page-bg)] text-xs normal-case tracking-normal"
+      />
       <span />
       <span />
     </div>

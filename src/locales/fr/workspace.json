@@ -56,7 +56,10 @@
     "end": "Début de l'historique",
     "branchTag": "Branche / tag",
     "graph": "Graphe",
-    "message": "Message du commit"
+    "message": "Message du commit",
+    "searchPlaceholder": "Rechercher un message de commit",
+    "searchEmpty": "Aucun commit correspondant.",
+    "searchCount": "Résultats : {{count}}"
   },
   "dashboard": {
     "title": "Tableau de bord",

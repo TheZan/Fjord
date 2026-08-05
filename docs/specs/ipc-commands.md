@@ -29,6 +29,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `get_branches` | `{ repo_id }` | `BranchInfo[]` | |
 | `get_repo_status` | `{ repo_id }` | `RepoStatus` | Live single-repo status for Phase 1 UI; P2 dashboard status uses the cache-oriented commands above |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `CommitPage` | `cursor` from the previous page's `CommitPage.next_cursor`; omitted cursor = start from `HEAD` |
+| `search_commit_log` | `{ repo_id, query, limit }` | `CommitSummary[]` | Searches commit titles across local and remote refs; capped by `limit` |
 | `global_search` | `{ workspace_id?, query, limit }` | `GlobalSearchResult[]` | Searches tracked repositories, branch names, and recent `HEAD` commits; unreadable repo details are skipped without aborting the whole search |
 | `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | Changed-files summary for the commit inspector (P1-04) — path, change type, add/delete line counts, no content |
 | `get_file_diff` | `{ repo_id, commit_id, path }` | `FileDiffDetail` | Full unified line diff for one file within a commit (P1-05); `isBinary` is `true` and `hunks` empty when either side is binary |

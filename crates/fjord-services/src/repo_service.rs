@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, GlobalSearchResult,
-    LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind, StashEntry, TagInfo,
-    WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail,
+    GlobalSearchResult, LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind,
+    StashEntry, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitError, GitOperationContext, IdeLauncher, LaunchError, RepoPath, SettingsStore,
@@ -78,6 +78,19 @@ impl RepoService {
         Ok(self
             .git
             .log(&RepoPath::new(repo.path), cursor, limit)
+            .await?)
+    }
+
+    pub async fn search_commit_log(
+        &self,
+        repo_id: RepositoryId,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<CommitSummary>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .search_commits(&RepoPath::new(repo.path), query, limit)
             .await?)
     }
 
@@ -712,6 +725,28 @@ mod tests {
                 next_cursor: None,
             })
         }
+        async fn search_commits(
+            &self,
+            repo: &RepoPath,
+            query: &str,
+            _limit: u32,
+        ) -> Result<Vec<CommitSummary>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            let message = "Add searchable commit";
+            if message.to_lowercase().contains(&query.to_lowercase()) {
+                Ok(vec![CommitSummary {
+                    id: CommitId("abc123".into()),
+                    parent_ids: vec![],
+                    message: message.into(),
+                    author_name: "Ada".into(),
+                    author_email: "ada@example.test".into(),
+                    authored_at: OffsetDateTime::from_unix_timestamp(0).unwrap(),
+                    refs: vec![],
+                }])
+            } else {
+                Ok(vec![])
+            }
+        }
         async fn diff(&self, repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![FileDiff {
@@ -875,6 +910,19 @@ mod tests {
         let (repo, git, _, service) = service_with_fake_git();
 
         service.get_commit_log(repo.id, None, 20).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn search_commit_log_resolves_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let commits = service
+            .search_commit_log(repo.id, "searchable", 20)
+            .await
+            .unwrap();
+
+        assert_eq!(commits.len(), 1);
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 

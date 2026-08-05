@@ -79,6 +79,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_tags,
             commands::get_repo_status,
             commands::get_commit_log,
+            commands::search_commit_log,
             commands::global_search,
             commands::get_commit_diff,
             commands::get_file_diff,

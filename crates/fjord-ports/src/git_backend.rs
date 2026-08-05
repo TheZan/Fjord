@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitPage, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges,
+    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+    StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -105,6 +105,12 @@ pub trait GitBackend: Send + Sync {
         from: Option<LogCursor>,
         limit: u32,
     ) -> Result<CommitPage, GitError>;
+    async fn search_commits(
+        &self,
+        repo: &RepoPath,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<CommitSummary>, GitError>;
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError>;
     async fn file_diff(
         &self,

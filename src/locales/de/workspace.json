@@ -56,7 +56,10 @@
     "end": "Anfang des Verlaufs",
     "branchTag": "Branch / Tag",
     "graph": "Graph",
-    "message": "Commit-Nachricht"
+    "message": "Commit-Nachricht",
+    "searchPlaceholder": "Commit-Nachricht suchen",
+    "searchEmpty": "Keine passenden Commits.",
+    "searchCount": "Ergebnisse: {{count}}"
   },
   "dashboard": {
     "title": "Dashboard",

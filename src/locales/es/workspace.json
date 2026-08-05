@@ -56,7 +56,10 @@
     "end": "Inicio del historial",
     "branchTag": "Rama / tag",
     "graph": "Grafo",
-    "message": "Mensaje del commit"
+    "message": "Mensaje del commit",
+    "searchPlaceholder": "Buscar mensaje de commit",
+    "searchEmpty": "No hay commits coincidentes.",
+    "searchCount": "Resultados: {{count}}"
   },
   "dashboard": {
     "title": "Panel",

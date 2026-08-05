@@ -56,7 +56,10 @@
     "end": "Начало истории",
     "branchTag": "Ветка / тег",
     "graph": "Граф",
-    "message": "Сообщение коммита"
+    "message": "Сообщение коммита",
+    "searchPlaceholder": "Поиск по сообщению коммита",
+    "searchEmpty": "Подходящие коммиты не найдены.",
+    "searchCount": "Найдено: {{count}}"
   },
   "dashboard": {
     "title": "Дашборд",
