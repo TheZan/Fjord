@@ -2,14 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
+import { useOperationProgress } from "@/application/useOperationProgress";
 import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
 import type { GlobalSearchResult } from "@/domain/git";
+import type { BulkRepoResult } from "@/domain/workspace";
 import {
-  bulkFetch,
   bulkOpenInIde,
-  bulkPull,
+  cancelOperation,
+  invokeErrorCode,
   invokeErrorMessage,
+  runBulkFetch,
+  runBulkPull,
+  type OperationProgressEvent,
+  type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
@@ -55,6 +61,7 @@ export function App() {
     removeRepository,
   } = useRepositories();
 
+  const operations = useOperationProgress();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState("");
@@ -63,6 +70,7 @@ export function App() {
   const [, setRepoDetailCommandId] = useState(0);
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
+  const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
 
   const {
     closePalette,
@@ -81,6 +89,7 @@ export function App() {
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
+  const activeBulkOperation = bulkOperationId ? (operations[bulkOperationId] ?? null) : null;
 
   const flatRows = workspaces.flatMap((workspace) =>
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
@@ -125,12 +134,16 @@ export function App() {
 
   async function runBulkAction(
     action: string,
-    run: () => Promise<Array<{ ok: boolean; error: string | null }>>,
+    run: () => OperationTask<BulkRepoResult[]> | Promise<BulkRepoResult[]>,
   ) {
     setBulkActionNotice(null);
     setBulkActionPending(action);
+    setBulkOperationId(null);
     try {
-      const results = await run();
+      const started = run();
+      const promise = "operationId" in started ? started.promise : started;
+      if ("operationId" in started) setBulkOperationId(started.operationId);
+      const results = await promise;
       const failed = results.filter((result) => !result.ok).length;
       setBulkActionNotice(tw("bulk.summary", { succeeded: results.length - failed, failed }));
       if (selectedWorkspaceId) {
@@ -142,17 +155,28 @@ export function App() {
         ]);
       }
     } catch (e) {
-      setBulkActionNotice(invokeErrorMessage(e));
+      setBulkActionNotice(
+        invokeErrorCode(e) === "operation_cancelled"
+          ? tw("operations.cancelled")
+          : invokeErrorMessage(e),
+      );
     } finally {
       setBulkActionPending(null);
+      setBulkOperationId(null);
     }
   }
 
   function onBulk(action: "fetch" | "pull" | "open-ide") {
     if (!selectedWorkspaceId) return;
-    const runner =
-      action === "fetch" ? bulkFetch : action === "pull" ? bulkPull : bulkOpenInIde;
-    void runBulkAction(action, () => runner(selectedWorkspaceId));
+    if (action === "fetch") {
+      void runBulkAction(action, () => runBulkFetch(selectedWorkspaceId));
+      return;
+    }
+    if (action === "pull") {
+      void runBulkAction(action, () => runBulkPull(selectedWorkspaceId));
+      return;
+    }
+    void runBulkAction(action, () => bulkOpenInIde(selectedWorkspaceId));
   }
 
   function sendRepoDetailCommand(command: RepoDetailCommandPayload) {
@@ -234,6 +258,7 @@ export function App() {
         onViewChange={(next) => {
           setView(next);
           setSelectedRepoId(null);
+          setRepoDetailCommand(null);
         }}
         workspaces={workspaces}
         repoCountByWorkspace={repoCountByWorkspace}
@@ -242,6 +267,7 @@ export function App() {
         onSelectWorkspace={(id) => {
           void selectWorkspace(id);
           setSelectedRepoId(null);
+          setRepoDetailCommand(null);
           setView("overview");
         }}
         onCreateWorkspace={(name) => void createWorkspace(name)}
@@ -285,6 +311,10 @@ export function App() {
             selectedRepoId={selectedRepoId}
             metrics={metrics}
             bulkPending={bulkActionPending}
+            bulkProgress={toBulkProgress(activeBulkOperation)}
+            onCancelBulk={() => {
+              if (bulkOperationId) void cancelOperation(bulkOperationId);
+            }}
             onBulk={onBulk}
             onOpenRepository={openRepository}
             onImport={() => void importRepositories()}
@@ -320,4 +350,14 @@ export function App() {
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </div>
   );
+}
+
+function toBulkProgress(event: OperationProgressEvent | null) {
+  if (!event) return null;
+  return {
+    completed: event.completed,
+    total: event.total,
+    error: event.error,
+    status: event.status,
+  };
 }

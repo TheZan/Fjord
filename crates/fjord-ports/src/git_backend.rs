@@ -3,6 +3,7 @@
 //! thing `fjord-services` is allowed to know about "how do we talk to Git".
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
@@ -17,6 +18,40 @@ pub struct RepoPath(pub PathBuf);
 impl RepoPath {
     pub fn new(path: PathBuf) -> Self {
         Self(path)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GitProgress {
+    pub completed: u32,
+    pub total: u32,
+}
+
+#[derive(Clone, Default)]
+pub struct GitOperationContext {
+    progress: Option<Arc<dyn Fn(GitProgress) + Send + Sync>>,
+    cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+}
+
+impl GitOperationContext {
+    pub fn new(
+        progress: impl Fn(GitProgress) + Send + Sync + 'static,
+        cancelled: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            progress: Some(Arc::new(progress)),
+            cancelled: Some(Arc::new(cancelled)),
+        }
+    }
+
+    pub fn emit(&self, progress: GitProgress) {
+        if let Some(callback) = &self.progress {
+            callback(progress);
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.as_ref().is_some_and(|cancelled| cancelled())
     }
 }
 
@@ -44,6 +79,8 @@ pub enum GitError {
     StashEmpty,
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
+    #[error("operation cancelled")]
+    Cancelled,
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -106,5 +143,28 @@ pub trait GitBackend: Send + Sync {
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError>;
+    async fn fetch_with_context(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        _context: GitOperationContext,
+    ) -> Result<(), GitError> {
+        self.fetch(repo, remote).await
+    }
+    async fn pull_with_context(
+        &self,
+        repo: &RepoPath,
+        _context: GitOperationContext,
+    ) -> Result<(), GitError> {
+        self.pull(repo).await
+    }
+    async fn push_with_context(
+        &self,
+        repo: &RepoPath,
+        refspec: &str,
+        _context: GitOperationContext,
+    ) -> Result<(), GitError> {
+        self.push(repo, refspec).await
+    }
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }

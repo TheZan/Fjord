@@ -1,24 +1,29 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
+import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import type { CommitSummary } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
+  cancelOperation,
   checkoutBranch,
   commitRepo,
   createBranch,
-  fetchRepo,
+  invokeErrorCode,
   invokeErrorMessage,
   openInIde,
   openMergeTool,
   openTerminal,
-  pullRepo,
-  pushRepo,
+  runFetchRepo,
+  runPullRepo,
+  runPushRepo,
   stageFiles,
   stashPop,
   stashPush,
   unstageFiles,
+  type OperationProgressEvent,
+  type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
 import type { RepoAction } from "@/presentation/RepoToolbar";
@@ -42,11 +47,14 @@ export function RepoDetailContainer({
   onOpenSearch: () => void;
 }) {
   const queryClient = useQueryClient();
+  const operations = useOperationProgress();
   const { status, error: statusError } = useRepoStatus(repo.id);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const [actionOperationId, setActionOperationId] = useState<string | null>(null);
+  const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
 
   async function invalidateRepoData() {
     await Promise.all([
@@ -70,10 +78,13 @@ export function RepoDetailContainer({
       }
       return true;
     } catch (e) {
-      setActionError(invokeErrorMessage(e));
+      if (invokeErrorCode(e) !== "operation_cancelled") {
+        setActionError(invokeErrorMessage(e));
+      }
       return false;
     } finally {
       setActionPending(null);
+      setActionOperationId(null);
     }
   }
 
@@ -105,10 +116,14 @@ export function RepoDetailContainer({
   }, [command?.id, repo.id]);
 
   function onAction(action: RepoAction) {
-    const runners: Record<RepoAction, () => Promise<void>> = {
-      fetch: () => fetchRepo(repo.id),
-      pull: () => pullRepo(repo.id),
-      push: () => pushRepo(repo.id),
+    const networkTask = startNetworkAction(action);
+    if (networkTask) {
+      setActionOperationId(networkTask.operationId);
+      void runRepoAction(action, () => networkTask.promise);
+      return;
+    }
+
+    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push">, () => Promise<void>> = {
       stash: () => stashPush(repo.id),
       "stash-pop": () => stashPop(repo.id),
       terminal: () => openTerminal(repo.id),
@@ -116,7 +131,21 @@ export function RepoDetailContainer({
       "merge-tool": () => openMergeTool(repo.id),
     };
     const launchesExternalTool = action === "terminal" || action === "open-ide";
-    void runRepoAction(action, runners[action], !launchesExternalTool);
+    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push">;
+    void runRepoAction(localAction, runners[localAction], !launchesExternalTool);
+  }
+
+  function startNetworkAction(action: RepoAction): OperationTask<void> | null {
+    switch (action) {
+      case "fetch":
+        return runFetchRepo(repo.id);
+      case "pull":
+        return runPullRepo(repo.id);
+      case "push":
+        return runPushRepo(repo.id);
+      default:
+        return null;
+    }
   }
 
   function onCreateBranch(name: string) {
@@ -147,6 +176,10 @@ export function RepoDetailContainer({
       statusError={statusError}
       actionPending={actionPending}
       actionError={actionError}
+      operationProgress={toToolbarProgress(activeOperation)}
+      onCancelOperation={() => {
+        if (actionOperationId) void cancelOperation(actionOperationId);
+      }}
       selectedCommit={selectedCommit}
       workingSelected={workingSelected}
       onBack={onBack}
@@ -164,4 +197,14 @@ export function RepoDetailContainer({
       onCommit={onCommit}
     />
   );
+}
+
+function toToolbarProgress(event: OperationProgressEvent | null) {
+  if (!event) return null;
+  return {
+    completed: event.completed,
+    total: event.total,
+    error: event.error,
+    status: event.status,
+  };
 }

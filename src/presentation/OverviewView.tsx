@@ -12,6 +12,13 @@ interface OverviewProps {
   selectedRepoId: string | null;
   metrics: { total: number; attention: number; behind: number };
   bulkPending: string | null;
+  bulkProgress: {
+    completed: number;
+    total: number;
+    error: string | null;
+    status: string;
+  } | null;
+  onCancelBulk: () => void;
   onBulk: (action: "fetch" | "pull" | "open-ide") => void;
   onOpenRepository: () => void;
   onImport: () => void;
@@ -30,6 +37,8 @@ export function OverviewView({
   selectedRepoId,
   metrics,
   bulkPending,
+  bulkProgress,
+  onCancelBulk,
   onBulk,
   onOpenRepository,
   onImport,
@@ -72,6 +81,8 @@ export function OverviewView({
         </Button>
       </header>
 
+      {bulkProgress ? <BulkProgressStrip progress={bulkProgress} onCancel={onCancelBulk} /> : null}
+
       <div className="grid grid-cols-3 gap-3">
         <Metric label={t("dashboard.repoCount")} value={metrics.total} />
         <Metric
@@ -97,6 +108,43 @@ export function OverviewView({
           onRemoveRepo={onRemoveRepo}
         />
       )}
+    </div>
+  );
+}
+
+function BulkProgressStrip({
+  progress,
+  onCancel,
+}: {
+  progress: {
+    completed: number;
+    total: number;
+    error: string | null;
+    status: string;
+  };
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const percent =
+    progress.total > 0 ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : 0;
+
+  return (
+    <div
+      className="flex items-center gap-3 rounded-lg border px-3 py-2"
+      style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
+    >
+      <div className="h-1.5 min-w-32 flex-1 overflow-hidden rounded-full" style={{ background: "var(--page-bg)" }}>
+        <div
+          className="h-full rounded-full transition-[width]"
+          style={{ background: "var(--fjord)", width: `${percent}%` }}
+        />
+      </div>
+      <span className="w-24 shrink-0 text-right text-[11px]" style={{ color: "var(--slate)" }}>
+        {t("operations.progress", { completed: progress.completed, total: progress.total })}
+      </span>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        {t("operations.cancel")}
+      </Button>
     </div>
   );
 }

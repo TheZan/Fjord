@@ -9,6 +9,7 @@ use fjord_git::GixGitBackend;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 
 use crate::ide_launcher::SystemIdeLauncher;
+use crate::operations::OperationRegistry;
 
 /// Everything a command handler needs, built once in `bootstrap` and
 /// `app.manage()`d (SDD §5.1: commands stay thin adapters over services).
@@ -16,6 +17,7 @@ pub struct AppState {
     pub settings: Arc<SettingsService>,
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
+    pub operations: Arc<OperationRegistry>,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
 
@@ -49,6 +51,7 @@ pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
             git_backend,
             ide_launcher,
         )),
+        operations: Arc::new(OperationRegistry::default()),
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
 

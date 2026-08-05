@@ -15,7 +15,7 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
     WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, RepoPath};
+use fjord_ports::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
 use git2::build::CheckoutBuilder;
 use git2::{
     Cred, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, StashFlags,
@@ -92,7 +92,7 @@ impl GixGitBackend {
         }
     }
 
-    fn remote_callbacks() -> RemoteCallbacks<'static> {
+    fn remote_callbacks(context: GitOperationContext) -> RemoteCallbacks<'static> {
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(|_url, username_from_url, allowed| {
             if allowed.is_ssh_key() {
@@ -109,21 +109,39 @@ impl GixGitBackend {
                     .unwrap_or_else(Cred::default)
             })
         });
+        callbacks.transfer_progress(move |stats| {
+            context.emit(GitProgress {
+                completed: stats.received_objects() as u32,
+                total: stats.total_objects() as u32,
+            });
+            !context.is_cancelled()
+        });
         callbacks
     }
 
-    fn fetch_options() -> FetchOptions<'static> {
+    fn fetch_options(context: GitOperationContext) -> FetchOptions<'static> {
         let mut options = FetchOptions::new();
-        options.remote_callbacks(Self::remote_callbacks());
+        options.remote_callbacks(Self::remote_callbacks(context));
         options
     }
 
-    fn push_options() -> PushOptions<'static> {
-        let mut callbacks = Self::remote_callbacks();
-        callbacks.push_update_reference(|refname, status| {
+    fn push_options(context: GitOperationContext) -> PushOptions<'static> {
+        let push_context = context.clone();
+        let update_context = context.clone();
+        let mut callbacks = Self::remote_callbacks(context);
+        callbacks.push_update_reference(move |refname, status| {
+            if update_context.is_cancelled() {
+                return Err(git2::Error::from_str("operation cancelled"));
+            }
             status
                 .map(|message| Err(git2::Error::from_str(&format!("{refname}: {message}"))))
                 .unwrap_or(Ok(()))
+        });
+        callbacks.push_transfer_progress(move |current, total, _bytes| {
+            push_context.emit(GitProgress {
+                completed: current as u32,
+                total: total as u32,
+            });
         });
 
         let mut options = PushOptions::new();
@@ -131,16 +149,27 @@ impl GixGitBackend {
         options
     }
 
-    fn fetch_remote(
+    fn fetch_remote_with_context(
         git: &git2::Repository,
         remote_name: &str,
         refspecs: &[&str],
+        context: GitOperationContext,
     ) -> Result<(), GitError> {
+        if context.is_cancelled() {
+            return Err(GitError::Cancelled);
+        }
+
         let mut remote = git.find_remote(remote_name).map_err(Self::map_git2_error)?;
-        let mut options = Self::fetch_options();
+        let mut options = Self::fetch_options(context.clone());
         remote
             .fetch(refspecs, Some(&mut options), None)
-            .map_err(Self::map_git2_error)
+            .map_err(|error| {
+                if context.is_cancelled() {
+                    GitError::Cancelled
+                } else {
+                    Self::map_git2_error(error)
+                }
+            })
     }
 
     fn current_branch_refname(git: &git2::Repository) -> Result<String, GitError> {
@@ -1082,21 +1111,44 @@ impl GitBackend for GixGitBackend {
     }
 
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
+        self.fetch_with_context(repo, remote, GitOperationContext::default())
+            .await
+    }
+
+    async fn fetch_with_context(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        context: GitOperationContext,
+    ) -> Result<(), GitError> {
         let repo = repo.clone();
         let remote = remote.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            Self::fetch_remote(&git, &remote, &[])
+            Self::fetch_remote_with_context(&git, &remote, &[], context)
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
+        self.pull_with_context(repo, GitOperationContext::default())
+            .await
+    }
+
+    async fn pull_with_context(
+        &self,
+        repo: &RepoPath,
+        context: GitOperationContext,
+    ) -> Result<(), GitError> {
         let repo = repo.clone();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
+            if context.is_cancelled() {
+                return Err(GitError::Cancelled);
+            }
+
             let git = Self::open_git2(&repo)?;
             let head = git.head().map_err(Self::map_git2_error)?;
             let head_refname = Self::current_branch_refname(&git)?;
@@ -1117,7 +1169,10 @@ impl GitBackend for GixGitBackend {
                 .map_err(Self::map_git2_error)?
                 .to_string();
 
-            Self::fetch_remote(&git, &remote_name, &[])?;
+            Self::fetch_remote_with_context(&git, &remote_name, &[], context.clone())?;
+            if context.is_cancelled() {
+                return Err(GitError::Cancelled);
+            }
 
             let upstream_ref = git
                 .find_reference(&upstream_refname)
@@ -1151,10 +1206,24 @@ impl GitBackend for GixGitBackend {
     }
 
     async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError> {
+        self.push_with_context(repo, refspec, GitOperationContext::default())
+            .await
+    }
+
+    async fn push_with_context(
+        &self,
+        repo: &RepoPath,
+        refspec: &str,
+        context: GitOperationContext,
+    ) -> Result<(), GitError> {
         let repo = repo.clone();
         let refspec = refspec.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
+            if context.is_cancelled() {
+                return Err(GitError::Cancelled);
+            }
+
             let git = Self::open_git2(&repo)?;
             let refspec = if refspec.trim().is_empty() {
                 let head_refname = Self::current_branch_refname(&git)?;
@@ -1164,10 +1233,16 @@ impl GitBackend for GixGitBackend {
             };
 
             let mut remote = git.find_remote("origin").map_err(Self::map_git2_error)?;
-            let mut options = Self::push_options();
+            let mut options = Self::push_options(context.clone());
             remote
                 .push(&[refspec], Some(&mut options))
-                .map_err(Self::map_git2_error)
+                .map_err(|error| {
+                    if context.is_cancelled() {
+                        GitError::Cancelled
+                    } else {
+                        Self::map_git2_error(error)
+                    }
+                })
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?

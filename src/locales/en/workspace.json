@@ -97,6 +97,12 @@
     "creating": "Creating…",
     "importing": "Importing…"
   },
+  "operations": {
+    "running": "Running…",
+    "progress": "{{completed}} / {{total}}",
+    "cancel": "Cancel",
+    "cancelled": "Cancelled."
+  },
   "repoActions": {
     "fetch": "Fetch",
     "fetching": "Fetching…",

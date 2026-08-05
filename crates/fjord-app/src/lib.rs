@@ -9,6 +9,7 @@ mod commands;
 mod error;
 mod ide_launcher;
 mod logging;
+mod operations;
 mod state;
 
 use tauri::Manager;
@@ -98,5 +99,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::bulk_fetch,
             commands::bulk_pull,
             commands::bulk_open_in_ide,
+            commands::cancel_operation,
         ])
 }

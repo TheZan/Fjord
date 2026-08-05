@@ -25,10 +25,12 @@ export function RepoDetailView({
   statusError,
   actionPending,
   actionError,
+  operationProgress,
   selectedCommit,
   workingSelected,
   onBack,
   onAction,
+  onCancelOperation,
   onCheckout,
   onCreateBranch,
   onOpenSearch,
@@ -43,10 +45,17 @@ export function RepoDetailView({
   statusError: string | null;
   actionPending: string | null;
   actionError: string | null;
+  operationProgress: {
+    completed: number;
+    total: number;
+    error: string | null;
+    status: string;
+  } | null;
   selectedCommit: CommitSummary | null;
   workingSelected: boolean;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
+  onCancelOperation: () => void;
   onCheckout: (branch: string) => void;
   onCreateBranch: (name: string) => void;
   onOpenSearch: () => void;
@@ -96,8 +105,10 @@ export function RepoDetailView({
         repo={repo}
         status={status}
         actionPending={actionPending}
+        operationProgress={operationProgress}
         onBack={onBack}
         onAction={onAction}
+        onCancelOperation={onCancelOperation}
         onCreateBranch={onCreateBranch}
         onOpenSearch={onOpenSearch}
       />

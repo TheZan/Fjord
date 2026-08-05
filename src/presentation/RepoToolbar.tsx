@@ -17,6 +17,13 @@ export type RepoAction =
   | "open-ide"
   | "merge-tool";
 
+export interface RepoOperationProgress {
+  completed: number;
+  total: number;
+  error: string | null;
+  status: string;
+}
+
 /**
  * The repository action bar, shaped after GitKraken's: one horizontal strip
  * of icon-over-label buttons in related groups (sync · branch/stash · tools)
@@ -30,16 +37,20 @@ export function RepoToolbar({
   repo,
   status,
   actionPending,
+  operationProgress,
   onBack,
   onAction,
+  onCancelOperation,
   onCreateBranch,
   onOpenSearch,
 }: {
   repo: RepositoryEntry;
   status: RepoStatus | null;
   actionPending: string | null;
+  operationProgress: RepoOperationProgress | null;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
+  onCancelOperation: () => void;
   onCreateBranch: (name: string) => void;
   onOpenSearch: () => void;
 }) {
@@ -72,129 +83,171 @@ export function RepoToolbar({
   }
 
   return (
-    <header
-      className="flex shrink-0 items-stretch gap-1 rounded-lg border px-2 py-1.5"
+    <div
+      className="flex shrink-0 flex-col rounded-lg border"
       style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <button
-          type="button"
-          onClick={onBack}
-          title={t("nav.back")}
-          aria-label={t("nav.back")}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
-          style={{ color: "var(--slate)" }}
-        >
-          <IconBack />
-        </button>
-        <div className="min-w-0">
-          <div className="truncate text-[13px] font-medium leading-tight">{repo.name}</div>
-          <div className="flex items-center gap-1.5 truncate text-[11px]" style={{ color: "var(--slate)" }}>
-            <IconBranch size={11} />
-            <span className="truncate font-mono">{status?.branch ?? t("dashboard.unknown")}</span>
-            {status ? <SyncCounters status={status} /> : null}
+      <header className="flex items-stretch gap-1 px-2 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <button
+            type="button"
+            onClick={onBack}
+            title={t("nav.back")}
+            aria-label={t("nav.back")}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
+            style={{ color: "var(--slate)" }}
+          >
+            <IconBack />
+          </button>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-medium leading-tight">{repo.name}</div>
+            <div className="flex items-center gap-1.5 truncate text-[11px]" style={{ color: "var(--slate)" }}>
+              <IconBranch size={11} />
+              <span className="truncate font-mono">{status?.branch ?? t("dashboard.unknown")}</span>
+              {status ? <SyncCounters status={status} /> : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      <ToolGroup>
-        <ToolButton
-          label={t("repoActions.fetch")}
-          icon={<IconFetch />}
-          pending={actionPending === "fetch"}
-          disabled={busy}
-          onClick={() => onAction("fetch")}
-        />
-        <ToolButton
-          label={t("repoActions.pull")}
-          icon={<IconPull />}
-          badge={status && status.behind > 0 ? status.behind : undefined}
-          pending={actionPending === "pull"}
-          disabled={busy}
-          onClick={() => onAction("pull")}
-        />
-        <ToolButton
-          label={t("repoActions.push")}
-          icon={<IconPush />}
-          badge={status && status.ahead > 0 ? status.ahead : undefined}
-          pending={actionPending === "push"}
-          disabled={busy}
-          onClick={() => onAction("push")}
-        />
-      </ToolGroup>
-
-      <ToolGroup>
-        <div className="relative" ref={branchRef}>
+        <ToolGroup>
           <ToolButton
-            label={t("toolbar.branch")}
-            icon={<IconBranch />}
+            label={t("repoActions.fetch")}
+            icon={<IconFetch />}
+            pending={actionPending === "fetch"}
             disabled={busy}
-            active={branchOpen}
-            onClick={() => setBranchOpen((open) => !open)}
+            onClick={() => onAction("fetch")}
           />
-          {branchOpen && (
-            <div
-              className="absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border p-2 shadow-lg"
-              style={{
-                borderWidth: "0.5px",
-                borderColor: "var(--hairline-strong)",
-                background: "var(--paper)",
-              }}
-            >
-              <Input
-                autoFocus
-                value={branchName}
-                onChange={(event) => setBranchName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitBranch();
-                  if (event.key === "Escape") setBranchOpen(false);
-                }}
-                placeholder={t("toolbar.branchPlaceholder")}
-                className="w-full"
-              />
-              <div className="mt-1.5 flex justify-end">
-                <Button size="sm" variant="primary" onClick={submitBranch}>
-                  {t("toolbar.createBranch")}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-        <ToolButton
-          label={t("toolbar.stash")}
-          icon={<IconStash />}
-          pending={actionPending === "stash"}
-          disabled={busy || (status !== null && status.dirtyCount === 0)}
-          onClick={() => onAction("stash")}
-        />
-        <ToolButton
-          label={t("toolbar.pop")}
-          icon={<IconPop />}
-          badge={stashes.length > 0 ? stashes.length : undefined}
-          pending={actionPending === "stash-pop"}
-          disabled={busy || stashes.length === 0}
-          onClick={() => onAction("stash-pop")}
-        />
-      </ToolGroup>
+          <ToolButton
+            label={t("repoActions.pull")}
+            icon={<IconPull />}
+            badge={status && status.behind > 0 ? status.behind : undefined}
+            pending={actionPending === "pull"}
+            disabled={busy}
+            onClick={() => onAction("pull")}
+          />
+          <ToolButton
+            label={t("repoActions.push")}
+            icon={<IconPush />}
+            badge={status && status.ahead > 0 ? status.ahead : undefined}
+            pending={actionPending === "push"}
+            disabled={busy}
+            onClick={() => onAction("push")}
+          />
+        </ToolGroup>
 
-      <ToolGroup last>
-        <ToolButton
-          label={t("toolbar.terminal")}
-          icon={<IconTerminal />}
-          pending={actionPending === "terminal"}
-          disabled={busy}
-          onClick={() => onAction("terminal")}
+        <ToolGroup>
+          <div className="relative" ref={branchRef}>
+            <ToolButton
+              label={t("toolbar.branch")}
+              icon={<IconBranch />}
+              disabled={busy}
+              active={branchOpen}
+              onClick={() => setBranchOpen((open) => !open)}
+            />
+            {branchOpen && (
+              <div
+                className="absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border p-2 shadow-lg"
+                style={{
+                  borderWidth: "0.5px",
+                  borderColor: "var(--hairline-strong)",
+                  background: "var(--paper)",
+                }}
+              >
+                <Input
+                  autoFocus
+                  value={branchName}
+                  onChange={(event) => setBranchName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitBranch();
+                    if (event.key === "Escape") setBranchOpen(false);
+                  }}
+                  placeholder={t("toolbar.branchPlaceholder")}
+                  className="w-full"
+                />
+                <div className="mt-1.5 flex justify-end">
+                  <Button size="sm" variant="primary" onClick={submitBranch}>
+                    {t("toolbar.createBranch")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <ToolButton
+            label={t("toolbar.stash")}
+            icon={<IconStash />}
+            pending={actionPending === "stash"}
+            disabled={busy || (status !== null && status.dirtyCount === 0)}
+            onClick={() => onAction("stash")}
+          />
+          <ToolButton
+            label={t("toolbar.pop")}
+            icon={<IconPop />}
+            badge={stashes.length > 0 ? stashes.length : undefined}
+            pending={actionPending === "stash-pop"}
+            disabled={busy || stashes.length === 0}
+            onClick={() => onAction("stash-pop")}
+          />
+        </ToolGroup>
+
+        <ToolGroup last>
+          <ToolButton
+            label={t("toolbar.terminal")}
+            icon={<IconTerminal />}
+            pending={actionPending === "terminal"}
+            disabled={busy}
+            onClick={() => onAction("terminal")}
+          />
+          <ToolButton
+            label={t("repoActions.openIde")}
+            icon={<IconIde />}
+            pending={actionPending === "open-ide"}
+            disabled={busy}
+            onClick={() => onAction("open-ide")}
+          />
+          <ToolButton label={t("toolbar.search")} icon={<IconSearch />} onClick={onOpenSearch} />
+        </ToolGroup>
+      </header>
+
+      {operationProgress ? (
+        <OperationProgressStrip progress={operationProgress} onCancel={onCancelOperation} />
+      ) : null}
+    </div>
+  );
+}
+
+function OperationProgressStrip({
+  progress,
+  onCancel,
+}: {
+  progress: RepoOperationProgress;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const percent =
+    progress.total > 0 ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : 0;
+  const label =
+    progress.total > 1
+      ? t("operations.progress", { completed: progress.completed, total: progress.total })
+      : t("operations.running");
+
+  return (
+    <div
+      className="flex items-center gap-2 border-t px-3 py-2"
+      style={{ borderTopWidth: "0.5px", borderColor: "var(--hairline)" }}
+    >
+      <div className="h-1.5 min-w-28 flex-1 overflow-hidden rounded-full" style={{ background: "var(--page-bg)" }}>
+        <div
+          className="h-full rounded-full transition-[width]"
+          style={{ background: "var(--fjord)", width: `${percent}%` }}
         />
-        <ToolButton
-          label={t("repoActions.openIde")}
-          icon={<IconIde />}
-          pending={actionPending === "open-ide"}
-          disabled={busy}
-          onClick={() => onAction("open-ide")}
-        />
-        <ToolButton label={t("toolbar.search")} icon={<IconSearch />} onClick={onOpenSearch} />
-      </ToolGroup>
-    </header>
+      </div>
+      <span className="w-24 shrink-0 text-right text-[11px]" style={{ color: "var(--slate)" }}>
+        {label}
+      </span>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        {t("operations.cancel")}
+      </Button>
+    </div>
   );
 }
 

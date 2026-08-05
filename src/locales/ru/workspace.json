@@ -97,6 +97,12 @@
     "creating": "Создание…",
     "importing": "Импорт…"
   },
+  "operations": {
+    "running": "Выполняется…",
+    "progress": "{{completed}} / {{total}}",
+    "cancel": "Отмена",
+    "cancelled": "Отменено."
+  },
   "repoActions": {
     "fetch": "Получить",
     "fetching": "Получение…",

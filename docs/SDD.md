@@ -181,7 +181,7 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
 ## 8. Cross-cutting concerns
 
 - ✅ **Errors**: `thiserror` typed errors per crate (`GitError`, `StoreError`, service-level enums), mapped at the `commands` boundary to a small serializable `AppError { code, message }` — the frontend switches on `code` (stable, localizable) and never parses Rust `Display` strings. Error *messages* shown to the user go through the i18n catalog.
-- ✅ **Async runtime**: Tokio throughout the backend; blocking git work wrapped in `spawn_blocking`. 🚧 Long-running operations (fetch/pull/push, bulk ops) do **not** yet report progress via Tauri events or support cancellation — the UI waits silently until completion (`P4-17`). The event contract needs its own spec before implementation.
+- ✅ **Async runtime**: Tokio throughout the backend; blocking git work wrapped in `spawn_blocking`. Long-running Git operations (`fetch`/`pull`/`push`) and workspace bulk operations emit `fjord-operation-progress` Tauri events, take caller-generated operation IDs, and can be cancelled through `cancel_operation` (`P4-17`). See [`specs/operation-events.md`](specs/operation-events.md).
 - ✅ **Logging/tracing**: `tracing` + a daily-rotating file appender in the app data dir so bug reports can include real diagnostics (`P4-14`). See §10.
 - **Testing** (current state; gaps tracked in `P4-09`):
   - ✅ `fjord-domain` / `fjord-services`: unit tests with in-memory fakes of the port traits — no real Git or SQLite needed.

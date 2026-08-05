@@ -12,6 +12,15 @@ pub struct AppError {
     pub message: String,
 }
 
+impl AppError {
+    pub fn operation_cancelled() -> Self {
+        AppError {
+            code: "operation_cancelled".to_string(),
+            message: "operation cancelled".to_string(),
+        }
+    }
+}
+
 impl From<StoreError> for AppError {
     fn from(err: StoreError) -> Self {
         let code = match &err {
@@ -88,6 +97,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
         GitError::MergeToolFailed(_) => "merge_tool_failed",
+        GitError::Cancelled => "operation_cancelled",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
 

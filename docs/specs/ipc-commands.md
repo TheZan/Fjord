@@ -4,7 +4,7 @@ Referenced by: P0-08, all of Phase 1–2.
 
 ## Purpose
 
-This is the actual contract between the React frontend and the Rust backend. Every command is a thin `fjord-app` adapter over one `fjord-services` use-case (SDD §5.1) — no logic lives in the command handler itself. Request/response types are defined once in `fjord-domain` and mirrored to TypeScript via `specta` (SDD §6.1); this table is the human-readable index of that contract, not a second source of truth for the shapes themselves.
+This is the actual contract between the React frontend and the Rust backend. Every command is a thin `fjord-app` adapter over one `fjord-services` use-case (SDD §5.1); long-running operations add a small Tauri operation adapter for progress/cancellation. Request/response types are defined once in `fjord-domain` and mirrored to TypeScript via `ts-rs` (SDD §6.1); this table is the human-readable index of that contract, not a second source of truth for the shapes themselves.
 
 ## Naming convention
 
@@ -36,15 +36,15 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `stage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means stage all changes |
 | `unstage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means unstage all paths |
 | `commit_repo` | `{ repo_id, message }` | `string` | Returns the new commit id; `nothing_to_commit` if the index matches `HEAD` |
-| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id }` | — | Repo-level commands await completion without blocking the UI thread; P2 bulk operations emit progress events |
+| `fetch_repo` / `pull_repo` / `push_repo` | `{ repo_id, operation_id? }` | — | Repo-level commands await completion without blocking the UI thread; when `operation_id` is supplied they emit `fjord-operation-progress` events and can be cancelled |
 | `open_merge_tool` | `{ repo_id }` | — | Launches `git mergetool --no-prompt` in the repository when conflicts are present; the configured external merge tool owns resolution |
-| `bulk_fetch` / `bulk_pull` | `{ workspace_id }` | `BulkRepoResult[]` | Fans out across the bounded worker pool (SDD §5.3); per-repo result records identify failures without aborting the whole batch |
+| `bulk_fetch` / `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Fans out across the bounded worker pool (SDD §5.3); emits per-repo progress events and per-repo result records identify failures without aborting the whole batch |
 | `bulk_open_in_ide` | `{ workspace_id, ide? }` | `BulkRepoResult[]` | Opens every tracked repo in the workspace through `IdeLauncher`, using the same bounded worker pool |
 | `open_in_ide` | `{ repo_id, ide? }` | — | `ide` optional, falls back to `Settings.default_ide` |
 
 ## Long-running operations: events, not blocking returns
 
-`fetch`, `pull`, and `push` are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_*` commands run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. A future event-stream layer can expose progress before completion (`bulk-op://progress`) without changing the worker-pool contract.
+`fetch`, `pull`, and `push` are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_fetch` and `bulk_pull` run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. Progress/cancellation details live in [`operation-events.md`](operation-events.md): the event name is `fjord-operation-progress`, and cancellation is requested with `cancel_operation`.
 
 ## Error shape
 

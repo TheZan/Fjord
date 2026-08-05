@@ -4,6 +4,7 @@
 // (verb_noun, snake_case, no translation layer).
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type {
@@ -18,11 +19,82 @@ import type {
   WorkingChanges,
 } from "@/domain/git";
 
+export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
+
+export type OperationKind = "fetch" | "pull" | "push" | "bulk-fetch" | "bulk-pull";
+export type OperationStatus =
+  | "started"
+  | "progress"
+  | "repo-started"
+  | "repo-finished"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type OperationScope =
+  | { type: "repo"; repoId: string }
+  | { type: "workspace"; workspaceId: string };
+
+export interface OperationProgressEvent {
+  operationId: string;
+  kind: OperationKind;
+  scope: OperationScope;
+  status: OperationStatus;
+  repoId: string | null;
+  completed: number;
+  total: number;
+  message: string | null;
+  error: string | null;
+}
+
+export interface OperationTask<T> {
+  operationId: string;
+  promise: Promise<T>;
+}
+
 export function invokeErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "message" in error) {
     return String(error.message);
   }
   return String(error);
+}
+
+export function invokeErrorCode(error: unknown): string | null {
+  if (error && typeof error === "object" && "code" in error) {
+    return String(error.code);
+  }
+  return null;
+}
+
+function nextOperationId(kind: OperationKind): string {
+  if (globalThis.crypto?.randomUUID) {
+    return `${kind}:${globalThis.crypto.randomUUID()}`;
+  }
+  return `${kind}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
+}
+
+function invokeOperation<T>(
+  kind: OperationKind,
+  command: string,
+  args: Record<string, unknown>,
+): OperationTask<T> {
+  const operationId = nextOperationId(kind);
+  return {
+    operationId,
+    promise: invoke(command, { ...args, operationId }),
+  };
+}
+
+export function listenOperationProgress(
+  handler: (event: OperationProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<OperationProgressEvent>(OPERATION_PROGRESS_EVENT, (event) => {
+    handler(event.payload);
+  });
+}
+
+export function cancelOperation(operationId: string): Promise<boolean> {
+  return invoke("cancel_operation", { operationId });
 }
 
 export function getSettings(): Promise<Settings> {
@@ -157,16 +229,32 @@ export function commitRepo(repoId: string, message: string): Promise<string> {
   return invoke("commit_repo", { repoId, message });
 }
 
-export function fetchRepo(repoId: string, remote: string | null = null): Promise<void> {
-  return invoke("fetch_repo", { repoId, remote });
+export function fetchRepo(
+  repoId: string,
+  remote: string | null = null,
+  operationId: string | null = null,
+): Promise<void> {
+  return invoke("fetch_repo", { repoId, remote, operationId });
 }
 
-export function pullRepo(repoId: string): Promise<void> {
-  return invoke("pull_repo", { repoId });
+export function runFetchRepo(repoId: string, remote: string | null = null): OperationTask<void> {
+  return invokeOperation("fetch", "fetch_repo", { repoId, remote });
 }
 
-export function pushRepo(repoId: string): Promise<void> {
-  return invoke("push_repo", { repoId });
+export function pullRepo(repoId: string, operationId: string | null = null): Promise<void> {
+  return invoke("pull_repo", { repoId, operationId });
+}
+
+export function runPullRepo(repoId: string): OperationTask<void> {
+  return invokeOperation("pull", "pull_repo", { repoId });
+}
+
+export function pushRepo(repoId: string, operationId: string | null = null): Promise<void> {
+  return invoke("push_repo", { repoId, operationId });
+}
+
+export function runPushRepo(repoId: string): OperationTask<void> {
+  return invokeOperation("push", "push_repo", { repoId });
 }
 
 export function openMergeTool(repoId: string): Promise<void> {
@@ -177,12 +265,26 @@ export function openInIde(repoId: string, ide: string | null = null): Promise<vo
   return invoke("open_in_ide", { repoId, ide });
 }
 
-export function bulkFetch(workspaceId: string): Promise<BulkRepoResult[]> {
-  return invoke("bulk_fetch", { workspaceId });
+export function bulkFetch(
+  workspaceId: string,
+  operationId: string | null = null,
+): Promise<BulkRepoResult[]> {
+  return invoke("bulk_fetch", { workspaceId, operationId });
 }
 
-export function bulkPull(workspaceId: string): Promise<BulkRepoResult[]> {
-  return invoke("bulk_pull", { workspaceId });
+export function runBulkFetch(workspaceId: string): OperationTask<BulkRepoResult[]> {
+  return invokeOperation("bulk-fetch", "bulk_fetch", { workspaceId });
+}
+
+export function bulkPull(
+  workspaceId: string,
+  operationId: string | null = null,
+): Promise<BulkRepoResult[]> {
+  return invoke("bulk_pull", { workspaceId, operationId });
+}
+
+export function runBulkPull(workspaceId: string): OperationTask<BulkRepoResult[]> {
+  return invokeOperation("bulk-pull", "bulk_pull", { workspaceId });
 }
 
 export function bulkOpenInIde(workspaceId: string, ide: string | null = null): Promise<BulkRepoResult[]> {

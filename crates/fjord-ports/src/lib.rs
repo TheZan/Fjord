@@ -6,6 +6,6 @@ mod git_backend;
 mod ide_launcher;
 mod store;
 
-pub use git_backend::{GitBackend, GitError, RepoPath};
+pub use git_backend::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
 pub use ide_launcher::{IdeLauncher, LaunchError};
 pub use store::{SettingsStore, StoreError, WorkspaceStore};

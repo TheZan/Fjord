@@ -88,7 +88,7 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 
 ### 4d. Long-term (quarter+)
 
-- [ ] **P4-17** — Progress events and cancellation for long git operations (fetch/pull/push, bulk ops): design the Tauri event contract (new spec), emit progress, make tasks cancellable, show progress in the UI. See SDD §8.
+- [x] **P4-17** — Progress events and cancellation for long git operations (fetch/pull/push, bulk ops): `docs/specs/operation-events.md` defines the `fjord-operation-progress` contract, Tauri commands accept `operation_id` and expose `cancel_operation`, `GitOperationContext` carries progress/cancellation into libgit2, and the repo toolbar/dashboard show cancellable progress UI. See SDD §8.
 - [ ] **P4-18** — Release-profile benchmarks with budgets: re-record [`benchmarks/`](benchmarks/) checkpoints with `--release` and larger fixtures (50–200k commits), adopt the budgets from SDD §11, and run them periodically in CI with regression alerts.
 
 ## Out of scope for this board

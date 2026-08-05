@@ -6,8 +6,8 @@ use fjord_domain::{
     WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
-    GitBackend, GitError, IdeLauncher, LaunchError, RepoPath, SettingsStore, StoreError,
-    WorkspaceStore,
+    GitBackend, GitError, GitOperationContext, IdeLauncher, LaunchError, RepoPath, SettingsStore,
+    StoreError, WorkspaceStore,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -254,14 +254,51 @@ impl RepoService {
         Ok(self.git.fetch(&RepoPath::new(repo.path), remote).await?)
     }
 
+    pub async fn fetch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        remote: &str,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .fetch_with_context(&RepoPath::new(repo.path), remote, context)
+            .await?)
+    }
+
     pub async fn pull(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.pull(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn pull_with_context(
+        &self,
+        repo_id: RepositoryId,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .pull_with_context(&RepoPath::new(repo.path), context)
+            .await?)
+    }
+
     pub async fn push(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.push(&RepoPath::new(repo.path), "").await?)
+    }
+
+    pub async fn push_with_context(
+        &self,
+        repo_id: RepositoryId,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .push_with_context(&RepoPath::new(repo.path), "", context)
+            .await?)
     }
 
     pub async fn open_merge_tool(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
