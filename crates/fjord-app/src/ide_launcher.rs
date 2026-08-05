@@ -32,6 +32,67 @@ impl IdeLauncher for SystemIdeLauncher {
             .map(|_| ())
             .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
     }
+
+    async fn open_terminal(&self, path: &Path) -> Result<(), LaunchError> {
+        spawn_terminal(path)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_terminal(path: &Path) -> Result<(), LaunchError> {
+    Command::new("open")
+        .args(["-a", "Terminal"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
+}
+
+#[cfg(windows)]
+fn spawn_terminal(path: &Path) -> Result<(), LaunchError> {
+    // `start` is a cmd builtin, so it has to run *through* cmd. The empty
+    // first argument is `start`'s window-title slot — without it a quoted
+    // path would be swallowed as the title.
+    Command::new("cmd")
+        .args(["/C", "start", "", "cmd", "/K", "cd", "/d"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_terminal(path: &Path) -> Result<(), LaunchError> {
+    let terminal = known_terminal_commands()
+        .iter()
+        .find(|candidate| command_available(candidate))
+        .ok_or(LaunchError::NoTerminalAvailable)?;
+
+    Command::new(terminal)
+        .arg("--working-directory")
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn known_terminal_commands() -> &'static [&'static str] {
+    &[
+        "x-terminal-emulator",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+    ]
 }
 
 fn resolve_launch_command(ide: Option<&str>) -> Result<LaunchCommand, LaunchError> {

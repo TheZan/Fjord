@@ -1,15 +1,7 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCommitDiff } from "@/application/useCommitDiff";
-import { FileDiffView } from "@/presentation/FileDiffView";
-import type { CommitSummary, FileChangeType } from "@/domain/git";
-
-const CHANGE_TYPE_COLOR: Record<FileChangeType, string> = {
-  added: "var(--moss)",
-  modified: "var(--amber)",
-  deleted: "var(--rust)",
-  renamed: "var(--fjord)",
-};
+import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
+import type { CommitSummary } from "@/domain/git";
 
 function formatAuthoredAt(value: string, locale: string): string {
   const date = new Date(value);
@@ -24,14 +16,19 @@ function formatAuthoredAt(value: string, locale: string): string {
   }).format(date);
 }
 
-export function CommitInspector({ repoId, commit }: { repoId: string; commit: CommitSummary }) {
+export function CommitInspector({
+  repoId,
+  commit,
+  selectedFilePath,
+  onSelectFile,
+}: {
+  repoId: string;
+  commit: CommitSummary;
+  selectedFilePath: string | null;
+  onSelectFile: (path: string) => void;
+}) {
   const { t, i18n } = useTranslation("workspace");
   const { files, loading, error } = useCommitDiff(repoId, commit.id);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedPath(null);
-  }, [commit.id]);
 
   const authoredAt = formatAuthoredAt(commit.authoredAt, i18n.language);
 
@@ -78,11 +75,11 @@ export function CommitInspector({ repoId, commit }: { repoId: string; commit: Co
               <li key={file.path}>
                 <button
                   type="button"
-                  onClick={() => setSelectedPath(file.path === selectedPath ? null : file.path)}
+                  onClick={() => onSelectFile(file.path)}
                   className="flex w-full items-center gap-2 rounded px-2 py-1 text-left"
                   style={{
-                    background: file.path === selectedPath ? "var(--fjord-tint)" : "transparent",
-                    color: file.path === selectedPath ? "var(--fjord-ink)" : "var(--ink)",
+                    background: file.path === selectedFilePath ? "var(--fjord-tint)" : "transparent",
+                    color: file.path === selectedFilePath ? "var(--fjord-ink)" : "var(--ink)",
                   }}
                 >
                   <span
@@ -102,12 +99,6 @@ export function CommitInspector({ repoId, commit }: { repoId: string; commit: Co
           </ul>
         )}
       </div>
-
-      {selectedPath && (
-        <div className="border-t p-3" style={{ borderColor: "var(--hairline)" }}>
-          <FileDiffView repoId={repoId} commitId={commit.id} path={selectedPath} />
-        </div>
-      )}
     </div>
   );
 }

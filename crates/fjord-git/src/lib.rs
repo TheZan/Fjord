@@ -12,11 +12,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineKind,
-    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
+    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
+    WorkingChanges, WorkingFile,
 };
 use fjord_ports::{GitBackend, GitError, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{Cred, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks};
+use git2::{
+    Cred, ErrorCode, FetchOptions, IndexAddOption, PushOptions, RemoteCallbacks, StashFlags,
+};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -292,6 +295,100 @@ impl GixGitBackend {
             .collect())
     }
 
+    /// Point the worktree and HEAD at `refname`. Shared by `checkout` and by
+    /// `create_branch`'s optional switch-to-the-new-branch step.
+    fn checkout_refname(git: &git2::Repository, refname: &str) -> Result<(), GitError> {
+        let target = git
+            .find_reference(refname)
+            .map_err(Self::map_git2_error)?
+            .peel(git2::ObjectType::Commit)
+            .map_err(Self::map_git2_error)?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.safe();
+        git.checkout_tree(&target, Some(&mut checkout))
+            .map_err(Self::map_git2_error)?;
+        git.set_head(refname).map_err(Self::map_git2_error)
+    }
+
+    /// An owned signature. `Repository::signature` borrows the repo, which
+    /// deadlocks the borrow checker against the `&mut Repository` the stash
+    /// APIs require — so read the identity out and rebuild it detached.
+    fn owned_signature(git: &git2::Repository) -> Result<git2::Signature<'static>, GitError> {
+        let (name, email) = {
+            let signature = git.signature().map_err(Self::map_git2_error)?;
+            (
+                signature.name().unwrap_or("Fjord").to_string(),
+                signature.email().unwrap_or("").to_string(),
+            )
+        };
+        git2::Signature::now(&name, &email).map_err(Self::map_git2_error)
+    }
+
+    fn classify_delta(status: git2::Delta) -> FileChangeType {
+        match status {
+            git2::Delta::Added | git2::Delta::Untracked | git2::Delta::Copied => {
+                FileChangeType::Added
+            }
+            git2::Delta::Deleted => FileChangeType::Deleted,
+            git2::Delta::Renamed => FileChangeType::Renamed,
+            _ => FileChangeType::Modified,
+        }
+    }
+
+    /// Collects a git2 diff into domain hunks. Used for uncommitted work,
+    /// where `gix`'s tree-to-tree path doesn't apply — there's no second tree.
+    fn collect_git2_diff(diff: &git2::Diff<'_>) -> Result<(bool, Vec<DiffHunk>), GitError> {
+        // The hunk and line callbacks both need to reach the same buffer, and
+        // `foreach` holds all of them at once — hence the shared cells rather
+        // than plain `&mut` captures.
+        let hunks: std::cell::RefCell<Vec<DiffHunk>> = std::cell::RefCell::new(Vec::new());
+        let is_binary = std::cell::Cell::new(false);
+
+        diff.foreach(
+            &mut |_delta, _progress| true,
+            Some(&mut |_delta, _binary| {
+                is_binary.set(true);
+                true
+            }),
+            Some(&mut |_delta, hunk| {
+                hunks.borrow_mut().push(DiffHunk {
+                    old_start: hunk.old_start(),
+                    old_lines: hunk.old_lines(),
+                    new_start: hunk.new_start(),
+                    new_lines: hunk.new_lines(),
+                    lines: Vec::new(),
+                });
+                true
+            }),
+            Some(&mut |_delta, _hunk, line| {
+                let mut hunks = hunks.borrow_mut();
+                let Some(current) = hunks.last_mut() else {
+                    return true;
+                };
+                let kind = match line.origin() {
+                    '+' => DiffLineKind::Addition,
+                    '-' => DiffLineKind::Deletion,
+                    _ => DiffLineKind::Context,
+                };
+                // git2 hands back the raw line including its newline; the
+                // frontend renders one row per line and adds its own.
+                let content = String::from_utf8_lossy(line.content())
+                    .trim_end_matches(['\n', '\r'])
+                    .to_string();
+                current.lines.push(DiffLine {
+                    kind,
+                    old_lineno: line.old_lineno(),
+                    new_lineno: line.new_lineno(),
+                    content,
+                });
+                true
+            }),
+        )
+        .map_err(Self::map_git2_error)?;
+
+        Ok((is_binary.get(), hunks.into_inner()))
+    }
+
     fn classify_change(change: &Change<'_, '_, '_>) -> FileChangeType {
         match change {
             Change::Addition { .. } => FileChangeType::Added,
@@ -448,6 +545,35 @@ impl GitBackend for GixGitBackend {
                     is_current: false,
                     is_remote: true,
                     upstream: None,
+                });
+            }
+
+            Ok(out)
+        })
+        .await
+        .map_err(|e| GitError::Gix(e.to_string()))?
+    }
+
+    async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open(&repo)?;
+            let platform = git.references().map_err(|e| GitError::Gix(e.to_string()))?;
+            let mut out = Vec::new();
+
+            for tag in platform.tags().map_err(|e| GitError::Gix(e.to_string()))? {
+                let mut tag = tag.map_err(|e| GitError::Gix(e.to_string()))?;
+                let name = tag.name().shorten().to_string();
+                // Handles both lightweight tags (already a commit) and
+                // annotated tags (peels the tag object down to its commit),
+                // same as `head.peel_to_commit()` elsewhere in this file.
+                let target = tag
+                    .peel_to_commit()
+                    .map_err(|e| GitError::Gix(e.to_string()))?;
+                out.push(TagInfo {
+                    name,
+                    target_commit_id: CommitId(target.id().to_string()),
                 });
             }
 
@@ -633,6 +759,112 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Gix(e.to_string()))?
     }
 
+    async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let mut options = git2::StatusOptions::new();
+            options
+                .include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .renames_head_to_index(true)
+                .renames_index_to_workdir(true);
+
+            let statuses = git
+                .statuses(Some(&mut options))
+                .map_err(Self::map_git2_error)?;
+            let mut out = WorkingChanges::default();
+
+            for entry in statuses.iter() {
+                let status = entry.status();
+                let conflicted = status.is_conflicted();
+
+                if let Some(delta) = entry.head_to_index() {
+                    let path = delta
+                        .new_file()
+                        .path()
+                        .or_else(|| delta.old_file().path())
+                        .map(|p| p.to_string_lossy().into_owned());
+                    if let Some(path) = path {
+                        out.staged.push(WorkingFile {
+                            path,
+                            change_type: Self::classify_delta(delta.status()),
+                            conflicted,
+                        });
+                    }
+                }
+
+                if let Some(delta) = entry.index_to_workdir() {
+                    let path = delta
+                        .new_file()
+                        .path()
+                        .or_else(|| delta.old_file().path())
+                        .map(|p| p.to_string_lossy().into_owned());
+                    if let Some(path) = path {
+                        out.unstaged.push(WorkingFile {
+                            path,
+                            change_type: Self::classify_delta(delta.status()),
+                            conflicted,
+                        });
+                    }
+                }
+            }
+
+            Ok(out)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn working_file_diff(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        staged: bool,
+    ) -> Result<FileDiffDetail, GitError> {
+        let repo = repo.clone();
+        let path = path.to_string();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let mut options = git2::DiffOptions::new();
+            options
+                .pathspec(&path)
+                .include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .show_untracked_content(true);
+
+            let diff = if staged {
+                let head_tree = Self::current_head_commit(&git)?
+                    .map(|commit| commit.tree())
+                    .transpose()
+                    .map_err(Self::map_git2_error)?;
+                git.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut options))
+                    .map_err(Self::map_git2_error)?
+            } else {
+                git.diff_index_to_workdir(None, Some(&mut options))
+                    .map_err(Self::map_git2_error)?
+            };
+
+            let change_type = diff
+                .deltas()
+                .next()
+                .map(|delta| Self::classify_delta(delta.status()))
+                .unwrap_or(FileChangeType::Modified);
+            let (is_binary, hunks) = Self::collect_git2_diff(&diff)?;
+
+            Ok(FileDiffDetail {
+                path,
+                change_type,
+                is_binary,
+                hunks,
+            })
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
         let repo = repo.clone();
         let branch = branch.to_string();
@@ -645,16 +877,94 @@ impl GitBackend for GixGitBackend {
                 format!("refs/heads/{branch}")
             };
 
-            let target = git
-                .find_reference(&refname)
-                .map_err(Self::map_git2_error)?
-                .peel(git2::ObjectType::Commit)
-                .map_err(Self::map_git2_error)?;
-            let mut checkout = CheckoutBuilder::new();
-            checkout.safe();
-            git.checkout_tree(&target, Some(&mut checkout))
-                .map_err(Self::map_git2_error)?;
-            git.set_head(&refname).map_err(Self::map_git2_error)
+            Self::checkout_refname(&git, &refname)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn create_branch(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        checkout: bool,
+    ) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let name = name.to_string();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head = Self::current_head_commit(&git)?.ok_or_else(|| {
+                GitError::Git2("cannot create a branch before the first commit".to_string())
+            })?;
+
+            git.branch(&name, &head, false).map_err(|err| match err.code() {
+                ErrorCode::Exists => GitError::BranchExists(name.clone()),
+                _ => Self::map_git2_error(err),
+            })?;
+
+            if checkout {
+                Self::checkout_refname(&git, &format!("refs/heads/{name}"))?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let mut git = Self::open_git2(&repo)?;
+            let mut out = Vec::new();
+            git.stash_foreach(|index, message, _oid| {
+                out.push(StashEntry {
+                    index: index as u32,
+                    message: message.to_string(),
+                });
+                true
+            })
+            .map_err(Self::map_git2_error)?;
+            Ok(out)
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let message = message.map(ToString::to_string);
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let mut git = Self::open_git2(&repo)?;
+            let signature = Self::owned_signature(&git)?;
+
+            match git.stash_save2(
+                &signature,
+                message.as_deref(),
+                Some(StashFlags::INCLUDE_UNTRACKED),
+            ) {
+                Ok(_) => Ok(()),
+                // git2 reports "there is nothing to stash" as NotFound.
+                Err(err) if err.code() == ErrorCode::NotFound => Err(GitError::NothingToStash),
+                Err(err) => Err(Self::map_git2_error(err)),
+            }
+        })
+        .await
+        .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let mut git = Self::open_git2(&repo)?;
+            match git.stash_pop(0, None) {
+                Ok(()) => Ok(()),
+                Err(err) if err.code() == ErrorCode::NotFound => Err(GitError::StashEmpty),
+                Err(err) => Err(Self::map_git2_error(err)),
+            }
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -668,14 +978,17 @@ impl GitBackend for GixGitBackend {
             let git = Self::open_git2(&repo)?;
             let mut index = git.index().map_err(Self::map_git2_error)?;
 
+            // `add_all` rather than `add_path` even for explicit paths: it is
+            // the only one that also records *deletions*, so staging a removed
+            // file from the commit panel doesn't fail on the missing file.
             if paths.is_empty() {
                 index
                     .add_all(["*"], IndexAddOption::DEFAULT, None)
                     .map_err(Self::map_git2_error)?;
             } else {
-                for path in &paths {
-                    index.add_path(path).map_err(Self::map_git2_error)?;
-                }
+                index
+                    .add_all(paths.iter(), IndexAddOption::DEFAULT, None)
+                    .map_err(Self::map_git2_error)?;
             }
 
             index.write().map_err(Self::map_git2_error)
@@ -912,6 +1225,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tags_resolves_lightweight_and_annotated_tags_to_their_commit() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let oid = backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.tag_lightweight("v1.0.0-lightweight", head.as_object(), false)
+            .unwrap();
+        let signature = repo.signature().unwrap();
+        repo.tag(
+            "v1.0.0-annotated",
+            head.as_object(),
+            &signature,
+            "Release",
+            false,
+        )
+        .unwrap();
+        drop(head);
+        drop(repo);
+
+        let tags = backend.tags(&repo_path).await.unwrap();
+        let names: Vec<_> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"v1.0.0-lightweight"));
+        assert!(names.contains(&"v1.0.0-annotated"));
+        assert!(tags.iter().all(|t| t.target_commit_id.0 == oid));
+    }
+
+    #[tokio::test]
     async fn log_returns_at_least_one_commit() {
         let backend = GixGitBackend::new();
         let page = backend.log(&this_repo_path(), None, 5).await.unwrap();
@@ -1028,6 +1375,229 @@ mod tests {
 
         let repo = Repository::open(&repo_path.0).unwrap();
         assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
+    }
+
+    #[tokio::test]
+    async fn working_changes_separates_staged_from_unstaged() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "first\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        // One staged edit, one untracked file left alone.
+        write_file(&repo_path, "README.md", "second\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        write_file(&repo_path, "NOTES.md", "scratch\n");
+
+        let changes = backend.working_changes(&repo_path).await.unwrap();
+
+        assert_eq!(changes.staged.len(), 1);
+        assert_eq!(changes.staged[0].path, "README.md");
+        assert_eq!(changes.staged[0].change_type, FileChangeType::Modified);
+        assert_eq!(changes.unstaged.len(), 1);
+        assert_eq!(changes.unstaged[0].path, "NOTES.md");
+        assert_eq!(changes.unstaged[0].change_type, FileChangeType::Added);
+    }
+
+    #[tokio::test]
+    async fn working_file_diff_reads_staged_and_unstaged_sides_separately() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        write_file(&repo_path, "README.md", "staged\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        write_file(&repo_path, "README.md", "worktree\n");
+
+        let staged = backend
+            .working_file_diff(&repo_path, "README.md", true)
+            .await
+            .unwrap();
+        let unstaged = backend
+            .working_file_diff(&repo_path, "README.md", false)
+            .await
+            .unwrap();
+
+        let added = |detail: &FileDiffDetail| {
+            detail
+                .hunks
+                .iter()
+                .flat_map(|hunk| hunk.lines.iter())
+                .filter(|line| line.kind == DiffLineKind::Addition)
+                .map(|line| line.content.clone())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(added(&staged), vec!["staged"], "staged side is index vs HEAD");
+        assert_eq!(
+            added(&unstaged),
+            vec!["worktree"],
+            "unstaged side is worktree vs index"
+        );
+    }
+
+    #[tokio::test]
+    async fn staging_a_deleted_file_records_the_deletion() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        std::fs::remove_file(repo_path.0.join("README.md")).unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+
+        let changes = backend.working_changes(&repo_path).await.unwrap();
+        assert_eq!(changes.staged.len(), 1);
+        assert_eq!(changes.staged[0].change_type, FileChangeType::Deleted);
+        assert!(changes.unstaged.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_branch_optionally_switches_to_it() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        backend
+            .create_branch(&repo_path, "feature/a", false)
+            .await
+            .unwrap();
+        assert_eq!(
+            Repository::open(&repo_path.0)
+                .unwrap()
+                .head()
+                .unwrap()
+                .shorthand()
+                .unwrap(),
+            "main",
+            "creating without checkout must leave HEAD alone"
+        );
+
+        backend
+            .create_branch(&repo_path, "feature/b", true)
+            .await
+            .unwrap();
+        assert_eq!(
+            Repository::open(&repo_path.0)
+                .unwrap()
+                .head()
+                .unwrap()
+                .shorthand()
+                .unwrap(),
+            "feature/b"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_branch_rejects_an_existing_name() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "# Fjord\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        backend
+            .create_branch(&repo_path, "feature", false)
+            .await
+            .unwrap();
+        let result = backend.create_branch(&repo_path, "feature", false).await;
+
+        assert!(matches!(result, Err(GitError::BranchExists(name)) if name == "feature"));
+    }
+
+    #[tokio::test]
+    async fn stash_push_then_pop_round_trips_a_dirty_worktree() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "committed\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        write_file(&repo_path, "README.md", "work in progress\n");
+        backend.stash_push(&repo_path, Some("wip")).await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "committed\n",
+            "stashing must restore the committed content"
+        );
+        let stashes = backend.stashes(&repo_path).await.unwrap();
+        assert_eq!(stashes.len(), 1);
+        assert_eq!(stashes[0].index, 0);
+        assert!(stashes[0].message.contains("wip"));
+
+        backend.stash_pop(&repo_path).await.unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "work in progress\n"
+        );
+        assert!(backend.stashes(&repo_path).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn stash_push_on_a_clean_worktree_reports_nothing_to_stash() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "committed\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let result = backend.stash_push(&repo_path, None).await;
+
+        assert!(matches!(result, Err(GitError::NothingToStash)));
+    }
+
+    #[tokio::test]
+    async fn stash_pop_on_an_empty_stack_reports_stash_empty() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "committed\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        let result = backend.stash_pop(&repo_path).await;
+
+        assert!(matches!(result, Err(GitError::StashEmpty)));
     }
 
     #[tokio::test]

@@ -7,7 +7,12 @@
 // Tokens come from src/index.css (docs/specs/theming.md); nothing here
 // hardcodes a color.
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  TextareaHTMLAttributes,
+} from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
@@ -69,6 +74,26 @@ export function Input({ className = "", style, ...props }: InputHTMLAttributes<H
     <input
       {...props}
       className={`h-8 rounded-md border px-2.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-[var(--fjord)] ${className}`}
+      style={{
+        borderWidth: "0.5px",
+        borderColor: "var(--hairline-strong)",
+        background: "var(--page-bg)",
+        color: "var(--ink)",
+        ...style,
+      }}
+    />
+  );
+}
+
+export function Textarea({
+  className = "",
+  style,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={`resize-none rounded-md border px-2.5 py-1.5 text-[13px] outline-none placeholder:text-[var(--mist)] focus:border-[var(--fjord)] ${className}`}
       style={{
         borderWidth: "0.5px",
         borderColor: "var(--hairline-strong)",

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, GlobalSearchResult,
-    LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind, WorkspaceId,
+    LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind, StashEntry, TagInfo,
+    WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitError, IdeLauncher, LaunchError, RepoPath, SettingsStore, StoreError,
@@ -55,6 +56,11 @@ impl RepoService {
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_tags(&self, repo_id: RepositoryId) -> Result<Vec<TagInfo>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.tags(&RepoPath::new(repo.path)).await?)
     }
 
     pub async fn get_status(&self, repo_id: RepositoryId) -> Result<RepoStatus, RepoError> {
@@ -203,6 +209,67 @@ impl RepoService {
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.checkout(&RepoPath::new(repo.path), branch).await?)
+    }
+
+    pub async fn get_working_changes(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<WorkingChanges, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.working_changes(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_working_file_diff(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        staged: bool,
+    ) -> Result<FileDiffDetail, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .working_file_diff(&RepoPath::new(repo.path), path, staged)
+            .await?)
+    }
+
+    pub async fn create_branch(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        checkout: bool,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .create_branch(&RepoPath::new(repo.path), name, checkout)
+            .await?)
+    }
+
+    pub async fn get_stashes(&self, repo_id: RepositoryId) -> Result<Vec<StashEntry>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.stashes(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn stash_push(
+        &self,
+        repo_id: RepositoryId,
+        message: Option<&str>,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .stash_push(&RepoPath::new(repo.path), message)
+            .await?)
+    }
+
+    pub async fn stash_pop(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.stash_pop(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn open_terminal(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.ide.open_terminal(&repo.path).await?)
     }
 
     pub async fn stage_files(
@@ -377,7 +444,8 @@ mod tests {
     use async_trait::async_trait;
     use fjord_domain::{
         CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
-        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, Workspace, WorkspaceId,
+        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo, Workspace,
+        WorkingChanges, WorkingFile, WorkspaceId,
     };
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
@@ -393,6 +461,7 @@ mod tests {
 
     struct FakeIdeLauncher {
         opened: Mutex<Option<(PathBuf, Option<String>)>>,
+        terminal_opened: Mutex<Option<PathBuf>>,
     }
 
     #[async_trait]
@@ -478,6 +547,10 @@ mod tests {
             *self.opened.lock().unwrap() = Some((path.to_path_buf(), ide.map(ToString::to_string)));
             Ok(())
         }
+        async fn open_terminal(&self, path: &Path) -> Result<(), LaunchError> {
+            *self.terminal_opened.lock().unwrap() = Some(path.to_path_buf());
+            Ok(())
+        }
     }
 
     struct FakeGit {
@@ -506,6 +579,7 @@ mod tests {
         });
         let ide = Arc::new(FakeIdeLauncher {
             opened: Mutex::new(None),
+            terminal_opened: Mutex::new(None),
         });
         let service = RepoService::new(
             Arc::new(FakeStore { repo: repo.clone() }),
@@ -539,6 +613,13 @@ mod tests {
                 is_current: true,
                 is_remote: false,
                 upstream: None,
+            }])
+        }
+        async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec![TagInfo {
+                name: "v1.0.0".into(),
+                target_commit_id: CommitId("abc123".into()),
             }])
         }
         async fn log(
@@ -585,6 +666,59 @@ mod tests {
             })
         }
         async fn checkout(&self, repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
+        }
+        async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(WorkingChanges {
+                staged: vec![],
+                unstaged: vec![WorkingFile {
+                    path: "src/main.rs".into(),
+                    change_type: FileChangeType::Modified,
+                    conflicted: false,
+                }],
+            })
+        }
+        async fn working_file_diff(
+            &self,
+            repo: &RepoPath,
+            path: &str,
+            _staged: bool,
+        ) -> Result<FileDiffDetail, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(FileDiffDetail {
+                path: path.to_string(),
+                change_type: FileChangeType::Modified,
+                is_binary: false,
+                hunks: vec![],
+            })
+        }
+        async fn create_branch(
+            &self,
+            repo: &RepoPath,
+            _name: &str,
+            _checkout: bool,
+        ) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
+        }
+        async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec![StashEntry {
+                index: 0,
+                message: "WIP on main".into(),
+            }])
+        }
+        async fn stash_push(
+            &self,
+            repo: &RepoPath,
+            _message: Option<&str>,
+        ) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
+        }
+        async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
@@ -646,6 +780,7 @@ mod tests {
             }),
             Arc::new(FakeIdeLauncher {
                 opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
             }),
         );
 
@@ -654,6 +789,15 @@ mod tests {
             result,
             Err(RepoError::Store(StoreError::RepositoryNotFound(_)))
         ));
+    }
+
+    #[tokio::test]
+    async fn get_tags_resolves_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let tags = service.get_tags(repo.id).await.unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 
     #[tokio::test]
@@ -741,6 +885,51 @@ mod tests {
 
         service.push(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn working_changes_and_working_file_diff_resolve_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let changes = service.get_working_changes(repo.id).await.unwrap();
+        assert_eq!(changes.unstaged.len(), 1);
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        let detail = service
+            .get_working_file_diff(repo.id, "src/main.rs", false)
+            .await
+            .unwrap();
+        assert_eq!(detail.path, "src/main.rs");
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn branch_and_stash_operations_resolve_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        service
+            .create_branch(repo.id, "feature/x", true)
+            .await
+            .unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        let stashes = service.get_stashes(repo.id).await.unwrap();
+        assert_eq!(stashes.len(), 1);
+
+        service.stash_push(repo.id, Some("wip")).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        service.stash_pop(repo.id).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn open_terminal_resolves_the_repo_path() {
+        let (repo, _, ide, service) = service_with_fake_git();
+
+        service.open_terminal(repo.id).await.unwrap();
+
+        assert_eq!(*ide.terminal_opened.lock().unwrap(), Some(repo.path));
     }
 
     #[tokio::test]

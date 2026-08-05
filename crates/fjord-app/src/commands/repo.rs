@@ -1,6 +1,6 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, FileDiff, FileDiffDetail, GlobalSearchResult,
-    LogCursor, RepoStatus, RepositoryId, WorkspaceId,
+    LogCursor, RepoStatus, RepositoryId, StashEntry, TagInfo, WorkingChanges, WorkspaceId,
 };
 use std::path::PathBuf;
 use tauri::State;
@@ -14,6 +14,14 @@ pub async fn get_branches(
     repo_id: RepositoryId,
 ) -> Result<Vec<BranchInfo>, AppError> {
     Ok(state.repos.get_branches(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_tags(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<Vec<TagInfo>, AppError> {
+    Ok(state.repos.get_tags(repo_id).await?)
 }
 
 #[tauri::command]
@@ -76,6 +84,67 @@ pub async fn checkout_branch(
     branch: String,
 ) -> Result<(), AppError> {
     Ok(state.repos.checkout_branch(repo_id, &branch).await?)
+}
+
+#[tauri::command]
+pub async fn get_working_changes(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<WorkingChanges, AppError> {
+    Ok(state.repos.get_working_changes(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_working_file_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    staged: bool,
+) -> Result<FileDiffDetail, AppError> {
+    Ok(state
+        .repos
+        .get_working_file_diff(repo_id, &path, staged)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn create_branch(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    checkout: bool,
+) -> Result<(), AppError> {
+    Ok(state.repos.create_branch(repo_id, &name, checkout).await?)
+}
+
+#[tauri::command]
+pub async fn get_stashes(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<Vec<StashEntry>, AppError> {
+    Ok(state.repos.get_stashes(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn stash_push(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    message: Option<String>,
+) -> Result<(), AppError> {
+    Ok(state.repos.stash_push(repo_id, message.as_deref()).await?)
+}
+
+#[tauri::command]
+pub async fn stash_pop(state: State<'_, AppState>, repo_id: RepositoryId) -> Result<(), AppError> {
+    Ok(state.repos.stash_pop(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn open_terminal(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<(), AppError> {
+    Ok(state.repos.open_terminal(repo_id).await?)
 }
 
 #[tauri::command]

@@ -64,6 +64,7 @@ impl From<RepoError> for AppError {
 fn launch_error_to_app_error(err: LaunchError) -> AppError {
     let code = match &err {
         LaunchError::NoIdeAvailable => "no_ide_available",
+        LaunchError::NoTerminalAvailable => "no_terminal_available",
         LaunchError::SpawnFailed(_) => "ide_launch_failed",
     };
 
@@ -82,6 +83,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::NoUpstream => "no_upstream",
         GitError::NothingToCommit => "nothing_to_commit",
         GitError::NoConflicts => "no_conflicts",
+        GitError::BranchExists(_) => "branch_exists",
+        GitError::NothingToStash => "nothing_to_stash",
+        GitError::StashEmpty => "stash_empty",
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
