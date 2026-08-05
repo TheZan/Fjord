@@ -3,7 +3,7 @@
 //! The only crate allowed to depend on `tauri` (docs/SDD.md §5.1). Owns
 //! Tauri command handlers, DI wiring, and app bootstrap. `src-tauri` is a
 //! thin entrypoint that just calls [`builder`] and runs it — see
-//! docs/plan.md P0-05.
+//! docs/tasks.md P0-05.
 
 mod commands;
 mod error;

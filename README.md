@@ -44,18 +44,19 @@ Fjord starts from the workspace, not the repository. Group your repositories the
 | **Git engine** | [`gix`](https://github.com/GitoxideLabs/gitoxide) (gitoxide) with [`git2`](https://github.com/rust-lang/git2-rs) as fallback |
 | **Persistence** | SQLite via [`sqlx`](https://github.com/launchbadge/sqlx) |
 | **Frontend** | React, TypeScript, [Vite](https://vitejs.dev/) |
-| **UI** | Tailwind CSS, [shadcn/ui](https://ui.shadcn.com/) |
-| **Data layer** | [TanStack Query](https://tanstack.com/query) over Tauri IPC |
-| **Forms** | React Hook Form + Zod |
+| **UI** | Tailwind CSS v4, custom component primitives |
+| **Data layer** | Typed Tauri IPC client (migration to [TanStack Query](https://tanstack.com/query) planned) |
 | **Localization** | react-i18next |
 
 ## Roadmap
 
-- [ ] Project scaffold: desktop shell boots, theming and localization wired end-to-end
-- [ ] Single-repo view: branches, commit graph, diffs
-- [ ] Workspaces: multi-repo grouping, live status, bulk operations, dashboard
-- [ ] Command palette, global search
+- [x] Project scaffold: desktop shell boots, theming and localization wired end-to-end
+- [x] Single-repo view: branches, commit graph, diffs
+- [x] Workspaces: multi-repo grouping, live status, bulk operations, dashboard
+- [x] Command palette, global search
 - [ ] Cross-platform packaging and first public release
+
+Detailed task-level status lives in [`docs/tasks.md`](docs/tasks.md); architecture and current-state notes in [`docs/SDD.md`](docs/SDD.md).
 
 ## Contributing
 

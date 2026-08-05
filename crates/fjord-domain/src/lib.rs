@@ -240,7 +240,7 @@ pub struct DiffHunk {
 }
 
 /// Full line-by-line diff for a single file, as returned by `GitBackend::file_diff`.
-/// See docs/plan.md P1-05.
+/// See docs/tasks.md P1-05.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileDiffDetail {
