@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useCommitLog } from "@/application/useCommitLog";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
@@ -48,7 +49,9 @@ export function CommitGraph({
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { commits, loading, error, hasMore, loadMore } = useCommitLog(repoId);
-  const { rows, laneCount } = computeGraphLayout(commits);
+  // Lane assignment is O(commits × lanes) — memoized so unrelated state
+  // changes (selection, loading flags) don't recompute the whole layout.
+  const { rows, laneCount } = useMemo(() => computeGraphLayout(commits), [commits]);
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
 
