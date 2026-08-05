@@ -1,89 +1,14 @@
 {
-  "workspaces": {
-    "label": "Workspaces",
-    "loading": "Loading",
-    "empty": "No workspaces yet.",
-    "noSelection": "No workspace selected",
-    "createPlaceholder": "Workspace name",
-    "createButton": "Create",
-    "rename": "Rename",
-    "save": "Save",
-    "cancel": "Cancel",
-    "delete": "Delete",
-    "moveUp": "Up",
-    "moveDown": "Down"
-  },
-  "repositories": {
-    "label": "Repositories",
-    "openButton": "Open repository",
-    "importButton": "Import folder",
-    "importingButton": "Importing…",
-    "removeButton": "Remove",
-    "empty": "No repositories yet — open one to get started.",
-    "notAGitRepository": "That folder isn't a Git repository."
-  },
-  "onboarding": {
-    "title": "Set up your first workspace",
-    "body": "Create a workspace, then import existing Git repositories from a folder on disk.",
-    "workspacePlaceholder": "Workspace name",
-    "defaultWorkspaceName": "My workspace",
-    "createAndImport": "Create and import",
-    "createOnly": "Create only",
-    "creating": "Creating…",
-    "importing": "Importing…"
-  },
-  "dashboard": {
-    "title": "Dashboard",
-    "addTarget": "Adding repositories to {{workspace}}",
-    "repoCount": "Repositories",
-    "needAttention": "Need attention",
-    "behindOrigin": "Behind origin",
-    "repoCountValue": "{{count}} repos",
-    "branch": "Branch",
-    "dirty": "Dirty",
-    "behind": "Behind",
-    "ahead": "Ahead",
-    "unknown": "Unknown"
-  },
   "allRepositories": {
     "title": "All repositories",
     "filterPlaceholder": "Filter by repo or workspace",
     "empty": "No repositories match the filter."
-  },
-  "globalSearch": {
-    "title": "Global search",
-    "placeholder": "Search repositories, branches, commits",
-    "loading": "Searching…",
-    "empty": "No matches found.",
-    "kind": {
-      "repository": "Repository",
-      "branch": "Branch",
-      "commit": "Commit"
-    }
-  },
-  "commandPalette": {
-    "placeholder": "Search commands, repositories, branches",
-    "empty": "No commands found.",
-    "repository": "Repository",
-    "action": "Action",
-    "localBranch": "Local branch",
-    "remoteBranch": "Remote branch"
   },
   "branches": {
     "local": "Local",
     "remote": "Remote",
     "current": "current",
     "empty": "No branches found."
-  },
-  "repoActions": {
-    "fetch": "Fetch",
-    "fetching": "Fetching…",
-    "pull": "Pull",
-    "pulling": "Pulling…",
-    "push": "Push",
-    "pushing": "Pushing…",
-    "openIde": "Open in IDE",
-    "openingIde": "Opening…"
   },
   "bulk": {
     "fetch": "Fetch all",
@@ -94,16 +19,23 @@
     "openingIde": "Opening…",
     "summary": "{{succeeded}} succeeded, {{failed}} failed"
   },
-  "repoStatus": {
-    "conflict": "Merge conflicts detected.",
-    "openMergeTool": "Open merge tool",
-    "openingMergeTool": "Opening…"
+  "cardStatus": {
+    "synced": "Synced",
+    "dirty": "Dirty",
+    "ahead": "Ahead",
+    "behind": "Behind",
+    "conflict": "Conflict",
+    "upToDate": "Up to date",
+    "changes": "{{count}} changes"
   },
-  "commits": {
-    "empty": "No commits found.",
-    "loading": "Loading…",
-    "loadEarlier": "Load earlier commits",
-    "end": "Beginning of history"
+  "commandPalette": {
+    "placeholder": "Search commands, repositories, branches",
+    "empty": "No commands found.",
+    "repository": "Repository",
+    "action": "Action",
+    "localBranch": "Local branch",
+    "remoteBranch": "Remote branch",
+    "commit": "Commit"
   },
   "commitInspector": {
     "empty": "No changed files.",
@@ -120,8 +52,87 @@
       "renamed": "R"
     }
   },
+  "commits": {
+    "empty": "No commits found.",
+    "loading": "Loading…",
+    "loadEarlier": "Load earlier commits",
+    "end": "Beginning of history"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "addTarget": "Adding repositories to {{workspace}}",
+    "repoCount": "Repositories",
+    "needAttention": "Need attention",
+    "behindOrigin": "Behind origin",
+    "repoCountValue": "{{count}} repos",
+    "branch": "Branch",
+    "dirty": "Dirty",
+    "behind": "Behind",
+    "ahead": "Ahead",
+    "unknown": "Unknown"
+  },
   "diff": {
     "binary": "Binary file not shown.",
     "empty": "No changes to display."
+  },
+  "inspector": {
+    "empty": "Select a commit to see its details."
+  },
+  "nav": {
+    "overview": "Overview",
+    "allRepositories": "All repositories",
+    "back": "Back"
+  },
+  "onboarding": {
+    "title": "Set up your first workspace",
+    "body": "Create a workspace, then import existing Git repositories from a folder on disk.",
+    "workspacePlaceholder": "Workspace name",
+    "defaultWorkspaceName": "My workspace",
+    "createAndImport": "Create and import",
+    "createOnly": "Create only",
+    "creating": "Creating…",
+    "importing": "Importing…"
+  },
+  "repoActions": {
+    "fetch": "Fetch",
+    "fetching": "Fetching…",
+    "pull": "Pull",
+    "pulling": "Pulling…",
+    "push": "Push",
+    "pushing": "Pushing…",
+    "openIde": "Open in IDE",
+    "openingIde": "Opening…"
+  },
+  "repoStatus": {
+    "conflict": "Merge conflicts detected.",
+    "openMergeTool": "Open merge tool",
+    "openingMergeTool": "Opening…"
+  },
+  "repositories": {
+    "label": "Repositories",
+    "openButton": "Open repository",
+    "importButton": "Import folder",
+    "importingButton": "Importing…",
+    "removeButton": "Remove",
+    "empty": "No repositories yet — open one to get started.",
+    "notAGitRepository": "That folder isn't a Git repository."
+  },
+  "settings": {
+    "title": "Settings",
+    "close": "Done"
+  },
+  "workspaces": {
+    "label": "Workspaces",
+    "loading": "Loading",
+    "empty": "No workspaces yet.",
+    "noSelection": "No workspace selected",
+    "createPlaceholder": "Workspace name",
+    "createButton": "Create",
+    "rename": "Rename",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "moveUp": "Up",
+    "moveDown": "Down"
   }
 }

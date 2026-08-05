@@ -1,89 +1,14 @@
 {
-  "workspaces": {
-    "label": "Рабочие пространства",
-    "loading": "Загрузка",
-    "empty": "Пока нет рабочих пространств.",
-    "noSelection": "Рабочее пространство не выбрано",
-    "createPlaceholder": "Название",
-    "createButton": "Создать",
-    "rename": "Переименовать",
-    "save": "Сохранить",
-    "cancel": "Отмена",
-    "delete": "Удалить",
-    "moveUp": "Выше",
-    "moveDown": "Ниже"
-  },
-  "repositories": {
-    "label": "Репозитории",
-    "openButton": "Открыть репозиторий",
-    "importButton": "Импорт папки",
-    "importingButton": "Импорт…",
-    "removeButton": "Убрать",
-    "empty": "Пока нет ни одного репозитория — откройте первый, чтобы начать.",
-    "notAGitRepository": "Эта папка не является Git-репозиторием."
-  },
-  "onboarding": {
-    "title": "Настройте первое рабочее пространство",
-    "body": "Создайте рабочее пространство, затем импортируйте существующие Git-репозитории из папки на диске.",
-    "workspacePlaceholder": "Название рабочего пространства",
-    "defaultWorkspaceName": "Моё пространство",
-    "createAndImport": "Создать и импортировать",
-    "createOnly": "Только создать",
-    "creating": "Создание…",
-    "importing": "Импорт…"
-  },
-  "dashboard": {
-    "title": "Дашборд",
-    "addTarget": "Репозитории добавляются в {{workspace}}",
-    "repoCount": "Репозитории",
-    "needAttention": "Требуют внимания",
-    "behindOrigin": "Позади origin",
-    "repoCountValue": "{{count}} реп.",
-    "branch": "Ветка",
-    "dirty": "Изменения",
-    "behind": "Позади",
-    "ahead": "Впереди",
-    "unknown": "Неизвестно"
-  },
   "allRepositories": {
     "title": "Все репозитории",
     "filterPlaceholder": "Фильтр по repo или workspace",
     "empty": "По фильтру ничего не найдено."
-  },
-  "globalSearch": {
-    "title": "Глобальный поиск",
-    "placeholder": "Поиск репозиториев, веток, коммитов",
-    "loading": "Ищу…",
-    "empty": "Совпадений нет.",
-    "kind": {
-      "repository": "Репозиторий",
-      "branch": "Ветка",
-      "commit": "Коммит"
-    }
-  },
-  "commandPalette": {
-    "placeholder": "Поиск команд, репозиториев, веток",
-    "empty": "Команды не найдены.",
-    "repository": "Репозиторий",
-    "action": "Действие",
-    "localBranch": "Локальная ветка",
-    "remoteBranch": "Удалённая ветка"
   },
   "branches": {
     "local": "Локальные",
     "remote": "Удалённые",
     "current": "текущая",
     "empty": "Ветки не найдены."
-  },
-  "repoActions": {
-    "fetch": "Получить",
-    "fetching": "Получение…",
-    "pull": "Обновить",
-    "pulling": "Обновление…",
-    "push": "Отправить",
-    "pushing": "Отправка…",
-    "openIde": "Открыть в IDE",
-    "openingIde": "Открытие…"
   },
   "bulk": {
     "fetch": "Получить все",
@@ -94,16 +19,23 @@
     "openingIde": "Открытие…",
     "summary": "Успешно: {{succeeded}}, с ошибкой: {{failed}}"
   },
-  "repoStatus": {
-    "conflict": "Обнаружены merge-конфликты.",
-    "openMergeTool": "Открыть merge tool",
-    "openingMergeTool": "Открытие…"
+  "cardStatus": {
+    "synced": "Синхронизирован",
+    "dirty": "Есть изменения",
+    "ahead": "Впереди",
+    "behind": "Отстаёт",
+    "conflict": "Конфликт",
+    "upToDate": "Актуален",
+    "changes": "изменений: {{count}}"
   },
-  "commits": {
-    "empty": "Коммиты не найдены.",
-    "loading": "Загрузка…",
-    "loadEarlier": "Загрузить более ранние коммиты",
-    "end": "Начало истории"
+  "commandPalette": {
+    "placeholder": "Поиск команд, репозиториев, веток",
+    "empty": "Команды не найдены.",
+    "repository": "Репозиторий",
+    "action": "Действие",
+    "localBranch": "Локальная ветка",
+    "remoteBranch": "Удалённая ветка",
+    "commit": "Коммит"
   },
   "commitInspector": {
     "empty": "Нет изменённых файлов.",
@@ -120,8 +52,87 @@
       "renamed": "R"
     }
   },
+  "commits": {
+    "empty": "Коммиты не найдены.",
+    "loading": "Загрузка…",
+    "loadEarlier": "Загрузить более ранние коммиты",
+    "end": "Начало истории"
+  },
+  "dashboard": {
+    "title": "Дашборд",
+    "addTarget": "Репозитории добавляются в {{workspace}}",
+    "repoCount": "Репозитории",
+    "needAttention": "Требуют внимания",
+    "behindOrigin": "Позади origin",
+    "repoCountValue": "{{count}} реп.",
+    "branch": "Ветка",
+    "dirty": "Изменения",
+    "behind": "Позади",
+    "ahead": "Впереди",
+    "unknown": "Неизвестно"
+  },
   "diff": {
     "binary": "Бинарный файл не отображается.",
     "empty": "Нет изменений для отображения."
+  },
+  "inspector": {
+    "empty": "Выберите коммит, чтобы увидеть детали."
+  },
+  "nav": {
+    "overview": "Обзор",
+    "allRepositories": "Все репозитории",
+    "back": "Назад"
+  },
+  "onboarding": {
+    "title": "Настройте первое рабочее пространство",
+    "body": "Создайте рабочее пространство, затем импортируйте существующие Git-репозитории из папки на диске.",
+    "workspacePlaceholder": "Название рабочего пространства",
+    "defaultWorkspaceName": "Моё пространство",
+    "createAndImport": "Создать и импортировать",
+    "createOnly": "Только создать",
+    "creating": "Создание…",
+    "importing": "Импорт…"
+  },
+  "repoActions": {
+    "fetch": "Получить",
+    "fetching": "Получение…",
+    "pull": "Обновить",
+    "pulling": "Обновление…",
+    "push": "Отправить",
+    "pushing": "Отправка…",
+    "openIde": "Открыть в IDE",
+    "openingIde": "Открытие…"
+  },
+  "repoStatus": {
+    "conflict": "Обнаружены merge-конфликты.",
+    "openMergeTool": "Открыть merge tool",
+    "openingMergeTool": "Открытие…"
+  },
+  "repositories": {
+    "label": "Репозитории",
+    "openButton": "Открыть репозиторий",
+    "importButton": "Импорт папки",
+    "importingButton": "Импорт…",
+    "removeButton": "Убрать",
+    "empty": "Пока нет ни одного репозитория — откройте первый, чтобы начать.",
+    "notAGitRepository": "Эта папка не является Git-репозиторием."
+  },
+  "settings": {
+    "title": "Настройки",
+    "close": "Готово"
+  },
+  "workspaces": {
+    "label": "Рабочие пространства",
+    "loading": "Загрузка",
+    "empty": "Пока нет рабочих пространств.",
+    "noSelection": "Рабочее пространство не выбрано",
+    "createPlaceholder": "Название",
+    "createButton": "Создать",
+    "rename": "Переименовать",
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "delete": "Удалить",
+    "moveUp": "Выше",
+    "moveDown": "Ниже"
   }
 }

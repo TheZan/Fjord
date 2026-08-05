@@ -1,13 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useTheme } from "@/infrastructure/theme/ThemeProvider";
-import { setLocale } from "@/infrastructure/i18n";
-import { SUPPORTED_LOCALES } from "@/locales/registry";
-import type { Theme } from "@/domain/settings";
-import { FjordMark } from "@/presentation/FjordMark";
-import { BranchesPanel } from "@/presentation/BranchesPanel";
-import { CommitGraph } from "@/presentation/CommitGraph";
-import { CommitInspector } from "@/presentation/CommitInspector";
 import { useBranches } from "@/application/useBranches";
 import { useRepositories } from "@/application/useRepositories";
 import { useRepoStatus } from "@/application/useRepoStatus";
@@ -25,40 +17,24 @@ import {
   pullRepo,
   pushRepo,
 } from "@/infrastructure/tauriClient";
+import { AllReposView } from "@/presentation/AllReposView";
+import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
+import { Onboarding } from "@/presentation/Onboarding";
+import { OverviewView } from "@/presentation/OverviewView";
+import { RepoDetailView } from "@/presentation/RepoDetailView";
+import { SettingsDialog } from "@/presentation/SettingsDialog";
+import { Sidebar } from "@/presentation/Sidebar";
+import { Button } from "@/presentation/ui";
+import type { View } from "@/presentation/view";
 
-const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
-
-interface PaletteItem {
-  id: string;
-  label: string;
-  detail: string;
-  kind: string;
-  run: () => void | Promise<void>;
-}
-
-function paletteScore(query: string, label: string, detail: string): number | null {
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return 0;
-
-  const haystack = `${label} ${detail}`.toLocaleLowerCase();
-  const directIndex = haystack.indexOf(needle);
-  if (directIndex >= 0) return directIndex;
-
-  let cursor = 0;
-  let score = 100;
-  for (const char of needle) {
-    const found = haystack.indexOf(char, cursor);
-    if (found < 0) return null;
-    score += found - cursor;
-    cursor = found + 1;
-  }
-  return score;
-}
-
+/**
+ * Owns app-level state and wires the screens together. Layout and styling
+ * live in the view components — this file deliberately holds no markup
+ * beyond the shell, after it grew to ~1200 lines of inline JSX with every
+ * feature stacked onto a single scrolling page.
+ */
 export function App() {
-  const { t, i18n } = useTranslation();
   const { t: tw } = useTranslation("workspace");
-  const { choice, setChoice } = useTheme();
   const {
     workspaces,
     selectedWorkspace,
@@ -77,129 +53,65 @@ export function App() {
     importRepositories,
     removeRepository,
   } = useRepositories();
-  const [newWorkspaceName, setNewWorkspaceName] = useState("");
-  const [onboardingWorkspaceName, setOnboardingWorkspaceName] = useState("");
-  const [onboardingPending, setOnboardingPending] = useState<string | null>(null);
-  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
-  const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
+
+  const [view, setView] = useState<View>("overview");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState("");
-  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
-  const [globalSearchResults, setGlobalSearchResults] = useState<GlobalSearchResult[]>([]);
-  const [globalSearchPending, setGlobalSearchPending] = useState(false);
-  const [globalSearchError, setGlobalSearchError] = useState<string | null>(null);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [repoVersion, setRepoVersion] = useState(0);
   const [repoActionError, setRepoActionError] = useState<string | null>(null);
   const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
-  const [bulkActionSummary, setBulkActionSummary] = useState<string | null>(null);
-  const [bulkActionError, setBulkActionError] = useState<string | null>(null);
+  const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
-  const [paletteIndex, setPaletteIndex] = useState(0);
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
+
   const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
   const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
-  const allRepositories = Object.values(repositoriesByWorkspace).flat();
+
+  const allRepositories = useMemo(
+    () => Object.values(repositoriesByWorkspace).flat(),
+    [repositoriesByWorkspace],
+  );
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
-  const totalRepoCount = allRepositories.length;
+  const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
-  const needAttentionCount = allRepositories.filter((repo) => {
-    const status = statusByRepo[repo.id]?.status;
-    return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
-  }).length;
-  const behindOriginCount = allRepositories.filter((repo) => (statusByRepo[repo.id]?.status.behind ?? 0) > 0)
-    .length;
-  const flatRepositories = workspaces.flatMap((workspace) =>
+
+  const flatRows = workspaces.flatMap((workspace) =>
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
   );
-  const workspaceNameById = Object.fromEntries(workspaces.map((workspace) => [workspace.id, workspace.name]));
-  const normalizedGlobalSearchQuery = globalSearchQuery.trim();
-  const normalizedRepoFilter = repoFilter.trim().toLocaleLowerCase();
-  const filteredRepositories = flatRepositories.filter(({ workspace, repo }) => {
-    if (!normalizedRepoFilter) return true;
 
-    return [repo.name, repo.path, workspace.name].some((value) =>
-      value.toLocaleLowerCase().includes(normalizedRepoFilter),
-    );
-  });
-  const rawPaletteItems: PaletteItem[] = [
-    ...flatRepositories.map(({ workspace, repo }) => ({
-      id: `repo:${repo.id}`,
-      label: repo.name,
-      detail: `${workspace.name} · ${repo.path}`,
-      kind: tw("commandPalette.repository"),
-      run: () => chooseRepository(workspace.id, repo.id),
-    })),
-    ...(selectedRepo
-      ? [
-          {
-            id: "action:open-ide",
-            label: tw("repoActions.openIde"),
-            detail: selectedRepo.name,
-            kind: tw("commandPalette.action"),
-            run: () => runRepoAction("open-ide", () => openInIde(selectedRepo.id)),
-          },
-          {
-            id: "action:fetch",
-            label: tw("repoActions.fetch"),
-            detail: selectedRepo.name,
-            kind: tw("commandPalette.action"),
-            run: () => runRepoAction("fetch", () => fetchRepo(selectedRepo.id)),
-          },
-          {
-            id: "action:pull",
-            label: tw("repoActions.pull"),
-            detail: selectedRepo.name,
-            kind: tw("commandPalette.action"),
-            run: () => runRepoAction("pull", () => pullRepo(selectedRepo.id)),
-          },
-        ]
-      : []),
-    ...(selectedWorkspaceId
-      ? [
-          {
-            id: "bulk:fetch",
-            label: tw("bulk.fetch"),
-            detail: selectedWorkspace?.name ?? "",
-            kind: tw("commandPalette.action"),
-            run: () => runBulkAction("fetch", () => bulkFetch(selectedWorkspaceId)),
-          },
-          {
-            id: "bulk:pull",
-            label: tw("bulk.pull"),
-            detail: selectedWorkspace?.name ?? "",
-            kind: tw("commandPalette.action"),
-            run: () => runBulkAction("pull", () => bulkPull(selectedWorkspaceId)),
-          },
-          {
-            id: "bulk:open-ide",
-            label: tw("bulk.openIde"),
-            detail: selectedWorkspace?.name ?? "",
-            kind: tw("commandPalette.action"),
-            run: () => runBulkAction("open-ide", () => bulkOpenInIde(selectedWorkspaceId)),
-          },
-        ]
-      : []),
-    ...paletteBranches.map((branch) => ({
-      id: `branch:${branch.name}`,
-      label: branch.name,
-      detail: selectedRepo?.name ?? "",
-      kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
-      run: () =>
-        selectedRepoId
-          ? runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch.name))
-          : undefined,
-    })),
-  ];
-  const paletteItems = rawPaletteItems
-    .flatMap((item) => {
-      const score = paletteScore(paletteQuery, item.label, item.detail);
-      return score === null ? [] : [{ item, score }];
-    })
-    .sort((a, b) => a.score - b.score)
-    .map((entry) => entry.item);
-  const visiblePaletteItems = paletteItems.slice(0, 12);
+  const needsAttention = (repoId: string) => {
+    const status = statusByRepo[repoId]?.status;
+    return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
+  };
+
+  const metrics = {
+    total: workspaceRepos.length,
+    attention: workspaceRepos.filter((repo) => needsAttention(repo.id)).length,
+    behind: workspaceRepos.filter((repo) => (statusByRepo[repo.id]?.status.behind ?? 0) > 0).length,
+  };
+
+  const repoCountByWorkspace = Object.fromEntries(
+    workspaces.map((workspace) => [workspace.id, (repositoriesByWorkspace[workspace.id] ?? []).length]),
+  );
+  const attentionByWorkspace = Object.fromEntries(
+    workspaces.map((workspace) => [
+      workspace.id,
+      (repositoriesByWorkspace[workspace.id] ?? []).filter((repo) => needsAttention(repo.id)).length,
+    ]),
+  );
+
+  const normalizedFilter = repoFilter.trim().toLocaleLowerCase();
+  const filteredRows = flatRows.filter(({ workspace, repo }) =>
+    !normalizedFilter
+      ? true
+      : [repo.name, repo.path, workspace.name].some((value) =>
+          value.toLocaleLowerCase().includes(normalizedFilter),
+        ),
+  );
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
@@ -212,9 +124,8 @@ export function App() {
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
         event.preventDefault();
-        setPaletteOpen(true);
         setPaletteQuery("");
-        setPaletteIndex(0);
+        setPaletteOpen(true);
       }
     }
 
@@ -222,40 +133,32 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Global search now runs through the palette instead of a separate card on
+  // the dashboard — two always-visible search fields on one screen was one of
+  // the things making it feel cluttered.
   useEffect(() => {
-    setPaletteIndex(0);
-  }, [paletteQuery, paletteOpen]);
-
-  useEffect(() => {
-    if (normalizedGlobalSearchQuery.length < 2) {
-      setGlobalSearchResults([]);
-      setGlobalSearchError(null);
-      setGlobalSearchPending(false);
+    const query = paletteQuery.trim();
+    if (!paletteOpen || query.length < 2) {
+      setSearchResults([]);
       return;
     }
 
     let cancelled = false;
-    setGlobalSearchPending(true);
-    setGlobalSearchError(null);
-
     const timer = window.setTimeout(() => {
-      globalSearch(normalizedGlobalSearchQuery, null, 30)
+      globalSearch(query, null, 20)
         .then((results) => {
-          if (!cancelled) setGlobalSearchResults(results);
+          if (!cancelled) setSearchResults(results);
         })
-        .catch((e) => {
-          if (!cancelled) setGlobalSearchError(invokeErrorMessage(e));
-        })
-        .finally(() => {
-          if (!cancelled) setGlobalSearchPending(false);
+        .catch(() => {
+          if (!cancelled) setSearchResults([]);
         });
-    }, 250);
+    }, 200);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [normalizedGlobalSearchQuery]);
+  }, [paletteQuery, paletteOpen]);
 
   async function runRepoAction(action: string, run: () => Promise<void>) {
     setRepoActionError(null);
@@ -275,949 +178,214 @@ export function App() {
     action: string,
     run: () => Promise<Array<{ ok: boolean; error: string | null }>>,
   ) {
-    setBulkActionError(null);
-    setBulkActionSummary(null);
+    setBulkActionNotice(null);
     setBulkActionPending(action);
     try {
       const results = await run();
       const failed = results.filter((result) => !result.ok).length;
-      setBulkActionSummary(
-        tw("bulk.summary", {
-          succeeded: results.length - failed,
-          failed,
-        }),
-      );
+      setBulkActionNotice(tw("bulk.summary", { succeeded: results.length - failed, failed }));
       setRepoVersion((version) => version + 1);
     } catch (e) {
-      setBulkActionError(invokeErrorMessage(e));
+      setBulkActionNotice(invokeErrorMessage(e));
     } finally {
       setBulkActionPending(null);
     }
   }
 
-  async function submitWorkspace() {
-    await createWorkspace(newWorkspaceName);
-    setNewWorkspaceName("");
+  function onBulk(action: "fetch" | "pull" | "open-ide") {
+    if (!selectedWorkspaceId) return;
+    const runner =
+      action === "fetch" ? bulkFetch : action === "pull" ? bulkPull : bulkOpenInIde;
+    void runBulkAction(action, () => runner(selectedWorkspaceId));
   }
 
-  async function submitOnboarding(importAfterCreate: boolean) {
-    const fallbackName = tw("onboarding.defaultWorkspaceName");
-    setOnboardingPending(importAfterCreate ? "import" : "create");
-    try {
-      const created = await createWorkspace(onboardingWorkspaceName || fallbackName);
-      if (!created) return;
-
-      setOnboardingWorkspaceName("");
-      if (importAfterCreate) {
-        await importRepositories(created.id);
-      }
-    } finally {
-      setOnboardingPending(null);
-    }
-  }
-
-  async function submitRename(workspaceId: string) {
-    await renameWorkspace(workspaceId, editingWorkspaceName);
-    setEditingWorkspaceId(null);
-    setEditingWorkspaceName("");
-  }
-
-  function beginRename(workspaceId: string, name: string) {
-    setEditingWorkspaceId(workspaceId);
-    setEditingWorkspaceName(name);
-  }
-
-  async function chooseWorkspace(workspaceId: string) {
-    await selectWorkspace(workspaceId);
-    setSelectedRepoId(null);
-    setSelectedCommit(null);
+  function onRepoAction(action: "fetch" | "pull" | "push" | "open-ide" | "merge-tool") {
+    if (!selectedRepoId) return;
+    const id = selectedRepoId;
+    const runners = {
+      fetch: () => fetchRepo(id),
+      pull: () => pullRepo(id),
+      push: () => pushRepo(id),
+      "open-ide": () => openInIde(id),
+      "merge-tool": () => openMergeTool(id),
+    };
+    void runRepoAction(action, runners[action]);
   }
 
   async function selectRepository(workspaceId: string, repoId: string) {
-    if (workspaceId !== selectedWorkspaceId) {
-      await selectWorkspace(workspaceId);
-    }
-
+    if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
     setSelectedCommit(null);
   }
 
-  async function chooseRepository(workspaceId: string, repoId: string) {
-    if (repoId === selectedRepoId) {
-      setSelectedRepoId(null);
-      setSelectedCommit(null);
-      return;
-    }
-
-    await selectRepository(workspaceId, repoId);
-  }
-
-  async function openGlobalSearchResult(result: GlobalSearchResult) {
+  async function openSearchResult(result: GlobalSearchResult) {
     await selectRepository(result.workspaceId, result.repoId);
     if (result.kind === "branch" && result.branch) {
-      await runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
-      return;
-    }
-    if (result.kind === "commit" && result.commit) {
+      void runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
+    } else if (result.kind === "commit" && result.commit) {
       setSelectedCommit(result.commit);
     }
   }
 
-  function globalSearchResultTitle(result: GlobalSearchResult) {
-    if (result.kind === "branch") return result.branch ?? result.repoName;
-    if (result.kind === "commit") return result.commit?.message ?? result.repoName;
-    return result.repoName;
-  }
+  const paletteItems: PaletteItem[] = [
+    ...flatRows.map(({ workspace, repo }) => ({
+      id: `repo:${repo.id}`,
+      label: repo.name,
+      detail: `${workspace.name} · ${repo.path}`,
+      kind: tw("commandPalette.repository"),
+      run: () => selectRepository(workspace.id, repo.id),
+    })),
+    ...(selectedRepo
+      ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
+          id: `action:${action}`,
+          label: tw(action === "open-ide" ? "repoActions.openIde" : `repoActions.${action}`),
+          detail: selectedRepo.name,
+          kind: tw("commandPalette.action"),
+          run: () => onRepoAction(action),
+        }))
+      : []),
+    ...(selectedWorkspaceId
+      ? (["fetch", "pull", "open-ide"] as const).map((action) => ({
+          id: `bulk:${action}`,
+          label: tw(action === "open-ide" ? "bulk.openIde" : `bulk.${action}`),
+          detail: selectedWorkspace?.name ?? "",
+          kind: tw("commandPalette.action"),
+          run: () => onBulk(action),
+        }))
+      : []),
+    ...paletteBranches.map((branch) => ({
+      id: `branch:${branch.name}`,
+      label: branch.name,
+      detail: selectedRepo?.name ?? "",
+      kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
+      run: () =>
+        selectedRepoId
+          ? void runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch.name))
+          : undefined,
+    })),
+  ];
 
-  function globalSearchResultDetail(result: GlobalSearchResult) {
-    const workspace = workspaceNameById[result.workspaceId] ?? tw("dashboard.unknown");
-    if (result.kind === "commit" && result.commit) {
-      return `${result.repoName} · ${result.commit.id.slice(0, 7)} · ${workspace}`;
-    }
-    return `${result.repoName} · ${workspace}`;
-  }
+  const remotePaletteItems: PaletteItem[] = searchResults
+    .filter((result) => result.kind === "commit")
+    .map((result, index) => ({
+      id: `search:${result.repoId}:${result.commit?.id ?? index}`,
+      label: result.commit?.message.split("\n")[0] ?? result.repoName,
+      detail: `${result.repoName} · ${result.commit?.id.slice(0, 7) ?? ""}`,
+      kind: tw("commandPalette.commit"),
+      run: () => openSearchResult(result),
+    }));
 
-  function moveRepositorySelection(direction: -1 | 1) {
-    if (filteredRepositories.length === 0) return;
-
-    const currentIndex = filteredRepositories.findIndex(({ repo }) => repo.id === selectedRepoId);
-    const nextIndex =
-      currentIndex < 0
-        ? direction > 0
-          ? 0
-          : filteredRepositories.length - 1
-        : Math.min(Math.max(currentIndex + direction, 0), filteredRepositories.length - 1);
-    const next = filteredRepositories[nextIndex];
-    void chooseRepository(next.workspace.id, next.repo.id);
-  }
-
-  async function runPaletteItem(item: PaletteItem | undefined) {
-    if (!item) return;
-
-    setPaletteOpen(false);
-    setPaletteQuery("");
-    await item.run();
-  }
-
-  async function removeTrackedRepository(repoId: string) {
-    if (repoId === selectedRepoId) {
-      setSelectedRepoId(null);
-      setSelectedCommit(null);
-    }
-    await removeRepository(repoId);
+  if (isFirstRun) {
+    return (
+      <Onboarding
+        onCreate={async (name, withImport) => {
+          const created = await createWorkspace(name || tw("onboarding.defaultWorkspaceName"));
+          if (created && withImport) await importRepositories(created.id);
+        }}
+      />
+    );
   }
 
   return (
-    <main className="flex min-h-screen" style={{ background: "var(--page-bg)", color: "var(--ink)" }}>
-      <aside
-        className="flex w-80 shrink-0 flex-col gap-5 border-r p-5"
-        style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-      >
-        <div className="flex items-center gap-3">
-          <FjordMark size={28} style={{ color: "var(--brand)" }} />
-          <div>
-            <h1 className="text-lg font-medium">{t("app.title")}</h1>
-            <p className="text-xs" style={{ color: "var(--slate)" }}>
-              {t("app.tagline")}
-            </p>
-          </div>
-        </div>
+    <div className="flex h-screen overflow-hidden" style={{ background: "var(--page-bg)", color: "var(--ink)" }}>
+      <Sidebar
+        view={view}
+        onViewChange={(next) => {
+          setView(next);
+          setSelectedRepoId(null);
+        }}
+        workspaces={workspaces}
+        repoCountByWorkspace={repoCountByWorkspace}
+        attentionByWorkspace={attentionByWorkspace}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={(id) => {
+          void selectWorkspace(id);
+          setSelectedRepoId(null);
+          setView("overview");
+        }}
+        onCreateWorkspace={(name) => void createWorkspace(name)}
+        onRenameWorkspace={(id, name) => void renameWorkspace(id, name)}
+        onDeleteWorkspace={(id) => void deleteWorkspace(id)}
+        onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
+        pending={workspaceActionPending}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
-              {tw("workspaces.label")}
-            </h2>
-            {loading && (
-              <span className="text-xs" style={{ color: "var(--mist)" }}>
-                {tw("workspaces.loading")}
-              </span>
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+        {(error || bulkActionNotice) && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px]"
+            style={{ background: "var(--paper)", color: error ? "var(--rust-ink)" : "var(--slate)" }}
+          >
+            <span>{error ?? bulkActionNotice}</span>
+            {bulkActionNotice && !error && (
+              <Button size="sm" variant="ghost" onClick={() => setBulkActionNotice(null)}>
+                ✕
+              </Button>
             )}
           </div>
+        )}
 
-          <div className="flex gap-2">
-            <input
-              value={newWorkspaceName}
-              onChange={(event) => setNewWorkspaceName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void submitWorkspace();
-              }}
-              placeholder={tw("workspaces.createPlaceholder")}
-              className="min-w-0 flex-1 rounded border px-3 text-sm outline-none"
-              style={{
-                borderColor: "var(--hairline)",
-                background: "var(--page-bg)",
-                color: "var(--ink)",
-              }}
-            />
-            <button
-              type="button"
-              disabled={workspaceActionPending !== null}
-              onClick={() => void submitWorkspace()}
-              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-              style={{
-                borderColor: "var(--fjord)",
-                background: "var(--fjord-tint)",
-                color: "var(--fjord-ink)",
-              }}
-            >
-              {tw("workspaces.createButton")}
-            </button>
-          </div>
-
-          {workspaces.length === 0 ? (
-            <p className="text-sm" style={{ color: "var(--slate)" }}>
-              {tw("workspaces.empty")}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {workspaces.map((workspace, index) => {
-                const isSelected = workspace.id === selectedWorkspaceId;
-                const isEditing = workspace.id === editingWorkspaceId;
-                const isPending = workspaceActionPending === workspace.id;
-
-                return (
-                  <li
-                    key={workspace.id}
-                    className="rounded border p-2"
-                    style={{
-                      borderColor: isSelected ? "var(--fjord)" : "var(--hairline)",
-                      background: isSelected ? "var(--fjord-tint)" : "transparent",
-                    }}
-                  >
-                    {isEditing ? (
-                      <div className="flex flex-col gap-2">
-                        <input
-                          value={editingWorkspaceName}
-                          onChange={(event) => setEditingWorkspaceName(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") void submitRename(workspace.id);
-                            if (event.key === "Escape") setEditingWorkspaceId(null);
-                          }}
-                          className="h-8 rounded border px-2 text-sm outline-none"
-                          style={{
-                            borderColor: "var(--hairline)",
-                            background: "var(--paper)",
-                            color: "var(--ink)",
-                          }}
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={isPending}
-                            onClick={() => void submitRename(workspace.id)}
-                            className="h-8 rounded border px-2 text-xs disabled:opacity-60"
-                            style={{
-                              borderColor: "var(--fjord)",
-                              background: "var(--paper)",
-                              color: "var(--fjord-ink)",
-                            }}
-                          >
-                            {tw("workspaces.save")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingWorkspaceId(null)}
-                            className="h-8 rounded border px-2 text-xs"
-                            style={{
-                              borderColor: "var(--hairline)",
-                              background: "var(--paper)",
-                              color: "var(--ink)",
-                            }}
-                          >
-                            {tw("workspaces.cancel")}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-start gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void chooseWorkspace(workspace.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <span className="block truncate text-sm font-medium">{workspace.name}</span>
-                        </button>
-                        <div className="flex shrink-0 gap-1">
-                          <button
-                            type="button"
-                            disabled={index === 0 || workspaceActionPending !== null}
-                            onClick={() => void moveWorkspace(workspace.id, -1)}
-                            className="h-7 rounded border px-2 text-xs disabled:opacity-40"
-                            style={{
-                              borderColor: "var(--hairline)",
-                              background: "var(--paper)",
-                              color: "var(--ink)",
-                            }}
-                          >
-                            {tw("workspaces.moveUp")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={index === workspaces.length - 1 || workspaceActionPending !== null}
-                            onClick={() => void moveWorkspace(workspace.id, 1)}
-                            className="h-7 rounded border px-2 text-xs disabled:opacity-40"
-                            style={{
-                              borderColor: "var(--hairline)",
-                              background: "var(--paper)",
-                              color: "var(--ink)",
-                            }}
-                          >
-                            {tw("workspaces.moveDown")}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {!isEditing && (
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          type="button"
-                          disabled={workspaceActionPending !== null}
-                          onClick={() => beginRename(workspace.id, workspace.name)}
-                          className="h-7 rounded border px-2 text-xs disabled:opacity-60"
-                          style={{
-                            borderColor: "var(--hairline)",
-                            background: "var(--paper)",
-                            color: "var(--ink)",
-                          }}
-                        >
-                          {tw("workspaces.rename")}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={workspaceActionPending !== null}
-                          onClick={() => void deleteWorkspace(workspace.id)}
-                          className="h-7 rounded border px-2 text-xs disabled:opacity-60"
-                          style={{
-                            borderColor: "var(--rust)",
-                            background: "var(--paper)",
-                            color: "var(--rust-ink)",
-                          }}
-                        >
-                          {tw("workspaces.delete")}
-                        </button>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="mt-auto flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
-              {t("settings.theme.label")}
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              {THEME_CHOICES.map((themeChoice) => (
-                <button
-                  key={themeChoice}
-                  type="button"
-                  onClick={() => setChoice(themeChoice)}
-                  className="h-8 rounded border px-2 text-xs"
-                  style={{
-                    borderColor: choice === themeChoice ? "var(--fjord)" : "var(--hairline)",
-                    background: choice === themeChoice ? "var(--fjord-tint)" : "var(--paper)",
-                    color: choice === themeChoice ? "var(--fjord-ink)" : "var(--ink)",
-                  }}
-                >
-                  {t(`settings.theme.${themeChoice}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
-              {t("settings.locale.label")}
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              {SUPPORTED_LOCALES.map((locale) => (
-                <button
-                  key={locale.code}
-                  type="button"
-                  onClick={() => setLocale(locale.code)}
-                  className="h-8 rounded border px-2 text-xs"
-                  style={{
-                    borderColor: i18n.language === locale.code ? "var(--fjord)" : "var(--hairline)",
-                    background: i18n.language === locale.code ? "var(--fjord-tint)" : "var(--paper)",
-                    color: i18n.language === locale.code ? "var(--fjord-ink)" : "var(--ink)",
-                  }}
-                >
-                  {locale.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col gap-5 p-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-xl font-medium">{tw("dashboard.title")}</h2>
-            <p className="text-sm" style={{ color: "var(--slate)" }}>
-              {selectedWorkspace
-                ? tw("dashboard.addTarget", { workspace: selectedWorkspace.name })
-                : tw("workspaces.noSelection")}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={!selectedWorkspaceId}
-            onClick={openRepository}
-            className="h-9 rounded border px-3 text-sm disabled:opacity-50"
-            style={{
-              borderColor: "var(--fjord)",
-              background: "var(--fjord-tint)",
-              color: "var(--fjord-ink)",
+        {selectedRepo ? (
+          <RepoDetailView
+            repo={selectedRepo}
+            status={repoStatus}
+            statusError={repoStatusError}
+            actionPending={repoActionPending}
+            actionError={repoActionError}
+            selectedCommit={selectedCommit}
+            repoVersion={repoVersion}
+            onBack={() => {
+              setSelectedRepoId(null);
+              setSelectedCommit(null);
             }}
-          >
-            {tw("repositories.openButton")}
-          </button>
-          <button
-            type="button"
-            disabled={!selectedWorkspaceId || workspaceActionPending !== null}
-            onClick={() => void importRepositories()}
-            className="h-9 rounded border px-3 text-sm disabled:opacity-50"
-            style={{
-              borderColor: "var(--hairline)",
-              background: "var(--paper)",
-              color: "var(--ink)",
-            }}
-          >
-            {workspaceActionPending === "import" ? tw("repositories.importingButton") : tw("repositories.importButton")}
-          </button>
-        </header>
-
-        {isFirstRun && (
-          <section
-            className="grid gap-4 rounded border p-5 md:grid-cols-[minmax(0,1fr)_auto]"
-            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-          >
-            <div className="min-w-0">
-              <h3 className="text-lg font-medium">{tw("onboarding.title")}</h3>
-              <p className="mt-1 max-w-2xl text-sm" style={{ color: "var(--slate)" }}>
-                {tw("onboarding.body")}
-              </p>
-              <input
-                value={onboardingWorkspaceName}
-                onChange={(event) => setOnboardingWorkspaceName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void submitOnboarding(false);
-                }}
-                placeholder={tw("onboarding.workspacePlaceholder")}
-                className="mt-4 h-10 w-full max-w-md rounded border px-3 text-sm outline-none"
-                style={{
-                  borderColor: "var(--hairline)",
-                  background: "var(--page-bg)",
-                  color: "var(--ink)",
-                }}
-              />
-            </div>
-            <div className="flex flex-col justify-end gap-2">
-              <button
-                type="button"
-                disabled={onboardingPending !== null || workspaceActionPending !== null}
-                onClick={() => void submitOnboarding(true)}
-                className="h-10 rounded border px-3 text-sm disabled:opacity-60"
-                style={{
-                  borderColor: "var(--fjord)",
-                  background: "var(--fjord-tint)",
-                  color: "var(--fjord-ink)",
-                }}
-              >
-                {onboardingPending === "import"
-                  ? tw("onboarding.importing")
-                  : tw("onboarding.createAndImport")}
-              </button>
-              <button
-                type="button"
-                disabled={onboardingPending !== null || workspaceActionPending !== null}
-                onClick={() => void submitOnboarding(false)}
-                className="h-10 rounded border px-3 text-sm disabled:opacity-60"
-                style={{
-                  borderColor: "var(--hairline)",
-                  background: "var(--paper)",
-                  color: "var(--ink)",
-                }}
-              >
-                {onboardingPending === "create" ? tw("onboarding.creating") : tw("onboarding.createOnly")}
-              </button>
-            </div>
-          </section>
+            onAction={onRepoAction}
+            onCheckout={(branch) =>
+              void runRepoAction("checkout", () => checkoutBranch(selectedRepo.id, branch))
+            }
+            onSelectCommit={(commit) =>
+              setSelectedCommit(commit.id === selectedCommit?.id ? null : commit)
+            }
+          />
+        ) : view === "overview" ? (
+          <OverviewView
+            workspace={selectedWorkspace}
+            repositories={workspaceRepos}
+            statusByRepo={statusByRepo}
+            selectedRepoId={selectedRepoId}
+            metrics={metrics}
+            bulkPending={bulkActionPending}
+            onBulk={onBulk}
+            onOpenRepository={openRepository}
+            onImport={() => void importRepositories()}
+            importPending={workspaceActionPending === "import"}
+            onSelectRepo={(repoId) =>
+              selectedWorkspaceId ? void selectRepository(selectedWorkspaceId, repoId) : undefined
+            }
+            onRemoveRepo={(repoId) => void removeRepository(repoId)}
+          />
+        ) : (
+          <AllReposView
+            rows={filteredRows}
+            statusByRepo={statusByRepo}
+            selectedRepoId={selectedRepoId}
+            filter={repoFilter}
+            onFilterChange={setRepoFilter}
+            onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
+          />
         )}
-
-        {selectedWorkspaceId && (
-          <section className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={bulkActionPending !== null}
-              onClick={() => runBulkAction("fetch", () => bulkFetch(selectedWorkspaceId))}
-              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-            >
-              {bulkActionPending === "fetch" ? tw("bulk.fetching") : tw("bulk.fetch")}
-            </button>
-            <button
-              type="button"
-              disabled={bulkActionPending !== null}
-              onClick={() => runBulkAction("pull", () => bulkPull(selectedWorkspaceId))}
-              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-            >
-              {bulkActionPending === "pull" ? tw("bulk.pulling") : tw("bulk.pull")}
-            </button>
-            <button
-              type="button"
-              disabled={bulkActionPending !== null}
-              onClick={() => runBulkAction("open-ide", () => bulkOpenInIde(selectedWorkspaceId))}
-              className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-              style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-            >
-              {bulkActionPending === "open-ide" ? tw("bulk.openingIde") : tw("bulk.openIde")}
-            </button>
-            {bulkActionSummary && (
-              <span className="text-sm" style={{ color: "var(--slate)" }}>
-                {bulkActionSummary}
-              </span>
-            )}
-            {bulkActionError && (
-              <span className="text-sm" style={{ color: "var(--rust-ink)" }}>
-                {bulkActionError}
-              </span>
-            )}
-          </section>
-        )}
-
-        {error && (
-          <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
-            {error.includes("not a git repository") ? tw("repositories.notAGitRepository") : error}
-          </p>
-        )}
-
-        <section className="grid gap-3 md:grid-cols-3">
-          {[
-            { label: tw("dashboard.repoCount"), value: totalRepoCount },
-            { label: tw("dashboard.needAttention"), value: needAttentionCount },
-            { label: tw("dashboard.behindOrigin"), value: behindOriginCount },
-          ].map((metric) => (
-            <div
-              key={metric.label}
-              className="rounded border p-4"
-              style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-            >
-              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
-                {metric.label}
-              </p>
-              <p className="mt-2 text-2xl font-medium">{metric.value}</p>
-            </div>
-          ))}
-        </section>
-
-        {flatRepositories.length > 0 && (
-          <section
-            className="rounded border p-3"
-            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">{tw("globalSearch.title")}</h3>
-              <input
-                value={globalSearchQuery}
-                onChange={(event) => setGlobalSearchQuery(event.target.value)}
-                placeholder={tw("globalSearch.placeholder")}
-                className="h-9 min-w-72 rounded border px-3 text-sm outline-none"
-                style={{
-                  borderColor: "var(--hairline)",
-                  background: "var(--page-bg)",
-                  color: "var(--ink)",
-                }}
-              />
-            </div>
-
-            {normalizedGlobalSearchQuery.length >= 2 && (
-              <div className="mt-3">
-                {globalSearchPending && (
-                  <p className="text-sm" style={{ color: "var(--slate)" }}>
-                    {tw("globalSearch.loading")}
-                  </p>
-                )}
-                {globalSearchError && (
-                  <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
-                    {globalSearchError}
-                  </p>
-                )}
-                {!globalSearchPending && !globalSearchError && globalSearchResults.length === 0 && (
-                  <p className="text-sm" style={{ color: "var(--slate)" }}>
-                    {tw("globalSearch.empty")}
-                  </p>
-                )}
-                {globalSearchResults.length > 0 && (
-                  <ul className="max-h-72 overflow-auto">
-                    {globalSearchResults.map((result) => (
-                      <li key={`${result.kind}:${result.repoId}:${result.branch ?? result.commit?.id ?? "repo"}`}>
-                        <button
-                          type="button"
-                          onClick={() => void openGlobalSearchResult(result)}
-                          className="grid w-full grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 rounded px-2 py-2 text-left text-sm"
-                          style={{ background: "transparent", color: "var(--ink)" }}
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">{globalSearchResultTitle(result)}</span>
-                            <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
-                              {globalSearchResultDetail(result)}
-                            </span>
-                          </span>
-                          <span className="truncate text-right text-xs" style={{ color: "var(--slate)" }}>
-                            {tw(`globalSearch.kind.${result.kind}`)}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
-        {flatRepositories.length > 0 && (
-          <section
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault();
-                moveRepositorySelection(1);
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault();
-                moveRepositorySelection(-1);
-              }
-            }}
-            className="rounded border p-3 outline-none focus:border-[var(--fjord)]"
-            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">{tw("allRepositories.title")}</h3>
-              <input
-                value={repoFilter}
-                onChange={(event) => setRepoFilter(event.target.value)}
-                placeholder={tw("allRepositories.filterPlaceholder")}
-                className="h-9 min-w-52 rounded border px-3 text-sm outline-none"
-                style={{
-                  borderColor: "var(--hairline)",
-                  background: "var(--page-bg)",
-                  color: "var(--ink)",
-                }}
-              />
-            </div>
-
-            {filteredRepositories.length === 0 ? (
-              <p className="mt-3 text-sm" style={{ color: "var(--slate)" }}>
-                {tw("allRepositories.empty")}
-              </p>
-            ) : (
-              <ul className="mt-3 max-h-72 overflow-auto">
-                {filteredRepositories.map(({ workspace, repo }) => {
-                  const isSelected = repo.id === selectedRepoId;
-                  const cachedStatus = statusByRepo[repo.id]?.status;
-
-                  return (
-                    <li key={repo.id}>
-                      <button
-                        type="button"
-                        onClick={() => void chooseRepository(workspace.id, repo.id)}
-                        className="grid w-full grid-cols-[minmax(0,1fr)_9rem_7rem] items-center gap-3 rounded px-2 py-2 text-left text-sm"
-                        style={{
-                          background: isSelected ? "var(--fjord-tint)" : "transparent",
-                          color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
-                        }}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{repo.name}</span>
-                          <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
-                            {repo.path}
-                          </span>
-                        </span>
-                        <span className="truncate text-xs" style={{ color: "var(--slate)" }}>
-                          {workspace.name}
-                        </span>
-                        <span className="text-right text-xs" style={{ color: "var(--slate)" }}>
-                          {cachedStatus?.branch ?? tw("dashboard.unknown")}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        )}
-
-        {workspaces.length === 0 && (
-          <p className="text-sm" style={{ color: "var(--slate)" }}>
-            {tw("workspaces.empty")}
-          </p>
-        )}
-
-        <section className="flex flex-col gap-5">
-          {workspaces.map((workspace) => {
-            const groupedRepositories = repositoriesByWorkspace[workspace.id] ?? [];
-
-            return (
-              <div key={workspace.id} className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="truncate text-sm font-medium">{workspace.name}</h3>
-                  <span className="text-xs" style={{ color: "var(--mist)" }}>
-                    {tw("dashboard.repoCountValue", { count: groupedRepositories.length })}
-                  </span>
-                </div>
-
-                {groupedRepositories.length === 0 ? (
-                  <p className="text-sm" style={{ color: "var(--slate)" }}>
-                    {tw("repositories.empty")}
-                  </p>
-                ) : (
-                  <ul className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
-                    {groupedRepositories.map((repo) => {
-                      const cachedStatus = statusByRepo[repo.id]?.status;
-                      const isSelected = repo.id === selectedRepoId;
-
-                      return (
-                        <li
-                          key={repo.id}
-                          className="rounded border p-3"
-                          style={{
-                            borderColor: isSelected ? "var(--fjord)" : "var(--hairline)",
-                            background: isSelected ? "var(--fjord-tint)" : "var(--paper)",
-                          }}
-                        >
-                          <div className="flex items-start gap-3">
-                            <button
-                              type="button"
-                              onClick={() => void chooseRepository(workspace.id, repo.id)}
-                              className="min-w-0 flex-1 text-left"
-                            >
-                              <span className="block truncate text-sm font-medium">{repo.name}</span>
-                              <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
-                                {repo.path}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void removeTrackedRepository(repo.id)}
-                              className="h-8 shrink-0 rounded border px-2 text-xs"
-                              style={{
-                                borderColor: "var(--rust)",
-                                background: "var(--paper)",
-                                color: "var(--rust-ink)",
-                              }}
-                            >
-                              {tw("repositories.removeButton")}
-                            </button>
-                          </div>
-
-                          <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.branch")}</dt>
-                              <dd className="truncate">{cachedStatus?.branch ?? tw("dashboard.unknown")}</dd>
-                            </div>
-                            <div>
-                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.dirty")}</dt>
-                              <dd>{cachedStatus?.dirtyCount ?? 0}</dd>
-                            </div>
-                            <div>
-                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.behind")}</dt>
-                              <dd>{cachedStatus?.behind ?? 0}</dd>
-                            </div>
-                            <div>
-                              <dt style={{ color: "var(--mist)" }}>{tw("dashboard.ahead")}</dt>
-                              <dd>{cachedStatus?.ahead ?? 0}</dd>
-                            </div>
-                          </dl>
-                          {cachedStatus?.hasConflict && (
-                            <p className="mt-2 text-xs font-medium" style={{ color: "var(--rust-ink)" }}>
-                              {tw("repoStatus.conflict")}
-                            </p>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
-        </section>
-
-        {selectedRepoId && (
-          <div className="flex min-w-0 flex-col gap-4">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={repoActionPending !== null}
-                onClick={() => runRepoAction("fetch", () => fetchRepo(selectedRepoId))}
-                className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-              >
-                {repoActionPending === "fetch" ? tw("repoActions.fetching") : tw("repoActions.fetch")}
-              </button>
-              <button
-                type="button"
-                disabled={repoActionPending !== null}
-                onClick={() => runRepoAction("pull", () => pullRepo(selectedRepoId))}
-                className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-              >
-                {repoActionPending === "pull" ? tw("repoActions.pulling") : tw("repoActions.pull")}
-              </button>
-              <button
-                type="button"
-                disabled={repoActionPending !== null}
-                onClick={() => runRepoAction("push", () => pushRepo(selectedRepoId))}
-                className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-              >
-                {repoActionPending === "push" ? tw("repoActions.pushing") : tw("repoActions.push")}
-              </button>
-              <button
-                type="button"
-                disabled={repoActionPending !== null}
-                onClick={() => runRepoAction("open-ide", () => openInIde(selectedRepoId))}
-                className="h-9 rounded border px-3 text-sm disabled:opacity-60"
-                style={{ borderColor: "var(--hairline)", background: "var(--paper)", color: "var(--ink)" }}
-              >
-                {repoActionPending === "open-ide" ? tw("repoActions.openingIde") : tw("repoActions.openIde")}
-              </button>
-            </div>
-            {repoActionError && (
-              <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
-                {repoActionError}
-              </p>
-            )}
-            {repoStatusError && (
-              <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
-                {repoStatusError}
-              </p>
-            )}
-            {repoStatus?.hasConflict && (
-              <div
-                className="flex max-w-2xl items-center justify-between gap-3 rounded border p-3 text-sm"
-                style={{ borderColor: "var(--rust)", background: "var(--rust-tint)", color: "var(--rust-ink)" }}
-              >
-                <span>{tw("repoStatus.conflict")}</span>
-                <button
-                  type="button"
-                  disabled={repoActionPending !== null}
-                  onClick={() => runRepoAction("merge-tool", () => openMergeTool(selectedRepoId))}
-                  className="h-8 shrink-0 rounded border px-2 text-xs disabled:opacity-60"
-                  style={{ borderColor: "var(--rust)", background: "var(--paper)", color: "var(--rust-ink)" }}
-                >
-                  {repoActionPending === "merge-tool"
-                    ? tw("repoStatus.openingMergeTool")
-                    : tw("repoStatus.openMergeTool")}
-                </button>
-              </div>
-            )}
-            <BranchesPanel
-              key={`${selectedRepoId}:${repoVersion}:branches`}
-              repoId={selectedRepoId}
-              onCheckout={(branch) => runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch))}
-            />
-            <CommitGraph
-              key={`${selectedRepoId}:${repoVersion}:commits`}
-              repoId={selectedRepoId}
-              selectedCommitId={selectedCommit?.id ?? null}
-              onSelectCommit={(commit) => setSelectedCommit(commit.id === selectedCommit?.id ? null : commit)}
-            />
-            {selectedCommit && <CommitInspector repoId={selectedRepoId} commit={selectedCommit} />}
-          </div>
-        )}
-      </section>
+      </main>
 
       {paletteOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-20"
-          style={{ background: "rgba(0, 0, 0, 0.35)" }}
-          onMouseDown={() => setPaletteOpen(false)}
-        >
-          <div
-            className="w-full max-w-2xl rounded border shadow-xl"
-            style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <input
-              autoFocus
-              value={paletteQuery}
-              onChange={(event) => setPaletteQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setPaletteOpen(false);
-                }
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setPaletteIndex((index) => Math.min(index + 1, Math.max(visiblePaletteItems.length - 1, 0)));
-                }
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setPaletteIndex((index) => Math.max(index - 1, 0));
-                }
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void runPaletteItem(visiblePaletteItems[paletteIndex]);
-                }
-              }}
-              placeholder={tw("commandPalette.placeholder")}
-              className="h-12 w-full border-b px-4 text-sm outline-none"
-              style={{
-                borderColor: "var(--hairline)",
-                background: "var(--paper)",
-                color: "var(--ink)",
-              }}
-            />
-            {paletteItems.length === 0 ? (
-              <p className="p-4 text-sm" style={{ color: "var(--slate)" }}>
-                {tw("commandPalette.empty")}
-              </p>
-            ) : (
-              <ul className="max-h-96 overflow-auto p-2">
-                {visiblePaletteItems.map((item, index) => {
-                  const isSelected = index === paletteIndex;
-
-                  return (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onMouseEnter={() => setPaletteIndex(index)}
-                        onClick={() => void runPaletteItem(item)}
-                        className="grid w-full grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 rounded px-3 py-2 text-left text-sm"
-                        style={{
-                          background: isSelected ? "var(--fjord-tint)" : "transparent",
-                          color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
-                        }}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{item.label}</span>
-                          <span className="block truncate text-xs" style={{ color: "var(--mist)" }}>
-                            {item.detail}
-                          </span>
-                        </span>
-                        <span className="truncate text-right text-xs" style={{ color: "var(--slate)" }}>
-                          {item.kind}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
+        <CommandPalette
+          items={paletteItems}
+          remoteItems={remotePaletteItems}
+          query={paletteQuery}
+          onQueryChange={setPaletteQuery}
+          onClose={() => setPaletteOpen(false)}
+        />
       )}
-    </main>
+
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+    </div>
   );
 }
