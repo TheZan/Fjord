@@ -55,7 +55,7 @@ Goal: the details that make it feel finished, then ship it.
 - [x] **P3-02** — Global search across repositories, branches, and commits. Works, but scans repositories sequentially — parallelization tracked as P4-13.
 - [x] **P3-03** — Packaging and code signing for Windows, macOS, and Linux; update channel. GitHub Actions release workflow builds signed draft releases, injects updater config from secrets, and creates updater artifacts/signatures; operational certificate setup is documented in [`release.md`](release.md).
 - [x] **P3-04** — First-run / onboarding flow (add your first workspace, import existing repositories from disk).
-- [ ] **P3-05** — `CONTRIBUTING.md`, issue templates, and the public release checklist.
+- [x] **P3-05** — `CONTRIBUTING.md`, issue templates, and the public release checklist.
 
 ## Phase 4 — Hardening & tech debt
 

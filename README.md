@@ -61,7 +61,7 @@ Detailed task-level status lives in [`docs/tasks.md`](docs/tasks.md); architectu
 
 ## Contributing
 
-Fjord isn't taking external contributions yet — the foundations are still being built. Once there's a working skeleton, this section will cover setup and how to pick up an issue. Star or watch the repository if you'd like to be around for that.
+Fjord is early, but contributions and issue reports are welcome when they are small and focused. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local setup, checks, and how to pick up work from the task board.
 
 ## License
 

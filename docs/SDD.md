@@ -15,7 +15,7 @@ Status markers used throughout this document:
 - ⚠️ — partially implemented, or the implementation diverges from the target described here.
 - 🚧 — planned / designed but not implemented yet.
 
-**Implementation snapshot (2026-08):** Phases 0–2 are implemented. Phase 3 is mostly done (command palette, global search, packaging pipeline, onboarding). See §12 and [`tasks.md`](tasks.md).
+**Implementation snapshot (2026-08):** Phases 0–3 are implemented through the release-readiness checklist. See §12 and [`tasks.md`](tasks.md).
 
 ## 1. Vision
 
@@ -237,7 +237,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 0 — Foundation (workspace scaffold, ports, git/db adapters, shell, theming, i18n, IPC pattern, bench harness, CI) | ✅ done |
 | Phase 1 — Single-repo core (branches, graph, inspector, diff, mutations, push, conflicts, benchmark) | ✅ done |
 | Phase 2 — Workspace layer (CRUD, status cache, dashboard, list-detail, bulk ops, IDE launcher, benchmark) | ✅ done |
-| Phase 3 — Polish and release | ⚠️ partial: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`) done; contributor docs (`P3-05`) open |
+| Phase 3 — Polish and release | ✅ done through release readiness: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`), contributor docs and public release checklist (`P3-05`) |
 | Phase 4 — Hardening & tech debt (2026-08 audit) | 🚧 open; see [`tasks.md`](tasks.md) §Phase 4 |
 
 Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (data fetching §6.1, type generation §6.1, virtualization §5.3, CSP §9, logging §10, CI §5.4).

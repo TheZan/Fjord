@@ -68,3 +68,22 @@ cargo test --workspace
 ```
 
 The release workflow repeats the packaging step on Windows, macOS, and Linux.
+
+## Public release checklist
+
+Before publishing a draft release:
+
+- Confirm every item in `docs/tasks.md` Phase 3 is closed or deliberately
+  deferred in the release notes.
+- Re-run the local verification commands above from a clean checkout.
+- Trigger the `Release` workflow and verify Windows, macOS, and Linux artifacts
+  are attached to the draft GitHub Release.
+- Install the generated artifacts on at least one machine per supported OS.
+- Verify first-run onboarding, workspace creation, repository import, status
+  refresh, branch checkout, fetch/pull/push, and external IDE launch.
+- Verify the updater manifest (`latest.json`) is attached and every platform
+  entry has a URL and signature.
+- Write release notes with known limitations, especially unsigned Linux package
+  repository status and any unavailable distribution channels.
+- Publish the release only after the app starts without terminal output or
+  developer tooling on all supported OSes.
