@@ -107,7 +107,7 @@ Two different performance problems, both real: (1) one huge repo — big working
 
 Approach, item by item:
 
-- ✅ **Incremental status, not full rescans.** `fjord-fs` watches working trees via `notify` and invalidates only the affected repo's cached status. ⚠️ Known limitation: the current `RepoEventWatcher` watches the repo root non-recursively plus `.git` recursively — edits deeper in the working tree do not trigger invalidation, and debouncing lives in `WorkspaceService` rather than in the watcher itself (tracked as `P4-15`).
+- ✅ **Incremental status, not full rescans.** `fjord-fs` watches each working tree recursively via `notify` and invalidates only the affected repo's cached status. Events under generated directories (`target/`, `node_modules/`, ...) and the `.git` object store are filtered out, and bursts are debounced inside the watcher (300 ms quiet window, 5 s max delay) — a rebase or an `npm install` produces one invalidation, not a storm (`P4-15`). A second debounce layer in `WorkspaceService` coalesces refresh scheduling.
 - ✅ **A status/summary cache in SQLite.** The dashboard reads from `repo_status_cache`, refreshed asynchronously per-repo; the read path is a single `LEFT JOIN` (no N+1). The UI always shows "status as of last refresh, refreshing in background" rather than blocking on the slowest repo.
 - ✅ **Bulk operations run concurrently**, bounded by a worker pool (Tokio `Semaphore` + `JoinSet`, currently 6 concurrent) — "Pull all" on 24 repos takes roughly as long as the slowest one, not the sum.
 - ✅ **gix for the hot read paths** (status, diff, log) — avoids libgit2's process-wide locking and is competitive-to-faster on large trees.

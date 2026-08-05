@@ -68,15 +68,11 @@ impl AppState {
         }
 
         let workspaces = self.workspaces.clone();
-        // Avoid recursive working-tree watches here: large repos can contain
-        // build outputs such as `target/` or `node_modules/`, and Windows can
-        // exhaust memory while the app is still booting. The cache also
-        // refreshes on dashboard reads, so this watcher is an incremental hint.
-        let watcher = RepoEventWatcher::watch_git_metadata(&repo.path, move |event| {
-            if event.is_err() {
-                return;
-            }
-
+        // Recursive working-tree watch with generated-directory filtering
+        // and debouncing inside fjord-fs (docs/tasks.md P4-15) — edits below
+        // the repo root invalidate the cache, while `target/`/`node_modules/`
+        // churn and event storms are absorbed before they reach us.
+        let watcher = RepoEventWatcher::watch_repository(&repo.path, move || {
             let workspaces = workspaces.clone();
             tauri::async_runtime::spawn(async move {
                 workspaces.schedule_repo_status_refresh(repo_id, true);
