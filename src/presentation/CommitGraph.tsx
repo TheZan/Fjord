@@ -34,6 +34,7 @@ function formatAuthoredAt(value: string, locale: string): string {
 
 export function CommitGraph({
   repoId,
+  currentBranch,
   selectedCommitId,
   onSelectCommit,
   workingFileCount = 0,
@@ -41,6 +42,7 @@ export function CommitGraph({
   onSelectWorking,
 }: {
   repoId: string;
+  currentBranch?: string | null;
   selectedCommitId?: string | null;
   onSelectCommit?: (commit: CommitSummary) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
@@ -118,6 +120,7 @@ export function CommitGraph({
                 row={row}
                 gutterWidth={gutterWidth}
                 locale={i18n.language}
+                currentBranch={currentBranch ?? null}
                 selected={row.commit.id === selectedCommitId}
                 onSelect={onSelectCommit}
               />
@@ -204,12 +207,14 @@ function CommitRow({
   row,
   gutterWidth,
   locale,
+  currentBranch,
   selected,
   onSelect,
 }: {
   row: GraphRow;
   gutterWidth: number;
   locale: string;
+  currentBranch: string | null;
   selected: boolean;
   onSelect?: (commit: CommitSummary) => void;
 }) {
@@ -217,6 +222,7 @@ function CommitRow({
   const midY = ROW_HEIGHT / 2;
   const cx = laneX(lane);
   const laneVisible = lane < MAX_VISIBLE_LANES;
+  const refs = visibleCommitRefs(commit.refs, currentBranch);
 
   return (
     <button
@@ -283,8 +289,22 @@ function CommitRow({
         )}
       </svg>
 
-      <span className="truncate" style={{ color: "var(--ink)" }}>
-        {commit.message.split("\n")[0]}
+      <span className="flex min-w-0 items-center gap-2">
+        {refs.length > 0 && (
+          <span className="flex min-w-0 shrink-0 items-center gap-1">
+            {refs.slice(0, 3).map((ref) => (
+              <RefBadge key={ref.original} label={ref.label} active={ref.active} />
+            ))}
+            {refs.length > 3 && (
+              <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px]" style={{ color: "var(--mist)" }}>
+                +{refs.length - 3}
+              </span>
+            )}
+          </span>
+        )}
+        <span className="min-w-0 truncate" style={{ color: "var(--ink)" }}>
+          {commit.message.split("\n")[0]}
+        </span>
       </span>
       <span className="shrink-0 truncate text-xs" style={{ color: "var(--slate)", maxWidth: "8rem" }}>
         {commit.authorName}
@@ -294,4 +314,43 @@ function CommitRow({
       </span>
     </button>
   );
+}
+
+function RefBadge({ label, active }: { label: string; active: boolean }) {
+  return (
+    <span
+      className="inline-flex h-[18px] max-w-36 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] font-medium"
+      style={{
+        background: active ? "var(--fjord)" : "var(--fjord-tint)",
+        color: active ? "white" : "var(--fjord-ink)",
+      }}
+      title={label}
+    >
+      {active && <span aria-hidden="true">✓</span>}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+function visibleCommitRefs(refs: string[], currentBranch: string | null) {
+  const byLabel = new Map<string, { original: string; label: string; active: boolean }>();
+  for (const ref of refs) {
+    const label = displayRefName(ref);
+    if (label === null) continue;
+    const active = currentBranch !== null && ref === currentBranch;
+    const existing = byLabel.get(label);
+    if (!existing || active || existing.original.startsWith("origin/")) {
+      byLabel.set(label, { original: ref, label, active });
+    }
+  }
+  return [...byLabel.values()].sort((a, b) => Number(b.active) - Number(a.active));
+}
+
+function displayRefName(ref: string) {
+  if (ref === "origin/HEAD") return null;
+  if (ref.startsWith("origin/")) {
+    const local = ref.slice("origin/".length);
+    return local === "HEAD" || local.trim() === "" ? null : local;
+  }
+  return ref;
 }

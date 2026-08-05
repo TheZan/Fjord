@@ -152,6 +152,7 @@ export function RepoDetailView({
             <div className="h-full min-h-0">
               <CommitGraph
                 repoId={repo.id}
+                currentBranch={status?.branch ?? null}
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={onSelectCommit}
                 workingFileCount={workingFileCount}

@@ -17,7 +17,7 @@ use fjord_domain::{
 };
 use fjord_ports::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{Cred, ErrorCode, IndexAddOption, PushOptions, RemoteCallbacks, StashFlags};
+use git2::{Cred, ErrorCode, IndexAddOption, Oid, PushOptions, RemoteCallbacks, Sort, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -522,6 +522,57 @@ impl GixGitBackend {
         Some((remote_name, local_name))
     }
 
+    fn collect_commit_refs(git: &git2::Repository) -> Result<HashMap<Oid, Vec<String>>, GitError> {
+        let mut refs_by_commit: HashMap<Oid, Vec<String>> = HashMap::new();
+        let references = git.references().map_err(Self::map_git2_error)?;
+
+        for reference in references {
+            let reference = reference.map_err(Self::map_git2_error)?;
+            let name = reference.name().map_err(Self::map_git2_error)?;
+            if name == "refs/remotes/origin/HEAD" || !Self::is_visible_refname(name) {
+                continue;
+            }
+            let commit = reference.peel_to_commit().map_err(Self::map_git2_error)?;
+            refs_by_commit
+                .entry(commit.id())
+                .or_default()
+                .push(Self::short_refname(name).to_string());
+        }
+
+        for refs in refs_by_commit.values_mut() {
+            refs.sort_by(|a, b| Self::ref_sort_key(a).cmp(&Self::ref_sort_key(b)));
+            refs.dedup();
+        }
+
+        Ok(refs_by_commit)
+    }
+
+    fn is_visible_refname(name: &str) -> bool {
+        name.starts_with("refs/heads/")
+            || name.starts_with("refs/remotes/")
+            || name.starts_with("refs/tags/")
+    }
+
+    fn short_refname(name: &str) -> &str {
+        name.strip_prefix("refs/heads/")
+            .or_else(|| name.strip_prefix("refs/remotes/"))
+            .or_else(|| name.strip_prefix("refs/tags/"))
+            .unwrap_or(name)
+    }
+
+    fn ref_sort_key(name: &str) -> (u8, &str) {
+        if name.starts_with("origin/") {
+            (1, name)
+        } else {
+            (0, name)
+        }
+    }
+
+    fn log_offset(from: Option<LogCursor>) -> usize {
+        from.and_then(|cursor| cursor.0.strip_prefix("offset:")?.parse().ok())
+            .unwrap_or(0)
+    }
+
     /// An owned signature. `Repository::signature` borrows the repo, which
     /// deadlocks the borrow checker against the `&mut Repository` the stash
     /// APIs require — so read the identity out and rebuild it detached.
@@ -811,60 +862,55 @@ impl GitBackend for GixGitBackend {
         let repo = repo.clone();
         let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            let git = Self::open(&repo)?;
+            let git = Self::open_git2(&repo)?;
+            let mut refs_by_commit = Self::collect_commit_refs(&git)?;
+            let offset = Self::log_offset(from);
 
-            let start = match from {
-                Some(cursor) => gix::ObjectId::from_hex(cursor.0.as_bytes())
-                    .map_err(|e| GitError::Gix(e.to_string()))?,
-                None => git
-                    .head_id()
-                    .map_err(|e| GitError::Gix(e.to_string()))?
-                    .detach(),
-            };
+            let mut walk = git.revwalk().map_err(Self::map_git2_error)?;
+            walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
+                .map_err(Self::map_git2_error)?;
+            for glob in ["refs/heads/*", "refs/remotes/*", "refs/tags/*"] {
+                walk.push_glob(glob).map_err(Self::map_git2_error)?;
+            }
+            if git.references().map_err(Self::map_git2_error)?.count() == 0 {
+                walk.push_head().map_err(Self::map_git2_error)?;
+            }
 
-            let walk = git
-                .rev_walk(Some(start))
-                .all()
-                .map_err(|e| GitError::Gix(e.to_string()))?;
-
+            let ids = walk
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Self::map_git2_error)?;
             let mut commits = Vec::new();
-            let mut next_cursor = None;
+            let limit = limit as usize;
 
-            for (i, info) in walk.enumerate() {
-                if i as u32 >= limit {
-                    if let Ok(info) = info {
-                        next_cursor = Some(LogCursor(info.id.to_string()));
-                    }
-                    break;
-                }
-                let info = info.map_err(|e| GitError::Gix(e.to_string()))?;
-                let commit = info.object().map_err(|e| GitError::Gix(e.to_string()))?;
-                let decoded = commit.decode().map_err(|e| GitError::Gix(e.to_string()))?;
-                let author = decoded.author().map_err(|e| GitError::Gix(e.to_string()))?;
+            for id in ids.iter().skip(offset).take(limit) {
+                let commit = git.find_commit(*id).map_err(Self::map_git2_error)?;
+                let author = commit.author();
 
                 commits.push(CommitSummary {
-                    id: CommitId(info.id.to_string()),
-                    parent_ids: info
-                        .parent_ids
-                        .iter()
+                    id: CommitId(id.to_string()),
+                    parent_ids: commit
+                        .parent_ids()
                         .map(|id| CommitId(id.to_string()))
                         .collect(),
-                    message: String::from_utf8_lossy(decoded.message).into_owned(),
-                    author_name: author.name.to_string(),
-                    author_email: author.email.to_string(),
-                    authored_at: OffsetDateTime::from_unix_timestamp(author.seconds())
+                    message: commit.message().unwrap_or("").to_string(),
+                    author_name: author.name().unwrap_or("").to_string(),
+                    author_email: author.email().unwrap_or("").to_string(),
+                    authored_at: OffsetDateTime::from_unix_timestamp(author.when().seconds())
                         .unwrap_or(OffsetDateTime::UNIX_EPOCH),
-                    refs: Vec::new(),
+                    refs: refs_by_commit.remove(id).unwrap_or_default(),
                 });
             }
 
+            let next_offset = offset.saturating_add(commits.len());
+            let next_cursor =
+                (next_offset < ids.len()).then(|| LogCursor(format!("offset:{next_offset}")));
             Ok(CommitPage {
                 commits,
                 next_cursor,
             })
         })
         .await
-        .map_err(|e| GitError::Gix(e.to_string()))?
+        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
@@ -1583,6 +1629,39 @@ mod tests {
         let backend = GixGitBackend::new();
         let page = backend.log(&this_repo_path(), None, 5).await.unwrap();
         assert!(!page.commits.is_empty());
+    }
+
+    #[tokio::test]
+    async fn log_includes_commits_from_non_current_branches_with_refs() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "main\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+        backend
+            .create_branch(&repo_path, "feature", true)
+            .await
+            .unwrap();
+        write_file(&repo_path, "README.md", "feature\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let feature_oid = backend.commit(&repo_path, "Feature tip").await.unwrap();
+        backend.checkout(&repo_path, "main").await.unwrap();
+
+        let page = backend.log(&repo_path, None, 20).await.unwrap();
+        let feature = page
+            .commits
+            .iter()
+            .find(|commit| commit.id.0 == feature_oid)
+            .expect("log should include non-current branch tip");
+
+        assert!(feature.refs.iter().any(|name| name == "feature"));
     }
 
     #[tokio::test]
