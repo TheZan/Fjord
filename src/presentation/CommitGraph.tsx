@@ -90,10 +90,6 @@ export function CommitGraph({
   const visibleLoading = searchActive ? search.loading : loading;
   const visibleError = searchActive ? search.error : error;
   const { rows, laneCount, computing: layoutComputing } = useGraphLayout(visibleCommits);
-  const selectedPath = useMemo(
-    () => firstParentPath(visibleCommits, selectedCommitId ?? null),
-    [selectedCommitId, visibleCommits],
-  );
   const branchByName = useMemo(() => {
     const byName = new Map<string, BranchInfo>();
     for (const branch of branches) {
@@ -312,8 +308,6 @@ export function CommitGraph({
                   tagNames={tagNames}
                   tagsByCommit={tagsByCommit}
                   selected={row.commit.id === selectedCommitId}
-                  pathHighlighted={selectedPath.has(row.commit.id)}
-                  pathDimmed={selectedPath.size > 0 && !selectedPath.has(row.commit.id)}
                   focusable={
                     row.commit.id === selectedCommitId ||
                     (selectedCommitId == null && virtualRow.index === 0)
@@ -562,8 +556,6 @@ function CommitRow({
   tagNames,
   tagsByCommit,
   selected,
-  pathHighlighted,
-  pathDimmed,
   focusable,
   onSelect,
   onNavigate,
@@ -580,8 +572,6 @@ function CommitRow({
   tagNames: Set<string>;
   tagsByCommit: Map<string, TagInfo[]>;
   selected: boolean;
-  pathHighlighted: boolean;
-  pathDimmed: boolean;
   focusable: boolean;
   onSelect?: (commit: CommitSummary) => void;
   onNavigate?: (
@@ -643,7 +633,6 @@ function CommitRow({
         }
       }}
       data-selected={selected}
-      data-path-highlighted={pathHighlighted}
       className="interactive-row grid w-full items-center gap-3 border-b px-2 text-left last:border-b-0"
       style={{
         borderColor: "var(--hairline)",
@@ -652,7 +641,7 @@ function CommitRow({
         cursor: onSelect ? "pointer" : undefined,
       }}
     >
-      <span className="flex min-w-0 items-center gap-1" style={{ opacity: pathDimmed ? 0.72 : 1 }}>
+      <span className="flex min-w-0 items-center gap-1">
         {refs.slice(0, 3).map((ref) => (
           <RefBadge key={ref.original} refInfo={ref} onCheckout={onCheckout} />
         ))}
@@ -670,8 +659,6 @@ function CommitRow({
         style={{
           flexShrink: 0,
           overflow: "hidden",
-          opacity: pathDimmed ? 0.3 : 1,
-          transition: "opacity 120ms ease",
         }}
       >
         {row.passthroughLanes
@@ -684,14 +671,14 @@ function CommitRow({
               x2={laneX(l)}
               y2={ROW_HEIGHT}
               stroke={laneColor(l)}
-              strokeWidth={pathHighlighted ? 2 : 1.35}
+              strokeWidth={1.5}
             />
           ))}
         {laneVisible && row.hasLineAbove && (
-          <line x1={cx} y1={0} x2={cx} y2={midY} stroke={laneColor(lane)} strokeWidth={pathHighlighted ? 2 : 1.35} />
+          <line x1={cx} y1={0} x2={cx} y2={midY} stroke={laneColor(lane)} strokeWidth={1.5} />
         )}
         {laneVisible && row.hasLineBelow && (
-          <line x1={cx} y1={midY} x2={cx} y2={ROW_HEIGHT} stroke={laneColor(lane)} strokeWidth={pathHighlighted ? 2 : 1.35} />
+          <line x1={cx} y1={midY} x2={cx} y2={ROW_HEIGHT} stroke={laneColor(lane)} strokeWidth={1.5} />
         )}
         {laneVisible &&
           row.convergingLanes
@@ -701,7 +688,7 @@ function CommitRow({
                 key={`conv-${l}`}
                 d={`M${laneX(l)} 0 C ${laneX(l)} ${midY / 2}, ${cx} ${midY / 2}, ${cx} ${midY}`}
                 stroke={laneColor(lane)}
-                strokeWidth={pathHighlighted ? 2 : 1.35}
+                strokeWidth={1.5}
                 fill="none"
               />
             ))}
@@ -713,22 +700,22 @@ function CommitRow({
                 key={`div-${l}`}
                 d={`M${cx} ${midY} C ${cx} ${(midY + ROW_HEIGHT) / 2}, ${laneX(l)} ${(midY + ROW_HEIGHT) / 2}, ${laneX(l)} ${ROW_HEIGHT}`}
                 stroke={laneColor(l)}
-                strokeWidth={pathHighlighted ? 2 : 1.35}
+                strokeWidth={1.5}
                 fill="none"
               />
             ))}
         {laneVisible ? (
-          <LaneNode lane={lane} cx={cx} cy={midY} selected={selected} highlighted={pathHighlighted} />
+          <LaneNode lane={lane} cx={cx} cy={midY} selected={selected} />
         ) : null}
       </svg>
 
-      <span className="min-w-0 truncate" style={{ color: "var(--ink)", opacity: pathDimmed ? 0.72 : 1 }}>
+      <span className="min-w-0 truncate" style={{ color: "var(--ink)" }}>
         {commit.message.split("\n")[0]}
       </span>
-      <span className="shrink-0 truncate text-xs" style={{ color: "var(--slate)", maxWidth: "8rem", opacity: pathDimmed ? 0.68 : 1 }}>
+      <span className="shrink-0 truncate text-xs" style={{ color: "var(--slate)", maxWidth: "8rem" }}>
         {commit.authorName}
       </span>
-      <span className="shrink-0 font-mono text-xs tabular-nums" style={{ color: "var(--mist)", opacity: pathDimmed ? 0.68 : 1 }}>
+      <span className="shrink-0 font-mono text-xs tabular-nums" style={{ color: "var(--mist)" }}>
         {formatAuthoredAt(commit.authoredAt, locale)} · {commit.id.slice(0, 7)}
       </span>
     </div>
@@ -836,8 +823,6 @@ const MemoizedCommitRow = memo(CommitRow, (previous, next) =>
   previous.tagNames === next.tagNames &&
   previous.tagsByCommit === next.tagsByCommit &&
   previous.selected === next.selected &&
-  previous.pathHighlighted === next.pathHighlighted &&
-  previous.pathDimmed === next.pathDimmed &&
   previous.focusable === next.focusable &&
   previous.ariaLabel === next.ariaLabel,
 );
@@ -847,16 +832,14 @@ function LaneNode({
   cx,
   cy,
   selected,
-  highlighted,
 }: {
   lane: number;
   cx: number;
   cy: number;
   selected: boolean;
-  highlighted: boolean;
 }) {
   const color = laneColor(lane);
-  const size = highlighted ? 3.5 : 3;
+  const size = 3;
   const shape = lane % 4;
 
   return (
@@ -942,18 +925,6 @@ function groupTagsByCommit(tags: TagInfo[]) {
     byCommit.set(tag.targetCommitId, list);
   }
   return byCommit;
-}
-
-function firstParentPath(commits: CommitSummary[], selectedCommitId: string | null) {
-  const path = new Set<string>();
-  if (!selectedCommitId) return path;
-  const commitsById = new Map(commits.map((commit) => [commit.id, commit]));
-  let current = commitsById.get(selectedCommitId);
-  while (current && !path.has(current.id)) {
-    path.add(current.id);
-    current = current.parentIds[0] ? commitsById.get(current.parentIds[0]) : undefined;
-  }
-  return path;
 }
 
 function normalizeRefName(ref: string) {
