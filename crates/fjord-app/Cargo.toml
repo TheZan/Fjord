@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+updater = []
+
 [dependencies]
 fjord-domain.workspace = true
 fjord-ports.workspace = true

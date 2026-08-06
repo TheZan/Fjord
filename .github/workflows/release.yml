@@ -19,13 +19,13 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
-            args: ""
+            args: "--features updater"
           - platform: windows-latest
-            args: ""
+            args: "--features updater"
           - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            args: "--target x86_64-apple-darwin --features updater"
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
+            args: "--target aarch64-apple-darwin --features updater"
 
     runs-on: ${{ matrix.platform }}
 

@@ -23,9 +23,11 @@ Do not commit either key. Save the public key in the repository secret
 `TAURI_SIGNING_PRIVATE_KEY`; if the key is password-protected, save the password
 in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
 
-Release builds inject the updater configuration into `src-tauri/tauri.conf.json`
-at CI time and create updater artifacts plus signatures. The published update
-manifest endpoint is:
+CI release builds inject the updater configuration into
+`src-tauri/tauri.conf.json`, enable the Cargo `updater` feature, and create
+updater artifacts plus signatures. Local `npm run tauri build` packages omit the
+updater plugin unless you explicitly provide the same configuration and build
+with `--features updater`. The published update manifest endpoint is:
 
 ```text
 https://github.com/TheZan/Fjord/releases/latest/download/latest.json
