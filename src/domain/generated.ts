@@ -25,7 +25,7 @@ export type SearchResultKind = "repository" | "branch" | "commit";
 
 export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId, workspaceId: WorkspaceId, repoName: string, repoPath: string, branch: string | null, commit: CommitSummary | null, };
 
-export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, };
+export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, targetCommitId: CommitId, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };
 

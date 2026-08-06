@@ -696,6 +696,7 @@ mod tests {
                 is_current: true,
                 is_remote: false,
                 upstream: None,
+                target_commit_id: CommitId("abc123".into()),
             }])
         }
         async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {

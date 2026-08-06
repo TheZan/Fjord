@@ -135,6 +135,7 @@ pub struct BranchInfo {
     pub is_current: bool,
     pub is_remote: bool,
     pub upstream: Option<String>,
+    pub target_commit_id: CommitId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

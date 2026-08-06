@@ -826,13 +826,17 @@ impl GitBackend for GixGitBackend {
                 .local_branches()
                 .map_err(|e| GitError::Gix(e.to_string()))?
             {
-                let branch = branch.map_err(|e| GitError::Gix(e.to_string()))?;
+                let mut branch = branch.map_err(|e| GitError::Gix(e.to_string()))?;
                 let name = branch.name().shorten().to_string();
+                let target = branch
+                    .peel_to_commit()
+                    .map_err(|e| GitError::Gix(e.to_string()))?;
                 out.push(BranchInfo {
                     is_current: Some(&name) == current.as_ref(),
                     name,
                     is_remote: false,
                     upstream: None,
+                    target_commit_id: CommitId(target.id().to_string()),
                 });
             }
 
@@ -840,7 +844,7 @@ impl GitBackend for GixGitBackend {
                 .remote_branches()
                 .map_err(|e| GitError::Gix(e.to_string()))?
             {
-                let branch = branch.map_err(|e| GitError::Gix(e.to_string()))?;
+                let mut branch = branch.map_err(|e| GitError::Gix(e.to_string()))?;
                 let name = branch.name().shorten().to_string();
                 if name
                     .split_once('/')
@@ -848,11 +852,15 @@ impl GitBackend for GixGitBackend {
                 {
                     continue;
                 }
+                let target = branch
+                    .peel_to_commit()
+                    .map_err(|e| GitError::Gix(e.to_string()))?;
                 out.push(BranchInfo {
                     name,
                     is_current: false,
                     is_remote: true,
                     upstream: None,
+                    target_commit_id: CommitId(target.id().to_string()),
                 });
             }
 
@@ -1624,6 +1632,7 @@ mod tests {
         let backend = GixGitBackend::new();
         let branches = backend.branches(&this_repo_path()).await.unwrap();
         assert!(branches.iter().any(|b| b.is_current));
+        assert!(branches.iter().all(|b| !b.target_commit_id.0.is_empty()));
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ import { useCommitLog } from "@/application/useCommitLog";
 import { useCommitSearch } from "@/application/useCommitSearch";
 import { useTags } from "@/application/useTags";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
-import type { CommitSummary } from "@/domain/git";
+import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 
 const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
 const LANE_PITCH = 14;
@@ -75,8 +75,17 @@ export function CommitGraph({
   // Lane assignment is O(commits × lanes) — memoized so unrelated state
   // changes (selection, loading flags) don't recompute the whole layout.
   const { rows, laneCount } = useMemo(() => computeGraphLayout(visibleCommits), [visibleCommits]);
-  const branchByName = useMemo(() => new Map(branches.map((branch) => [branch.name, branch])), [branches]);
+  const branchByName = useMemo(() => {
+    const byName = new Map<string, BranchInfo>();
+    for (const branch of branches) {
+      byName.set(branch.name, branch);
+      byName.set(fullBranchRefName(branch), branch);
+    }
+    return byName;
+  }, [branches]);
+  const branchesByCommit = useMemo(() => groupBranchesByCommit(branches), [branches]);
   const tagNames = useMemo(() => new Set(tags.map((tag) => tag.name)), [tags]);
+  const tagsByCommit = useMemo(() => groupTagsByCommit(tags), [tags]);
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
   const parentRef = useRef<HTMLDivElement>(null);
@@ -211,7 +220,9 @@ export function CommitGraph({
                   locale={i18n.language}
                   currentBranch={currentBranch ?? null}
                   branchByName={branchByName}
+                  branchesByCommit={branchesByCommit}
                   tagNames={tagNames}
+                  tagsByCommit={tagsByCommit}
                   selected={row.commit.id === selectedCommitId}
                   onSelect={onSelectCommit}
                   onCheckout={onCheckout}
@@ -407,7 +418,9 @@ function CommitRow({
   locale,
   currentBranch,
   branchByName,
+  branchesByCommit,
   tagNames,
+  tagsByCommit,
   selected,
   onSelect,
   onCheckout,
@@ -416,8 +429,10 @@ function CommitRow({
   gutterWidth: number;
   locale: string;
   currentBranch: string | null;
-  branchByName: Map<string, { isRemote: boolean }>;
+  branchByName: Map<string, BranchInfo>;
+  branchesByCommit: Map<string, BranchInfo[]>;
   tagNames: Set<string>;
+  tagsByCommit: Map<string, TagInfo[]>;
   selected: boolean;
   onSelect?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
@@ -426,7 +441,12 @@ function CommitRow({
   const midY = ROW_HEIGHT / 2;
   const cx = laneX(lane);
   const laneVisible = lane < MAX_VISIBLE_LANES;
-  const refs = visibleCommitRefs(commit.refs, currentBranch, branchByName, tagNames);
+  const refs = visibleCommitRefs(
+    commitRefs(commit, branchesByCommit.get(commit.id), tagsByCommit.get(commit.id)),
+    currentBranch,
+    branchByName,
+    tagNames,
+  );
 
   return (
     <div
@@ -586,23 +606,25 @@ interface CommitRef {
 function visibleCommitRefs(
   refs: string[],
   currentBranch: string | null,
-  branchByName: Map<string, { isRemote: boolean }>,
+  branchByName: Map<string, BranchInfo>,
   tagNames: Set<string>,
 ) {
   const byLabel = new Map<string, CommitRef>();
+  const activeBranch = currentBranch ? normalizeRefName(currentBranch) : null;
   for (const ref of refs) {
-    const branch = branchByName.get(ref);
+    const normalizedRef = normalizeRefName(ref);
+    const branch = branchByName.get(ref) ?? branchByName.get(normalizedRef);
     const isBranch = branch !== undefined;
-    const isTag = tagNames.has(ref) && !isBranch;
+    const isTag = tagNames.has(normalizedRef) && !isBranch;
     const remote = branch?.isRemote ?? false;
-    const label = displayRefName(ref, remote);
+    const label = displayRefName(normalizedRef, remote);
     if (label === null) continue;
-    const active = currentBranch !== null && ref === currentBranch;
-    const checkoutTarget = isBranch ? ref : null;
+    const active = activeBranch !== null && normalizedRef === activeBranch;
+    const checkoutTarget = branch?.name ?? (isBranch ? normalizedRef : null);
     const existing = byLabel.get(label);
     if (!existing || active || (existing.remote && isBranch) || (!existing.active && isBranch && existing.kind === "tag")) {
       byLabel.set(label, {
-        original: ref,
+        original: normalizedRef,
         label,
         active,
         kind: isTag ? "tag" : "branch",
@@ -612,6 +634,44 @@ function visibleCommitRefs(
     }
   }
   return [...byLabel.values()].sort((a, b) => Number(b.active) - Number(a.active) || Number(a.remote) - Number(b.remote));
+}
+
+function commitRefs(commit: CommitSummary, branches: BranchInfo[] = [], tags: TagInfo[] = []) {
+  const refs = new Set(commit.refs.map(normalizeRefName));
+  for (const branch of branches) refs.add(branch.name);
+  for (const tag of tags) refs.add(tag.name);
+  return [...refs];
+}
+
+function groupBranchesByCommit(branches: BranchInfo[]) {
+  const byCommit = new Map<string, BranchInfo[]>();
+  for (const branch of branches) {
+    const list = byCommit.get(branch.targetCommitId) ?? [];
+    list.push(branch);
+    byCommit.set(branch.targetCommitId, list);
+  }
+  return byCommit;
+}
+
+function groupTagsByCommit(tags: TagInfo[]) {
+  const byCommit = new Map<string, TagInfo[]>();
+  for (const tag of tags) {
+    const list = byCommit.get(tag.targetCommitId) ?? [];
+    list.push(tag);
+    byCommit.set(tag.targetCommitId, list);
+  }
+  return byCommit;
+}
+
+function normalizeRefName(ref: string) {
+  return ref
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "")
+    .replace(/^refs\/tags\//, "");
+}
+
+function fullBranchRefName(branch: BranchInfo) {
+  return branch.isRemote ? `refs/remotes/${branch.name}` : `refs/heads/${branch.name}`;
 }
 
 function displayRefName(ref: string, remote: boolean) {
