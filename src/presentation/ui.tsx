@@ -14,7 +14,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { forwardRef } from "react";
+import { forwardRef, useEffect } from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
@@ -191,5 +191,53 @@ export function Muted({ children, className = "" }: { children: ReactNode; class
     <span className={className} style={{ color: "var(--slate)" }}>
       {children}
     </span>
+  );
+}
+
+export function NotificationToast({
+  message,
+  tone,
+  closeLabel,
+  onClose,
+}: {
+  message: string;
+  tone: "success" | "error";
+  closeLabel: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const timeout = window.setTimeout(onClose, tone === "error" ? 7000 : 4000);
+    return () => window.clearTimeout(timeout);
+  }, [onClose, tone]);
+
+  return (
+    <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
+      className="desktop-popover fixed bottom-4 right-4 z-[70] flex max-w-[min(28rem,calc(100vw-2rem))] items-start gap-2 rounded-lg border px-3 py-2.5 text-[13px]"
+      style={{
+        background: "var(--paper)",
+        borderColor: tone === "error" ? "var(--rust)" : "var(--moss)",
+        color: tone === "error" ? "var(--rust-ink)" : "var(--moss-ink)",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+        style={{ background: tone === "error" ? "var(--rust-tint)" : "var(--moss-tint)" }}
+      >
+        {tone === "error" ? "!" : "✓"}
+      </span>
+      <span className="selectable-text min-w-0 flex-1 whitespace-pre-wrap">{message}</span>
+      <button
+        type="button"
+        aria-label={closeLabel}
+        title={closeLabel}
+        className="interactive-control flex h-5 w-5 shrink-0 items-center justify-center rounded text-base leading-none"
+        onClick={onClose}
+      >
+        ×
+      </button>
+    </div>
   );
 }

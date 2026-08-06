@@ -334,6 +334,38 @@ code,
   background-color: var(--slate);
 }
 
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--hover-strong);
+}
+
+.skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--paper) 64%, transparent),
+    transparent
+  );
+  animation: fjord-skeleton 1.15s ease-in-out infinite;
+}
+
+@keyframes fjord-skeleton {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}
+
 @keyframes fjord-pulse {
   0%,
   100% {

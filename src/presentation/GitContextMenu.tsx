@@ -5,10 +5,21 @@ import { Button, Input, Select } from "@/presentation/ui";
 export interface ContextMenuItem {
   id: string;
   label: string;
+  icon?: ContextMenuIcon;
+  shortcut?: string;
   disabled?: boolean;
   danger?: boolean;
   separatorBefore?: boolean;
 }
+
+export type ContextMenuIcon =
+  | "branch"
+  | "checkout"
+  | "copy"
+  | "delete"
+  | "reset"
+  | "revert"
+  | "tag";
 
 export function ContextMenu({
   position,
@@ -22,7 +33,9 @@ export function ContextMenu({
   onClose: () => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [menuPosition, setMenuPosition] = useState(position);
+  const [activeIndex, setActiveIndex] = useState(() => firstEnabledIndex(items));
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -42,6 +55,20 @@ export function ContextMenu({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => itemRefs.current[activeIndex]?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeIndex]);
+
+  function moveActive(direction: 1 | -1) {
+    if (items.every((item) => item.disabled)) return;
+    let next = activeIndex;
+    do {
+      next = (next + direction + items.length) % items.length;
+    } while (items[next].disabled);
+    setActiveIndex(next);
+  }
+
   return (
     <div className="fixed inset-0 z-50" onMouseDown={onClose}>
       <div
@@ -55,25 +82,94 @@ export function ContextMenu({
           borderColor: "var(--hairline-strong)",
         }}
         onMouseDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveActive(1);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveActive(-1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            setActiveIndex(firstEnabledIndex(items));
+          } else if (event.key === "End") {
+            event.preventDefault();
+            setActiveIndex(lastEnabledIndex(items));
+          } else if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            const item = items[activeIndex];
+            if (item && !item.disabled) onSelect(item.id);
+          }
+        }}
       >
-        {items.map((item) => (
+        {items.map((item, index) => (
           <div key={item.id} className={item.separatorBefore ? "mt-1 border-t pt-1" : ""} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
             <button
+              ref={(element) => {
+                itemRefs.current[index] = element;
+              }}
               type="button"
               role="menuitem"
+              tabIndex={index === activeIndex ? 0 : -1}
               disabled={item.disabled}
-              className="interactive-row flex h-8 w-full items-center px-3 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
+              className="interactive-row flex h-8 w-full items-center gap-2 px-2.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ color: item.danger ? "var(--rust-ink)" : "var(--ink)" }}
+              onMouseEnter={() => {
+                if (!item.disabled) setActiveIndex(index);
+              }}
               onClick={() => {
                 if (!item.disabled) onSelect(item.id);
               }}
             >
-              {item.label}
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                {item.icon ? <MenuIcon kind={item.icon} /> : null}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.shortcut ? (
+                <kbd className="shrink-0 font-mono text-[10px]" style={{ color: "var(--mist)" }}>
+                  {item.shortcut}
+                </kbd>
+              ) : null}
             </button>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function firstEnabledIndex(items: ContextMenuItem[]) {
+  const index = items.findIndex((item) => !item.disabled);
+  return index === -1 ? 0 : index;
+}
+
+function lastEnabledIndex(items: ContextMenuItem[]) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (!items[index].disabled) return index;
+  }
+  return 0;
+}
+
+function MenuIcon({ kind }: { kind: ContextMenuIcon }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.35"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {kind === "branch" ? <><path d="M4 2v11" /><path d="M4 5h4a3 3 0 0 0 3-3" /><circle cx="4" cy="13" r="1.5" /><circle cx="11" cy="2" r="1.5" /></> : null}
+      {kind === "checkout" ? <><path d="M3 8h9" /><path d="m9 5 3 3-3 3" /><path d="M13.5 3.5v9" /></> : null}
+      {kind === "copy" ? <><rect x="5" y="5" width="8" height="8" rx="1" /><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3" /></> : null}
+      {kind === "delete" ? <><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9h6.6l.7-9M6.5 6.5v4M9.5 6.5v4" /></> : null}
+      {kind === "reset" ? <><path d="M3 5V2L1 4" /><path d="M3 3a6 6 0 1 1-1 7" /><path d="M8 5v3l2 1" /></> : null}
+      {kind === "revert" ? <><path d="m5 4-3 3 3 3" /><path d="M2 7h7a4 4 0 0 1 4 4v2" /></> : null}
+      {kind === "tag" ? <><path d="M2 2h5l7 7-5 5-7-7V2Z" /><circle cx="5" cy="5" r="1" /></> : null}
+    </svg>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
@@ -11,7 +11,7 @@ import type { BranchContextAction, TagContextAction } from "@/presentation/RepoT
 import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
-import { Button, Muted } from "@/presentation/ui";
+import { Button, Muted, NotificationToast } from "@/presentation/ui";
 import type { CommitSummary, RepoStatus, WorkingChanges } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
@@ -114,6 +114,8 @@ export function RepoDetailView({
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
+  const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error" } | null>(null);
+  const previousPendingAction = useRef<string | null>(null);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -134,6 +136,18 @@ export function RepoDetailView({
     const list = selectedWorkingFile.staged ? changes.staged : changes.unstaged;
     if (!list.some((file) => file.path === selectedWorkingFile.path)) setSelectedWorkingFile(null);
   }, [changes, selectedWorkingFile]);
+
+  useEffect(() => {
+    const completedAction = previousPendingAction.current;
+    if (completedAction && !actionPending) {
+      setNotice({
+        id: Date.now(),
+        message: actionError ?? t("notifications.operationCompleted"),
+        tone: actionError ? "error" : "success",
+      });
+    }
+    previousPendingAction.current = actionPending;
+  }, [actionError, actionPending, t]);
 
   const diffTarget: { path: string; source: DiffSource } | null = workingSelected
     ? selectedWorkingFile
@@ -188,9 +202,9 @@ export function RepoDetailView({
         }
       />
 
-      {(actionError || statusError) && (
+      {statusError && (
         <p className="text-[13px]" style={{ color: "var(--rust-ink)" }}>
-          {actionError ?? statusError}
+          {statusError}
         </p>
       )}
 
@@ -327,6 +341,15 @@ export function RepoDetailView({
           onConfirm={onConfirmAction}
         />
       )}
+      {notice ? (
+        <NotificationToast
+          key={notice.id}
+          message={notice.message}
+          tone={notice.tone}
+          closeLabel={t("notifications.close")}
+          onClose={() => setNotice(null)}
+        />
+      ) : null}
     </div>
   );
 

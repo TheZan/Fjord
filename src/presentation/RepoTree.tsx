@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { MouseEvent, ReactNode } from "react";
+import { useRef, useState } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useTags } from "@/application/useTags";
@@ -33,6 +33,7 @@ export function RepoTree({
   const { t } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
   const { tags, loading: tagsLoading, error: tagsError } = useTags(repoId);
+  const treeRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
     local: true,
@@ -68,7 +69,7 @@ export function RepoTree({
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  if (loading && branches.length === 0 && tags.length === 0) return null;
+  if (loading && branches.length === 0 && tags.length === 0) return <RepoTreeSkeleton />;
   if (error) {
     return (
       <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
@@ -86,8 +87,10 @@ export function RepoTree({
 
   return (
     <div
+      ref={treeRef}
       className="flex w-full max-w-sm flex-col rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+      onKeyDown={handleTreeKeyDown}
     >
       <div className="border-b p-2" style={{ borderColor: "var(--hairline)" }}>
         <Input
@@ -186,6 +189,23 @@ export function RepoTree({
       )}
     </div>
   );
+
+  function handleTreeKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(treeRef.current?.querySelectorAll<HTMLElement>("[data-tree-item]") ?? []);
+    if (items.length === 0) return;
+    const current = (event.target as HTMLElement).closest<HTMLElement>("[data-tree-item]");
+    if (!current) return;
+    event.preventDefault();
+    const currentIndex = Math.max(0, items.indexOf(current));
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? items.length - 1
+          : Math.min(Math.max(currentIndex + (event.key === "ArrowDown" ? 1 : -1), 0), items.length - 1);
+    items[nextIndex].focus();
+  }
 }
 
 function TreeSection({
@@ -255,6 +275,7 @@ function BranchRow({
   return (
     <li>
       <button
+        data-tree-item
         type="button"
         onClick={() => onSelectBranch?.(branch.name)}
         onDoubleClick={() => {
@@ -264,7 +285,7 @@ function BranchRow({
           if (event.key !== "Enter") return;
           event.preventDefault();
           onSelectBranch?.(branch.name);
-          if (!branch.isCurrent) onCheckout?.(branch.name);
+          if (event.ctrlKey && !branch.isCurrent) onCheckout?.(branch.name);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -295,11 +316,17 @@ function remoteBranchDisplayName(name: string) {
 
 function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: MouseEvent<HTMLLIElement>) => void }) {
   return (
-    <li className="interactive-row flex items-center justify-between gap-2 rounded px-2 py-1" onContextMenu={(event) => { event.preventDefault(); onContextMenu(event); }}>
-      <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
-      <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
-        {tag.targetCommitId.slice(0, 7)}
-      </span>
+    <li onContextMenu={(event) => { event.preventDefault(); onContextMenu(event); }}>
+      <button
+        data-tree-item
+        type="button"
+        className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left"
+      >
+        <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
+        <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
+          {tag.targetCommitId.slice(0, 7)}
+        </span>
+      </button>
     </li>
   );
 }
@@ -309,23 +336,39 @@ export type TagContextAction = "createBranch" | "delete" | "copy";
 
 function branchMenuItems(branch: BranchInfo, t: (key: string) => string): ContextMenuItem[] {
   return [
-    { id: "checkout", label: t("context.checkout"), disabled: branch.isCurrent },
-    { id: "createBranch", label: t("context.createBranchHere"), separatorBefore: true },
-    { id: "rename", label: t("context.renameBranch"), disabled: branch.isRemote },
+    { id: "checkout", label: t("context.checkout"), icon: "checkout", shortcut: "Ctrl+Enter", disabled: branch.isCurrent },
+    { id: "createBranch", label: t("context.createBranchHere"), icon: "branch", separatorBefore: true },
+    { id: "rename", label: t("context.renameBranch"), icon: "branch", disabled: branch.isRemote },
     {
       id: branch.isRemote ? "deleteRemote" : "delete",
       label: branch.isRemote ? t("context.deleteRemoteBranch") : t("context.deleteBranch"),
       disabled: !branch.isRemote && branch.isCurrent,
       danger: true,
+      icon: "delete",
     },
-    { id: "copy", label: t("context.copyBranchName"), separatorBefore: true },
+    { id: "copy", label: t("context.copyBranchName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
   ];
 }
 
 function tagMenuItems(_tag: TagInfo, t: (key: string) => string): ContextMenuItem[] {
   return [
-    { id: "createBranch", label: t("context.createBranchHere") },
-    { id: "delete", label: t("context.deleteTag"), danger: true },
-    { id: "copy", label: t("context.copyTagName"), separatorBefore: true },
+    { id: "createBranch", label: t("context.createBranchHere"), icon: "branch" },
+    { id: "delete", label: t("context.deleteTag"), icon: "delete", danger: true },
+    { id: "copy", label: t("context.copyTagName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
   ];
+}
+
+function RepoTreeSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex w-full max-w-sm flex-col gap-3 rounded-lg border p-3"
+      style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+    >
+      <div className="skeleton h-8 w-full rounded-md" />
+      {["82%", "65%", "74%", "58%", "70%"].map((width, index) => (
+        <div key={index} className="skeleton h-6 rounded" style={{ width }} />
+      ))}
+    </div>
+  );
 }

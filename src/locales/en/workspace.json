@@ -104,6 +104,10 @@
     "allRepositories": "All repositories",
     "back": "Back"
   },
+  "notifications": {
+    "operationCompleted": "Operation completed.",
+    "close": "Dismiss notification"
+  },
   "onboarding": {
     "title": "Set up your first workspace",
     "body": "Create a workspace, then import existing Git repositories from a folder on disk.",

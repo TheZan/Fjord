@@ -102,6 +102,10 @@
     "allRepositories": "Tous les dépôts",
     "back": "Retour"
   },
+  "notifications": {
+    "operationCompleted": "Opération terminée.",
+    "close": "Fermer la notification"
+  },
   "onboarding": {
     "title": "Configurez votre premier workspace",
     "body": "Créez un workspace, puis importez des dépôts Git existants depuis un dossier sur le disque.",

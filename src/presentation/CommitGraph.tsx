@@ -172,7 +172,11 @@ export function CommitGraph({
     if (rowIndex !== -1) {
       fulfilledBranchScrollId.current = scrollToBranch.id;
       onRevealCommit?.(rows[rowIndex].commit);
-      rowVirtualizer.scrollToIndex(rowIndex, { align: "center", behavior: "smooth" });
+      const currentIndex = Math.round((parentRef.current?.scrollTop ?? 0) / ROW_HEIGHT);
+      rowVirtualizer.scrollToIndex(rowIndex, {
+        align: "center",
+        behavior: Math.abs(rowIndex - currentIndex) > 40 ? "auto" : "smooth",
+      });
       return;
     }
 
@@ -219,6 +223,21 @@ export function CommitGraph({
       ? displayRefName(normalizeRefName(seekingBranch.name), seekingBranch.isRemote)
       : null;
 
+  function navigateToCommit(currentCommit: CommitSummary, target: "previous" | "next" | "first" | "last") {
+    const currentIndex = rows.findIndex((row) => row.commit.id === currentCommit.id);
+    if (currentIndex === -1 || rows.length === 0) return;
+    const targetIndex =
+      target === "first"
+        ? 0
+        : target === "last"
+          ? rows.length - 1
+          : Math.min(Math.max(currentIndex + (target === "next" ? 1 : -1), 0), rows.length - 1);
+    const commit = rows[targetIndex].commit;
+    onSelectCommit?.(commit);
+    rowVirtualizer.scrollToIndex(targetIndex, { align: "auto" });
+    focusCommitRow(parentRef, commit.id);
+  }
+
   return (
     <div
       className="relative h-full w-full overflow-hidden rounded-lg border text-sm"
@@ -247,6 +266,7 @@ export function CommitGraph({
             onSelect={onSelectWorking}
           />
         )}
+        {visibleLoading && rows.length === 0 ? <GraphSkeleton gutterWidth={gutterWidth} /> : null}
         <div
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
@@ -279,7 +299,12 @@ export function CommitGraph({
                   tagNames={tagNames}
                   tagsByCommit={tagsByCommit}
                   selected={row.commit.id === selectedCommitId}
+                  focusable={
+                    row.commit.id === selectedCommitId ||
+                    (selectedCommitId == null && virtualRow.index === 0)
+                  }
                   onSelect={onSelectCommit}
+                  onNavigate={navigateToCommit}
                   onCheckout={onCheckout}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                 />
@@ -517,7 +542,9 @@ function CommitRow({
   tagNames,
   tagsByCommit,
   selected,
+  focusable,
   onSelect,
+  onNavigate,
   onCheckout,
   onContextMenu,
 }: {
@@ -530,7 +557,12 @@ function CommitRow({
   tagNames: Set<string>;
   tagsByCommit: Map<string, TagInfo[]>;
   selected: boolean;
+  focusable: boolean;
   onSelect?: (commit: CommitSummary) => void;
+  onNavigate?: (
+    commit: CommitSummary,
+    target: "previous" | "next" | "first" | "last",
+  ) => void;
   onCheckout?: (branch: string) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
 }) {
@@ -548,7 +580,8 @@ function CommitRow({
   return (
     <div
       role={onSelect ? "button" : undefined}
-      tabIndex={onSelect ? 0 : undefined}
+      tabIndex={onSelect ? (focusable ? 0 : -1) : undefined}
+      data-commit-id={commit.id}
       onClick={onSelect ? () => onSelect(commit) : undefined}
       onContextMenu={(event) => {
         if (!onContextMenu) return;
@@ -557,6 +590,25 @@ function CommitRow({
       }}
       onKeyDown={(event) => {
         if (!onSelect) return;
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+          event.preventDefault();
+          void navigator.clipboard?.writeText(commit.id);
+          return;
+        }
+        if (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          onNavigate?.(
+            commit,
+            event.key === "ArrowUp"
+              ? "previous"
+              : event.key === "ArrowDown"
+                ? "next"
+                : event.key === "Home"
+                  ? "first"
+                  : "last",
+          );
+          return;
+        }
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onSelect(commit);
@@ -742,13 +794,45 @@ export type CommitContextAction = "createBranch" | "createTag" | "cherryPick" | 
 
 function commitMenuItems(t: (key: string) => string): ContextMenuItem[] {
   return [
-    { id: "createBranch", label: t("context.createBranchHere") },
-    { id: "createTag", label: t("context.createTagHere") },
-    { id: "cherryPick", label: t("context.cherryPick"), separatorBefore: true },
-    { id: "revert", label: t("context.revertCommit") },
-    { id: "reset", label: t("context.resetToCommit"), danger: true },
-    { id: "copySha", label: t("context.copyCommitSha"), separatorBefore: true },
+    { id: "createBranch", label: t("context.createBranchHere"), icon: "branch" },
+    { id: "createTag", label: t("context.createTagHere"), icon: "tag" },
+    { id: "cherryPick", label: t("context.cherryPick"), icon: "checkout", separatorBefore: true },
+    { id: "revert", label: t("context.revertCommit"), icon: "revert" },
+    { id: "reset", label: t("context.resetToCommit"), icon: "reset", danger: true },
+    { id: "copySha", label: t("context.copyCommitSha"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
   ];
+}
+
+function focusCommitRow(parentRef: RefObject<HTMLDivElement | null>, commitId: string) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      parentRef.current?.querySelector<HTMLElement>(`[data-commit-id="${commitId}"]`)?.focus();
+    });
+  });
+}
+
+function GraphSkeleton({ gutterWidth }: { gutterWidth: number }) {
+  return (
+    <div aria-hidden="true">
+      {Array.from({ length: 12 }, (_, index) => (
+        <div
+          key={index}
+          className="grid items-center gap-3 border-b px-2"
+          style={{
+            borderColor: "var(--hairline)",
+            gridTemplateColumns: `${REF_COLUMN_WIDTH} ${gutterWidth}px minmax(0, 1fr) 8rem 9rem`,
+            height: ROW_HEIGHT,
+          }}
+        >
+          <div className="skeleton h-4 rounded" style={{ width: `${54 + (index % 3) * 12}%` }} />
+          <div className="skeleton mx-auto h-3 w-3 rounded-full" />
+          <div className="skeleton h-3.5 rounded" style={{ width: `${58 + (index % 4) * 9}%` }} />
+          <div className="skeleton h-3 rounded" />
+          <div className="skeleton h-3 rounded" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function commitRefs(commit: CommitSummary, branches: BranchInfo[] = [], tags: TagInfo[] = []) {

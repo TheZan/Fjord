@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 import { CommitGraph } from "@/presentation/CommitGraph";
 
@@ -72,6 +72,8 @@ describe("CommitGraph", () => {
     graphState.tags = [];
     Element.prototype.scrollTo = vi.fn();
   });
+
+  afterEach(cleanup);
 
   it("shows branch and tag badges from their target commits when log refs are empty", () => {
     graphState.commits = [
@@ -156,6 +158,27 @@ describe("CommitGraph", () => {
     await waitFor(() => {
       expect(graphState.loadUntilCommit).toHaveBeenCalledWith("commit-99");
     });
+  });
+
+  it("selects and scrolls through commits with the arrow keys", () => {
+    const onSelectCommit = vi.fn();
+    graphState.commits = [commit("commit-1", "First"), commit("commit-2", "Second")];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="main"
+        selectedCommitId="commit-1"
+        onSelectCommit={onSelectCommit}
+      />,
+    );
+
+    const firstRow = screen.getByText("First").closest<HTMLElement>("[data-commit-id]");
+    expect(firstRow).not.toBeNull();
+    fireEvent.keyDown(firstRow!, { key: "ArrowDown" });
+
+    expect(onSelectCommit).toHaveBeenCalledWith(graphState.commits[1]);
+    expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, { align: "auto" });
   });
 });
 

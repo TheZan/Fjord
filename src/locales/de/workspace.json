@@ -102,6 +102,10 @@
     "allRepositories": "Alle Repositorys",
     "back": "Zurück"
   },
+  "notifications": {
+    "operationCompleted": "Vorgang abgeschlossen.",
+    "close": "Benachrichtigung schließen"
+  },
   "onboarding": {
     "title": "Ersten Workspace einrichten",
     "body": "Erstelle einen Workspace und importiere dann vorhandene Git-Repositorys aus einem Ordner auf der Festplatte.",
