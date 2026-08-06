@@ -13,7 +13,7 @@ export interface UseCommitDiffResult {
 export function useCommitDiff(repoId: string | null, commitId: string | null): UseCommitDiffResult {
   const query = useQuery({
     queryKey: repoId && commitId ? queryKeys.repos.commitDiff(repoId, commitId) : queryKeys.repos.all,
-    queryFn: () => getCommitDiff(repoId!, commitId!),
+    queryFn: ({ signal }) => getCommitDiff(repoId!, commitId!, signal),
     enabled: repoId !== null && commitId !== null,
   });
 

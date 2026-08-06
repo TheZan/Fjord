@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCommitLog } from "@/application/useCommitLog";
-import { queryKeys } from "@/application/queryKeys";
+import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
@@ -77,25 +77,18 @@ export function RepoDetailContainer({
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
-  async function invalidateRepoData() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.repos.detail(repo.id) }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(repo.workspaceId) }),
-    ]);
-  }
-
   async function runRepoAction(
     action: string,
     run: () => Promise<void>,
-    mutates = true,
+    scopes: RepoDataScope[] = [],
   ): Promise<boolean> {
     setActionError(null);
     setActionPending(action);
     try {
       await run();
-      if (mutates) {
-        setSelectedCommit(null);
-        await invalidateRepoData();
+      if (scopes.length > 0) {
+        if (scopes.includes("history")) setSelectedCommit(null);
+        await invalidateRepoData(queryClient, repo.id, repo.workspaceId, scopes);
       }
       return true;
     } catch (e) {
@@ -109,11 +102,12 @@ export function RepoDetailContainer({
     }
   }
 
-  function runWorkingAction(action: string, run: () => Promise<void>): Promise<boolean> {
-    return runRepoAction(action, run, false).then(async (ok) => {
-      if (ok) await invalidateRepoData();
-      return ok;
-    });
+  function runWorkingAction(
+    action: string,
+    run: () => Promise<void>,
+    scopes: RepoDataScope[] = ["status", "working"],
+  ): Promise<boolean> {
+    return runRepoAction(action, run, scopes);
   }
 
   useEffect(() => {
@@ -182,7 +176,7 @@ export function RepoDetailContainer({
     const networkTask = startNetworkAction(action);
     if (networkTask) {
       setActionOperationId(networkTask.operationId);
-      void runRepoAction(action, () => networkTask.promise);
+      void runRepoAction(action, () => networkTask.promise, scopesForRepoAction(action));
       return;
     }
 
@@ -193,9 +187,8 @@ export function RepoDetailContainer({
       "open-ide": () => openInIde(repo.id),
       "merge-tool": () => openMergeTool(repo.id),
     };
-    const launchesExternalTool = action === "terminal" || action === "open-ide";
     const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push">;
-    void runRepoAction(localAction, runners[localAction], !launchesExternalTool);
+    void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
   function startNetworkAction(action: RepoAction): OperationTask<void> | null {
@@ -212,47 +205,47 @@ export function RepoDetailContainer({
   }
 
   function onCreateBranch(name: string) {
-    void runRepoAction("create-branch", () => createBranch(repo.id, name, true));
+    void runRepoAction("create-branch", () => createBranch(repo.id, name, true), ["status", "working", "history", "refs"]);
   }
 
   function onCreateBranchAt(name: string, target: string) {
-    void runRepoAction("create-branch", () => createBranchAt(repo.id, name, target, true)).then((ok) => {
+    void runRepoAction("create-branch", () => createBranchAt(repo.id, name, target, true), ["status", "working", "history", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(name);
     });
   }
 
   function onRenameBranch(oldName: string, newName: string) {
-    void runRepoAction("rename-branch", () => renameBranch(repo.id, oldName, newName)).then((ok) => {
+    void runRepoAction("rename-branch", () => renameBranch(repo.id, oldName, newName), ["status", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(newName);
     });
   }
 
   function onDeleteBranch(name: string) {
-    void runRepoAction("delete-branch", () => deleteBranch(repo.id, name));
+    void runRepoAction("delete-branch", () => deleteBranch(repo.id, name), ["status", "refs"]);
   }
 
   function onDeleteRemoteBranch(name: string) {
-    void runRepoAction("delete-remote-branch", () => deleteRemoteBranch(repo.id, name));
+    void runRepoAction("delete-remote-branch", () => deleteRemoteBranch(repo.id, name), ["status", "refs"]);
   }
 
   function onCreateTag(name: string, target: string) {
-    void runRepoAction("create-tag", () => createTag(repo.id, name, target));
+    void runRepoAction("create-tag", () => createTag(repo.id, name, target), ["refs"]);
   }
 
   function onDeleteTag(name: string) {
-    void runRepoAction("delete-tag", () => deleteTag(repo.id, name));
+    void runRepoAction("delete-tag", () => deleteTag(repo.id, name), ["refs"]);
   }
 
   function onCherryPick(commitId: string) {
-    void runRepoAction("cherry-pick", () => cherryPick(repo.id, commitId));
+    void runRepoAction("cherry-pick", () => cherryPick(repo.id, commitId), ["status", "working", "history", "refs"]);
   }
 
   function onRevertCommit(commitId: string) {
-    void runRepoAction("revert", () => revertCommit(repo.id, commitId));
+    void runRepoAction("revert", () => revertCommit(repo.id, commitId), ["status", "working", "history", "refs"]);
   }
 
   function onResetToCommit(commitId: string, mode: "soft" | "mixed" | "hard") {
-    void runRepoAction("reset", () => resetToCommit(repo.id, commitId, mode));
+    void runRepoAction("reset", () => resetToCommit(repo.id, commitId, mode), ["status", "working", "history", "refs"]);
   }
 
   function requestBranchGraphScroll(branch: string) {
@@ -270,7 +263,7 @@ export function RepoDetailContainer({
 
   function performCheckoutAndScrollToBranch(branch: string) {
     requestBranchGraphScroll(branch);
-    void runRepoAction("checkout", () => checkoutBranch(repo.id, branch)).then((ok) => {
+    void runRepoAction("checkout", () => checkoutBranch(repo.id, branch), ["status", "working", "history", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(branch);
     });
   }
@@ -284,7 +277,7 @@ export function RepoDetailContainer({
   }
 
   function onCommit(message: string): Promise<boolean> {
-    return runWorkingAction("commit", () => commitRepo(repo.id, message).then(() => undefined));
+    return runWorkingAction("commit", () => commitRepo(repo.id, message).then(() => undefined), ["status", "working", "history", "refs"]);
   }
 
   function onSelectCommit(commit: CommitSummary) {
@@ -358,6 +351,24 @@ type ActionConfirmation =
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
   return action === "fetch" || action === "pull" || action === "push" || action === "stash-pop";
+}
+
+function scopesForRepoAction(action: RepoAction): RepoDataScope[] {
+  switch (action) {
+    case "fetch":
+      return ["status", "history", "refs"];
+    case "pull":
+      return ["status", "working", "history", "refs"];
+    case "push":
+      return ["status", "refs"];
+    case "stash":
+    case "stash-pop":
+      return ["status", "working", "stashes"];
+    case "terminal":
+    case "open-ide":
+    case "merge-tool":
+      return [];
+  }
 }
 
 function isOriginBranch(branch: string) {

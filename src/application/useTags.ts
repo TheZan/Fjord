@@ -13,7 +13,7 @@ export interface UseTagsResult {
 export function useTags(repoId: string | null): UseTagsResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.tags(repoId) : queryKeys.repos.all,
-    queryFn: () => getTags(repoId!),
+    queryFn: ({ signal }) => getTags(repoId!, signal),
     enabled: repoId !== null,
   });
 

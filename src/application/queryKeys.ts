@@ -13,12 +13,15 @@ export const queryKeys = {
     tags: (repoId: string) => [...queryKeys.repos.detail(repoId), "tags"] as const,
     status: (repoId: string) => [...queryKeys.repos.detail(repoId), "status"] as const,
     commits: (repoId: string) => [...queryKeys.repos.detail(repoId), "commits"] as const,
+    commitSearches: (repoId: string) => [...queryKeys.repos.detail(repoId), "commitSearch"] as const,
     commitSearch: (repoId: string, query: string) =>
-      [...queryKeys.repos.detail(repoId), "commitSearch", query] as const,
+      [...queryKeys.repos.commitSearches(repoId), query] as const,
+    commitDiffs: (repoId: string) => [...queryKeys.repos.detail(repoId), "commitDiff"] as const,
     commitDiff: (repoId: string, commitId: string) =>
-      [...queryKeys.repos.detail(repoId), "commitDiff", commitId] as const,
+      [...queryKeys.repos.commitDiffs(repoId), commitId] as const,
+    fileDiffs: (repoId: string) => [...queryKeys.repos.detail(repoId), "fileDiff"] as const,
     fileDiff: (repoId: string, path: string, sourceKey: string) =>
-      [...queryKeys.repos.detail(repoId), "fileDiff", sourceKey, path] as const,
+      [...queryKeys.repos.fileDiffs(repoId), sourceKey, path] as const,
     workingChanges: (repoId: string) => [...queryKeys.repos.detail(repoId), "workingChanges"] as const,
     stashes: (repoId: string) => [...queryKeys.repos.detail(repoId), "stashes"] as const,
   },

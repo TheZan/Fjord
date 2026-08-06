@@ -67,6 +67,29 @@ export function invokeErrorCode(error: unknown): string | null {
   return null;
 }
 
+function invokeAbortable<T>(
+  command: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const request = invoke<T>(command, args);
+  if (!signal) return request;
+  if (signal.aborted) return Promise.reject(signal.reason);
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    request.then(
+      (value) => {
+        if (!signal.aborted) resolve(value);
+      },
+      (error) => {
+        if (!signal.aborted) reject(error);
+      },
+    ).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 function nextOperationId(kind: OperationKind): string {
   if (globalThis.crypto?.randomUUID) {
     return `${kind}:${globalThis.crypto.randomUUID()}`;
@@ -150,24 +173,34 @@ export function removeRepository(id: string): Promise<void> {
   return invoke("remove_repository", { id });
 }
 
-export function getBranches(repoId: string): Promise<BranchInfo[]> {
-  return invoke("get_branches", { repoId });
+export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
+  return invokeAbortable("get_branches", { repoId }, signal);
 }
 
-export function getTags(repoId: string): Promise<TagInfo[]> {
-  return invoke("get_tags", { repoId });
+export function getTags(repoId: string, signal?: AbortSignal): Promise<TagInfo[]> {
+  return invokeAbortable("get_tags", { repoId }, signal);
 }
 
-export function getRepoStatus(repoId: string): Promise<RepoStatus> {
-  return invoke("get_repo_status", { repoId });
+export function getRepoStatus(repoId: string, signal?: AbortSignal): Promise<RepoStatus> {
+  return invokeAbortable("get_repo_status", { repoId }, signal);
 }
 
-export function getCommitLog(repoId: string, cursor: string | null, limit: number): Promise<CommitPage> {
-  return invoke("get_commit_log", { repoId, cursor, limit });
+export function getCommitLog(
+  repoId: string,
+  cursor: string | null,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<CommitPage> {
+  return invokeAbortable("get_commit_log", { repoId, cursor, limit }, signal);
 }
 
-export function searchCommitLog(repoId: string, query: string, limit: number): Promise<CommitSummary[]> {
-  return invoke("search_commit_log", { repoId, query, limit });
+export function searchCommitLog(
+  repoId: string,
+  query: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<CommitSummary[]> {
+  return invokeAbortable("search_commit_log", { repoId, query, limit }, signal);
 }
 
 export function globalSearch(
@@ -178,28 +211,34 @@ export function globalSearch(
   return invoke("global_search", { query, workspaceId, limit });
 }
 
-export function getCommitDiff(repoId: string, commitId: string): Promise<FileDiff[]> {
-  return invoke("get_commit_diff", { repoId, commitId });
+export function getCommitDiff(repoId: string, commitId: string, signal?: AbortSignal): Promise<FileDiff[]> {
+  return invokeAbortable("get_commit_diff", { repoId, commitId }, signal);
 }
 
-export function getFileDiff(repoId: string, commitId: string, path: string): Promise<FileDiffDetail> {
-  return invoke("get_file_diff", { repoId, commitId, path });
+export function getFileDiff(
+  repoId: string,
+  commitId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<FileDiffDetail> {
+  return invokeAbortable("get_file_diff", { repoId, commitId, path }, signal);
 }
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
   return invoke("checkout_branch", { repoId, branch });
 }
 
-export function getWorkingChanges(repoId: string): Promise<WorkingChanges> {
-  return invoke("get_working_changes", { repoId });
+export function getWorkingChanges(repoId: string, signal?: AbortSignal): Promise<WorkingChanges> {
+  return invokeAbortable("get_working_changes", { repoId }, signal);
 }
 
 export function getWorkingFileDiff(
   repoId: string,
   path: string,
   staged: boolean,
+  signal?: AbortSignal,
 ): Promise<FileDiffDetail> {
-  return invoke("get_working_file_diff", { repoId, path, staged });
+  return invokeAbortable("get_working_file_diff", { repoId, path, staged }, signal);
 }
 
 export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {
@@ -242,8 +281,8 @@ export function resetToCommit(repoId: string, commitId: string, mode: "soft" | "
   return invoke("reset_to_commit", { repoId, commitId, mode });
 }
 
-export function getStashes(repoId: string): Promise<StashEntry[]> {
-  return invoke("get_stashes", { repoId });
+export function getStashes(repoId: string, signal?: AbortSignal): Promise<StashEntry[]> {
+  return invokeAbortable("get_stashes", { repoId }, signal);
 }
 
 export function stashPush(repoId: string, message: string | null = null): Promise<void> {

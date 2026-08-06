@@ -13,7 +13,7 @@ export interface UseBranchesResult {
 export function useBranches(repoId: string | null): UseBranchesResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.branches(repoId) : queryKeys.repos.all,
-    queryFn: () => getBranches(repoId!),
+    queryFn: ({ signal }) => getBranches(repoId!, signal),
     enabled: repoId !== null,
   });
 

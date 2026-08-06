@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
 import { getCommitLog } from "@/infrastructure/tauriClient";
@@ -26,7 +26,7 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
   const queryKey = repoId ? queryKeys.repos.commits(repoId) : queryKeys.repos.all;
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => getCommitLog(repoId!, pageParam, PAGE_SIZE),
+    queryFn: ({ pageParam, signal }) => getCommitLog(repoId!, pageParam, PAGE_SIZE, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: repoId !== null,
@@ -46,6 +46,14 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
       );
     },
     [query.data],
+  );
+
+  useEffect(
+    () => () => {
+      seekGenerationRef.current += 1;
+      activeSeekPromisesRef.current.clear();
+    },
+    [repoId],
   );
 
   const loadMore = useCallback(() => {
@@ -73,6 +81,7 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
           while (cursor) {
             const pageCursor = cursor;
             const page = await getCommitLog(repoId, pageCursor, BRANCH_SEEK_PAGE_SIZE);
+            if (seekGenerationRef.current !== generation) return false;
             const found = page.commits.some((commit) => commit.id === commitId);
 
             queryClient.setQueryData<InfiniteData<CommitPage, LogCursor | null>>(queryKey, (current) =>

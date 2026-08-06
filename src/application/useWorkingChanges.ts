@@ -11,11 +11,11 @@ export interface UseWorkingChangesResult {
 
 const EMPTY: WorkingChanges = { staged: [], unstaged: [] };
 
-/** Uncommitted work for `repoId`, refreshed by repo-level query invalidation after mutations. */
+/** Uncommitted work for `repoId`, refreshed only after working-tree mutations. */
 export function useWorkingChanges(repoId: string | null): UseWorkingChangesResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.workingChanges(repoId) : queryKeys.repos.all,
-    queryFn: () => getWorkingChanges(repoId!),
+    queryFn: ({ signal }) => getWorkingChanges(repoId!, signal),
     enabled: repoId !== null,
   });
 

@@ -34,10 +34,10 @@ export function useFileDiff(
   const query = useQuery({
     queryKey:
       repoId && path && sourceKey ? queryKeys.repos.fileDiff(repoId, path, sourceKey) : queryKeys.repos.all,
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       source!.kind === "commit"
-        ? getFileDiff(repoId!, source!.commitId, path!)
-        : getWorkingFileDiff(repoId!, path!, source!.staged),
+        ? getFileDiff(repoId!, source!.commitId, path!, signal)
+        : getWorkingFileDiff(repoId!, path!, source!.staged, signal),
     enabled: repoId !== null && path !== null && source !== null,
   });
 

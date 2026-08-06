@@ -12,7 +12,7 @@ export interface UseRepoStatusResult {
 export function useRepoStatus(repoId: string | null): UseRepoStatusResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.status(repoId) : queryKeys.repos.all,
-    queryFn: () => getRepoStatus(repoId!),
+    queryFn: ({ signal }) => getRepoStatus(repoId!, signal),
     enabled: repoId !== null,
   });
 

@@ -9,11 +9,11 @@ export interface UseStashesResult {
   error: string | null;
 }
 
-/** Stash stack for `repoId`, refreshed by repo-level query invalidation after stash mutations. */
+/** Stash stack for `repoId`, refreshed only after stash mutations. */
 export function useStashes(repoId: string | null): UseStashesResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.stashes(repoId) : queryKeys.repos.all,
-    queryFn: () => getStashes(repoId!),
+    queryFn: ({ signal }) => getStashes(repoId!, signal),
     enabled: repoId !== null,
   });
 

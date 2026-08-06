@@ -16,7 +16,7 @@ export function useCommitSearch(repoId: string | null, query: string): UseCommit
   const enabled = repoId !== null && normalized.length > 0;
   const result = useQuery({
     queryKey: repoId ? queryKeys.repos.commitSearch(repoId, normalized) : queryKeys.repos.all,
-    queryFn: () => searchCommitLog(repoId!, normalized, SEARCH_LIMIT),
+    queryFn: ({ signal }) => searchCommitLog(repoId!, normalized, SEARCH_LIMIT, signal),
     enabled,
     staleTime: 30_000,
   });
