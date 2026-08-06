@@ -94,7 +94,10 @@
     "expandAll": "Expand all"
   },
   "inspector": {
-    "empty": "Select a commit to see its details."
+    "empty": "Select a commit to see its details.",
+    "title": "Commit inspector",
+    "open": "Inspector",
+    "close": "Close inspector"
   },
   "nav": {
     "overview": "Overview",

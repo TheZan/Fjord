@@ -4,6 +4,7 @@ import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
+import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
@@ -111,6 +112,8 @@ export function RepoDetailView({
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
+  const [compactLayout, setCompactLayout] = useState(false);
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -143,6 +146,29 @@ export function RepoDetailView({
       ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
       : null;
 
+  const inspector = workingSelected ? (
+    <WorkingChangesPanel
+      changes={changes}
+      loading={changesLoading}
+      error={changesError}
+      busy={actionPending !== null}
+      selectedFile={selectedWorkingFile}
+      onSelectFile={setSelectedWorkingFile}
+      onStage={onStage}
+      onUnstage={onUnstage}
+      onCommit={onCommit}
+    />
+  ) : selectedCommit ? (
+    <CommitInspector
+      repoId={repo.id}
+      commit={selectedCommit}
+      selectedFilePath={selectedCommitFile}
+      onSelectFile={setSelectedCommitFile}
+    />
+  ) : (
+    <Muted className="text-[12px]">{t("inspector.empty")}</Muted>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <RepoToolbar
@@ -155,6 +181,11 @@ export function RepoDetailView({
         onCancelOperation={onCancelOperation}
         onCreateBranch={onCreateBranch}
         onOpenSearch={onOpenSearch}
+        onOpenInspector={
+          compactLayout && (workingSelected || selectedCommit)
+            ? () => setInspectorDrawerOpen(true)
+            : undefined
+        }
       />
 
       {(actionError || statusError) && (
@@ -177,8 +208,15 @@ export function RepoDetailView({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_24rem]">
-        <div className="min-h-0 overflow-y-auto">
+      <ResizableRepoLayout
+        right={inspector}
+        rightOpen={inspectorDrawerOpen}
+        rightLabel={t("inspector.title")}
+        closeLabel={t("inspector.close")}
+        onCloseRight={() => setInspectorDrawerOpen(false)}
+        onCompactChange={setCompactLayout}
+        left={
+          <div className="h-full min-h-0 overflow-y-auto pr-2">
           <RepoTree
             repoId={repo.id}
             focusedBranch={branchScrollRequest?.branch ?? null}
@@ -187,9 +225,10 @@ export function RepoDetailView({
             onBranchContextAction={handleBranchContextAction}
             onTagContextAction={handleTagContextAction}
           />
-        </div>
-
-        <div className="min-h-0">
+          </div>
+        }
+        center={
+          <div className="h-full min-h-0 pl-2">
           {diffTarget ? (
             <FileDiffView
               repoId={repo.id}
@@ -206,43 +245,19 @@ export function RepoDetailView({
                 currentBranch={status?.branch ?? null}
                 scrollToBranch={branchScrollRequest}
                 selectedCommitId={selectedCommit?.id ?? null}
-                onSelectCommit={onSelectCommit}
-                onRevealCommit={onRevealCommit}
+                onSelectCommit={handleSelectCommit}
+                onRevealCommit={handleRevealCommit}
                 onCheckout={onCheckout}
                 onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
-                onSelectWorking={onSelectWorking}
+                onSelectWorking={handleSelectWorking}
               />
             </div>
           )}
-        </div>
-
-        <div className="hidden min-h-0 xl:block">
-          {workingSelected ? (
-            <WorkingChangesPanel
-              changes={changes}
-              loading={changesLoading}
-              error={changesError}
-              busy={actionPending !== null}
-              selectedFile={selectedWorkingFile}
-              onSelectFile={setSelectedWorkingFile}
-              onStage={onStage}
-              onUnstage={onUnstage}
-              onCommit={onCommit}
-            />
-          ) : selectedCommit ? (
-            <CommitInspector
-              repoId={repo.id}
-              commit={selectedCommit}
-              selectedFilePath={selectedCommitFile}
-              onSelectFile={setSelectedCommitFile}
-            />
-          ) : (
-            <Muted className="text-[12px]">{t("inspector.empty")}</Muted>
-          )}
-        </div>
-      </div>
+          </div>
+        }
+      />
       {dialog?.kind === "createBranch" && (
         <TextActionDialog
           title={t("context.createBranchHere")}
@@ -339,6 +354,21 @@ export function RepoDetailView({
     if (action === "revert") setDialog({ kind: "confirm", action: "revert", target: commit.id });
     if (action === "reset") setDialog({ kind: "confirm", action: "reset", target: commit.id });
     if (action === "copySha") void copyText(commit.id);
+  }
+
+  function handleSelectCommit(commit: CommitSummary) {
+    onSelectCommit(commit);
+    if (compactLayout) setInspectorDrawerOpen(true);
+  }
+
+  function handleRevealCommit(commit: CommitSummary) {
+    onRevealCommit(commit);
+    if (compactLayout) setInspectorDrawerOpen(true);
+  }
+
+  function handleSelectWorking() {
+    onSelectWorking();
+    if (compactLayout) setInspectorDrawerOpen(true);
   }
 }
 

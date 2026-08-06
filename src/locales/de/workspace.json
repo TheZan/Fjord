@@ -92,7 +92,10 @@
     "expandAll": "Alle ausklappen"
   },
   "inspector": {
-    "empty": "Wähle einen Commit aus, um Details zu sehen."
+    "empty": "Wähle einen Commit aus, um Details zu sehen.",
+    "title": "Commit-Inspektor",
+    "open": "Inspektor",
+    "close": "Inspektor schließen"
   },
   "nav": {
     "overview": "Übersicht",
