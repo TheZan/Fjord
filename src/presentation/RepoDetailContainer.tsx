@@ -10,8 +10,14 @@ import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
   checkoutBranch,
+  cherryPick,
   commitRepo,
   createBranch,
+  createBranchAt,
+  createTag,
+  deleteBranch,
+  deleteRemoteBranch,
+  deleteTag,
   invokeErrorCode,
   invokeErrorMessage,
   openInIde,
@@ -20,6 +26,9 @@ import {
   runFetchRepo,
   runPullRepo,
   runPushRepo,
+  renameBranch,
+  resetToCommit,
+  revertCommit,
   stageFiles,
   stashPop,
   stashPush,
@@ -64,6 +73,7 @@ export function RepoDetailContainer({
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
+  const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -161,6 +171,14 @@ export function RepoDetailContainer({
   ]);
 
   function onAction(action: RepoAction) {
+    if (needsConfirmation(action)) {
+      setActionConfirmation({ kind: "origin", action });
+      return;
+    }
+    executeAction(action);
+  }
+
+  function executeAction(action: RepoAction) {
     const networkTask = startNetworkAction(action);
     if (networkTask) {
       setActionOperationId(networkTask.operationId);
@@ -197,12 +215,60 @@ export function RepoDetailContainer({
     void runRepoAction("create-branch", () => createBranch(repo.id, name, true));
   }
 
+  function onCreateBranchAt(name: string, target: string) {
+    void runRepoAction("create-branch", () => createBranchAt(repo.id, name, target, true)).then((ok) => {
+      if (ok) requestBranchGraphScroll(name);
+    });
+  }
+
+  function onRenameBranch(oldName: string, newName: string) {
+    void runRepoAction("rename-branch", () => renameBranch(repo.id, oldName, newName)).then((ok) => {
+      if (ok) requestBranchGraphScroll(newName);
+    });
+  }
+
+  function onDeleteBranch(name: string) {
+    void runRepoAction("delete-branch", () => deleteBranch(repo.id, name));
+  }
+
+  function onDeleteRemoteBranch(name: string) {
+    void runRepoAction("delete-remote-branch", () => deleteRemoteBranch(repo.id, name));
+  }
+
+  function onCreateTag(name: string, target: string) {
+    void runRepoAction("create-tag", () => createTag(repo.id, name, target));
+  }
+
+  function onDeleteTag(name: string) {
+    void runRepoAction("delete-tag", () => deleteTag(repo.id, name));
+  }
+
+  function onCherryPick(commitId: string) {
+    void runRepoAction("cherry-pick", () => cherryPick(repo.id, commitId));
+  }
+
+  function onRevertCommit(commitId: string) {
+    void runRepoAction("revert", () => revertCommit(repo.id, commitId));
+  }
+
+  function onResetToCommit(commitId: string, mode: "soft" | "mixed" | "hard") {
+    void runRepoAction("reset", () => resetToCommit(repo.id, commitId, mode));
+  }
+
   function requestBranchGraphScroll(branch: string) {
     setWorkingSelected(false);
     setBranchScrollRequest((current) => ({ branch, id: (current?.id ?? 0) + 1 }));
   }
 
   function checkoutAndScrollToBranch(branch: string) {
+    if (isOriginBranch(branch)) {
+      setActionConfirmation({ kind: "remote-checkout", branch });
+      return;
+    }
+    performCheckoutAndScrollToBranch(branch);
+  }
+
+  function performCheckoutAndScrollToBranch(branch: string) {
     requestBranchGraphScroll(branch);
     void runRepoAction("checkout", () => checkoutBranch(repo.id, branch)).then((ok) => {
       if (ok) requestBranchGraphScroll(branch);
@@ -250,9 +316,27 @@ export function RepoDetailContainer({
       changesError={changesError}
       onBack={onBack}
       onAction={onAction}
+      actionConfirmation={actionConfirmation}
+      onConfirmAction={() => {
+        if (!actionConfirmation) return;
+        const confirmation = actionConfirmation;
+        setActionConfirmation(null);
+        if (confirmation.kind === "origin") executeAction(confirmation.action);
+        else performCheckoutAndScrollToBranch(confirmation.branch);
+      }}
+      onCancelActionConfirmation={() => setActionConfirmation(null)}
       onCheckout={checkoutAndScrollToBranch}
       onSelectBranch={requestBranchGraphScroll}
       onCreateBranch={onCreateBranch}
+      onCreateBranchAt={onCreateBranchAt}
+      onRenameBranch={onRenameBranch}
+      onDeleteBranch={onDeleteBranch}
+      onDeleteRemoteBranch={onDeleteRemoteBranch}
+      onCreateTag={onCreateTag}
+      onDeleteTag={onDeleteTag}
+      onCherryPick={onCherryPick}
+      onRevertCommit={onRevertCommit}
+      onResetToCommit={onResetToCommit}
       onOpenSearch={onOpenSearch}
       onSelectCommit={onSelectCommit}
       onRevealCommit={onRevealCommit}
@@ -265,6 +349,19 @@ export function RepoDetailContainer({
       onCommit={onCommit}
     />
   );
+}
+
+type ConfirmableAction = "fetch" | "pull" | "push" | "stash-pop";
+type ActionConfirmation =
+  | { kind: "origin"; action: ConfirmableAction }
+  | { kind: "remote-checkout"; branch: string };
+
+function needsConfirmation(action: RepoAction): action is ConfirmableAction {
+  return action === "fetch" || action === "pull" || action === "push" || action === "stash-pop";
+}
+
+function isOriginBranch(branch: string) {
+  return branch === "origin" || branch.startsWith("origin/") || branch.startsWith("refs/remotes/origin/");
 }
 
 function currentBranchTip(commits: CommitSummary[], branch: string | null) {

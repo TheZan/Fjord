@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -6,6 +6,7 @@ import { useCommitLog } from "@/application/useCommitLog";
 import { useCommitSearch } from "@/application/useCommitSearch";
 import { useTags } from "@/application/useTags";
 import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
+import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 
 const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
@@ -47,6 +48,7 @@ export function CommitGraph({
   onSelectCommit,
   onRevealCommit,
   onCheckout,
+  onCommitContextAction,
   workingFileCount = 0,
   workingSelected = false,
   onSelectWorking,
@@ -58,6 +60,7 @@ export function CommitGraph({
   onSelectCommit?: (commit: CommitSummary) => void;
   onRevealCommit?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
+  onCommitContextAction?: (action: CommitContextAction, commit: CommitSummary) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
   workingFileCount?: number;
   workingSelected?: boolean;
@@ -66,6 +69,7 @@ export function CommitGraph({
   const { t, i18n } = useTranslation("workspace");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
   const { commits, loading, error, hasMore, loadMore, loadingUntilCommitId, loadUntilCommit } =
@@ -277,6 +281,7 @@ export function CommitGraph({
                   selected={row.commit.id === selectedCommitId}
                   onSelect={onSelectCommit}
                   onCheckout={onCheckout}
+                  onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                 />
               </div>
             );
@@ -306,6 +311,18 @@ export function CommitGraph({
           )}
         </div>
       </div>
+      {menu && (
+        <ContextMenu
+          position={menu}
+          items={commitMenuItems(t)}
+          onClose={() => setMenu(null)}
+          onSelect={(action) => {
+            const commit = menu.commit;
+            setMenu(null);
+            onCommitContextAction?.(action as CommitContextAction, commit);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -502,6 +519,7 @@ function CommitRow({
   selected,
   onSelect,
   onCheckout,
+  onContextMenu,
 }: {
   row: GraphRow;
   gutterWidth: number;
@@ -514,6 +532,7 @@ function CommitRow({
   selected: boolean;
   onSelect?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
 }) {
   const { commit, lane } = row;
   const midY = ROW_HEIGHT / 2;
@@ -531,6 +550,11 @@ function CommitRow({
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       onClick={onSelect ? () => onSelect(commit) : undefined}
+      onContextMenu={(event) => {
+        if (!onContextMenu) return;
+        event.preventDefault();
+        onContextMenu(event, commit);
+      }}
       onKeyDown={(event) => {
         if (!onSelect) return;
         if (event.key === "Enter" || event.key === " ") {
@@ -712,6 +736,19 @@ function visibleCommitRefs(
     }
   }
   return [...byLabel.values()].sort((a, b) => Number(b.active) - Number(a.active) || Number(a.remote) - Number(b.remote));
+}
+
+export type CommitContextAction = "createBranch" | "createTag" | "cherryPick" | "revert" | "reset" | "copySha";
+
+function commitMenuItems(t: (key: string) => string): ContextMenuItem[] {
+  return [
+    { id: "createBranch", label: t("context.createBranchHere") },
+    { id: "createTag", label: t("context.createTagHere") },
+    { id: "cherryPick", label: t("context.cherryPick"), separatorBefore: true },
+    { id: "revert", label: t("context.revertCommit") },
+    { id: "reset", label: t("context.resetToCommit"), danger: true },
+    { id: "copySha", label: t("context.copyCommitSha"), separatorBefore: true },
+  ];
 }
 
 function commitRefs(commit: CommitSummary, branches: BranchInfo[] = [], tags: TagInfo[] = []) {

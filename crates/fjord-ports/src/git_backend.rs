@@ -139,6 +139,39 @@ pub trait GitBackend: Send + Sync {
         name: &str,
         checkout: bool,
     ) -> Result<(), GitError>;
+    async fn create_branch_at(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _target: &str,
+        _checkout: bool,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("create_branch_at"))
+    }
+    async fn rename_branch(&self, _repo: &RepoPath, _old_name: &str, _new_name: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("rename_branch"))
+    }
+    async fn delete_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("delete_branch"))
+    }
+    async fn delete_remote_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("delete_remote_branch"))
+    }
+    async fn create_tag(&self, _repo: &RepoPath, _name: &str, _target: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("create_tag"))
+    }
+    async fn delete_tag(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("delete_tag"))
+    }
+    async fn cherry_pick(&self, _repo: &RepoPath, _commit_id: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("cherry_pick"))
+    }
+    async fn revert(&self, _repo: &RepoPath, _commit_id: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("revert"))
+    }
+    async fn reset(&self, _repo: &RepoPath, _commit_id: &str, _mode: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("reset"))
+    }
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError>;
     async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError>;
     /// Applies and drops `stash@{0}`, the most recent entry.

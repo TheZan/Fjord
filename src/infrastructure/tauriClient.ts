@@ -206,6 +206,42 @@ export function createBranch(repoId: string, name: string, checkout = true): Pro
   return invoke("create_branch", { repoId, name, checkout });
 }
 
+export function createBranchAt(repoId: string, name: string, target: string, checkout = true): Promise<void> {
+  return invoke("create_branch_at", { repoId, name, target, checkout });
+}
+
+export function renameBranch(repoId: string, oldName: string, newName: string): Promise<void> {
+  return invoke("rename_branch", { repoId, oldName, newName });
+}
+
+export function deleteBranch(repoId: string, name: string): Promise<void> {
+  return invoke("delete_branch", { repoId, name });
+}
+
+export function deleteRemoteBranch(repoId: string, name: string): Promise<void> {
+  return invoke("delete_remote_branch", { repoId, name });
+}
+
+export function createTag(repoId: string, name: string, target: string): Promise<void> {
+  return invoke("create_tag", { repoId, name, target });
+}
+
+export function deleteTag(repoId: string, name: string): Promise<void> {
+  return invoke("delete_tag", { repoId, name });
+}
+
+export function cherryPick(repoId: string, commitId: string): Promise<void> {
+  return invoke("cherry_pick", { repoId, commitId });
+}
+
+export function revertCommit(repoId: string, commitId: string): Promise<void> {
+  return invoke("revert_commit", { repoId, commitId });
+}
+
+export function resetToCommit(repoId: string, commitId: string, mode: "soft" | "mixed" | "hard"): Promise<void> {
+  return invoke("reset_to_commit", { repoId, commitId, mode });
+}
+
 export function getStashes(repoId: string): Promise<StashEntry[]> {
   return invoke("get_stashes", { repoId });
 }

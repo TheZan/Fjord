@@ -142,6 +142,51 @@ pub async fn create_branch(
 }
 
 #[tauri::command]
+pub async fn create_branch_at(state: State<'_, AppState>, repo_id: RepositoryId, name: String, target: String, checkout: bool) -> Result<(), AppError> {
+    Ok(state.repos.create_branch_at(repo_id, &name, &target, checkout).await?)
+}
+
+#[tauri::command]
+pub async fn rename_branch(state: State<'_, AppState>, repo_id: RepositoryId, old_name: String, new_name: String) -> Result<(), AppError> {
+    Ok(state.repos.rename_branch(repo_id, &old_name, &new_name).await?)
+}
+
+#[tauri::command]
+pub async fn delete_branch(state: State<'_, AppState>, repo_id: RepositoryId, name: String) -> Result<(), AppError> {
+    Ok(state.repos.delete_branch(repo_id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn delete_remote_branch(state: State<'_, AppState>, repo_id: RepositoryId, name: String) -> Result<(), AppError> {
+    Ok(state.repos.delete_remote_branch(repo_id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn create_tag(state: State<'_, AppState>, repo_id: RepositoryId, name: String, target: String) -> Result<(), AppError> {
+    Ok(state.repos.create_tag(repo_id, &name, &target).await?)
+}
+
+#[tauri::command]
+pub async fn delete_tag(state: State<'_, AppState>, repo_id: RepositoryId, name: String) -> Result<(), AppError> {
+    Ok(state.repos.delete_tag(repo_id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn cherry_pick(state: State<'_, AppState>, repo_id: RepositoryId, commit_id: String) -> Result<(), AppError> {
+    Ok(state.repos.cherry_pick(repo_id, &commit_id).await?)
+}
+
+#[tauri::command]
+pub async fn revert_commit(state: State<'_, AppState>, repo_id: RepositoryId, commit_id: String) -> Result<(), AppError> {
+    Ok(state.repos.revert(repo_id, &commit_id).await?)
+}
+
+#[tauri::command]
+pub async fn reset_to_commit(state: State<'_, AppState>, repo_id: RepositoryId, commit_id: String, mode: String) -> Result<(), AppError> {
+    Ok(state.repos.reset(repo_id, &commit_id, &mode).await?)
+}
+
+#[tauri::command]
 pub async fn get_stashes(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

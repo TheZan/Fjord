@@ -1,9 +1,10 @@
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useTags } from "@/application/useTags";
 import { Input } from "@/presentation/ui";
+import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import type { BranchInfo, TagInfo } from "@/domain/git";
 
 type SectionKey = "local" | "remote" | "tags";
@@ -19,11 +20,15 @@ export function RepoTree({
   focusedBranch,
   onSelectBranch,
   onCheckout,
+  onBranchContextAction,
+  onTagContextAction,
 }: {
   repoId: string;
   focusedBranch?: string | null;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
+  onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo) => void;
+  onTagContextAction?: (action: TagContextAction, tag: TagInfo) => void;
 }) {
   const { t } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
@@ -34,6 +39,11 @@ export function RepoTree({
     remote: false,
     tags: false,
   });
+  const [menu, setMenu] = useState<
+    | { kind: "branch"; branch: BranchInfo; x: number; y: number }
+    | { kind: "tag"; tag: TagInfo; x: number; y: number }
+    | null
+  >(null);
 
   const loading = branchesLoading || tagsLoading;
   const error = branchesError ?? tagsError;
@@ -120,6 +130,7 @@ export function RepoTree({
               focused={branch.name === focusedBranch}
               onSelectBranch={onSelectBranch}
               onCheckout={onCheckout}
+              onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
             />
           ))}
         </TreeSection>
@@ -140,6 +151,7 @@ export function RepoTree({
                 focused={branch.name === focusedBranch}
                 onSelectBranch={onSelectBranch}
                 onCheckout={onCheckout}
+                onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
               />
             ))}
           </TreeSection>
@@ -154,11 +166,24 @@ export function RepoTree({
             noMatches={normalizedFilter !== "" && filteredTags.length === 0}
           >
             {filteredTags.map((tag) => (
-              <TagRow key={tag.name} tag={tag} />
+              <TagRow key={tag.name} tag={tag} onContextMenu={(event) => setMenu({ kind: "tag", tag, x: event.clientX, y: event.clientY })} />
             ))}
           </TreeSection>
         )}
       </div>
+      {menu && (
+        <ContextMenu
+          position={menu}
+          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t) : tagMenuItems(menu.tag, t)}
+          onClose={() => setMenu(null)}
+          onSelect={(action) => {
+            const selection = menu;
+            setMenu(null);
+            if (selection.kind === "branch") onBranchContextAction?.(action as BranchContextAction, selection.branch);
+            else onTagContextAction?.(action as TagContextAction, selection.tag);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -215,12 +240,14 @@ function BranchRow({
   focused,
   onSelectBranch,
   onCheckout,
+  onContextMenu,
 }: {
   branch: BranchInfo;
   currentLabel: string;
   focused: boolean;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
+  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
   if (displayName === null) return null;
@@ -238,6 +265,10 @@ function BranchRow({
           event.preventDefault();
           onSelectBranch?.(branch.name);
           if (!branch.isCurrent) onCheckout?.(branch.name);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu(event);
         }}
         data-selected={branch.isCurrent}
         data-focused={focused}
@@ -262,13 +293,39 @@ function remoteBranchDisplayName(name: string) {
   return localName === "HEAD" || localName.trim() === "" ? null : localName;
 }
 
-function TagRow({ tag }: { tag: TagInfo }) {
+function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: MouseEvent<HTMLLIElement>) => void }) {
   return (
-    <li className="interactive-row flex items-center justify-between gap-2 rounded px-2 py-1">
+    <li className="interactive-row flex items-center justify-between gap-2 rounded px-2 py-1" onContextMenu={(event) => { event.preventDefault(); onContextMenu(event); }}>
       <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
       <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
         {tag.targetCommitId.slice(0, 7)}
       </span>
     </li>
   );
+}
+
+export type BranchContextAction = "checkout" | "createBranch" | "rename" | "delete" | "deleteRemote" | "copy";
+export type TagContextAction = "createBranch" | "delete" | "copy";
+
+function branchMenuItems(branch: BranchInfo, t: (key: string) => string): ContextMenuItem[] {
+  return [
+    { id: "checkout", label: t("context.checkout"), disabled: branch.isCurrent },
+    { id: "createBranch", label: t("context.createBranchHere"), separatorBefore: true },
+    { id: "rename", label: t("context.renameBranch"), disabled: branch.isRemote },
+    {
+      id: branch.isRemote ? "deleteRemote" : "delete",
+      label: branch.isRemote ? t("context.deleteRemoteBranch") : t("context.deleteBranch"),
+      disabled: !branch.isRemote && branch.isCurrent,
+      danger: true,
+    },
+    { id: "copy", label: t("context.copyBranchName"), separatorBefore: true },
+  ];
+}
+
+function tagMenuItems(_tag: TagInfo, t: (key: string) => string): ContextMenuItem[] {
+  return [
+    { id: "createBranch", label: t("context.createBranchHere") },
+    { id: "delete", label: t("context.deleteTag"), danger: true },
+    { id: "copy", label: t("context.copyTagName"), separatorBefore: true },
+  ];
 }

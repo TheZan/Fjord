@@ -212,6 +212,57 @@ impl RepoService {
             .await?)
     }
 
+    pub async fn create_branch_at(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        target: &str,
+        checkout: bool,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.create_branch_at(&RepoPath::new(repo.path), name, target, checkout).await?)
+    }
+
+    pub async fn rename_branch(&self, repo_id: RepositoryId, old_name: &str, new_name: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.rename_branch(&RepoPath::new(repo.path), old_name, new_name).await?)
+    }
+
+    pub async fn delete_branch(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.delete_branch(&RepoPath::new(repo.path), name).await?)
+    }
+
+    pub async fn delete_remote_branch(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.delete_remote_branch(&RepoPath::new(repo.path), name).await?)
+    }
+
+    pub async fn create_tag(&self, repo_id: RepositoryId, name: &str, target: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.create_tag(&RepoPath::new(repo.path), name, target).await?)
+    }
+
+    pub async fn delete_tag(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.delete_tag(&RepoPath::new(repo.path), name).await?)
+    }
+
+    pub async fn cherry_pick(&self, repo_id: RepositoryId, commit_id: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.cherry_pick(&RepoPath::new(repo.path), commit_id).await?)
+    }
+
+    pub async fn revert(&self, repo_id: RepositoryId, commit_id: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.revert(&RepoPath::new(repo.path), commit_id).await?)
+    }
+
+    pub async fn reset(&self, repo_id: RepositoryId, commit_id: &str, mode: &str) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.reset(&RepoPath::new(repo.path), commit_id, mode).await?)
+    }
+
     pub async fn get_stashes(&self, repo_id: RepositoryId) -> Result<Vec<StashEntry>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.stashes(&RepoPath::new(repo.path)).await?)

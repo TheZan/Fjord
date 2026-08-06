@@ -6,10 +6,17 @@ import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
+import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
+import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
 import { Button, Muted } from "@/presentation/ui";
 import type { CommitSummary, RepoStatus, WorkingChanges } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
+
+type ActionConfirmation =
+  | { kind: "origin"; action: "fetch" | "pull" | "push" | "stash-pop" }
+  | { kind: "remote-checkout"; branch: string };
 
 /**
  * A selected repository used to render *below* the dashboard, so clicking a
@@ -24,6 +31,7 @@ export function RepoDetailView({
   statusError,
   actionPending,
   actionError,
+  actionConfirmation,
   operationProgress,
   branchScrollRequest,
   selectedCommit,
@@ -33,10 +41,21 @@ export function RepoDetailView({
   changesError,
   onBack,
   onAction,
+  onConfirmAction,
+  onCancelActionConfirmation,
   onCancelOperation,
   onCheckout,
   onSelectBranch,
   onCreateBranch,
+  onCreateBranchAt,
+  onRenameBranch,
+  onDeleteBranch,
+  onDeleteRemoteBranch,
+  onCreateTag,
+  onDeleteTag,
+  onCherryPick,
+  onRevertCommit,
+  onResetToCommit,
   onOpenSearch,
   onSelectCommit,
   onRevealCommit,
@@ -50,6 +69,7 @@ export function RepoDetailView({
   statusError: string | null;
   actionPending: string | null;
   actionError: string | null;
+  actionConfirmation: ActionConfirmation | null;
   operationProgress: {
     completed: number;
     total: number;
@@ -64,10 +84,21 @@ export function RepoDetailView({
   changesError: string | null;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
+  onConfirmAction: () => void;
+  onCancelActionConfirmation: () => void;
   onCancelOperation: () => void;
   onCheckout: (branch: string) => void;
   onSelectBranch: (branch: string) => void;
   onCreateBranch: (name: string) => void;
+  onCreateBranchAt: (name: string, target: string) => void;
+  onRenameBranch: (oldName: string, newName: string) => void;
+  onDeleteBranch: (name: string) => void;
+  onDeleteRemoteBranch: (name: string) => void;
+  onCreateTag: (name: string, target: string) => void;
+  onDeleteTag: (name: string) => void;
+  onCherryPick: (commitId: string) => void;
+  onRevertCommit: (commitId: string) => void;
+  onResetToCommit: (commitId: string, mode: "soft" | "mixed" | "hard") => void;
   onOpenSearch: () => void;
   onSelectCommit: (commit: CommitSummary) => void;
   onRevealCommit: (commit: CommitSummary) => void;
@@ -79,6 +110,7 @@ export function RepoDetailView({
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
+  const [dialog, setDialog] = useState<ContextDialog | null>(null);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -152,6 +184,8 @@ export function RepoDetailView({
             focusedBranch={branchScrollRequest?.branch ?? null}
             onSelectBranch={onSelectBranch}
             onCheckout={onCheckout}
+            onBranchContextAction={handleBranchContextAction}
+            onTagContextAction={handleTagContextAction}
           />
         </div>
 
@@ -175,6 +209,7 @@ export function RepoDetailView({
                 onSelectCommit={onSelectCommit}
                 onRevealCommit={onRevealCommit}
                 onCheckout={onCheckout}
+                onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
                 onSelectWorking={onSelectWorking}
@@ -208,6 +243,116 @@ export function RepoDetailView({
           )}
         </div>
       </div>
+      {dialog?.kind === "createBranch" && (
+        <TextActionDialog
+          title={t("context.createBranchHere")}
+          description={t("context.createBranchDescription", { commit: dialog.target.slice(0, 7) })}
+          label={t("context.branchName")}
+          confirmLabel={t("context.create")}
+          onClose={() => setDialog(null)}
+          onConfirm={(name) => {
+            setDialog(null);
+            onCreateBranchAt(name, dialog.target);
+          }}
+        />
+      )}
+      {dialog?.kind === "renameBranch" && (
+        <TextActionDialog
+          title={t("context.renameBranch")}
+          description={t("context.renameBranchDescription", { branch: dialog.branch })}
+          label={t("context.branchName")}
+          initialValue={dialog.branch}
+          confirmLabel={t("context.rename")}
+          onClose={() => setDialog(null)}
+          onConfirm={(name) => {
+            setDialog(null);
+            onRenameBranch(dialog.branch, name);
+          }}
+        />
+      )}
+      {dialog?.kind === "createTag" && (
+        <TextActionDialog
+          title={t("context.createTagHere")}
+          description={t("context.createTagDescription", { commit: dialog.target.slice(0, 7) })}
+          label={t("context.tagName")}
+          confirmLabel={t("context.create")}
+          onClose={() => setDialog(null)}
+          onConfirm={(name) => {
+            setDialog(null);
+            onCreateTag(name, dialog.target);
+          }}
+        />
+      )}
+      {dialog?.kind === "confirm" && (
+        <ConfirmActionDialog
+          title={t(`context.confirm.${dialog.action}.title`)}
+          description={t(`context.confirm.${dialog.action}.description`, { target: dialog.target })}
+          confirmLabel={t(`context.confirm.${dialog.action}.button`)}
+          danger={dialog.action === "deleteBranch" || dialog.action === "deleteRemoteBranch" || dialog.action === "deleteTag" || dialog.action === "reset"}
+          resetModes={dialog.action === "reset"}
+          onClose={() => setDialog(null)}
+          onConfirm={(mode) => {
+            setDialog(null);
+            if (dialog.action === "deleteBranch") onDeleteBranch(dialog.target);
+            if (dialog.action === "deleteRemoteBranch") onDeleteRemoteBranch(dialog.target);
+            if (dialog.action === "deleteTag") onDeleteTag(dialog.target);
+            if (dialog.action === "cherryPick") onCherryPick(dialog.target);
+            if (dialog.action === "revert") onRevertCommit(dialog.target);
+            if (dialog.action === "reset") onResetToCommit(dialog.target, mode ?? "mixed");
+          }}
+        />
+      )}
+      {actionConfirmation && (
+        <ConfirmActionDialog
+          title={t(`context.confirm.${confirmationKey(actionConfirmation)}.title`)}
+          description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "remote-checkout" ? actionConfirmation.branch : undefined })}
+          confirmLabel={t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
+          danger={actionConfirmation.kind === "origin" && actionConfirmation.action === "stash-pop"}
+          onClose={onCancelActionConfirmation}
+          onConfirm={onConfirmAction}
+        />
+      )}
     </div>
   );
+
+  function handleBranchContextAction(action: BranchContextAction, branch: import("@/domain/git").BranchInfo) {
+    switch (action) {
+      case "checkout": onCheckout(branch.name); break;
+      case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
+      case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
+      case "delete": setDialog({ kind: "confirm", action: "deleteBranch", target: branch.name }); break;
+      case "deleteRemote": setDialog({ kind: "confirm", action: "deleteRemoteBranch", target: branch.name }); break;
+      case "copy": void copyText(branch.name); break;
+    }
+  }
+
+  function handleTagContextAction(action: TagContextAction, tag: import("@/domain/git").TagInfo) {
+    if (action === "createBranch") setDialog({ kind: "createBranch", target: tag.targetCommitId });
+    if (action === "delete") setDialog({ kind: "confirm", action: "deleteTag", target: tag.name });
+    if (action === "copy") void copyText(tag.name);
+  }
+
+  function handleCommitContextAction(action: CommitContextAction, commit: CommitSummary) {
+    if (action === "createBranch") setDialog({ kind: "createBranch", target: commit.id });
+    if (action === "createTag") setDialog({ kind: "createTag", target: commit.id });
+    if (action === "cherryPick") setDialog({ kind: "confirm", action: "cherryPick", target: commit.id });
+    if (action === "revert") setDialog({ kind: "confirm", action: "revert", target: commit.id });
+    if (action === "reset") setDialog({ kind: "confirm", action: "reset", target: commit.id });
+    if (action === "copySha") void copyText(commit.id);
+  }
+}
+
+type ContextDialog =
+  | { kind: "createBranch"; target: string }
+  | { kind: "renameBranch"; branch: string }
+  | { kind: "createTag"; target: string }
+  | { kind: "confirm"; action: "deleteBranch" | "deleteRemoteBranch" | "deleteTag" | "cherryPick" | "revert" | "reset"; target: string };
+
+async function copyText(value: string) {
+  await navigator.clipboard?.writeText(value);
+}
+
+function confirmationKey(action: ActionConfirmation) {
+  if (action.kind === "remote-checkout") return "remoteCheckout";
+  return action.action === "stash-pop" ? "stashPop" : action.action;
 }
