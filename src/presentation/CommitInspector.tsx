@@ -42,21 +42,24 @@ export function CommitInspector({
   onSelectFile: (path: string) => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
-  const { files, loading, error } = useCommitDiff(repoId, commit.id);
+  const { files, loading, statsLoading, statsReady, error } = useCommitDiff(repoId, commit.id);
   const [viewMode, setViewMode] = useState<FileViewMode>("path");
-  const directoryPaths = useMemo(() => directoryPathsOf(files), [files]);
+  const directoryPaths = useMemo(
+    () => (viewMode === "tree" ? directoryPathsOf(files) : []),
+    [files, viewMode],
+  );
   const collapse = useFileTreeCollapse(directoryPaths);
 
   const authoredAt = formatAuthoredAt(commit.authoredAt, i18n.language);
 
   return (
     <div
-      className="flex h-full min-h-0 w-full flex-col rounded-lg border text-sm"
+      className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-lg border text-sm"
       style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
     >
-      <div className="shrink-0 border-b p-3" style={{ borderColor: "var(--hairline)" }}>
+      <div className="min-w-0 shrink-0 overflow-hidden border-b p-3" style={{ borderColor: "var(--hairline)" }}>
         <p
-          className="selectable-text max-h-24 overflow-y-auto whitespace-pre-wrap font-medium"
+          className="selectable-text max-h-24 overflow-y-auto whitespace-pre-wrap font-medium [overflow-wrap:anywhere]"
           style={{ color: "var(--ink)" }}
         >
           {commit.message}
@@ -65,16 +68,16 @@ export function CommitInspector({
           className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
           style={{ color: "var(--mist)" }}
         >
-          <span className="truncate">
+          <span className="min-w-0 max-w-full truncate">
             {commit.authorName} &lt;{commit.authorEmail}&gt;
           </span>
           <span>{authoredAt}</span>
-          <code className="selectable-text truncate font-mono">{commit.id}</code>
+          <code className="selectable-text min-w-0 max-w-full truncate font-mono">{commit.id}</code>
         </div>
       </div>
 
       <div
-        className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5"
+        className="flex min-w-0 shrink-0 items-center justify-between gap-2 overflow-hidden border-b px-3 py-1.5"
         style={{ borderColor: "var(--hairline)" }}
       >
         <span className="truncate text-[11px]" style={{ color: "var(--mist)" }}>
@@ -119,8 +122,12 @@ export function CommitInspector({
             )}
             renderTrailing={(file) => (
               <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
-                <span style={{ color: "var(--moss-ink)" }}>+{file.additions}</span>{" "}
-                <span style={{ color: "var(--rust-ink)" }}>−{file.deletions}</span>
+                {statsLoading ? "…" : statsReady ? (
+                  <>
+                    <span style={{ color: "var(--moss-ink)" }}>+{file.additions}</span>{" "}
+                    <span style={{ color: "var(--rust-ink)" }}>−{file.deletions}</span>
+                  </>
+                ) : "—"}
               </span>
             )}
             fill

@@ -111,6 +111,15 @@ pub trait GitBackend: Send + Sync {
         query: &str,
         limit: u32,
     ) -> Result<Vec<CommitSummary>, GitError>;
+    /// Fast tree-only file list used to paint commit inspectors before line
+    /// statistics finish. Backends may fall back to the full diff.
+    async fn diff_files(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+    ) -> Result<Vec<FileDiff>, GitError> {
+        self.diff(repo, commit_id).await
+    }
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError>;
     async fn file_diff(
         &self,

@@ -32,6 +32,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 | `search_commit_log` | `{ repo_id, query, limit }` | `CommitSummary[]` | Searches commit titles across local and remote refs; capped by `limit` |
 | `global_search` | `{ workspace_id?, query, limit }` | `GlobalSearchResult[]` | Searches tracked repositories, branch names, and recent `HEAD` commits; unreadable repo details are skipped without aborting the whole search |
 | `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | Changed-files summary for the commit inspector (P1-04) — path, change type, add/delete line counts, no content |
+| `get_commit_files` | `{ repo_id, commit_id }` | `FileDiff[]` | Fast tree-only changed-file list used to paint the commit inspector while line counts load progressively |
 | `get_file_diff` | `{ repo_id, commit_id, path }` | `FileDiffDetail` | Full unified line diff for one file within a commit (P1-05); `isBinary` is `true` and `hunks` empty when either side is binary |
 | `checkout_branch` | `{ repo_id, branch }` | — | |
 | `stage_files` | `{ repo_id, paths: string[] }` | — | Empty `paths` means stage all changes |

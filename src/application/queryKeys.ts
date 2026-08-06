@@ -17,8 +17,10 @@ export const queryKeys = {
     commitSearch: (repoId: string, query: string) =>
       [...queryKeys.repos.commitSearches(repoId), query] as const,
     commitDiffs: (repoId: string) => [...queryKeys.repos.detail(repoId), "commitDiff"] as const,
+    commitFiles: (repoId: string, commitId: string) =>
+      [...queryKeys.repos.commitDiffs(repoId), commitId, "files"] as const,
     commitDiff: (repoId: string, commitId: string) =>
-      [...queryKeys.repos.commitDiffs(repoId), commitId] as const,
+      [...queryKeys.repos.commitDiffs(repoId), commitId, "stats"] as const,
     fileDiffs: (repoId: string) => [...queryKeys.repos.detail(repoId), "fileDiff"] as const,
     fileDiff: (repoId: string, path: string, sourceKey: string) =>
       [...queryKeys.repos.fileDiffs(repoId), sourceKey, path] as const,

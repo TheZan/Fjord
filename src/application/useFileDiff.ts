@@ -39,6 +39,8 @@ export function useFileDiff(
         ? getFileDiff(repoId!, source!.commitId, path!, signal)
         : getWorkingFileDiff(repoId!, path!, source!.staged, signal),
     enabled: repoId !== null && path !== null && source !== null,
+    staleTime: source?.kind === "commit" ? Infinity : 0,
+    gcTime: source?.kind === "commit" ? 30 * 60 * 1_000 : undefined,
   });
 
   return {

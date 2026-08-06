@@ -156,6 +156,18 @@ impl RepoService {
         Ok(self.git.diff(&RepoPath::new(repo.path), commit_id).await?)
     }
 
+    pub async fn get_commit_files(
+        &self,
+        repo_id: RepositoryId,
+        commit_id: &str,
+    ) -> Result<Vec<FileDiff>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .diff_files(&RepoPath::new(repo.path), commit_id)
+            .await?)
+    }
+
     pub async fn get_file_diff(
         &self,
         repo_id: RepositoryId,
@@ -1019,7 +1031,9 @@ mod tests {
         let (repo, git, _, service) = service_with_fake_git();
 
         let files = service.get_commit_diff(repo.id, "deadbeef").await.unwrap();
+        let fast_files = service.get_commit_files(repo.id, "deadbeef").await.unwrap();
         assert_eq!(files.len(), 1);
+        assert_eq!(fast_files.len(), 1);
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 

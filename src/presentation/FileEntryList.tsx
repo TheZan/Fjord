@@ -200,10 +200,10 @@ export function FileEntryList<T extends { path: string }>({
   return (
     <div
       ref={scrollRef}
-      className={`min-h-0 overflow-y-auto ${fill ? "h-full" : ""}`}
+      className={`min-h-0 min-w-0 overflow-x-hidden overflow-y-auto ${fill ? "h-full" : ""}`}
       style={fill ? undefined : { height: Math.min(entries.length * FILE_ROW_HEIGHT, MAX_CAPPED_LIST_HEIGHT) }}
     >
-      <ul className="relative" style={{ height: rowVirtualizer.getTotalSize() }}>
+      <ul className="relative min-w-0 w-full overflow-hidden" style={{ height: rowVirtualizer.getTotalSize() }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const entry = entries[virtualRow.index];
           const rowStyle: CSSProperties = {
@@ -257,11 +257,11 @@ function DirectoryRow<T extends { path: string }>({
   style: CSSProperties;
 }) {
   return (
-    <li style={style}>
+    <li className="min-w-0 overflow-hidden" style={style}>
       <button
         type="button"
         onClick={() => onToggle(node.path)}
-        className="interactive-row flex h-7 w-full items-center gap-1 rounded px-2 text-left"
+        className="interactive-row flex h-7 min-w-0 w-full items-center gap-1 overflow-hidden rounded px-2 text-left"
         style={{ paddingLeft: `${0.5 + depth * 0.75}rem`, color: "var(--slate)" }}
       >
         <span className="w-3 shrink-0 text-center text-[10px]">{collapsed ? "▸" : "▾"}</span>
@@ -293,13 +293,13 @@ function FileRow<T extends { path: string }>({
   style: CSSProperties;
 }) {
   return (
-    <li className="group" style={style}>
+    <li className="group min-w-0 overflow-hidden" style={style}>
       <button
         type="button"
         onClick={() => onSelect(file)}
         title={file.path}
         data-selected={selected}
-        className="interactive-row flex h-7 w-full items-center gap-2 rounded pr-2 text-left"
+        className="interactive-row flex h-7 min-w-0 w-full items-center gap-2 overflow-hidden rounded pr-2 text-left"
         style={{
           paddingLeft: `${0.5 + depth * 0.75}rem`,
           color: selected ? "var(--fjord-ink)" : "var(--ink)",
@@ -308,18 +308,18 @@ function FileRow<T extends { path: string }>({
         <span className="w-4 shrink-0 text-center font-mono text-xs font-semibold">
           {renderMark(file)}
         </span>
-        <span className="flex min-w-0 flex-1 items-baseline gap-1">
+        <span className="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden">
           {prefix ? (
-            // The directory is the part allowed to shrink and ellipsize, so
-            // the file name stays fully readable however deep the path is.
+            // Prefer the basename, but allow both segments to ellipsize so a
+            // generated filename can never widen the inspector.
             <span
-              className="min-w-0 shrink truncate font-mono text-[11px]"
+              className="min-w-0 max-w-[45%] shrink truncate font-mono text-[11px]"
               style={{ color: "var(--mist)" }}
             >
               {prefix}
             </span>
           ) : null}
-          <span className="shrink-0 truncate font-mono text-xs">{label}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{label}</span>
         </span>
         {renderTrailing?.(file)}
       </button>

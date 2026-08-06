@@ -365,15 +365,93 @@ impl GixGitBackend {
         commit_id: &str,
     ) -> Result<Vec<ChangeDetached>, GitError> {
         let (old_tree, new_tree) = Self::commit_trees(git, commit_id)?;
+        Self::tree_changes(git, old_tree.as_ref(), &new_tree)
+    }
+
+    fn tree_changes(
+        git: &gix::Repository,
+        old_tree: Option<&gix::Tree<'_>>,
+        new_tree: &gix::Tree<'_>,
+    ) -> Result<Vec<ChangeDetached>, GitError> {
         let mut options = gix::diff::Options::default();
         options.track_rewrites(None);
         let changes = git
-            .diff_tree_to_tree(old_tree.as_ref(), &new_tree, Some(options))
+            .diff_tree_to_tree(old_tree, new_tree, Some(options))
             .map_err(|e| GitError::Gix(e.to_string()))?;
         Ok(changes
             .into_iter()
             .filter(|change| change.attach(git, git).entry_mode().is_blob_or_symlink())
             .collect())
+    }
+
+    /// Collects every file's line counts in one Git process. The previous
+    /// implementation prepared and diffed each blob separately, making the
+    /// inspector latency proportional to N independent diff setups.
+    fn commit_line_stats(
+        repo: &RepoPath,
+        commit_id: &str,
+        old_tree: Option<&gix::Tree<'_>>,
+        new_tree: &gix::Tree<'_>,
+    ) -> Result<HashMap<String, (u32, u32)>, GitError> {
+        let mut command = Command::new("git");
+        command.current_dir(&repo.0).stdin(Stdio::null());
+
+        if let Some(old_tree) = old_tree {
+            command
+                .args([
+                    "diff",
+                    "--numstat",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-z",
+                ])
+                .arg(old_tree.id.to_string())
+                .arg(new_tree.id.to_string());
+        } else {
+            command
+                .args([
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "--numstat",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-r",
+                    "-z",
+                ])
+                .arg(commit_id);
+        }
+
+        let output = command
+            .output()
+            .map_err(|error| GitError::Git2(format!("failed to read commit statistics: {error}")))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr);
+            return Err(GitError::Git2(format!(
+                "failed to read commit statistics: {}",
+                message.trim()
+            )));
+        }
+
+        Ok(Self::parse_numstat(&output.stdout))
+    }
+
+    fn parse_numstat(output: &[u8]) -> HashMap<String, (u32, u32)> {
+        output
+            .split(|byte| *byte == 0)
+            .filter_map(|record| {
+                if record.is_empty() {
+                    return None;
+                }
+                let mut fields = record.splitn(3, |byte| *byte == b'\t');
+                let additions = parse_numstat_count(fields.next()?)?;
+                let deletions = parse_numstat_count(fields.next()?)?;
+                let path = String::from_utf8_lossy(fields.next()?).into_owned();
+                Some((path, (additions, deletions)))
+            })
+            .collect()
     }
 
     /// Point the worktree and HEAD at `refname`. Shared by `checkout` and by
@@ -988,32 +1066,47 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
+    async fn diff_files(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
         let repo = repo.clone();
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open(&repo)?;
             let changes = Self::commit_changes(&git, &commit_id)?;
+            Ok(changes
+                .iter()
+                .map(|change| {
+                    let attached = change.attach(&git, &git);
+                    FileDiff {
+                        path: attached.location().to_string(),
+                        change_type: Self::classify_change(&attached),
+                        additions: 0,
+                        deletions: 0,
+                    }
+                })
+                .collect())
+        })
+        .await
+        .map_err(|e| GitError::Gix(e.to_string()))?
+    }
 
-            let mut resource_cache = git
-                .diff_resource_cache_for_tree_diff()
-                .map_err(|e| GitError::Gix(e.to_string()))?;
+    async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
+        let repo = repo.clone();
+        let commit_id = commit_id.to_string();
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open(&repo)?;
+            let (old_tree, new_tree) = Self::commit_trees(&git, &commit_id)?;
+            let changes = Self::tree_changes(&git, old_tree.as_ref(), &new_tree)?;
+            let mut line_stats =
+                Self::commit_line_stats(&repo, &commit_id, old_tree.as_ref(), &new_tree)?;
 
             let mut out = Vec::with_capacity(changes.len());
             for change in &changes {
                 let attached = change.attach(&git, &git);
                 let path = attached.location().to_string();
                 let change_type = Self::classify_change(&attached);
-
-                let (additions, deletions) = attached
-                    .diff(&mut resource_cache)
-                    .ok()
-                    .and_then(|mut platform| platform.line_counts().ok().flatten())
-                    .map(|counts| (counts.insertions, counts.removals))
-                    .unwrap_or((0, 0));
-
-                resource_cache.clear_resource_cache_keep_allocation();
+                let (additions, deletions) = line_stats.remove(&path).unwrap_or_default();
                 out.push(FileDiff {
                     path,
                     change_type,
@@ -1684,6 +1777,13 @@ impl GitBackend for GixGitBackend {
     }
 }
 
+fn parse_numstat_count(value: &[u8]) -> Option<u32> {
+    if value == b"-" {
+        return Some(0);
+    }
+    std::str::from_utf8(value).ok()?.parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1944,6 +2044,47 @@ mod tests {
         assert_eq!(files[0].change_type, FileChangeType::Modified);
         assert_eq!(files[0].additions, 1);
         assert_eq!(files[0].deletions, 0);
+    }
+
+    #[tokio::test]
+    async fn diff_files_returns_tree_metadata_without_line_work() {
+        let (_dir, repo_path, head) = repo_with_changed_head().await;
+        let backend = GixGitBackend::new();
+
+        let files = backend.diff_files(&repo_path, &head).await.unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "README.md");
+        assert_eq!(files[0].change_type, FileChangeType::Modified);
+        assert_eq!((files[0].additions, files[0].deletions), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn diff_reports_files_for_a_root_commit() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "first line\nsecond line\n");
+        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        let root = backend.commit(&repo_path, "Root commit").await.unwrap();
+
+        let files = backend.diff(&repo_path, &root).await.unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "README.md");
+        assert_eq!(files[0].change_type, FileChangeType::Added);
+        assert_eq!(files[0].additions, 2);
+        assert_eq!(files[0].deletions, 0);
+    }
+
+    #[test]
+    fn numstat_parser_handles_binary_files_and_tabs_in_paths() {
+        let parsed = GixGitBackend::parse_numstat(
+            b"12\t3\tsrc/file.rs\0-\t-\tassets/image.png\01\t0\tpath/with\ttab.txt\0",
+        );
+
+        assert_eq!(parsed.get("src/file.rs"), Some(&(12, 3)));
+        assert_eq!(parsed.get("assets/image.png"), Some(&(0, 0)));
+        assert_eq!(parsed.get("path/with\ttab.txt"), Some(&(1, 0)));
     }
 
     #[tokio::test]

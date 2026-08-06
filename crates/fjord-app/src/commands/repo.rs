@@ -89,6 +89,15 @@ pub async fn get_commit_diff(
 }
 
 #[tauri::command]
+pub async fn get_commit_files(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    commit_id: String,
+) -> Result<Vec<FileDiff>, AppError> {
+    Ok(state.repos.get_commit_files(repo_id, &commit_id).await?)
+}
+
+#[tauri::command]
 pub async fn get_file_diff(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

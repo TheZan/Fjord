@@ -42,6 +42,27 @@ describe("FileEntryList", () => {
     fireEvent.click(screen.getByText("file-1.ts"));
     expect(onSelect).toHaveBeenCalledWith(files[1]);
   });
+
+  it("constrains a long file name to the available row width", () => {
+    const path = `src/generated/${"LongTypeName".repeat(12)}.Designer.cs`;
+
+    render(
+      <FileEntryList
+        files={[{ path }]}
+        mode="path"
+        collapse={emptyCollapse()}
+        selectedPath={null}
+        onSelect={vi.fn()}
+        renderMark={() => "M"}
+        renderTrailing={() => <span>+10 -2</span>}
+      />,
+    );
+
+    const row = screen.getByTitle(path);
+    const fileName = screen.getByText(`${"LongTypeName".repeat(12)}.Designer.cs`);
+    expect(row).toHaveClass("min-w-0", "overflow-hidden");
+    expect(fileName).toHaveClass("min-w-0", "flex-1", "truncate");
+  });
 });
 
 function emptyCollapse(): FileTreeCollapse {

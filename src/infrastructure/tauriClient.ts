@@ -234,6 +234,14 @@ export function getCommitDiff(repoId: string, commitId: string, signal?: AbortSi
   return invokeAbortable("get_commit_diff", { repoId, commitId }, signal);
 }
 
+export function getCommitFiles(
+  repoId: string,
+  commitId: string,
+  signal?: AbortSignal,
+): Promise<FileDiff[]> {
+  return invokeAbortable("get_commit_files", { repoId, commitId }, signal);
+}
+
 export function getFileDiff(
   repoId: string,
   commitId: string,
