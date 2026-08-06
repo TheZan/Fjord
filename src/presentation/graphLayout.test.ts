@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeGraphLayout } from "./graphLayout";
+import { computeGraphLayout, computeGraphLayoutChunk } from "./graphLayout";
 import type { CommitSummary } from "@/domain/git";
 
 function commit(id: string, parentIds: string[]): CommitSummary {
@@ -87,5 +87,20 @@ describe("computeGraphLayout", () => {
 
   it("returns an empty layout for no commits", () => {
     expect(computeGraphLayout([])).toEqual({ rows: [], laneCount: 0 });
+  });
+
+  it("continues an append-only history without changing the layout", () => {
+    const commits = [
+      commit("merge", ["feature", "main"]),
+      commit("main", ["root"]),
+      commit("feature", ["root"]),
+      commit("root", []),
+    ];
+    const first = computeGraphLayoutChunk(commits.slice(0, 2));
+    const second = computeGraphLayoutChunk(commits.slice(2), first.state);
+
+    expect({ rows: [...first.rows, ...second.rows], laneCount: second.laneCount }).toEqual(
+      computeGraphLayout(commits),
+    );
   });
 });

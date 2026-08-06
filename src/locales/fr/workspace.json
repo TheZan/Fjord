@@ -62,6 +62,7 @@
     "searchEmpty": "Aucun commit correspondant.",
     "searchCount": "Résultats : {{count}}",
     "locatingBranch": "Recherche de {{branch}} dans l'historique…",
+    "updatingGraph": "Mise à jour du graphe des commits…",
     "rowLabel": "{{message}}, par {{author}}, commit {{sha}}"
   },
   "context": {

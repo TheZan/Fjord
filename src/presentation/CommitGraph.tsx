@@ -5,8 +5,9 @@ import { useBranches } from "@/application/useBranches";
 import { useCommitLog } from "@/application/useCommitLog";
 import { useCommitSearch } from "@/application/useCommitSearch";
 import { useTags } from "@/application/useTags";
-import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
+import type { GraphRow } from "@/presentation/graphLayout";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
+import { useGraphLayout } from "@/presentation/useGraphLayout";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 
 const LANE_COLORS = [
@@ -88,9 +89,7 @@ export function CommitGraph({
   const visibleCommits = searchActive ? search.commits : commits;
   const visibleLoading = searchActive ? search.loading : loading;
   const visibleError = searchActive ? search.error : error;
-  // Lane assignment is O(commits × lanes) — memoized so unrelated state
-  // changes (selection, loading flags) don't recompute the whole layout.
-  const { rows, laneCount } = useMemo(() => computeGraphLayout(visibleCommits), [visibleCommits]);
+  const { rows, laneCount, computing: layoutComputing } = useGraphLayout(visibleCommits);
   const selectedPath = useMemo(
     () => firstParentPath(visibleCommits, selectedCommitId ?? null),
     [selectedCommitId, visibleCommits],
@@ -267,6 +266,9 @@ export function CommitGraph({
         />
       )}
       {seekingBranchLabel && <BranchSeekStatus label={t("commits.locatingBranch", { branch: seekingBranchLabel })} />}
+      {!seekingBranchLabel && layoutComputing && rows.length > 0 ? (
+        <BranchSeekStatus label={t("commits.updatingGraph")} />
+      ) : null}
       <div ref={parentRef} className="h-full w-full overflow-auto">
         <GraphHeader gutterWidth={gutterWidth} />
         {workingFileCount > 0 && onSelectWorking && (
@@ -277,7 +279,7 @@ export function CommitGraph({
             onSelect={onSelectWorking}
           />
         )}
-        {visibleLoading && rows.length === 0 ? <GraphSkeleton gutterWidth={gutterWidth} /> : null}
+        {(visibleLoading || layoutComputing) && rows.length === 0 ? <GraphSkeleton gutterWidth={gutterWidth} /> : null}
         <div
           style={{
             height: `${rowVirtualizer.getTotalSize()}px`,
