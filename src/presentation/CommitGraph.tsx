@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useCommitLog } from "@/application/useCommitLog";
@@ -125,7 +126,7 @@ export function CommitGraph({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const wantsFind = (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f";
+      const wantsFind = isPrimaryShortcut(event, "KeyF");
       if (wantsFind) {
         event.preventDefault();
         setSearchOpen(true);
@@ -608,7 +609,7 @@ function CommitRow({
       }}
       onKeyDown={(event) => {
         if (!onSelect) return;
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        if (isPrimaryShortcut(event.nativeEvent, "KeyC")) {
           event.preventDefault();
           void navigator.clipboard?.writeText(commit.id);
           return;

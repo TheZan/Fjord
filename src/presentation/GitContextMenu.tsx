@@ -1,5 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import { Button, Input, Select } from "@/presentation/ui";
 
 export interface ContextMenuItem {
@@ -83,6 +91,15 @@ export function ContextMenu({
         }}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
+          const shortcutItem = items.find(
+            (item) => !item.disabled && item.shortcut && matchesMenuShortcut(event, item.shortcut),
+          );
+          if (shortcutItem) {
+            event.preventDefault();
+            onSelect(shortcutItem.id);
+            return;
+          }
+
           if (event.key === "ArrowDown") {
             event.preventDefault();
             moveActive(1);
@@ -136,6 +153,19 @@ export function ContextMenu({
       </div>
     </div>
   );
+}
+
+function matchesMenuShortcut(event: ReactKeyboardEvent<HTMLDivElement>, shortcut: string) {
+  if (shortcut === "Ctrl+C") return isPrimaryShortcut(event.nativeEvent, "KeyC");
+  if (shortcut === "Ctrl+Enter") {
+    return (
+      (event.ctrlKey || event.metaKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      event.code === "Enter"
+    );
+  }
+  return false;
 }
 
 function firstEnabledIndex(items: ContextMenuItem[]) {

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
 
+import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import { App } from "@/presentation/App";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { ThemeProvider } from "@/infrastructure/theme/ThemeProvider";
@@ -28,10 +29,11 @@ function installDesktopWebviewBehavior() {
   });
 
   window.addEventListener("keydown", (event) => {
-    const key = event.key.toLowerCase();
     const browserCommand =
       event.key === "F5" ||
-      ((event.ctrlKey || event.metaKey) && ["p", "r", "s", "u"].includes(key)) ||
+      (["KeyP", "KeyR", "KeyS", "KeyU"] as const).some((code) =>
+        isPrimaryShortcut(event, code),
+      ) ||
       (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"));
     if (browserCommand) event.preventDefault();
   });

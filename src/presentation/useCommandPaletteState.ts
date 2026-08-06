@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import type { GlobalSearchResult } from "@/domain/git";
 import { globalSearch } from "@/infrastructure/tauriClient";
 import type { PaletteItem } from "@/presentation/CommandPalette";
@@ -25,7 +26,7 @@ export function useCommandPaletteState({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
+      if (isPrimaryShortcut(event, "KeyK")) {
         event.preventDefault();
         openPalette();
       }
