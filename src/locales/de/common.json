@@ -12,6 +12,7 @@
   "settings": {
     "sections": {
       "general": "Allgemein",
+      "sync": "Synchronisierung",
       "appearance": "Darstellung",
       "tools": "Werkzeuge"
     },
@@ -23,6 +24,14 @@
     },
     "locale": {
       "label": "Sprache"
+    },
+    "autoFetch": {
+      "label": "Remote-Änderungen",
+      "title": "Änderungen automatisch abrufen",
+      "description": "Prüft origin einmal pro Minute nur für das geöffnete Repository. Pausiert, wenn das Fenster inaktiv ist.",
+      "confirmTitle": "Automatisches Abrufen aktivieren?",
+      "confirmDescription": "Fjord darf Änderungen aus origin abrufen, ohne jede Prüfung einzeln zu bestätigen. Push, Pull, das Löschen von Branches und andere Aktionen müssen weiterhin bestätigt werden.",
+      "confirmButton": "Aktivieren"
     },
     "defaultIde": {
       "label": "Standard-IDE",

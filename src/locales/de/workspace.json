@@ -154,6 +154,9 @@
     "openCommand": "Einstellungen öffnen",
     "openCommandDetail": "Design, Sprache und Standard-IDE"
   },
+  "sync": {
+    "autoFetchError": "Remote-Änderungen konnten nicht automatisch abgerufen werden: {{error}}"
+  },
   "toolbar": {
     "branch": "Branch",
     "branchPlaceholder": "Name des neuen Branches",

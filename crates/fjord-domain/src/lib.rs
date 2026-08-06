@@ -295,6 +295,7 @@ pub struct Settings {
     pub locale: String,
     pub theme: Theme,
     pub default_ide: Option<String>,
+    pub auto_fetch: bool,
 }
 
 impl Default for Settings {
@@ -303,6 +304,7 @@ impl Default for Settings {
             locale: "en".to_string(),
             theme: Theme::System,
             default_ide: None,
+            auto_fetch: false,
         }
     }
 }

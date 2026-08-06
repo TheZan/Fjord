@@ -12,6 +12,7 @@
   "settings": {
     "sections": {
       "general": "General",
+      "sync": "Sync",
       "appearance": "Appearance",
       "tools": "Tools"
     },
@@ -23,6 +24,14 @@
     },
     "locale": {
       "label": "Language"
+    },
+    "autoFetch": {
+      "label": "Remote changes",
+      "title": "Fetch changes automatically",
+      "description": "Checks origin only for the open repository once a minute. Pauses while the window is inactive.",
+      "confirmTitle": "Enable automatic fetching?",
+      "confirmDescription": "Fjord will be allowed to fetch from origin without a separate confirmation for every check. Push, pull, branch deletion, and other actions will still require confirmation.",
+      "confirmButton": "Enable"
     },
     "defaultIde": {
       "label": "Default IDE",

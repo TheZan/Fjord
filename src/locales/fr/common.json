@@ -12,6 +12,7 @@
   "settings": {
     "sections": {
       "general": "Général",
+      "sync": "Synchronisation",
       "appearance": "Apparence",
       "tools": "Outils"
     },
@@ -23,6 +24,14 @@
     },
     "locale": {
       "label": "Langue"
+    },
+    "autoFetch": {
+      "label": "Modifications distantes",
+      "title": "Récupérer automatiquement les modifications",
+      "description": "Vérifie origin une fois par minute uniquement pour le dépôt ouvert. La vérification est suspendue lorsque la fenêtre est inactive.",
+      "confirmTitle": "Activer la récupération automatique ?",
+      "confirmDescription": "Fjord pourra récupérer les modifications depuis origin sans confirmation pour chaque vérification. Les push, pull, suppressions de branches et autres actions resteront soumis à confirmation.",
+      "confirmButton": "Activer"
     },
     "defaultIde": {
       "label": "IDE par défaut",

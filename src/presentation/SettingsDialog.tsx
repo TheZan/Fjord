@@ -4,16 +4,22 @@ import { setLocale } from "@/infrastructure/i18n";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
 import { getSettings, updateSettings } from "@/infrastructure/tauriClient";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
+import { ConfirmActionDialog } from "@/presentation/GitContextMenu";
 import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
 import type { Settings, Theme } from "@/domain/settings";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 const CUSTOM_IDE_PREFIX = "custom:";
 
-type SettingsSection = "general" | "appearance" | "tools";
+type SettingsSection = "general" | "sync" | "appearance" | "tools";
 
-const SECTION_CHOICES: SettingsSection[] = ["general", "appearance", "tools"];
-const DEFAULT_SETTINGS: Settings = { locale: "en", theme: "system", defaultIde: null };
+const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "appearance", "tools"];
+const DEFAULT_SETTINGS: Settings = {
+  locale: "en",
+  theme: "system",
+  defaultIde: null,
+  autoFetch: false,
+};
 
 const IDE_CHOICES: Array<{ value: string | null; key: string }> = [
   { value: null, key: "auto" },
@@ -34,7 +40,13 @@ const IDE_CHOICES: Array<{ value: string | null; key: string }> = [
  * Settings are set-once preferences, so they live behind a focused menu while
  * the sidebar keeps its space for workspaces and navigation.
  */
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+export function SettingsDialog({
+  onClose,
+  onSettingsChange,
+}: {
+  onClose: () => void;
+  onSettingsChange?: (settings: Settings) => void;
+}) {
   const { t, i18n } = useTranslation();
   const { t: tw } = useTranslation("workspace");
   const { choice, setChoice } = useTheme();
@@ -43,6 +55,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [customIde, setCustomIde] = useState("");
+  const [confirmAutoFetch, setConfirmAutoFetch] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -76,6 +89,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     try {
       const persisted = await updateSettings(next);
       setSettings(persisted);
+      onSettingsChange?.(persisted);
     } catch (reason) {
       setSettings(previous);
       setError(errorMessage(reason));
@@ -111,7 +125,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     : DEFAULT_SETTINGS.locale;
 
   return (
-    <div
+    <>
+      <div
       className="fixed inset-0 z-40 flex items-center justify-center p-6"
       style={{ background: "rgba(8, 12, 16, 0.45)" }}
       onClick={onClose}
@@ -188,6 +203,48 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               </SettingsGroup>
             )}
 
+            {activeSection === "sync" && (
+              <SettingsGroup title={t("settings.autoFetch.label")}>
+                <div
+                  className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
+                  style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                >
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
+                      {t("settings.autoFetch.title")}
+                    </div>
+                    <Muted className="mt-0.5 block max-w-md text-[11px] leading-4">
+                      {t("settings.autoFetch.description")}
+                    </Muted>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={currentSettings.autoFetch}
+                    aria-label={t("settings.autoFetch.title")}
+                    disabled={pendingKey === "autoFetch"}
+                    className="interactive-control relative h-5 w-9 shrink-0 rounded-full disabled:opacity-45"
+                    style={{
+                      background: currentSettings.autoFetch ? "var(--fjord)" : "var(--hairline-strong)",
+                    }}
+                    onClick={() => {
+                      if (currentSettings.autoFetch) void saveSettings({ autoFetch: false }, "autoFetch");
+                      else setConfirmAutoFetch(true);
+                    }}
+                  >
+                    <span
+                      className="absolute top-0.5 h-4 w-4 rounded-full transition-transform"
+                      style={{
+                        left: "2px",
+                        background: "var(--paper)",
+                        transform: currentSettings.autoFetch ? "translateX(16px)" : "translateX(0)",
+                      }}
+                    />
+                  </button>
+                </div>
+              </SettingsGroup>
+            )}
+
             {activeSection === "appearance" && (
               <SettingsGroup title={t("settings.theme.label")}>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -258,7 +315,20 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </div>
         </section>
       </div>
-    </div>
+      </div>
+      {confirmAutoFetch && (
+        <ConfirmActionDialog
+          title={t("settings.autoFetch.confirmTitle")}
+          description={t("settings.autoFetch.confirmDescription")}
+          confirmLabel={t("settings.autoFetch.confirmButton")}
+          onClose={() => setConfirmAutoFetch(false)}
+          onConfirm={() => {
+            setConfirmAutoFetch(false);
+            void saveSettings({ autoFetch: true }, "autoFetch");
+          }}
+        />
+      )}
+    </>
   );
 }
 

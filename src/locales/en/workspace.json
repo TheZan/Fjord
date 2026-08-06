@@ -156,6 +156,9 @@
     "openCommand": "Open Settings",
     "openCommandDetail": "Theme, language, and default IDE"
   },
+  "sync": {
+    "autoFetchError": "Could not fetch remote changes automatically: {{error}}"
+  },
   "toolbar": {
     "branch": "Branch",
     "branchPlaceholder": "New branch name",

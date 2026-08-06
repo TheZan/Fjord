@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { useAutoFetch } from "@/application/useAutoFetch";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import { useOperationProgress } from "@/application/useOperationProgress";
@@ -49,15 +51,18 @@ export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
 
 export function RepoDetailContainer({
   repo,
+  autoFetch,
   command,
   onBack,
   onOpenSearch,
 }: {
   repo: RepositoryEntry;
+  autoFetch: boolean;
   command: RepoDetailCommand | null;
   onBack: () => void;
   onOpenSearch: () => void;
 }) {
+  const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
   const operations = useOperationProgress();
   const { status, error: statusError } = useRepoStatus(repo.id);
@@ -74,6 +79,7 @@ export function RepoDetailContainer({
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
+  const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -296,7 +302,10 @@ export function RepoDetailContainer({
       status={status}
       statusError={statusError}
       actionPending={actionPending}
-      actionError={actionError}
+      actionError={
+        actionError ??
+        (autoFetchError ? t("sync.autoFetchError", { error: autoFetchError }) : null)
+      }
       operationProgress={toToolbarProgress(activeOperation)}
       branchScrollRequest={branchScrollRequest}
       onCancelOperation={() => {

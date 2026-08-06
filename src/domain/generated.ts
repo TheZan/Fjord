@@ -77,5 +77,5 @@ export type Settings = {
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, };
 

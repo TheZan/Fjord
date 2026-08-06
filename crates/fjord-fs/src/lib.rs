@@ -8,4 +8,4 @@ mod watcher;
 
 pub use discovery::{discover_git_repositories, DiscoveryError};
 pub use path_compare::paths_equal;
-pub use watcher::{RepoEventWatcher, RepoWatcher, WatchError};
+pub use watcher::{RepoChangeSet, RepoEventWatcher, RepoWatcher, WatchError};

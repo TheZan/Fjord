@@ -156,6 +156,9 @@
     "openCommand": "Открыть настройки",
     "openCommandDetail": "Тема, язык и IDE по умолчанию"
   },
+  "sync": {
+    "autoFetchError": "Не удалось автоматически получить изменения: {{error}}"
+  },
   "toolbar": {
     "branch": "Ветка",
     "branchPlaceholder": "Имя новой ветки",

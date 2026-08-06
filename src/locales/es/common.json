@@ -12,6 +12,7 @@
   "settings": {
     "sections": {
       "general": "General",
+      "sync": "Sincronización",
       "appearance": "Apariencia",
       "tools": "Herramientas"
     },
@@ -23,6 +24,14 @@
     },
     "locale": {
       "label": "Idioma"
+    },
+    "autoFetch": {
+      "label": "Cambios remotos",
+      "title": "Obtener cambios automáticamente",
+      "description": "Consulta origin una vez por minuto solo para el repositorio abierto. Se pausa cuando la ventana está inactiva.",
+      "confirmTitle": "¿Activar la obtención automática?",
+      "confirmDescription": "Fjord podrá obtener cambios de origin sin confirmar cada consulta. Push, pull, la eliminación de ramas y otras acciones seguirán requiriendo confirmación.",
+      "confirmButton": "Activar"
     },
     "defaultIde": {
       "label": "IDE predeterminado",

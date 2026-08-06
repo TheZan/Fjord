@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useOperationProgress } from "@/application/useOperationProgress";
+import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
 import type { GlobalSearchResult } from "@/domain/git";
@@ -10,6 +11,7 @@ import type { BulkRepoResult } from "@/domain/workspace";
 import {
   bulkOpenInIde,
   cancelOperation,
+  getSettings,
   invokeErrorCode,
   invokeErrorMessage,
   runBulkFetch,
@@ -72,6 +74,7 @@ export function App() {
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
   const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
+  const [autoFetch, setAutoFetch] = useState(false);
 
   const {
     closePalette,
@@ -87,6 +90,7 @@ export function App() {
     () => Object.values(repositoriesByWorkspace).flat(),
     [repositoriesByWorkspace],
   );
+  useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
@@ -125,6 +129,18 @@ export function App() {
           value.toLocaleLowerCase().includes(normalizedFilter),
         ),
   );
+
+  useEffect(() => {
+    let mounted = true;
+    void getSettings()
+      .then((settings) => {
+        if (mounted) setAutoFetch(settings.autoFetch);
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
@@ -309,6 +325,7 @@ export function App() {
         {selectedRepo ? (
           <RepoDetailContainer
             repo={selectedRepo}
+            autoFetch={autoFetch}
             command={repoDetailCommand}
             onBack={() => {
               setSelectedRepoId(null);
@@ -360,7 +377,12 @@ export function App() {
         />
       )}
 
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          onSettingsChange={(settings) => setAutoFetch(settings.autoFetch)}
+        />
+      )}
     </div>
   );
 }

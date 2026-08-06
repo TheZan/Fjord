@@ -3,13 +3,47 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
-use fjord_domain::{RepositoryEntry, RepositoryId};
-use fjord_fs::RepoEventWatcher;
+use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
+use fjord_fs::{RepoChangeSet, RepoEventWatcher};
 use fjord_git::GixGitBackend;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
+use serde::Serialize;
+use tauri::Emitter;
 
 use crate::ide_launcher::SystemIdeLauncher;
 use crate::operations::OperationRegistry;
+
+pub const REPOSITORY_CHANGED_EVENT: &str = "fjord-repository-changed";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryChangedEvent {
+    repo_id: RepositoryId,
+    status: bool,
+    working: bool,
+    history: bool,
+    refs: bool,
+    stashes: bool,
+    status_summary: Option<RepoStatusSummary>,
+}
+
+impl RepositoryChangedEvent {
+    fn new(
+        repo_id: RepositoryId,
+        changes: RepoChangeSet,
+        status_summary: Option<RepoStatusSummary>,
+    ) -> Self {
+        Self {
+            repo_id,
+            status: changes.status,
+            working: changes.working,
+            history: changes.history,
+            refs: changes.refs,
+            stashes: changes.stashes,
+            status_summary,
+        }
+    }
+}
 
 /// Everything a command handler needs, built once in `bootstrap` and
 /// `app.manage()`d (SDD §5.1: commands stay thin adapters over services).
@@ -18,10 +52,14 @@ pub struct AppState {
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
     pub operations: Arc<OperationRegistry>,
+    app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
 
-pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
+pub async fn bootstrap(
+    app_data_dir: &Path,
+    app_handle: tauri::AppHandle,
+) -> Result<AppState, String> {
     std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
     let db_path = app_data_dir.join("fjord.db");
 
@@ -52,6 +90,7 @@ pub async fn bootstrap(app_data_dir: &Path) -> Result<AppState, String> {
             ide_launcher,
         )),
         operations: Arc::new(OperationRegistry::default()),
+        app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -71,14 +110,28 @@ impl AppState {
         }
 
         let workspaces = self.workspaces.clone();
+        let app_handle = self.app_handle.clone();
         // Recursive working-tree watch with generated-directory filtering
         // and debouncing inside fjord-fs (docs/tasks.md P4-15) — edits below
         // the repo root invalidate the cache, while `target/`/`node_modules/`
         // churn and event storms are absorbed before they reach us.
-        let watcher = RepoEventWatcher::watch_repository(&repo.path, move || {
+        let watcher = RepoEventWatcher::watch_repository(&repo.path, move |changes| {
             let workspaces = workspaces.clone();
+            let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
-                workspaces.schedule_repo_status_refresh(repo_id, true);
+                let status_summary = match workspaces.refresh_repo_status(repo_id).await {
+                    Ok(summary) => Some(summary),
+                    Err(error) => {
+                        tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to refresh repository status after filesystem change");
+                        None
+                    }
+                };
+                if let Err(error) = app_handle.emit(
+                    REPOSITORY_CHANGED_EVENT,
+                    RepositoryChangedEvent::new(repo_id, changes, status_summary),
+                ) {
+                    tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to emit repository change event");
+                }
             });
         });
 

@@ -33,25 +33,28 @@ fn theme_from_str(s: &str) -> Theme {
 #[async_trait]
 impl SettingsStore for SqliteSettingsStore {
     async fn get_settings(&self) -> Result<Settings, StoreError> {
-        let row = sqlx::query("SELECT locale, theme, default_ide FROM settings WHERE id = 1")
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| StoreError::Database(e.to_string()))?;
+        let row =
+            sqlx::query("SELECT locale, theme, default_ide, auto_fetch FROM settings WHERE id = 1")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| StoreError::Database(e.to_string()))?;
 
         Ok(Settings {
             locale: row.get::<String, _>("locale"),
             theme: theme_from_str(&row.get::<String, _>("theme")),
             default_ide: row.get::<Option<String>, _>("default_ide"),
+            auto_fetch: row.get::<bool, _>("auto_fetch"),
         })
     }
 
     async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError> {
         sqlx::query(
-            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, updated_at = ? WHERE id = 1",
+            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, auto_fetch = ?, updated_at = ? WHERE id = 1",
         )
         .bind(&settings.locale)
         .bind(theme_to_str(settings.theme))
         .bind(&settings.default_ide)
+        .bind(settings.auto_fetch)
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&self.pool)
         .await
@@ -78,6 +81,7 @@ mod tests {
         let settings = store.get_settings().await.unwrap();
         assert_eq!(settings.theme, Theme::System);
         assert_eq!(settings.locale, "en");
+        assert!(!settings.auto_fetch);
     }
 
     #[tokio::test]
@@ -86,10 +90,12 @@ mod tests {
         let mut settings = store.get_settings().await.unwrap();
         settings.theme = Theme::Dark;
         settings.locale = "ru".to_string();
+        settings.auto_fetch = true;
         store.update_settings(&settings).await.unwrap();
 
         let fetched = store.get_settings().await.unwrap();
         assert_eq!(fetched.theme, Theme::Dark);
         assert_eq!(fetched.locale, "ru");
+        assert!(fetched.auto_fetch);
     }
 }

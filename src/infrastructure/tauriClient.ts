@@ -21,6 +21,17 @@ import type {
 } from "@/domain/git";
 
 export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
+export const REPOSITORY_CHANGED_EVENT = "fjord-repository-changed";
+
+export interface RepositoryChangedEvent {
+  repoId: string;
+  status: boolean;
+  working: boolean;
+  history: boolean;
+  refs: boolean;
+  stashes: boolean;
+  statusSummary: RepoStatusSummary | null;
+}
 
 export type OperationKind = "fetch" | "pull" | "push" | "bulk-fetch" | "bulk-pull";
 export type OperationStatus =
@@ -175,6 +186,14 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeAbortable("get_branches", { repoId }, signal);
+}
+
+export function listenRepositoryChanges(
+  handler: (event: RepositoryChangedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RepositoryChangedEvent>(REPOSITORY_CHANGED_EVENT, (event) => {
+    handler(event.payload);
+  });
 }
 
 export function getTags(repoId: string, signal?: AbortSignal): Promise<TagInfo[]> {

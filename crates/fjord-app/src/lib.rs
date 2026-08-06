@@ -34,7 +34,7 @@ fn initialize(app: &tauri::App) -> Result<AppState, String> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "fjord starting");
     }
 
-    tauri::async_runtime::block_on(state::bootstrap(&app_data_dir))
+    tauri::async_runtime::block_on(state::bootstrap(&app_data_dir, app.handle().clone()))
         .map_err(|e| format!("could not initialize application state: {e}"))
 }
 
