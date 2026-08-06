@@ -61,7 +61,8 @@
     "closeSearch": "Cerrar búsqueda de commits",
     "searchEmpty": "No hay commits coincidentes.",
     "searchCount": "Resultados: {{count}}",
-    "locatingBranch": "Buscando {{branch}} en el historial…"
+    "locatingBranch": "Buscando {{branch}} en el historial…",
+    "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },
   "context": {
     "checkout": "Checkout", "createBranchHere": "Create branch here", "createTagHere": "Create tag here", "renameBranch": "Rename branch", "deleteBranch": "Delete branch", "deleteRemoteBranch": "Delete remote branch", "deleteTag": "Delete tag", "copyBranchName": "Copy branch name", "copyTagName": "Copy tag name", "copyCommitSha": "Copy commit SHA", "cherryPick": "Cherry-pick commit", "revertCommit": "Revert commit", "resetToCommit": "Reset current branch to this commit", "branchName": "Branch name", "tagName": "Tag name", "create": "Create", "rename": "Rename", "cancel": "Cancel", "resetMode": "Mode", "resetSoft": "Soft - keep staged changes", "resetMixed": "Mixed - keep file changes", "resetHard": "Hard - discard file changes", "createBranchDescription": "A new branch will start at {{commit}}.", "createTagDescription": "A new tag will point to {{commit}}.", "renameBranchDescription": "Rename {{branch}}.",

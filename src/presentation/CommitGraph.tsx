@@ -9,7 +9,14 @@ import { computeGraphLayout, type GraphRow } from "@/presentation/graphLayout";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 
-const LANE_COLORS = ["var(--fjord)", "var(--moss)", "var(--amber)", "var(--rust)"];
+const LANE_COLORS = [
+  "var(--graph-lane-1)",
+  "var(--graph-lane-2)",
+  "var(--graph-lane-3)",
+  "var(--graph-lane-4)",
+  "var(--graph-lane-5)",
+  "var(--graph-lane-6)",
+];
 const LANE_PITCH = 14;
 const ROW_HEIGHT = 30;
 const HEADER_HEIGHT = 28;
@@ -84,6 +91,10 @@ export function CommitGraph({
   // Lane assignment is O(commits × lanes) — memoized so unrelated state
   // changes (selection, loading flags) don't recompute the whole layout.
   const { rows, laneCount } = useMemo(() => computeGraphLayout(visibleCommits), [visibleCommits]);
+  const selectedPath = useMemo(
+    () => firstParentPath(visibleCommits, selectedCommitId ?? null),
+    [selectedCommitId, visibleCommits],
+  );
   const branchByName = useMemo(() => {
     const byName = new Map<string, BranchInfo>();
     for (const branch of branches) {
@@ -299,12 +310,19 @@ export function CommitGraph({
                   tagNames={tagNames}
                   tagsByCommit={tagsByCommit}
                   selected={row.commit.id === selectedCommitId}
+                  pathHighlighted={selectedPath.has(row.commit.id)}
+                  pathDimmed={selectedPath.size > 0 && !selectedPath.has(row.commit.id)}
                   focusable={
                     row.commit.id === selectedCommitId ||
                     (selectedCommitId == null && virtualRow.index === 0)
                   }
                   onSelect={onSelectCommit}
                   onNavigate={navigateToCommit}
+                  ariaLabel={t("commits.rowLabel", {
+                    message: row.commit.message.split("\n")[0],
+                    author: row.commit.authorName,
+                    sha: row.commit.id.slice(0, 7),
+                  })}
                   onCheckout={onCheckout}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                 />
@@ -542,9 +560,12 @@ function CommitRow({
   tagNames,
   tagsByCommit,
   selected,
+  pathHighlighted,
+  pathDimmed,
   focusable,
   onSelect,
   onNavigate,
+  ariaLabel,
   onCheckout,
   onContextMenu,
 }: {
@@ -557,12 +578,15 @@ function CommitRow({
   tagNames: Set<string>;
   tagsByCommit: Map<string, TagInfo[]>;
   selected: boolean;
+  pathHighlighted: boolean;
+  pathDimmed: boolean;
   focusable: boolean;
   onSelect?: (commit: CommitSummary) => void;
   onNavigate?: (
     commit: CommitSummary,
     target: "previous" | "next" | "first" | "last",
   ) => void;
+  ariaLabel: string;
   onCheckout?: (branch: string) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
 }) {
@@ -580,6 +604,8 @@ function CommitRow({
   return (
     <div
       role={onSelect ? "button" : undefined}
+      aria-label={onSelect ? ariaLabel : undefined}
+      aria-current={selected ? "true" : undefined}
       tabIndex={onSelect ? (focusable ? 0 : -1) : undefined}
       data-commit-id={commit.id}
       onClick={onSelect ? () => onSelect(commit) : undefined}
@@ -615,6 +641,7 @@ function CommitRow({
         }
       }}
       data-selected={selected}
+      data-path-highlighted={pathHighlighted}
       className="interactive-row grid w-full items-center gap-3 border-b px-2 text-left last:border-b-0"
       style={{
         borderColor: "var(--hairline)",
@@ -623,7 +650,7 @@ function CommitRow({
         cursor: onSelect ? "pointer" : undefined,
       }}
     >
-      <span className="flex min-w-0 items-center gap-1">
+      <span className="flex min-w-0 items-center gap-1" style={{ opacity: pathDimmed ? 0.72 : 1 }}>
         {refs.slice(0, 3).map((ref) => (
           <RefBadge key={ref.original} refInfo={ref} onCheckout={onCheckout} />
         ))}
@@ -634,7 +661,17 @@ function CommitRow({
         )}
       </span>
 
-      <svg width={gutterWidth} height={ROW_HEIGHT} style={{ flexShrink: 0, overflow: "hidden" }}>
+      <svg
+        width={gutterWidth}
+        height={ROW_HEIGHT}
+        aria-hidden="true"
+        style={{
+          flexShrink: 0,
+          overflow: "hidden",
+          opacity: pathDimmed ? 0.3 : 1,
+          transition: "opacity 120ms ease",
+        }}
+      >
         {row.passthroughLanes
           .filter((l) => l < MAX_VISIBLE_LANES)
           .map((l) => (
@@ -645,14 +682,14 @@ function CommitRow({
               x2={laneX(l)}
               y2={ROW_HEIGHT}
               stroke={laneColor(l)}
-              strokeWidth={1.5}
+              strokeWidth={pathHighlighted ? 2 : 1.35}
             />
           ))}
         {laneVisible && row.hasLineAbove && (
-          <line x1={cx} y1={0} x2={cx} y2={midY} stroke={laneColor(lane)} strokeWidth={1.5} />
+          <line x1={cx} y1={0} x2={cx} y2={midY} stroke={laneColor(lane)} strokeWidth={pathHighlighted ? 2 : 1.35} />
         )}
         {laneVisible && row.hasLineBelow && (
-          <line x1={cx} y1={midY} x2={cx} y2={ROW_HEIGHT} stroke={laneColor(lane)} strokeWidth={1.5} />
+          <line x1={cx} y1={midY} x2={cx} y2={ROW_HEIGHT} stroke={laneColor(lane)} strokeWidth={pathHighlighted ? 2 : 1.35} />
         )}
         {laneVisible &&
           row.convergingLanes
@@ -662,7 +699,7 @@ function CommitRow({
                 key={`conv-${l}`}
                 d={`M${laneX(l)} 0 C ${laneX(l)} ${midY / 2}, ${cx} ${midY / 2}, ${cx} ${midY}`}
                 stroke={laneColor(lane)}
-                strokeWidth={1.5}
+                strokeWidth={pathHighlighted ? 2 : 1.35}
                 fill="none"
               />
             ))}
@@ -674,25 +711,22 @@ function CommitRow({
                 key={`div-${l}`}
                 d={`M${cx} ${midY} C ${cx} ${(midY + ROW_HEIGHT) / 2}, ${laneX(l)} ${(midY + ROW_HEIGHT) / 2}, ${laneX(l)} ${ROW_HEIGHT}`}
                 stroke={laneColor(l)}
-                strokeWidth={1.5}
+                strokeWidth={pathHighlighted ? 2 : 1.35}
                 fill="none"
               />
             ))}
-        {laneVisible && (
-          <>
-            <circle cx={cx} cy={midY} r={4} fill="var(--paper)" />
-            <circle cx={cx} cy={midY} r={3} fill={laneColor(lane)} />
-          </>
-        )}
+        {laneVisible ? (
+          <LaneNode lane={lane} cx={cx} cy={midY} selected={selected} highlighted={pathHighlighted} />
+        ) : null}
       </svg>
 
-      <span className="min-w-0 truncate" style={{ color: "var(--ink)" }}>
+      <span className="min-w-0 truncate" style={{ color: "var(--ink)", opacity: pathDimmed ? 0.72 : 1 }}>
         {commit.message.split("\n")[0]}
       </span>
-      <span className="shrink-0 truncate text-xs" style={{ color: "var(--slate)", maxWidth: "8rem" }}>
+      <span className="shrink-0 truncate text-xs" style={{ color: "var(--slate)", maxWidth: "8rem", opacity: pathDimmed ? 0.68 : 1 }}>
         {commit.authorName}
       </span>
-      <span className="shrink-0 font-mono text-xs tabular-nums" style={{ color: "var(--mist)" }}>
+      <span className="shrink-0 font-mono text-xs tabular-nums" style={{ color: "var(--mist)", opacity: pathDimmed ? 0.68 : 1 }}>
         {formatAuthoredAt(commit.authoredAt, locale)} · {commit.id.slice(0, 7)}
       </span>
     </div>
@@ -790,6 +824,36 @@ function visibleCommitRefs(
   return [...byLabel.values()].sort((a, b) => Number(b.active) - Number(a.active) || Number(a.remote) - Number(b.remote));
 }
 
+function LaneNode({
+  lane,
+  cx,
+  cy,
+  selected,
+  highlighted,
+}: {
+  lane: number;
+  cx: number;
+  cy: number;
+  selected: boolean;
+  highlighted: boolean;
+}) {
+  const color = laneColor(lane);
+  const size = highlighted ? 3.5 : 3;
+  const shape = lane % 4;
+
+  return (
+    <g>
+      {selected ? <circle cx={cx} cy={cy} r={6} fill="none" stroke={color} strokeWidth={1.5} /> : null}
+      {shape === 0 ? <circle cx={cx} cy={cy} r={size} fill={color} /> : null}
+      {shape === 1 ? <rect x={cx - size} y={cy - size} width={size * 2} height={size * 2} rx={0.8} fill={color} /> : null}
+      {shape === 2 ? (
+        <path d={`M${cx} ${cy - size - 0.5} ${cx + size + 0.5} ${cy} ${cx} ${cy + size + 0.5} ${cx - size - 0.5} ${cy}Z`} fill={color} />
+      ) : null}
+      {shape === 3 ? <circle cx={cx} cy={cy} r={size} fill="var(--paper)" stroke={color} strokeWidth={2} /> : null}
+    </g>
+  );
+}
+
 export type CommitContextAction = "createBranch" | "createTag" | "cherryPick" | "revert" | "reset" | "copySha";
 
 function commitMenuItems(t: (key: string) => string): ContextMenuItem[] {
@@ -860,6 +924,18 @@ function groupTagsByCommit(tags: TagInfo[]) {
     byCommit.set(tag.targetCommitId, list);
   }
   return byCommit;
+}
+
+function firstParentPath(commits: CommitSummary[], selectedCommitId: string | null) {
+  const path = new Set<string>();
+  if (!selectedCommitId) return path;
+  const commitsById = new Map(commits.map((commit) => [commit.id, commit]));
+  let current = commitsById.get(selectedCommitId);
+  while (current && !path.has(current.id)) {
+    path.add(current.id);
+    current = current.parentIds[0] ? commitsById.get(current.parentIds[0]) : undefined;
+  }
+  return path;
 }
 
 function normalizeRefName(ref: string) {

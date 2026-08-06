@@ -180,6 +180,32 @@ describe("CommitGraph", () => {
     expect(onSelectCommit).toHaveBeenCalledWith(graphState.commits[1]);
     expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, { align: "auto" });
   });
+
+  it("marks the selected commit first-parent path", () => {
+    graphState.commits = [
+      { ...commit("commit-3", "Selected"), parentIds: ["commit-2"] },
+      commit("side-1", "Side branch"),
+      { ...commit("commit-2", "Parent"), parentIds: ["commit-1"] },
+      commit("commit-1", "Root"),
+    ];
+
+    render(
+      <CommitGraph repoId="repo-1" selectedCommitId="commit-3" onSelectCommit={vi.fn()} />,
+    );
+
+    expect(screen.getByText("Selected").closest("[data-commit-id]")).toHaveAttribute(
+      "data-path-highlighted",
+      "true",
+    );
+    expect(screen.getByText("Parent").closest("[data-commit-id]")).toHaveAttribute(
+      "data-path-highlighted",
+      "true",
+    );
+    expect(screen.getByText("Side branch").closest("[data-commit-id]")).toHaveAttribute(
+      "data-path-highlighted",
+      "false",
+    );
+  });
 });
 
 function commit(id: string, message: string): CommitSummary {

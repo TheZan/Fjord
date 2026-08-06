@@ -61,7 +61,8 @@
     "closeSearch": "Закрыть поиск коммитов",
     "searchEmpty": "Подходящие коммиты не найдены.",
     "searchCount": "Найдено: {{count}}",
-    "locatingBranch": "Ищем {{branch}} в истории…"
+    "locatingBranch": "Ищем {{branch}} в истории…",
+    "rowLabel": "{{message}}, автор {{author}}, коммит {{sha}}"
   },
   "context": {
     "checkout": "Переключиться на ветку", "createBranchHere": "Создать ветку здесь", "createTagHere": "Создать тег здесь", "renameBranch": "Переименовать ветку", "deleteBranch": "Удалить ветку", "deleteRemoteBranch": "Удалить удалённую ветку", "deleteTag": "Удалить тег", "copyBranchName": "Копировать имя ветки", "copyTagName": "Копировать имя тега", "copyCommitSha": "Копировать SHA коммита", "cherryPick": "Перенести коммит", "revertCommit": "Отменить коммит", "resetToCommit": "Сбросить текущую ветку к этому коммиту", "branchName": "Имя ветки", "tagName": "Имя тега", "create": "Создать", "rename": "Переименовать", "cancel": "Отмена", "resetMode": "Режим", "resetSoft": "Soft — сохранить изменения в индексе", "resetMixed": "Mixed — сохранить изменения в файлах", "resetHard": "Hard — удалить изменения в файлах", "createBranchDescription": "Новая ветка будет создана от {{commit}}.", "createTagDescription": "Новый тег будет указывать на {{commit}}.", "renameBranchDescription": "Переименовать {{branch}}.",
