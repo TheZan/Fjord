@@ -86,7 +86,7 @@ export function CommitInspector({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-hidden p-2">
         {loading && (
           <p className="px-1 text-xs" style={{ color: "var(--mist)" }}>
             {t("commits.loading")}
@@ -123,6 +123,7 @@ export function CommitInspector({
                 <span style={{ color: "var(--rust-ink)" }}>−{file.deletions}</span>
               </span>
             )}
+            fill
           />
         )}
       </div>

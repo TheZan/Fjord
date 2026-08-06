@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useTags } from "@/application/useTags";
@@ -125,17 +126,22 @@ export function RepoTree({
           onToggle={() => toggle("local")}
           noMatches={normalizedFilter !== "" && local.length === 0}
         >
-          {local.map((branch) => (
-            <BranchRow
-              key={branch.name}
-              branch={branch}
-              currentLabel={t("branches.current")}
-              focused={branch.name === focusedBranch}
-              onSelectBranch={onSelectBranch}
-              onCheckout={onCheckout}
-              onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
-            />
-          ))}
+          <VirtualTreeItems
+            count={local.length}
+            renderItem={(index) => {
+              const branch = local[index];
+              return (
+                <BranchRow
+                  branch={branch}
+                  currentLabel={t("branches.current")}
+                  focused={branch.name === focusedBranch}
+                  onSelectBranch={onSelectBranch}
+                  onCheckout={onCheckout}
+                  onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                />
+              );
+            }}
+          />
         </TreeSection>
 
         {visibleRemoteBranches.length > 0 && (
@@ -146,17 +152,22 @@ export function RepoTree({
             onToggle={() => toggle("remote")}
             noMatches={normalizedFilter !== "" && remote.length === 0}
           >
-            {remote.map((branch) => (
-              <BranchRow
-                key={branch.name}
-                branch={branch}
-                currentLabel={t("branches.current")}
-                focused={branch.name === focusedBranch}
-                onSelectBranch={onSelectBranch}
-                onCheckout={onCheckout}
-                onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
-              />
-            ))}
+            <VirtualTreeItems
+              count={remote.length}
+              renderItem={(index) => {
+                const branch = remote[index];
+                return (
+                  <BranchRow
+                    branch={branch}
+                    currentLabel={t("branches.current")}
+                    focused={branch.name === focusedBranch}
+                    onSelectBranch={onSelectBranch}
+                    onCheckout={onCheckout}
+                    onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                  />
+                );
+              }}
+            />
           </TreeSection>
         )}
 
@@ -168,9 +179,13 @@ export function RepoTree({
             onToggle={() => toggle("tags")}
             noMatches={normalizedFilter !== "" && filteredTags.length === 0}
           >
-            {filteredTags.map((tag) => (
-              <TagRow key={tag.name} tag={tag} onContextMenu={(event) => setMenu({ kind: "tag", tag, x: event.clientX, y: event.clientY })} />
-            ))}
+            <VirtualTreeItems
+              count={filteredTags.length}
+              renderItem={(index) => {
+                const tag = filteredTags[index];
+                return <TagRow tag={tag} onContextMenu={(event) => setMenu({ kind: "tag", tag, x: event.clientX, y: event.clientY })} />;
+              }}
+            />
           </TreeSection>
         )}
       </div>
@@ -246,9 +261,7 @@ function TreeSection({
             {t("tree.noMatches")}
           </p>
         ) : (
-          <div className="max-h-64 overflow-y-auto pl-3">
-            <ul className="flex flex-col gap-0.5">{children}</ul>
-          </div>
+          <div className="pl-3">{children}</div>
         ))}
     </div>
   );
@@ -328,6 +341,46 @@ function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: M
         </span>
       </button>
     </li>
+  );
+}
+
+function VirtualTreeItems({
+  count,
+  renderItem,
+}: {
+  count: number;
+  renderItem: (index: number) => ReactNode;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 30,
+    overscan: 6,
+  });
+
+  return (
+    <div
+      ref={scrollRef}
+      role="list"
+      className="overflow-y-auto"
+      style={{ height: Math.min(count * 30, 256) }}
+    >
+      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => (
+          <div
+            key={virtualRow.key}
+            className="absolute left-0 top-0 w-full"
+            style={{
+              height: virtualRow.size,
+              transform: `translateY(${virtualRow.start}px)`,
+            }}
+          >
+            {renderItem(virtualRow.index)}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

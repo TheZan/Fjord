@@ -1,7 +1,13 @@
+import { useMemo, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import type { DiffLineKind } from "@/domain/git";
+import type { DiffHunk, DiffLine } from "@/domain/git";
+
+const DIFF_LINE_HEIGHT = 20;
+const HUNK_HEADER_HEIGHT = 24;
 
 const LINE_BG: Record<DiffLineKind, string | undefined> = {
   addition: "var(--moss-tint)",
@@ -39,6 +45,14 @@ export function FileDiffView({
 }) {
   const { t } = useTranslation("workspace");
   const { diff, loading, error } = useFileDiff(repoId, path, source);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => (rows[index].kind === "hunk" ? HUNK_HEADER_HEIGHT : DIFF_LINE_HEIGHT),
+    overscan: 20,
+  });
 
   return (
     <div
@@ -73,7 +87,7 @@ export function FileDiffView({
         </code>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         {loading && (
           <p className="p-3 text-xs" style={{ color: "var(--mist)" }}>
             {t("commits.loading")}
@@ -94,41 +108,75 @@ export function FileDiffView({
             {t("diff.empty")}
           </p>
         )}
-        {diff && !diff.isBinary && diff.hunks.length > 0 && (
-          // `w-max` sizes this to the longest line rather than to the visible
-          // area, so each row's background spans the full scrollable width —
-          // at 100% the added/removed tint stopped dead at the right edge of
-          // the pane as soon as you scrolled sideways. `min-w-full` keeps
-          // short diffs filling the pane.
-          <div className="selectable-text w-max min-w-full font-mono text-xs">
-            {diff.hunks.map((hunk, hunkIndex) => (
-              <div key={hunkIndex}>
-                <div className="px-3 py-1" style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}>
-                  @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+        {diff && !diff.isBinary && rows.length > 0 && (
+          <div
+            className="selectable-text relative w-max min-w-full font-mono text-xs"
+            style={{ height: rowVirtualizer.getTotalSize() }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              return (
+                <div
+                  key={row.key}
+                  className="absolute left-0 top-0 min-w-full"
+                  style={{
+                    height: virtualRow.size,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {row.kind === "hunk" ? <HunkRow hunk={row.hunk} /> : <DiffLineRow line={row.line} />}
                 </div>
-                {hunk.lines.map((line, lineIndex) => (
-                  <div
-                    key={lineIndex}
-                    className="flex"
-                    style={{ background: LINE_BG[line.kind], color: LINE_COLOR[line.kind] }}
-                  >
-                    <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
-                      {line.oldLineno ?? ""}
-                    </span>
-                    <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
-                      {line.newLineno ?? ""}
-                    </span>
-                    <span className="whitespace-pre px-2">
-                      {LINE_PREFIX[line.kind]}
-                      {line.content}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+type FlatDiffRow =
+  | { kind: "hunk"; key: string; hunk: DiffHunk }
+  | { kind: "line"; key: string; line: DiffLine };
+
+function flattenDiffRows(hunks: DiffHunk[]): FlatDiffRow[] {
+  return hunks.flatMap((hunk, hunkIndex) => [
+    { kind: "hunk" as const, key: `hunk-${hunkIndex}`, hunk },
+    ...hunk.lines.map((line, lineIndex) => ({
+      kind: "line" as const,
+      key: `line-${hunkIndex}-${lineIndex}`,
+      line,
+    })),
+  ]);
+}
+
+function HunkRow({ hunk }: { hunk: DiffHunk }) {
+  return (
+    <div
+      className="h-full whitespace-nowrap px-3 py-1"
+      style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}
+    >
+      @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+    </div>
+  );
+}
+
+function DiffLineRow({ line }: { line: DiffLine }) {
+  return (
+    <div
+      className="flex h-full min-w-full"
+      style={{ background: LINE_BG[line.kind], color: LINE_COLOR[line.kind] }}
+    >
+      <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
+        {line.oldLineno ?? ""}
+      </span>
+      <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
+        {line.newLineno ?? ""}
+      </span>
+      <span className="whitespace-pre px-2">
+        {LINE_PREFIX[line.kind]}
+        {line.content}
+      </span>
     </div>
   );
 }
