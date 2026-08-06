@@ -31,7 +31,7 @@ function installDesktopWebviewBehavior() {
   window.addEventListener("keydown", (event) => {
     const browserCommand =
       event.key === "F5" ||
-      (["KeyP", "KeyR", "KeyS", "KeyU"] as const).some((code) =>
+      (["KeyF", "KeyP", "KeyR", "KeyS", "KeyU"] as const).some((code) =>
         isPrimaryShortcut(event, code),
       ) ||
       (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"));

@@ -19,4 +19,13 @@ describe("isPrimaryShortcut", () => {
       ),
     ).toBe(false);
   });
+
+  it("recognizes find on a non-Latin layout", () => {
+    expect(
+      isPrimaryShortcut(
+        { code: "KeyF", key: "а", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false },
+        "KeyF",
+      ),
+    ).toBe(true);
+  });
 });
