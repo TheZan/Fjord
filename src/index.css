@@ -11,164 +11,164 @@
      with the token block it sits in. */
   color-scheme: light;
 
-  /* Brand mark color (assets/logo/README.md) — fixed, not theme-dependent;
-     distinct from --fjord (the UI accent token) even though both read as
-     "teal": this one is the mark's own identity, not a semantic UI role. */
+  /* Brand mark color (assets/logo/README.md) — fixed, not theme-dependent.
+     The UI accent is deliberately blue-grey so the product does not become
+     a wall of brand teal. */
   --brand: #22b8aa;
-  --page-bg: #f3f5f6;
-  --paper: #ffffff;
-  --sidebar-bg: #f8f9fa;
-  --ink: #20242a;
-  --slate: #626b76;
-  --mist: #8a949f;
-  --hairline: #e1e5e8;
-  --hairline-strong: #cbd2d8;
-  --hover: #f2f5f6;
-  --hover-strong: #e9eff1;
-  --focus-ring: color-mix(in srgb, #16829a 48%, transparent);
-  --shadow-popover: 0 10px 30px rgba(24, 31, 38, 0.14), 0 2px 8px rgba(24, 31, 38, 0.08);
+  --page-bg: #e3e7e9;
+  --paper: #f7f8f7;
+  --sidebar-bg: #edf0f1;
+  --ink: #1f2529;
+  --slate: #4f5d66;
+  --mist: #66747c;
+  --hairline: #cbd2d6;
+  --hairline-strong: #aeb9bf;
+  --hover: #e7ecee;
+  --hover-strong: #d9e1e5;
+  --focus-ring: color-mix(in srgb, #3671a3 55%, transparent);
+  --shadow-popover: 0 10px 30px rgba(22, 30, 35, 0.16), 0 2px 8px rgba(22, 30, 35, 0.1);
 
-  --fjord: #16829a;
-  --fjord-ink: #0b5261;
-  --fjord-tint: #e3f1f4;
+  --fjord: #2f648f;
+  --fjord-ink: #1e4868;
+  --fjord-tint: #d6e4ef;
 
-  --moss: #40875a;
-  --moss-ink: #204a2c;
-  --moss-tint: #e7f3ea;
+  --moss: #3f7a50;
+  --moss-ink: #275035;
+  --moss-tint: #dbeadd;
 
-  --amber: #b07825;
-  --amber-ink: #5c3f14;
-  --amber-tint: #faefdc;
+  --amber: #9a681d;
+  --amber-ink: #5d4212;
+  --amber-tint: #eee2c9;
 
-  --rust: #bd4e43;
-  --rust-ink: #5e251e;
-  --rust-tint: #faeae6;
+  --rust: #ae4d48;
+  --rust-ink: #6c302d;
+  --rust-tint: #efdad7;
 
-  --graph-lane-1: #147d92;
-  --graph-lane-2: #9b6518;
-  --graph-lane-3: #6657b5;
-  --graph-lane-4: #b7435a;
-  --graph-lane-5: #347a4b;
-  --graph-lane-6: #356da8;
+  --graph-lane-1: #3a78a8;
+  --graph-lane-2: #a66f1f;
+  --graph-lane-3: #7565ad;
+  --graph-lane-4: #bb5672;
+  --graph-lane-5: #4d855d;
+  --graph-lane-6: #4d858d;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page-bg: #111315;
-    --paper: #191c20;
-    --sidebar-bg: #15181b;
-    --ink: #e7e9ec;
-    --slate: #a2a9b1;
-    --mist: #737c85;
-    --hairline: #282d32;
-    --hairline-strong: #373e45;
-    --hover: #1f2429;
-    --hover-strong: #282e34;
-    --focus-ring: color-mix(in srgb, #58b8ca 55%, transparent);
-    --shadow-popover: 0 12px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.28);
+    --page-bg: #181d21;
+    --paper: #22282d;
+    --sidebar-bg: #1d2327;
+    --ink: #edf1f3;
+    --slate: #b2bcc3;
+    --mist: #909ba3;
+    --hairline: #343d44;
+    --hairline-strong: #4a5660;
+    --hover: #2a3238;
+    --hover-strong: #343e45;
+    --focus-ring: color-mix(in srgb, #78a8cf 62%, transparent);
+    --shadow-popover: 0 12px 34px rgba(5, 8, 10, 0.42), 0 2px 8px rgba(5, 8, 10, 0.3);
 
-    --fjord: #58b8ca;
-    --fjord-ink: #d2f1f5;
-    --fjord-tint: #173137;
+    --fjord: #4a7397;
+    --fjord-ink: #dbeaf5;
+    --fjord-tint: #293c4c;
 
-    --moss: #72ba88;
-    --moss-ink: #d3eedb;
-    --moss-tint: #132a1b;
+    --moss: #75ad82;
+    --moss-ink: #deeddf;
+    --moss-tint: #293c2f;
 
-    --amber: #d8a556;
-    --amber-ink: #f6e2c1;
-    --amber-tint: #2e2413;
+    --amber: #d0a054;
+    --amber-ink: #f1dfc2;
+    --amber-tint: #44351f;
 
-    --rust: #dc7b71;
-    --rust-ink: #f8d9d3;
-    --rust-tint: #301d1a;
+    --rust: #d17971;
+    --rust-ink: #f3d8d5;
+    --rust-tint: #452d2b;
 
-    --graph-lane-1: #63bfd0;
-    --graph-lane-2: #e2ad5b;
-    --graph-lane-3: #a99ae8;
-    --graph-lane-4: #e37b8f;
-    --graph-lane-5: #75bd89;
-    --graph-lane-6: #78a9df;
+    --graph-lane-1: #83acd2;
+    --graph-lane-2: #d0a25a;
+    --graph-lane-3: #aa92d0;
+    --graph-lane-4: #d88192;
+    --graph-lane-5: #82b28b;
+    --graph-lane-6: #75a5a8;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page-bg: #111315;
-  --paper: #191c20;
-  --sidebar-bg: #15181b;
-  --ink: #e7e9ec;
-  --slate: #a2a9b1;
-  --mist: #737c85;
-  --hairline: #282d32;
-  --hairline-strong: #373e45;
-  --hover: #1f2429;
-  --hover-strong: #282e34;
-  --focus-ring: color-mix(in srgb, #58b8ca 55%, transparent);
-  --shadow-popover: 0 12px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.28);
+  --page-bg: #181d21;
+  --paper: #22282d;
+  --sidebar-bg: #1d2327;
+  --ink: #edf1f3;
+  --slate: #b2bcc3;
+  --mist: #909ba3;
+  --hairline: #343d44;
+  --hairline-strong: #4a5660;
+  --hover: #2a3238;
+  --hover-strong: #343e45;
+  --focus-ring: color-mix(in srgb, #78a8cf 62%, transparent);
+  --shadow-popover: 0 12px 34px rgba(5, 8, 10, 0.42), 0 2px 8px rgba(5, 8, 10, 0.3);
 
-  --fjord: #58b8ca;
-  --fjord-ink: #d2f1f5;
-  --fjord-tint: #173137;
+  --fjord: #4a7397;
+  --fjord-ink: #dbeaf5;
+  --fjord-tint: #293c4c;
 
-  --moss: #72ba88;
-  --moss-ink: #d3eedb;
-  --moss-tint: #132a1b;
+  --moss: #75ad82;
+  --moss-ink: #deeddf;
+  --moss-tint: #293c2f;
 
-  --amber: #d8a556;
-  --amber-ink: #f6e2c1;
-  --amber-tint: #2e2413;
+  --amber: #d0a054;
+  --amber-ink: #f1dfc2;
+  --amber-tint: #44351f;
 
-  --rust: #dc7b71;
-  --rust-ink: #f8d9d3;
-  --rust-tint: #301d1a;
+  --rust: #d17971;
+  --rust-ink: #f3d8d5;
+  --rust-tint: #452d2b;
 
-  --graph-lane-1: #63bfd0;
-  --graph-lane-2: #e2ad5b;
-  --graph-lane-3: #a99ae8;
-  --graph-lane-4: #e37b8f;
-  --graph-lane-5: #75bd89;
-  --graph-lane-6: #78a9df;
+  --graph-lane-1: #83acd2;
+  --graph-lane-2: #d0a25a;
+  --graph-lane-3: #aa92d0;
+  --graph-lane-4: #d88192;
+  --graph-lane-5: #82b28b;
+  --graph-lane-6: #75a5a8;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --page-bg: #f3f5f6;
-  --paper: #ffffff;
-  --sidebar-bg: #f8f9fa;
-  --ink: #20242a;
-  --slate: #626b76;
-  --mist: #8a949f;
-  --hairline: #e1e5e8;
-  --hairline-strong: #cbd2d8;
-  --hover: #f2f5f6;
-  --hover-strong: #e9eff1;
-  --focus-ring: color-mix(in srgb, #16829a 48%, transparent);
-  --shadow-popover: 0 10px 30px rgba(24, 31, 38, 0.14), 0 2px 8px rgba(24, 31, 38, 0.08);
+  --page-bg: #e3e7e9;
+  --paper: #f7f8f7;
+  --sidebar-bg: #edf0f1;
+  --ink: #1f2529;
+  --slate: #4f5d66;
+  --mist: #66747c;
+  --hairline: #cbd2d6;
+  --hairline-strong: #aeb9bf;
+  --hover: #e7ecee;
+  --hover-strong: #d9e1e5;
+  --focus-ring: color-mix(in srgb, #3671a3 55%, transparent);
+  --shadow-popover: 0 10px 30px rgba(22, 30, 35, 0.16), 0 2px 8px rgba(22, 30, 35, 0.1);
 
-  --fjord: #16829a;
-  --fjord-ink: #0b5261;
-  --fjord-tint: #e3f1f4;
+  --fjord: #2f648f;
+  --fjord-ink: #1e4868;
+  --fjord-tint: #d6e4ef;
 
-  --moss: #40875a;
-  --moss-ink: #204a2c;
-  --moss-tint: #e7f3ea;
+  --moss: #3f7a50;
+  --moss-ink: #275035;
+  --moss-tint: #dbeadd;
 
-  --amber: #b07825;
-  --amber-ink: #5c3f14;
-  --amber-tint: #faefdc;
+  --amber: #9a681d;
+  --amber-ink: #5d4212;
+  --amber-tint: #eee2c9;
 
-  --rust: #bd4e43;
-  --rust-ink: #5e251e;
-  --rust-tint: #faeae6;
+  --rust: #ae4d48;
+  --rust-ink: #6c302d;
+  --rust-tint: #efdad7;
 
-  --graph-lane-1: #147d92;
-  --graph-lane-2: #9b6518;
-  --graph-lane-3: #6657b5;
-  --graph-lane-4: #b7435a;
-  --graph-lane-5: #347a4b;
-  --graph-lane-6: #356da8;
+  --graph-lane-1: #3a78a8;
+  --graph-lane-2: #a66f1f;
+  --graph-lane-3: #7565ad;
+  --graph-lane-4: #bb5672;
+  --graph-lane-5: #4d855d;
+  --graph-lane-6: #4d858d;
 }
 
 html,
