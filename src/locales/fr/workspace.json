@@ -60,7 +60,8 @@
     "searchPlaceholder": "Rechercher un message de commit",
     "closeSearch": "Fermer la recherche de commits",
     "searchEmpty": "Aucun commit correspondant.",
-    "searchCount": "Résultats : {{count}}"
+    "searchCount": "Résultats : {{count}}",
+    "locatingBranch": "Recherche de {{branch}} dans l'historique…"
   },
   "dashboard": {
     "title": "Tableau de bord",

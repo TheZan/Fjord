@@ -60,7 +60,8 @@
     "searchPlaceholder": "Commit-Nachricht suchen",
     "closeSearch": "Commit-Suche schließen",
     "searchEmpty": "Keine passenden Commits.",
-    "searchCount": "Ergebnisse: {{count}}"
+    "searchCount": "Ergebnisse: {{count}}",
+    "locatingBranch": "{{branch}} wird im Verlauf gesucht…"
   },
   "dashboard": {
     "title": "Dashboard",

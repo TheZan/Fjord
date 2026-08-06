@@ -60,7 +60,8 @@
     "searchPlaceholder": "Search commit message",
     "closeSearch": "Close commit search",
     "searchEmpty": "No matching commits.",
-    "searchCount": "Results: {{count}}"
+    "searchCount": "Results: {{count}}",
+    "locatingBranch": "Finding {{branch}} in history…"
   },
   "dashboard": {
     "title": "Dashboard",

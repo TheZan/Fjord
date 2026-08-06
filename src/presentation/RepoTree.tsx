@@ -16,9 +16,13 @@ type SectionKey = "local" | "remote" | "tags";
  */
 export function RepoTree({
   repoId,
+  focusedBranch,
+  onSelectBranch,
   onCheckout,
 }: {
   repoId: string;
+  focusedBranch?: string | null;
+  onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
 }) {
   const { t } = useTranslation("workspace");
@@ -113,6 +117,8 @@ export function RepoTree({
               key={branch.name}
               branch={branch}
               currentLabel={t("branches.current")}
+              focused={branch.name === focusedBranch}
+              onSelectBranch={onSelectBranch}
               onCheckout={onCheckout}
             />
           ))}
@@ -131,6 +137,8 @@ export function RepoTree({
                 key={branch.name}
                 branch={branch}
                 currentLabel={t("branches.current")}
+                focused={branch.name === focusedBranch}
+                onSelectBranch={onSelectBranch}
                 onCheckout={onCheckout}
               />
             ))}
@@ -204,10 +212,14 @@ function TreeSection({
 function BranchRow({
   branch,
   currentLabel,
+  focused,
+  onSelectBranch,
   onCheckout,
 }: {
   branch: BranchInfo;
   currentLabel: string;
+  focused: boolean;
+  onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
 }) {
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
@@ -217,13 +229,19 @@ function BranchRow({
     <li>
       <button
         type="button"
-        disabled={branch.isCurrent || !onCheckout}
-        onDoubleClick={() => onCheckout?.(branch.name)}
+        onClick={() => onSelectBranch?.(branch.name)}
+        onDoubleClick={() => {
+          if (!branch.isCurrent) onCheckout?.(branch.name);
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Enter") onCheckout?.(branch.name);
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onSelectBranch?.(branch.name);
+          if (!branch.isCurrent) onCheckout?.(branch.name);
         }}
         data-selected={branch.isCurrent}
-        className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left disabled:cursor-default"
+        data-focused={focused}
+        className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left"
         style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
       >
         <code className="min-w-0 truncate font-mono text-xs">{displayName}</code>

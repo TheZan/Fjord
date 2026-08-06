@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
-import { CommitGraph } from "@/presentation/CommitGraph";
+import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
@@ -25,6 +25,7 @@ export function RepoDetailView({
   actionPending,
   actionError,
   operationProgress,
+  branchScrollRequest,
   selectedCommit,
   workingSelected,
   changes,
@@ -34,9 +35,11 @@ export function RepoDetailView({
   onAction,
   onCancelOperation,
   onCheckout,
+  onSelectBranch,
   onCreateBranch,
   onOpenSearch,
   onSelectCommit,
+  onRevealCommit,
   onSelectWorking,
   onStage,
   onUnstage,
@@ -53,6 +56,7 @@ export function RepoDetailView({
     error: string | null;
     status: string;
   } | null;
+  branchScrollRequest: BranchGraphScrollRequest | null;
   selectedCommit: CommitSummary | null;
   workingSelected: boolean;
   changes: WorkingChanges;
@@ -62,9 +66,11 @@ export function RepoDetailView({
   onAction: (action: RepoAction) => void;
   onCancelOperation: () => void;
   onCheckout: (branch: string) => void;
+  onSelectBranch: (branch: string) => void;
   onCreateBranch: (name: string) => void;
   onOpenSearch: () => void;
   onSelectCommit: (commit: CommitSummary) => void;
+  onRevealCommit: (commit: CommitSummary) => void;
   onSelectWorking: () => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
@@ -79,6 +85,12 @@ export function RepoDetailView({
   useEffect(() => {
     setSelectedCommitFile(null);
   }, [selectedCommit?.id]);
+
+  useEffect(() => {
+    if (!branchScrollRequest) return;
+    setSelectedCommitFile(null);
+    setSelectedWorkingFile(null);
+  }, [branchScrollRequest]);
 
   // A file that just got staged moves to the other list; keeping the old
   // selection would show a diff that no longer exists on that side.
@@ -135,7 +147,12 @@ export function RepoDetailView({
 
       <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-4 xl:grid-cols-[15rem_minmax(0,1fr)_24rem]">
         <div className="min-h-0 overflow-y-auto">
-          <RepoTree repoId={repo.id} onCheckout={onCheckout} />
+          <RepoTree
+            repoId={repo.id}
+            focusedBranch={branchScrollRequest?.branch ?? null}
+            onSelectBranch={onSelectBranch}
+            onCheckout={onCheckout}
+          />
         </div>
 
         <div className="min-h-0">
@@ -153,8 +170,10 @@ export function RepoDetailView({
               <CommitGraph
                 repoId={repo.id}
                 currentBranch={status?.branch ?? null}
+                scrollToBranch={branchScrollRequest}
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={onSelectCommit}
+                onRevealCommit={onRevealCommit}
                 onCheckout={onCheckout}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}

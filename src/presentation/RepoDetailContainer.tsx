@@ -28,6 +28,7 @@ import {
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
+import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
 
 export type RepoDetailCommandPayload =
@@ -59,6 +60,7 @@ export function RepoDetailContainer({
   } = useWorkingChanges(repo.id);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
+  const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export function RepoDetailContainer({
       return;
     }
 
-    void runRepoAction("checkout", () => checkoutBranch(repo.id, command.branch));
+    checkoutAndScrollToBranch(command.branch);
     // The command id is the stable edge from the parent; the action runner is
     // intentionally recreated with current repo/query state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,6 +197,18 @@ export function RepoDetailContainer({
     void runRepoAction("create-branch", () => createBranch(repo.id, name, true));
   }
 
+  function requestBranchGraphScroll(branch: string) {
+    setWorkingSelected(false);
+    setBranchScrollRequest((current) => ({ branch, id: (current?.id ?? 0) + 1 }));
+  }
+
+  function checkoutAndScrollToBranch(branch: string) {
+    requestBranchGraphScroll(branch);
+    void runRepoAction("checkout", () => checkoutBranch(repo.id, branch)).then((ok) => {
+      if (ok) requestBranchGraphScroll(branch);
+    });
+  }
+
   function onStage(paths: string[]) {
     void runWorkingAction("stage", () => stageFiles(repo.id, paths));
   }
@@ -212,6 +226,11 @@ export function RepoDetailContainer({
     setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
+  function onRevealCommit(commit: CommitSummary) {
+    setWorkingSelected(false);
+    setSelectedCommit(commit);
+  }
+
   return (
     <RepoDetailView
       repo={repo}
@@ -220,6 +239,7 @@ export function RepoDetailContainer({
       actionPending={actionPending}
       actionError={actionError}
       operationProgress={toToolbarProgress(activeOperation)}
+      branchScrollRequest={branchScrollRequest}
       onCancelOperation={() => {
         if (actionOperationId) void cancelOperation(actionOperationId);
       }}
@@ -230,10 +250,12 @@ export function RepoDetailContainer({
       changesError={changesError}
       onBack={onBack}
       onAction={onAction}
-      onCheckout={(branch) => void runRepoAction("checkout", () => checkoutBranch(repo.id, branch))}
+      onCheckout={checkoutAndScrollToBranch}
+      onSelectBranch={requestBranchGraphScroll}
       onCreateBranch={onCreateBranch}
       onOpenSearch={onOpenSearch}
       onSelectCommit={onSelectCommit}
+      onRevealCommit={onRevealCommit}
       onSelectWorking={() => {
         setSelectedCommit(null);
         setWorkingSelected(true);

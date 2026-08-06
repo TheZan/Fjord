@@ -159,6 +159,11 @@ body {
   color: var(--fjord-ink) !important;
 }
 
+.interactive-row[data-focused="true"]:not([data-selected="true"]) {
+  background: color-mix(in srgb, var(--amber-tint) 72%, transparent) !important;
+  color: var(--amber-ink) !important;
+}
+
 .interactive-control:hover:not(:disabled),
 .interactive-control:focus-visible:not(:disabled) {
   background: var(--hover-strong) !important;
@@ -233,4 +238,16 @@ body {
 
 ::-webkit-scrollbar-thumb:active {
   background-color: var(--slate);
+}
+
+@keyframes fjord-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

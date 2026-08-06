@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 import { CommitGraph } from "@/presentation/CommitGraph";
@@ -6,6 +6,11 @@ import { CommitGraph } from "@/presentation/CommitGraph";
 const graphState = vi.hoisted(() => ({
   branches: [] as BranchInfo[],
   commits: [] as CommitSummary[],
+  hasMore: false,
+  loadMore: vi.fn(),
+  loadUntilCommit: vi.fn(),
+  loadingUntilCommitId: null as string | null,
+  scrollToIndex: vi.fn(),
   tags: [] as TagInfo[],
 }));
 
@@ -19,6 +24,7 @@ vi.mock("@tanstack/react-virtual", () => ({
         size: 30,
         start: index * 30,
       })),
+    scrollToIndex: graphState.scrollToIndex,
   }),
 }));
 
@@ -38,8 +44,10 @@ vi.mock("@/application/useCommitLog", () => ({
   useCommitLog: () => ({
     commits: graphState.commits,
     error: null,
-    hasMore: false,
-    loadMore: vi.fn(),
+    hasMore: graphState.hasMore,
+    loadMore: graphState.loadMore,
+    loadingUntilCommitId: graphState.loadingUntilCommitId,
+    loadUntilCommit: graphState.loadUntilCommit,
     loading: false,
   }),
 }));
@@ -56,6 +64,11 @@ describe("CommitGraph", () => {
   beforeEach(() => {
     graphState.branches = [];
     graphState.commits = [];
+    graphState.hasMore = false;
+    graphState.loadMore.mockClear();
+    graphState.loadUntilCommit.mockClear();
+    graphState.loadingUntilCommitId = null;
+    graphState.scrollToIndex.mockClear();
     graphState.tags = [];
     Element.prototype.scrollTo = vi.fn();
   });
@@ -88,4 +101,72 @@ describe("CommitGraph", () => {
     expect(screen.getByText("develop")).toBeInTheDocument();
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
   });
+
+  it("scrolls to the requested branch target commit", async () => {
+    const onRevealCommit = vi.fn();
+    graphState.commits = [
+      commit("commit-1", "Main tip"),
+      commit("commit-2", "Feature tip"),
+    ];
+    graphState.branches = [
+      {
+        name: "feature",
+        isCurrent: false,
+        isRemote: false,
+        upstream: null,
+        targetCommitId: "commit-2",
+      },
+    ];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="main"
+        scrollToBranch={{ branch: "feature", id: 1 }}
+        onRevealCommit={onRevealCommit}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, { align: "center", behavior: "smooth" });
+    });
+    expect(onRevealCommit).toHaveBeenCalledWith(graphState.commits[1]);
+  });
+
+  it("loads history until the requested branch target is rendered", async () => {
+    graphState.commits = [commit("commit-1", "Main tip")];
+    graphState.branches = [
+      {
+        name: "feature",
+        isCurrent: false,
+        isRemote: false,
+        upstream: null,
+        targetCommitId: "commit-99",
+      },
+    ];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="main"
+        scrollToBranch={{ branch: "feature", id: 1 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(graphState.loadUntilCommit).toHaveBeenCalledWith("commit-99");
+    });
+  });
 });
+
+function commit(id: string, message: string): CommitSummary {
+  return {
+    id,
+    parentIds: [],
+    message,
+    authorName: "Fjord",
+    authorEmail: "fjord@example.com",
+    authoredAt: "2026-08-06T10:00:00Z",
+    refs: [],
+  };
+}

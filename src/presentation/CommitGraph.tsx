@@ -42,8 +42,10 @@ function formatAuthoredAt(value: string, locale: string): string {
 export function CommitGraph({
   repoId,
   currentBranch,
+  scrollToBranch,
   selectedCommitId,
   onSelectCommit,
+  onRevealCommit,
   onCheckout,
   workingFileCount = 0,
   workingSelected = false,
@@ -51,8 +53,10 @@ export function CommitGraph({
 }: {
   repoId: string;
   currentBranch?: string | null;
+  scrollToBranch?: BranchGraphScrollRequest | null;
   selectedCommitId?: string | null;
   onSelectCommit?: (commit: CommitSummary) => void;
+  onRevealCommit?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
   workingFileCount?: number;
@@ -64,7 +68,8 @@ export function CommitGraph({
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
-  const { commits, loading, error, hasMore, loadMore } = useCommitLog(repoId);
+  const { commits, loading, error, hasMore, loadMore, loadingUntilCommitId, loadUntilCommit } =
+    useCommitLog(repoId);
   const search = useCommitSearch(repoId, effectiveSearchQuery);
   const { branches } = useBranches(repoId);
   const { tags } = useTags(repoId);
@@ -90,6 +95,7 @@ export function CommitGraph({
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
   const parentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const fulfilledBranchScrollId = useRef<number | null>(null);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -100,6 +106,12 @@ export function CommitGraph({
   useEffect(() => {
     parentRef.current?.scrollTo({ top: 0 });
   }, [effectiveSearchQuery]);
+
+  useEffect(() => {
+    if (!scrollToBranch) return;
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, [scrollToBranch]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -145,6 +157,35 @@ export function CommitGraph({
     return () => element.removeEventListener("scroll", maybeLoadMore);
   }, [hasMore, loadMore, rows.length, searchActive]);
 
+  useEffect(() => {
+    if (!scrollToBranch || searchActive || fulfilledBranchScrollId.current === scrollToBranch.id) return;
+
+    const branch =
+      branchByName.get(scrollToBranch.branch) ?? branchByName.get(normalizeRefName(scrollToBranch.branch));
+    if (!branch) return;
+
+    const rowIndex = rows.findIndex((row) => row.commit.id === branch.targetCommitId);
+    if (rowIndex !== -1) {
+      fulfilledBranchScrollId.current = scrollToBranch.id;
+      onRevealCommit?.(rows[rowIndex].commit);
+      rowVirtualizer.scrollToIndex(rowIndex, { align: "center", behavior: "smooth" });
+      return;
+    }
+
+    if (loadingUntilCommitId !== branch.targetCommitId) {
+      void loadUntilCommit(branch.targetCommitId);
+    }
+  }, [
+    branchByName,
+    loadUntilCommit,
+    loadingUntilCommitId,
+    onRevealCommit,
+    rowVirtualizer,
+    rows,
+    scrollToBranch,
+    searchActive,
+  ]);
+
   if (visibleError) {
     return (
       <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
@@ -164,6 +205,15 @@ export function CommitGraph({
     visibleLoading && searchActive
       ? t("commits.loading")
       : t("commits.searchCount", { count: searchActive ? rows.length : 0 });
+  const seekingBranch = scrollToBranch
+    ? (branchByName.get(scrollToBranch.branch) ?? branchByName.get(normalizeRefName(scrollToBranch.branch)))
+    : null;
+  const seekingBranchLabel =
+    seekingBranch &&
+    loadingUntilCommitId === seekingBranch.targetCommitId &&
+    !rows.some((row) => row.commit.id === seekingBranch.targetCommitId)
+      ? displayRefName(normalizeRefName(seekingBranch.name), seekingBranch.isRemote)
+      : null;
 
   return (
     <div
@@ -182,6 +232,7 @@ export function CommitGraph({
           }}
         />
       )}
+      {seekingBranchLabel && <BranchSeekStatus label={t("commits.locatingBranch", { branch: seekingBranchLabel })} />}
       <div ref={parentRef} className="h-full w-full overflow-auto">
         <GraphHeader gutterWidth={gutterWidth} />
         {workingFileCount > 0 && onSelectWorking && (
@@ -255,6 +306,33 @@ export function CommitGraph({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+export interface BranchGraphScrollRequest {
+  branch: string;
+  id: number;
+}
+
+function BranchSeekStatus({ label }: { label: string }) {
+  return (
+    <div
+      className="pointer-events-none absolute left-1/2 top-10 z-30 flex -translate-x-1/2 items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs font-medium shadow-lg"
+      style={{
+        background: "color-mix(in srgb, var(--paper) 92%, var(--fjord-tint))",
+        borderColor: "var(--hairline-strong)",
+        color: "var(--fjord-ink)",
+      }}
+    >
+      <span
+        className="h-2 w-2 rounded-full"
+        style={{
+          animation: "fjord-pulse 900ms ease-in-out infinite",
+          background: "var(--fjord)",
+        }}
+      />
+      <span>{label}</span>
     </div>
   );
 }

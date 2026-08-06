@@ -60,7 +60,8 @@
     "searchPlaceholder": "Поиск по сообщению коммита",
     "closeSearch": "Закрыть поиск коммитов",
     "searchEmpty": "Подходящие коммиты не найдены.",
-    "searchCount": "Найдено: {{count}}"
+    "searchCount": "Найдено: {{count}}",
+    "locatingBranch": "Ищем {{branch}} в истории…"
   },
   "dashboard": {
     "title": "Дашборд",
