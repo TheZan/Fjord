@@ -17,6 +17,7 @@ interface SidebarProps {
   selectedRepoId: string | null;
   onSelectWorkspace: (id: string) => void;
   onSelectRepository: (workspaceId: string, repoId: string) => void;
+  onWarmRepository: (repoId: string) => void;
   onCreateWorkspace: (name: string) => void;
   onRenameWorkspace: (id: string, name: string) => void;
   onDeleteWorkspace: (id: string) => void;
@@ -38,6 +39,7 @@ export function Sidebar({
   selectedRepoId,
   onSelectWorkspace,
   onSelectRepository,
+  onWarmRepository,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
@@ -335,6 +337,7 @@ export function Sidebar({
                         status={statusByRepo[repo.id]?.status}
                         selected={repo.id === selectedRepoId}
                         onSelect={() => onSelectRepository(workspace.id, repo.id)}
+                        onWarm={() => onWarmRepository(repo.id)}
                       />
                     ))
                   )}
@@ -354,11 +357,13 @@ function RepositoryItem({
   status,
   selected,
   onSelect,
+  onWarm,
 }: {
   repo: RepositoryEntry;
   status: RepoStatusSummary["status"] | undefined;
   selected: boolean;
   onSelect: () => void;
+  onWarm: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const dirty = status?.dirtyCount ?? 0;
@@ -376,6 +381,8 @@ function RepositoryItem({
     <button
       type="button"
       onClick={onSelect}
+      onPointerEnter={onWarm}
+      onFocus={onWarm}
       data-selected={selected}
       className="interactive-row grid w-full grid-cols-[0.5rem_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left"
       title={repo.path}

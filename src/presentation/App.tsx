@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -6,6 +6,7 @@ import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
+import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
 import {
@@ -75,6 +76,7 @@ export function App() {
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
   const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
   const [autoFetch, setAutoFetch] = useState(false);
+  const repositoryWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     closePalette,
@@ -149,6 +151,13 @@ export function App() {
     }
   }, [allRepositories, selectedRepoId]);
 
+  useEffect(
+    () => () => {
+      if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    },
+    [],
+  );
+
   async function runBulkAction(
     action: string,
     run: () => OperationTask<BulkRepoResult[]> | Promise<BulkRepoResult[]>,
@@ -204,8 +213,22 @@ export function App() {
     });
   }
 
+  function startRepositoryWarm(repoId: string) {
+    if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    repositoryWarmTimerRef.current = null;
+    void warmRepositoryData(queryClient, repoId);
+  }
+
+  function queueRepositoryWarm(repoId: string) {
+    if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    repositoryWarmTimerRef.current = setTimeout(() => {
+      startRepositoryWarm(repoId);
+    }, 80);
+  }
+
   async function selectRepository(workspaceId: string, repoId: string) {
     setRepoDetailCommand(null);
+    startRepositoryWarm(repoId);
     if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
   }
@@ -303,6 +326,7 @@ export function App() {
         onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
         onMoveWorkspaceTo={(id, targetId) => void moveWorkspaceTo(id, targetId)}
         onSelectRepository={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
+        onWarmRepository={queueRepositoryWarm}
         pending={workspaceActionPending}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -352,6 +376,7 @@ export function App() {
             onSelectRepo={(repoId) =>
               selectedWorkspaceId ? void selectRepository(selectedWorkspaceId, repoId) : undefined
             }
+            onWarmRepo={queueRepositoryWarm}
             onRemoveRepo={(repoId) => void removeRepository(repoId)}
           />
         ) : (
@@ -362,6 +387,7 @@ export function App() {
             filter={repoFilter}
             onFilterChange={setRepoFilter}
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
+            onWarm={(_workspaceId, repoId) => queueRepositoryWarm(repoId)}
           />
         )}
         </ErrorBoundary>

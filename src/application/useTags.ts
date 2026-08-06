@@ -1,5 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
+import {
+  REPOSITORY_QUERY_GC_TIME,
+  REPOSITORY_QUERY_STALE_TIME,
+} from "@/application/repositoryQueryPolicy";
 import { getTags } from "@/infrastructure/tauriClient";
 import type { TagInfo } from "@/domain/git";
 
@@ -15,11 +19,13 @@ export function useTags(repoId: string | null): UseTagsResult {
     queryKey: repoId ? queryKeys.repos.tags(repoId) : queryKeys.repos.all,
     queryFn: ({ signal }) => getTags(repoId!, signal),
     enabled: repoId !== null,
+    staleTime: REPOSITORY_QUERY_STALE_TIME,
+    gcTime: REPOSITORY_QUERY_GC_TIME,
   });
 
   return {
     tags: query.data ?? [],
-    loading: query.isFetching,
+    loading: query.isPending,
     error: query.error ? String(query.error) : null,
   };
 }

@@ -14,12 +14,14 @@ export function RepoCard({
   status,
   selected,
   onSelect,
+  onWarm,
   onRemove,
 }: {
   repo: RepositoryEntry;
   status: RepoStatusSummary["status"] | undefined;
   selected: boolean;
   onSelect: () => void;
+  onWarm?: () => void;
   onRemove: () => void;
 }) {
   const { t } = useTranslation("workspace");
@@ -43,6 +45,8 @@ export function RepoCard({
       <button
         type="button"
         onClick={onSelect}
+        onPointerEnter={onWarm}
+        onFocus={onWarm}
         data-selected={selected}
         className="interactive-row flex h-full w-full flex-col gap-2 p-3 text-left"
       >

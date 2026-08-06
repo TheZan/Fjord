@@ -43,6 +43,18 @@ impl GixGitBackend {
         git2::Repository::open(&repo.0).map_err(Self::map_git2_error)
     }
 
+    fn background_git_command() -> Command {
+        let mut command = Command::new("git");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+        command
+    }
+
     fn repo_lock(repo: &RepoPath) -> Arc<tokio::sync::RwLock<()>> {
         static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::RwLock<()>>>>> =
             OnceLock::new();
@@ -161,7 +173,7 @@ impl GixGitBackend {
             return Err(GitError::Cancelled);
         }
 
-        let output = Command::new("git")
+        let output = Self::background_git_command()
             .args(args)
             .current_dir(&repo.0)
             .stdin(Stdio::null())
@@ -393,7 +405,7 @@ impl GixGitBackend {
         old_tree: Option<&gix::Tree<'_>>,
         new_tree: &gix::Tree<'_>,
     ) -> Result<HashMap<String, (u32, u32)>, GitError> {
-        let mut command = Command::new("git");
+        let mut command = Self::background_git_command();
         command.current_dir(&repo.0).stdin(Stdio::null());
 
         if let Some(old_tree) = old_tree {

@@ -1,5 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
+import {
+  REPOSITORY_QUERY_GC_TIME,
+  REPOSITORY_QUERY_STALE_TIME,
+} from "@/application/repositoryQueryPolicy";
 import { getWorkingChanges, invokeErrorMessage } from "@/infrastructure/tauriClient";
 import type { WorkingChanges } from "@/domain/git";
 
@@ -17,11 +21,13 @@ export function useWorkingChanges(repoId: string | null): UseWorkingChangesResul
     queryKey: repoId ? queryKeys.repos.workingChanges(repoId) : queryKeys.repos.all,
     queryFn: ({ signal }) => getWorkingChanges(repoId!, signal),
     enabled: repoId !== null,
+    staleTime: REPOSITORY_QUERY_STALE_TIME,
+    gcTime: REPOSITORY_QUERY_GC_TIME,
   });
 
   return {
     changes: query.data ?? EMPTY,
-    loading: query.isFetching,
+    loading: query.isPending,
     error: query.error ? invokeErrorMessage(query.error) : null,
   };
 }

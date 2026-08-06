@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
+import {
+  REPOSITORY_LOG_PAGE_SIZE,
+  REPOSITORY_QUERY_GC_TIME,
+  REPOSITORY_QUERY_STALE_TIME,
+} from "@/application/repositoryQueryPolicy";
 import { getCommitLog } from "@/infrastructure/tauriClient";
 import type { CommitPage, CommitSummary, LogCursor } from "@/domain/git";
 
-const PAGE_SIZE = 30;
 const BRANCH_SEEK_PAGE_SIZE = 240;
 
 export interface UseCommitLogResult {
@@ -26,10 +30,13 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
   const queryKey = repoId ? queryKeys.repos.commits(repoId) : queryKeys.repos.all;
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam, signal }) => getCommitLog(repoId!, pageParam, PAGE_SIZE, signal),
+    queryFn: ({ pageParam, signal }) =>
+      getCommitLog(repoId!, pageParam, REPOSITORY_LOG_PAGE_SIZE, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
     enabled: repoId !== null,
+    staleTime: REPOSITORY_QUERY_STALE_TIME,
+    gcTime: REPOSITORY_QUERY_GC_TIME,
   });
 
   const commits = useMemo(
@@ -113,7 +120,7 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
 
   return {
     commits,
-    loading: query.isFetching,
+    loading: query.isPending,
     error: query.error ? String(query.error) : null,
     hasMore: query.hasNextPage,
     loadMore,

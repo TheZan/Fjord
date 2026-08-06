@@ -19,6 +19,7 @@ export function AllReposView({
   filter,
   onFilterChange,
   onSelect,
+  onWarm,
 }: {
   rows: { workspace: Workspace; repo: RepositoryEntry }[];
   statusByRepo: Record<string, RepoStatusSummary>;
@@ -26,6 +27,7 @@ export function AllReposView({
   filter: string;
   onFilterChange: (value: string) => void;
   onSelect: (workspaceId: string, repoId: string) => void;
+  onWarm?: (workspaceId: string, repoId: string) => void;
 }) {
   const { t } = useTranslation("workspace");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -88,6 +90,8 @@ export function AllReposView({
                   <button
                     type="button"
                     onClick={() => onSelect(workspace.id, repo.id)}
+                    onPointerEnter={() => onWarm?.(workspace.id, repo.id)}
+                    onFocus={() => onWarm?.(workspace.id, repo.id)}
                     data-selected={isSelected}
                     className="interactive-row grid w-full grid-cols-[minmax(0,1fr)_8rem_9rem] items-center gap-3 px-3.5 text-left"
                     style={{

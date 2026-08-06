@@ -23,6 +23,7 @@ interface OverviewProps {
   onOpenRepository: () => void;
   onImport: () => void;
   onSelectRepo: (repoId: string) => void;
+  onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
   importPending: boolean;
 }
@@ -43,6 +44,7 @@ export function OverviewView({
   onOpenRepository,
   onImport,
   onSelectRepo,
+  onWarmRepo,
   onRemoveRepo,
   importPending,
 }: OverviewProps) {
@@ -105,6 +107,7 @@ export function OverviewView({
           statusByRepo={statusByRepo}
           selectedRepoId={selectedRepoId}
           onSelectRepo={onSelectRepo}
+          onWarmRepo={onWarmRepo}
           onRemoveRepo={onRemoveRepo}
         />
       )}
@@ -154,12 +157,14 @@ function VirtualRepoGrid({
   statusByRepo,
   selectedRepoId,
   onSelectRepo,
+  onWarmRepo,
   onRemoveRepo,
 }: {
   repositories: RepositoryEntry[];
   statusByRepo: Record<string, RepoStatusSummary>;
   selectedRepoId: string | null;
   onSelectRepo: (repoId: string) => void;
+  onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -223,6 +228,7 @@ function VirtualRepoGrid({
                 status={statusByRepo[repo.id]?.status}
                 selected={repo.id === selectedRepoId}
                 onSelect={() => onSelectRepo(repo.id)}
+                onWarm={() => onWarmRepo(repo.id)}
                 onRemove={() => onRemoveRepo(repo.id)}
               />
             ))}
