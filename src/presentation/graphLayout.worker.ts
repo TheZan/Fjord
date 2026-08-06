@@ -15,6 +15,7 @@ const workerScope = self as unknown as {
 };
 
 workerScope.onmessage = ({ data }) => {
+  const startedAt = performance.now();
   const incremental = data.mode === "append";
 
   if (incremental) {
@@ -34,5 +35,6 @@ workerScope.onmessage = ({ data }) => {
     commitCount: cachedCommits.length,
     layout: { rows: cachedRows, laneCount: cachedState.maxLaneCount },
     incremental,
+    durationMs: performance.now() - startedAt,
   });
 };

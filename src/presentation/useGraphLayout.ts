@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeGraphLayout, type GraphLayout } from "@/presentation/graphLayout";
+import { measureSync, recordDuration } from "@/presentation/performance";
 import type {
   GraphLayoutWorkerRequest,
   GraphLayoutWorkerResponse,
@@ -17,7 +18,12 @@ export function useGraphLayout(commits: CommitSummary[]) {
   const supportsWorker = typeof Worker !== "undefined";
   const shouldUseWorker = supportsWorker && commits.length >= WORKER_THRESHOLD;
   const synchronousLayout = useMemo(
-    () => (shouldUseWorker ? null : computeGraphLayout(commits)),
+    () =>
+      shouldUseWorker
+        ? null
+        : measureSync("fjord:graph-layout:sync", { commitCount: commits.length }, () =>
+            computeGraphLayout(commits),
+          ),
     [commits, shouldUseWorker],
   );
   const workerRef = useRef<Worker | null>(null);
@@ -41,6 +47,10 @@ export function useGraphLayout(commits: CommitSummary[]) {
 
     const onMessage = (event: MessageEvent<GraphLayoutWorkerResponse>) => {
       if (event.data.requestId !== requestId) return;
+      recordDuration("fjord:graph-layout:worker", event.data.durationMs, {
+        commitCount: event.data.commitCount,
+        incremental: event.data.incremental,
+      });
       setWorkerResult({ ...event.data, headId: commits[0]?.id ?? null });
     };
     const onError = () => {
@@ -53,6 +63,7 @@ export function useGraphLayout(commits: CommitSummary[]) {
         headId: commits[0]?.id ?? null,
         layout: computeGraphLayout(commits),
         incremental: false,
+        durationMs: 0,
       });
     };
 

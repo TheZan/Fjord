@@ -4,6 +4,7 @@ import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
+import { PerformanceBoundary } from "@/presentation/performance";
 import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
@@ -231,14 +232,16 @@ export function RepoDetailView({
         onCompactChange={setCompactLayout}
         left={
           <div className="h-full min-h-0 overflow-y-auto pr-2">
-          <RepoTree
-            repoId={repo.id}
-            focusedBranch={branchScrollRequest?.branch ?? null}
-            onSelectBranch={onSelectBranch}
-            onCheckout={onCheckout}
-            onBranchContextAction={handleBranchContextAction}
-            onTagContextAction={handleTagContextAction}
-          />
+          <PerformanceBoundary id="repo-tree">
+            <RepoTree
+              repoId={repo.id}
+              focusedBranch={branchScrollRequest?.branch ?? null}
+              onSelectBranch={onSelectBranch}
+              onCheckout={onCheckout}
+              onBranchContextAction={handleBranchContextAction}
+              onTagContextAction={handleTagContextAction}
+            />
+          </PerformanceBoundary>
           </div>
         }
         center={
@@ -254,19 +257,21 @@ export function RepoDetailView({
             />
           ) : (
             <div className="h-full min-h-0">
-              <CommitGraph
-                repoId={repo.id}
-                currentBranch={status?.branch ?? null}
-                scrollToBranch={branchScrollRequest}
-                selectedCommitId={selectedCommit?.id ?? null}
-                onSelectCommit={handleSelectCommit}
-                onRevealCommit={handleRevealCommit}
-                onCheckout={onCheckout}
-                onCommitContextAction={handleCommitContextAction}
-                workingFileCount={workingFileCount}
-                workingSelected={workingSelected}
-                onSelectWorking={handleSelectWorking}
-              />
+              <PerformanceBoundary id="commit-graph">
+                <CommitGraph
+                  repoId={repo.id}
+                  currentBranch={status?.branch ?? null}
+                  scrollToBranch={branchScrollRequest}
+                  selectedCommitId={selectedCommit?.id ?? null}
+                  onSelectCommit={handleSelectCommit}
+                  onRevealCommit={handleRevealCommit}
+                  onCheckout={onCheckout}
+                  onCommitContextAction={handleCommitContextAction}
+                  workingFileCount={workingFileCount}
+                  workingSelected={workingSelected}
+                  onSelectWorking={handleSelectWorking}
+                />
+              </PerformanceBoundary>
             </div>
           )}
           </div>

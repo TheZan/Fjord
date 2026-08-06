@@ -12,4 +12,5 @@ export interface GraphLayoutWorkerResponse {
   commitCount: number;
   layout: GraphLayout;
   incremental: boolean;
+  durationMs: number;
 }

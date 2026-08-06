@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -302,7 +302,7 @@ export function CommitGraph({
                   width: "100%",
                 }}
               >
-                <CommitRow
+                <MemoizedCommitRow
                   row={row}
                   gutterWidth={gutterWidth}
                   locale={i18n.language}
@@ -825,6 +825,22 @@ function visibleCommitRefs(
   }
   return [...byLabel.values()].sort((a, b) => Number(b.active) - Number(a.active) || Number(a.remote) - Number(b.remote));
 }
+
+const MemoizedCommitRow = memo(CommitRow, (previous, next) =>
+  previous.row === next.row &&
+  previous.gutterWidth === next.gutterWidth &&
+  previous.locale === next.locale &&
+  previous.currentBranch === next.currentBranch &&
+  previous.branchByName === next.branchByName &&
+  previous.branchesByCommit === next.branchesByCommit &&
+  previous.tagNames === next.tagNames &&
+  previous.tagsByCommit === next.tagsByCommit &&
+  previous.selected === next.selected &&
+  previous.pathHighlighted === next.pathHighlighted &&
+  previous.pathDimmed === next.pathDimmed &&
+  previous.focusable === next.focusable &&
+  previous.ariaLabel === next.ariaLabel,
+);
 
 function LaneNode({
   lane,
