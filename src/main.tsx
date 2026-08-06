@@ -13,7 +13,32 @@ import "@/index.css";
 
 const queryClient = new QueryClient();
 
+function installDesktopWebviewBehavior() {
+  document.addEventListener("contextmenu", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest("input, textarea, [contenteditable='true'], [data-native-context-menu='true']")) {
+      return;
+    }
+    event.preventDefault();
+  });
+
+  document.addEventListener("dragstart", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest("[draggable='true']")) event.preventDefault();
+  });
+
+  window.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    const browserCommand =
+      event.key === "F5" ||
+      ((event.ctrlKey || event.metaKey) && ["p", "r", "s", "u"].includes(key)) ||
+      (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight"));
+    if (browserCommand) event.preventDefault();
+  });
+}
+
 async function bootstrap() {
+  installDesktopWebviewBehavior();
   // Resolve the initial locale before the first render so there's no
   // flash of the wrong language (docs/specs/i18n.md — locale detection).
   const locale = await getSettings()

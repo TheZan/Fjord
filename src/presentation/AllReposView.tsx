@@ -58,7 +58,7 @@ export function AllReposView({
       ) : (
         <div
           ref={parentRef}
-          className="min-h-[18rem] flex-1 overflow-auto rounded-xl border"
+          className="min-h-[18rem] flex-1 overflow-auto rounded-lg border"
           style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
         >
           <div

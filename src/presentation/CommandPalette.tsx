@@ -53,7 +53,7 @@ export function CommandPalette({
       onMouseDown={onClose}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-xl border shadow-2xl"
+        className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",
           borderColor: "var(--hairline-strong)",

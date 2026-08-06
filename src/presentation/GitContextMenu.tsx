@@ -47,7 +47,7 @@ export function ContextMenu({
       <div
         ref={menuRef}
         role="menu"
-        className="absolute min-w-52 overflow-hidden rounded-md border py-1 shadow-xl"
+        className="desktop-popover absolute min-w-52 overflow-hidden rounded-md border py-1"
         style={{
           left: menuPosition.x,
           top: menuPosition.y,
@@ -183,7 +183,7 @@ function DialogFrame({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-md rounded-lg border p-4 shadow-2xl"
+        className="desktop-popover w-full max-w-md rounded-lg border p-4"
         style={{ background: "var(--paper)", borderColor: "var(--hairline-strong)" }}
         onMouseDown={(event) => event.stopPropagation()}
       >

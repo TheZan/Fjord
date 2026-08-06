@@ -235,7 +235,7 @@ function VirtualRepoGrid({
 
 function Metric({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <div className="rounded-xl px-3.5 py-3" style={{ background: "var(--paper)" }}>
+    <div className="rounded-lg border px-3.5 py-3" style={{ background: "var(--paper)", borderColor: "var(--hairline)" }}>
       <span
         className="block text-[10px] font-medium uppercase tracking-[0.08em]"
         style={{ color: "var(--mist)" }}

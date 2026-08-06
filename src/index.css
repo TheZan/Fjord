@@ -14,30 +14,33 @@
   /* Brand mark color (assets/logo/README.md) — fixed, not theme-dependent;
      distinct from --fjord (the UI accent token) even though both read as
      "teal": this one is the mark's own identity, not a semantic UI role. */
-  --brand: #2dd4bf;
-  --page-bg: #eef1f3;
+  --brand: #22b8aa;
+  --page-bg: #f3f5f6;
   --paper: #ffffff;
-  --ink: #12181f;
-  --slate: #59636f;
-  --mist: #8b95a2;
-  --hairline: #dee3e7;
-  --hairline-strong: #c9d0d6;
-  --hover: #f5f8fa;
-  --hover-strong: #eef4f6;
+  --sidebar-bg: #f8f9fa;
+  --ink: #20242a;
+  --slate: #626b76;
+  --mist: #8a949f;
+  --hairline: #e1e5e8;
+  --hairline-strong: #cbd2d8;
+  --hover: #f2f5f6;
+  --hover-strong: #e9eff1;
+  --focus-ring: color-mix(in srgb, #16829a 48%, transparent);
+  --shadow-popover: 0 10px 30px rgba(24, 31, 38, 0.14), 0 2px 8px rgba(24, 31, 38, 0.08);
 
-  --fjord: #0e6e86;
-  --fjord-ink: #08424f;
-  --fjord-tint: #e1f0f3;
+  --fjord: #16829a;
+  --fjord-ink: #0b5261;
+  --fjord-tint: #e3f1f4;
 
-  --moss: #3e7d52;
+  --moss: #40875a;
   --moss-ink: #204a2c;
   --moss-tint: #e7f3ea;
 
-  --amber: #a97429;
+  --amber: #b07825;
   --amber-ink: #5c3f14;
   --amber-tint: #faefdc;
 
-  --rust: #b0483b;
+  --rust: #bd4e43;
   --rust-ink: #5e251e;
   --rust-tint: #faeae6;
 }
@@ -45,29 +48,32 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page-bg: #0b0f13;
-    --paper: #131920;
-    --ink: #e7ecef;
-    --slate: #9ba6b0;
-    --mist: #6c7681;
-    --hairline: #232b33;
-    --hairline-strong: #303941;
-    --hover: #182029;
-    --hover-strong: #1f2a34;
+    --page-bg: #111315;
+    --paper: #191c20;
+    --sidebar-bg: #15181b;
+    --ink: #e7e9ec;
+    --slate: #a2a9b1;
+    --mist: #737c85;
+    --hairline: #282d32;
+    --hairline-strong: #373e45;
+    --hover: #1f2429;
+    --hover-strong: #282e34;
+    --focus-ring: color-mix(in srgb, #58b8ca 55%, transparent);
+    --shadow-popover: 0 12px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.28);
 
-    --fjord: #4fbad1;
-    --fjord-ink: #cdeef4;
-    --fjord-tint: #122a30;
+    --fjord: #58b8ca;
+    --fjord-ink: #d2f1f5;
+    --fjord-tint: #173137;
 
-    --moss: #6fbe86;
+    --moss: #72ba88;
     --moss-ink: #d3eedb;
     --moss-tint: #132a1b;
 
-    --amber: #e0aa5c;
+    --amber: #d8a556;
     --amber-ink: #f6e2c1;
     --amber-tint: #2e2413;
 
-    --rust: #e38477;
+    --rust: #dc7b71;
     --rust-ink: #f8d9d3;
     --rust-tint: #301d1a;
   }
@@ -75,65 +81,132 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page-bg: #0b0f13;
-  --paper: #131920;
-  --ink: #e7ecef;
-  --slate: #9ba6b0;
-  --mist: #6c7681;
-  --hairline: #232b33;
-  --hairline-strong: #303941;
-  --hover: #182029;
-  --hover-strong: #1f2a34;
+  --page-bg: #111315;
+  --paper: #191c20;
+  --sidebar-bg: #15181b;
+  --ink: #e7e9ec;
+  --slate: #a2a9b1;
+  --mist: #737c85;
+  --hairline: #282d32;
+  --hairline-strong: #373e45;
+  --hover: #1f2429;
+  --hover-strong: #282e34;
+  --focus-ring: color-mix(in srgb, #58b8ca 55%, transparent);
+  --shadow-popover: 0 12px 34px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.28);
 
-  --fjord: #4fbad1;
-  --fjord-ink: #cdeef4;
-  --fjord-tint: #122a30;
+  --fjord: #58b8ca;
+  --fjord-ink: #d2f1f5;
+  --fjord-tint: #173137;
 
-  --moss: #6fbe86;
+  --moss: #72ba88;
   --moss-ink: #d3eedb;
   --moss-tint: #132a1b;
 
-  --amber: #e0aa5c;
+  --amber: #d8a556;
   --amber-ink: #f6e2c1;
   --amber-tint: #2e2413;
 
-  --rust: #e38477;
+  --rust: #dc7b71;
   --rust-ink: #f8d9d3;
   --rust-tint: #301d1a;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --page-bg: #eef1f3;
+  --page-bg: #f3f5f6;
   --paper: #ffffff;
-  --ink: #12181f;
-  --slate: #59636f;
-  --mist: #8b95a2;
-  --hairline: #dee3e7;
-  --hairline-strong: #c9d0d6;
-  --hover: #f5f8fa;
-  --hover-strong: #eef4f6;
+  --sidebar-bg: #f8f9fa;
+  --ink: #20242a;
+  --slate: #626b76;
+  --mist: #8a949f;
+  --hairline: #e1e5e8;
+  --hairline-strong: #cbd2d8;
+  --hover: #f2f5f6;
+  --hover-strong: #e9eff1;
+  --focus-ring: color-mix(in srgb, #16829a 48%, transparent);
+  --shadow-popover: 0 10px 30px rgba(24, 31, 38, 0.14), 0 2px 8px rgba(24, 31, 38, 0.08);
 
-  --fjord: #0e6e86;
-  --fjord-ink: #08424f;
-  --fjord-tint: #e1f0f3;
+  --fjord: #16829a;
+  --fjord-ink: #0b5261;
+  --fjord-tint: #e3f1f4;
 
-  --moss: #3e7d52;
+  --moss: #40875a;
   --moss-ink: #204a2c;
   --moss-tint: #e7f3ea;
 
-  --amber: #a97429;
+  --amber: #b07825;
   --amber-ink: #5c3f14;
   --amber-tint: #faefdc;
 
-  --rust: #b0483b;
+  --rust: #bd4e43;
   --rust-ink: #5e251e;
   --rust-tint: #faeae6;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
+  margin: 0;
   background: var(--page-bg);
   color: var(--ink);
+  font-family: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  letter-spacing: 0;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.selectable-text {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--fjord) 30%, transparent);
+  color: var(--ink);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fjord) 12%, transparent);
+}
+
+code,
+.font-mono {
+  font-family: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-variant-ligatures: none;
 }
 
 .interactive-row,
@@ -169,6 +242,11 @@ body {
   background: var(--hover-strong) !important;
 }
 
+.interactive-control:active:not(:disabled),
+.interactive-row:active:not(:disabled) {
+  filter: brightness(0.97);
+}
+
 .interactive-control[data-selected="true"],
 .interactive-control[data-selected="true"]:hover,
 .interactive-control[data-selected="true"]:focus-visible {
@@ -193,7 +271,23 @@ body {
 .interactive-card:hover,
 .interactive-card:focus-within {
   border-color: var(--hairline-strong) !important;
-  box-shadow: 0 10px 30px rgba(18, 24, 31, 0.08);
+  box-shadow: 0 8px 24px rgba(18, 24, 31, 0.09);
+}
+
+.desktop-popover {
+  box-shadow: var(--shadow-popover);
+  animation: desktop-popover-in 90ms ease-out;
+}
+
+@keyframes desktop-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 /* Scrollbars.

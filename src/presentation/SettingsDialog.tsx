@@ -117,7 +117,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] overflow-hidden rounded-xl border shadow-2xl"
+        className="desktop-popover flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",
           borderColor: "var(--hairline-strong)",

@@ -102,7 +102,7 @@ export function Sidebar({
   return (
     <aside
       className="flex w-60 shrink-0 flex-col border-r"
-      style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
+      style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--sidebar-bg)" }}
     >
       <div className="flex items-center gap-2 px-4 pb-3 pt-4">
         <FjordMark size={18} style={{ color: "var(--brand)" }} />
@@ -274,7 +274,7 @@ export function Sidebar({
 
               {menuId === workspace.id && (
                 <div
-                  className="absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-lg border py-1 shadow-lg"
+                  className="desktop-popover absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-md border py-1"
                   style={{
                     borderWidth: "0.5px",
                     borderColor: "var(--hairline-strong)",

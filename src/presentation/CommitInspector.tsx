@@ -56,7 +56,7 @@ export function CommitInspector({
     >
       <div className="shrink-0 border-b p-3" style={{ borderColor: "var(--hairline)" }}>
         <p
-          className="max-h-24 overflow-y-auto whitespace-pre-wrap font-medium"
+          className="selectable-text max-h-24 overflow-y-auto whitespace-pre-wrap font-medium"
           style={{ color: "var(--ink)" }}
         >
           {commit.message}
@@ -69,7 +69,7 @@ export function CommitInspector({
             {commit.authorName} &lt;{commit.authorEmail}&gt;
           </span>
           <span>{authoredAt}</span>
-          <code className="truncate font-mono">{commit.id}</code>
+          <code className="selectable-text truncate font-mono">{commit.id}</code>
         </div>
       </div>
 

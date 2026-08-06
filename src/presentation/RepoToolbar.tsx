@@ -146,7 +146,7 @@ export function RepoToolbar({
             />
             {branchOpen && (
               <div
-                className="absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border p-2 shadow-lg"
+                className="desktop-popover absolute right-0 top-full z-30 mt-1 w-60 rounded-lg border p-2"
                 style={{
                   borderWidth: "0.5px",
                   borderColor: "var(--hairline-strong)",

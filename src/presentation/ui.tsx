@@ -140,7 +140,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border ${className}`}
+      className={`rounded-lg border ${className}`}
       style={{
         borderWidth: "0.5px",
         borderColor: selected ? "var(--fjord)" : "var(--hairline)",

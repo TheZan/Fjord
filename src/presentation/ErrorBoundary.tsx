@@ -41,7 +41,7 @@ function ErrorFallback({ error, onRetry }: { error: Error; onRetry: () => void }
   return (
     <div className="flex h-full min-h-[240px] w-full flex-1 items-center justify-center p-6">
       <div
-        className="flex w-[420px] max-w-full flex-col gap-3 rounded-xl border p-5"
+        className="flex w-[420px] max-w-full flex-col gap-3 rounded-lg border p-5"
         style={{
           borderWidth: "0.5px",
           borderColor: "var(--hairline-strong)",

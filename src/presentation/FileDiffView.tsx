@@ -100,7 +100,7 @@ export function FileDiffView({
           // at 100% the added/removed tint stopped dead at the right edge of
           // the pane as soon as you scrolled sideways. `min-w-full` keeps
           // short diffs filling the pane.
-          <div className="w-max min-w-full font-mono text-xs">
+          <div className="selectable-text w-max min-w-full font-mono text-xs">
             {diff.hunks.map((hunk, hunkIndex) => (
               <div key={hunkIndex}>
                 <div className="px-3 py-1" style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}>
