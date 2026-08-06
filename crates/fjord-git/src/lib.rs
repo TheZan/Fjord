@@ -1647,15 +1647,18 @@ impl GitBackend for GixGitBackend {
 
             let mut remote = git.find_remote("origin").map_err(Self::map_git2_error)?;
             let mut options = Self::push_options(context.clone());
-            remote
-                .push(&[refspec], Some(&mut options))
-                .map_err(|error| {
-                    if context.is_cancelled() {
-                        GitError::Cancelled
-                    } else {
-                        Self::map_git2_error(error)
-                    }
-                })
+            match remote.push(&[refspec.as_str()], Some(&mut options)) {
+                Ok(()) => Ok(()),
+                Err(error) if error.code() == ErrorCode::Auth && !context.is_cancelled() => {
+                    // libgit2 doesn't integrate with Git Credential Manager,
+                    // which is the usual credential source for HTTPS remotes
+                    // on Windows. Let the system Git ask GCM instead.
+                    drop(remote);
+                    Self::run_system_git(&repo, &["push", "origin", &refspec], context)
+                }
+                Err(_error) if context.is_cancelled() => Err(GitError::Cancelled),
+                Err(error) => Err(Self::map_git2_error(error)),
+            }
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
