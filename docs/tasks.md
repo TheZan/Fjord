@@ -121,3 +121,14 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-17** — Build and package the `fjord-askpass` sidecar.
 - [x] **P5-18** — Auth prompt UI and concurrent prompt queue.
 - [ ] **P5-19** — Integration fixtures, three-OS CI/release gates, cleanup, and troubleshooting docs. Automated work is complete, including the fake credential-helper fixtures; manual provider/OS sign-off remains in [`manual-git-compatibility.md`](manual-git-compatibility.md).
+
+### Review fixes
+
+Found reviewing the phase before sign-off.
+
+- [x] **P5-FIX-01** — Pass `--progress` on fetch/push; Git stays silent on a piped stderr without it. Covered end to end, not only in the parser.
+- [x] **P5-FIX-02** — Resolve the push target from the branch's upstream instead of a hardcoded `origin`; `no_upstream` now leads to an explicit publish.
+- [x] **P5-FIX-03** — Use the configured Git executable for local subprocess operations too, through one shared provider.
+- [x] **P5-FIX-04** — Classify hook/protected-branch rejections before non-fast-forward; fixtures use real multi-line Git output.
+- [x] **P5-FIX-05** — Bound every stream the process runner retains, with an explicit capture mode per command.
+- [x] **P5-FIX-06** — Name the repository in authentication prompts, per repository during bulk operations.

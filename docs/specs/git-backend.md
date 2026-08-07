@@ -32,6 +32,7 @@ pub trait GitBackend: Send + Sync {
 pub trait GitRemoteBackend: Send + Sync {
     async fn fetch(/* repo, remote, refspecs, context */) -> Result<(), GitRemoteError>;
     async fn push(/* repo, remote, refspecs, context */) -> Result<(), GitRemoteError>;
+    async fn publish_branch(/* repo, remote, branch_ref, context */) -> Result<(), GitRemoteError>;
     async fn delete_remote_branch(/* ... */) -> Result<(), GitRemoteError>;
     async fn ls_remote(/* ... */) -> Result<Vec<RemoteRef>, GitRemoteError>;
 }
@@ -63,6 +64,10 @@ Git through `GitRemoteBackend`.
 
 The local trait has no fetch, push, or remote-branch deletion methods. This is a
 compile-time guard against reintroducing libgit2 transport or hidden network I/O.
+It does answer *where* a push goes: `current_push_target` reads the branch's
+upstream configuration and returns the remote plus both refs, or `NoUpstream`.
+Resolving that locally keeps the decision out of the transport and out of the
+user's `push.default`.
 
 ## Adapter layout
 
@@ -71,6 +76,7 @@ compile-time guard against reintroducing libgit2 transport or hidden network I/O
 ```text
 crates/fjord-git/src/
 ├── lib.rs                # exports only
+├── executable.rs         # the one `git` binary local commands run
 ├── locking.rs
 ├── local/                # LocalGitBackend
 │   ├── mod.rs            # GitBackend wiring, one delegation per method

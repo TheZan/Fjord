@@ -61,6 +61,12 @@ path is reported to diagnostics and does not silently become a different stored
 value. If no candidate is valid, remote commands fail with
 `git_executable_not_found`; local Git features remain available.
 
+The resolved executable is the only `git` Fjord runs. Local operations that shell
+out (cherry-pick, revert, reset, branch, tag, mergetool, commit line statistics)
+take it from the same shared provider the remote transport resolves, so one
+setting cannot leave half the application on a different Git. `gix` and `git2`
+are libraries and are unaffected.
+
 Fjord never installs Git or changes global Git configuration automatically.
 
 ## Command execution
@@ -72,7 +78,10 @@ The runner:
 - sets `current_dir`, null stdin, and piped stdout/stderr;
 - reads stdout and stderr concurrently and lossily decodes invalid UTF-8;
 - treats newline and carriage return as progress record boundaries;
-- bounds retained stderr diagnostics;
+- bounds every retained stream: stderr and transfer stdout keep a tail and drop
+  older bytes as they arrive, while parsed output (`ls-remote`, diagnostics) is
+  kept whole up to a hard ceiling and fails rather than returning a truncated
+  result. No stream is ever collected without a limit;
 - supports a timeout and cancellation while the process is running;
 - places the process in an OS-specific process tree container (process group on
   Unix, Job Object or isolated `taskkill /T` fallback on Windows) and terminates
@@ -83,6 +92,11 @@ For stable error classification, remote commands set process-local `LC_ALL=C` an
 `LANG=C`. They do not alter user or global configuration.
 
 ## Progress contract
+
+Transfer commands pass `--progress`. Git only reports progress on its own when
+stderr is a terminal, and the runner always pipes it, so without the flag the
+parser receives nothing at all — the transport is tested end to end for this,
+not just the parser.
 
 Runner output is converted to `GitProgress` and sent through the existing
 `GitOperationContext`. Progress supports determinate object counts when Git emits
@@ -118,6 +132,12 @@ Frontend behavior depends only on these stable codes:
 | `git_remote_error` | Unclassified non-zero Git result. |
 
 Classification uses exit status and sanitized stderr in the stable C locale.
+Order matters: every push failure ends with the same generic `failed to push
+some refs` summary, so the specific line above it — a hook or protected-branch
+rejection, then a non-fast-forward marker — decides the code. That generic
+summary is never a classification signal on its own. Fixtures are built from
+real multi-line Git output, not single-line excerpts.
+
 Original sanitized diagnostics remain available as a bounded tail; a friendly
 classification must not erase them.
 
@@ -136,8 +156,9 @@ logged. Tokens and passwords are never process arguments.
 
 ## Remote operation semantics
 
-- Fetch: `git fetch --prune <remote> [refspecs...]`.
-- Push: `git push <remote> [refspecs...]`.
+- Fetch: `git fetch --progress --prune <remote> [refspecs...]`.
+- Push: `git push --progress <remote> [refspecs...]`.
+- Publish a branch: `git push --progress --set-upstream <remote> <ref>:<ref>`.
 - Delete remote branch: `git push <remote> --delete <branch>`.
 - Inspect remote: `git ls-remote` (and `--symref` for connection tests).
 - Materialize a remote branch: targeted system-Git fetch followed by local
@@ -153,6 +174,13 @@ system git fetch
 
 Fjord must not replace this with `git pull`, because user `pull.rebase` and related
 configuration would change existing behavior.
+
+Push resolves its target the same way: the remote and the ref on the far side
+come from the branch's upstream configuration, reversed through the remote's own
+fetch refspecs, so a branch tracking `company/trunk` is never pushed to
+`origin/<local name>`. A branch with no upstream fails with `no_upstream`; the
+user answers that with an explicit publish, which is the only operation allowed
+to name a default remote. Nothing depends on the user's `push.default`.
 
 ## Diagnostics and askpass milestones
 
