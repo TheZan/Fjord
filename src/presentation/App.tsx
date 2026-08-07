@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useBranches } from "@/application/useBranches";
 import { useOperationProgress } from "@/application/useOperationProgress";
+import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
 import { useRepositories } from "@/application/useRepositories";
@@ -31,6 +32,7 @@ import {
   type RepoDetailCommandPayload,
 } from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
+import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
@@ -67,6 +69,7 @@ export function App() {
   } = useRepositories();
 
   const operations = useOperationProgress();
+  const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState("");
@@ -418,6 +421,18 @@ export function App() {
           repositories={allRepositories}
           onClose={() => setSettingsOpen(false)}
           onSettingsChange={(settings) => setAutoFetch(settings.autoFetch)}
+        />
+      )}
+
+      {gitAuth.activePrompt && (
+        <GitAuthPromptDialog
+          prompt={gitAuth.activePrompt}
+          repositoryName={allRepositories.find(
+            (repository) => repository.id === operations[gitAuth.activePrompt!.operationId]?.repoId,
+          )?.name}
+          queuedCount={gitAuth.queuedCount}
+          onAnswer={(value) => gitAuth.answerPrompt(gitAuth.activePrompt!, value)}
+          onCancel={() => gitAuth.cancelPrompt(gitAuth.activePrompt!)}
         />
       )}
     </div>

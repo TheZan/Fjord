@@ -9,6 +9,18 @@
     "reload": "App neu laden",
     "retry": "Erneut versuchen"
   },
+  "gitAuth": {
+    "title": "Git-Authentifizierung erforderlich",
+    "confirmTitle": "Git benötigt eine Bestätigung",
+    "username": "Benutzername",
+    "secret": "Passwort oder Passphrase",
+    "cancel": "Abbrechen",
+    "continue": "Fortfahren",
+    "reject": "Ablehnen",
+    "confirm": "Bestätigen",
+    "waiting": "Warten…",
+    "queued": "{{count}} weitere Authentifizierungsanfrage(n) in der Warteschlange"
+  },
   "errors": {
     "auth_failed": "Die Anmeldung ist fehlgeschlagen. Prüfe deine Zugangsdaten oder deinen SSH-Schlüssel.",
     "branch_exists": "Ein Branch mit diesem Namen existiert bereits.",

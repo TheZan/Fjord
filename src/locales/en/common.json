@@ -9,6 +9,18 @@
     "reload": "Reload app",
     "retry": "Try again"
   },
+  "gitAuth": {
+    "title": "Git authentication required",
+    "confirmTitle": "Git requires confirmation",
+    "username": "Username",
+    "secret": "Password or passphrase",
+    "cancel": "Cancel",
+    "continue": "Continue",
+    "reject": "Reject",
+    "confirm": "Confirm",
+    "waiting": "Waiting…",
+    "queued": "{{count}} more authentication prompt(s) queued"
+  },
   "errors": {
     "auth_failed": "Authentication failed. Check your credentials or SSH key and try again.",
     "branch_exists": "A branch with this name already exists.",

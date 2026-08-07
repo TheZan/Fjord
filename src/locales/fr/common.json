@@ -9,6 +9,18 @@
     "reload": "Recharger l'app",
     "retry": "Réessayer"
   },
+  "gitAuth": {
+    "title": "Authentification Git requise",
+    "confirmTitle": "Git demande une confirmation",
+    "username": "Nom d’utilisateur",
+    "secret": "Mot de passe ou phrase secrète",
+    "cancel": "Annuler",
+    "continue": "Continuer",
+    "reject": "Refuser",
+    "confirm": "Confirmer",
+    "waiting": "En attente…",
+    "queued": "{{count}} autre(s) demande(s) d’authentification en attente"
+  },
   "errors": {
     "auth_failed": "L'authentification a échoué. Vérifiez vos identifiants ou votre clé SSH.",
     "branch_exists": "Une branche portant ce nom existe déjà.",

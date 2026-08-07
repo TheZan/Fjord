@@ -9,6 +9,18 @@
     "reload": "Recargar app",
     "retry": "Intentar de nuevo"
   },
+  "gitAuth": {
+    "title": "Se requiere autenticación de Git",
+    "confirmTitle": "Git solicita confirmación",
+    "username": "Nombre de usuario",
+    "secret": "Contraseña o frase de contraseña",
+    "cancel": "Cancelar",
+    "continue": "Continuar",
+    "reject": "Rechazar",
+    "confirm": "Confirmar",
+    "waiting": "Esperando…",
+    "queued": "{{count}} solicitud(es) de autenticación más en cola"
+  },
   "errors": {
     "auth_failed": "La autenticación falló. Comprueba tus credenciales o clave SSH e inténtalo de nuevo.",
     "branch_exists": "Ya existe una rama con este nombre.",

@@ -5,6 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { GitAuthPrompt } from "@/domain/generated";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type {
@@ -22,6 +23,7 @@ import type {
 
 export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
 export const REPOSITORY_CHANGED_EVENT = "fjord-repository-changed";
+export const AUTH_PROMPT_EVENT = "fjord-auth-prompt";
 
 export interface RepositoryChangedEvent {
   repoId: string;
@@ -179,6 +181,24 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeAbortable("get_branches", { repoId }, signal);
+}
+
+export function listenGitAuthPrompts(
+  handler: (prompt: GitAuthPrompt) => void,
+): Promise<UnlistenFn> {
+  return listen<GitAuthPrompt>(AUTH_PROMPT_EVENT, (event) => handler(event.payload));
+}
+
+export function answerGitAuthPrompt(
+  operationId: string,
+  promptId: string,
+  value: string,
+): Promise<boolean> {
+  return invoke("answer_git_auth_prompt", { operationId, promptId, value });
+}
+
+export function cancelGitAuthPrompt(operationId: string, promptId: string): Promise<boolean> {
+  return invoke("cancel_git_auth_prompt", { operationId, promptId });
 }
 
 export function getGitEnvironment(): Promise<GitEnvironmentInfo> {
