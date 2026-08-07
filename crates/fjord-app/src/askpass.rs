@@ -16,6 +16,15 @@ pub const AUTH_PROMPT_EVENT: &str = "fjord-auth-prompt";
 const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(10 * 60);
 const DEFAULT_PROMPT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_REQUEST_BYTES: u64 = 64 * 1024;
+/// Separates a bulk operation's id from the repository it is running for.
+const SUB_OPERATION_SEPARATOR: &str = "::";
+
+/// Id for one repository inside a bulk operation. Each gets its own session —
+/// its own token, its own prompts, its own repository name — while staying
+/// cancellable through the parent operation.
+pub fn sub_operation_id(operation_id: &str, repo_id: &str) -> String {
+    format!("{operation_id}{SUB_OPERATION_SEPARATOR}{repo_id}")
+}
 
 type PromptNotifier = Arc<dyn Fn(GitAuthPrompt) + Send + Sync>;
 
@@ -182,26 +191,48 @@ impl AskpassBroker {
         self.resolve_prompt(operation_id, prompt_id, AskpassStatus::Cancelled)
     }
 
+    /// Cancels the operation and every sub-operation started under it, so
+    /// cancelling a bulk run also releases the per-repository prompts.
     pub fn cancel_operation(&self, operation_id: &str) {
-        if let Some(session) = self
-            .inner
-            .sessions
-            .lock()
-            .expect("askpass sessions lock should not be poisoned")
-            .get_mut(operation_id)
-        {
-            session.cancelled = true;
+        for id in self.operation_tree(operation_id) {
+            if let Some(session) = self
+                .inner
+                .sessions
+                .lock()
+                .expect("askpass sessions lock should not be poisoned")
+                .get_mut(&id)
+            {
+                session.cancelled = true;
+            }
+            self.resolve_operation(&id, AskpassStatus::OperationCancelled);
         }
-        self.resolve_operation(operation_id, AskpassStatus::OperationCancelled);
     }
 
     pub fn finish_operation(&self, operation_id: &str) {
-        self.inner
-            .sessions
-            .lock()
-            .expect("askpass sessions lock should not be poisoned")
-            .remove(operation_id);
-        self.resolve_operation(operation_id, AskpassStatus::OperationCancelled);
+        for id in self.operation_tree(operation_id) {
+            self.inner
+                .sessions
+                .lock()
+                .expect("askpass sessions lock should not be poisoned")
+                .remove(&id);
+            self.resolve_operation(&id, AskpassStatus::OperationCancelled);
+        }
+    }
+
+    /// The operation itself plus any live sub-operation of it.
+    fn operation_tree(&self, operation_id: &str) -> Vec<String> {
+        let prefix = format!("{operation_id}{SUB_OPERATION_SEPARATOR}");
+        let mut ids = vec![operation_id.to_string()];
+        ids.extend(
+            self.inner
+                .sessions
+                .lock()
+                .expect("askpass sessions lock should not be poisoned")
+                .keys()
+                .filter(|id| id.starts_with(&prefix))
+                .cloned(),
+        );
+        ids
     }
 
     fn resolve_prompt(&self, operation_id: &str, prompt_id: &str, status: AskpassStatus) -> bool {
@@ -475,6 +506,49 @@ mod tests {
         ];
         assert!(values.contains(&"first".to_string()));
         assert!(values.contains(&"second".to_string()));
+    }
+
+    /// During a bulk run each repository prompts under its own session, and
+    /// cancelling the bulk operation has to release all of them.
+    #[tokio::test]
+    async fn cancelling_a_bulk_operation_releases_every_repository_prompt() {
+        let (broker, mut events) = broker().await;
+        let first_id = sub_operation_id("bulk-1", "repo-a");
+        let second_id = sub_operation_id("bulk-1", "repo-b");
+        let first = broker.begin_operation(
+            first_id.clone(),
+            Some("api-gateway".into()),
+            Some("bulk-fetch".into()),
+        );
+        let second = broker.begin_operation(
+            second_id.clone(),
+            Some("billing".into()),
+            Some("bulk-fetch".into()),
+        );
+
+        let first_request = send_request(&first, "prompt-1");
+        let second_request = send_request(&second, "prompt-2");
+        let cancel = async {
+            let first_event = events.recv().await.unwrap();
+            let second_event = events.recv().await.unwrap();
+            let names = [
+                first_event.repository_name.clone().unwrap(),
+                second_event.repository_name.clone().unwrap(),
+            ];
+            assert!(names.contains(&"api-gateway".to_string()));
+            assert!(names.contains(&"billing".to_string()));
+            assert_ne!(first_event.operation_id, second_event.operation_id);
+            broker.cancel_operation("bulk-1");
+        };
+
+        let (first_response, second_response, ()) =
+            tokio::join!(first_request, second_request, cancel);
+        assert_eq!(
+            first_response.status,
+            AskpassStatus::OperationCancelled,
+            "the parent cancel must reach every sub-operation"
+        );
+        assert_eq!(second_response.status, AskpassStatus::OperationCancelled);
     }
 
     #[tokio::test]

@@ -119,7 +119,7 @@ pub async fn checkout_branch(
     let operation_id = OperationRegistry::next_id();
     let askpass = state.begin_askpass_operation(
         &operation_id,
-        None,
+        state.repos.repository_name(repo_id).await,
         Some("checkout-remote-branch".to_string()),
     );
     let result = state
@@ -210,7 +210,7 @@ pub async fn delete_remote_branch(
     let operation_id = OperationRegistry::next_id();
     let askpass = state.begin_askpass_operation(
         &operation_id,
-        None,
+        state.repos.repository_name(repo_id).await,
         Some("delete-remote-branch".to_string()),
     );
     let result = state
@@ -499,8 +499,11 @@ pub async fn test_git_connection(
     remote: Option<String>,
 ) -> Result<GitConnectionTestResult, AppError> {
     let operation_id = OperationRegistry::next_id();
-    let askpass =
-        state.begin_askpass_operation(&operation_id, None, Some("connection-test".to_string()));
+    let askpass = state.begin_askpass_operation(
+        &operation_id,
+        state.repos.repository_name(repo_id).await,
+        Some("connection-test".to_string()),
+    );
     let result = state
         .repos
         .test_git_connection_with_context(
@@ -542,7 +545,11 @@ where
         },
     );
 
-    let askpass = state.begin_askpass_operation(guard.id(), None, Some(kind.as_str().to_string()));
+    let askpass = state.begin_askpass_operation(
+        guard.id(),
+        state.repos.repository_name(repo_id).await,
+        Some(kind.as_str().to_string()),
+    );
     let context = guard
         .git_context(app.clone(), kind, scope.clone(), repo_id)
         .with_askpass(askpass);
@@ -608,7 +615,6 @@ async fn run_bulk_operation(
     let scope = OperationScope::Workspace { workspace_id };
     let repos = state.workspaces.list_repositories(workspace_id).await?;
     let total = repos.len() as u32;
-    let askpass = state.begin_askpass_operation(guard.id(), None, Some(kind.as_str().to_string()));
 
     emit_operation(
         &app,
@@ -637,9 +643,19 @@ async fn run_bulk_operation(
         };
         let repo_id = repo.id;
         let service = state.repos.clone();
+        // A prompt during a bulk run has to say which repository is asking,
+        // so every repository gets its own session under the bulk operation.
+        let repo_operation_id =
+            crate::askpass::sub_operation_id(guard.id(), &repo_id.0.to_string());
+        let askpass = state.begin_askpass_operation(
+            &repo_operation_id,
+            Some(repo.name.clone()),
+            Some(kind.as_str().to_string()),
+        );
+        let broker = state.askpass.clone();
         let context = guard
             .git_context(app.clone(), kind, scope.clone(), repo_id)
-            .with_askpass(askpass.clone());
+            .with_askpass(askpass);
         emit_operation(
             &app,
             OperationProgress {
@@ -662,6 +678,7 @@ async fn run_bulk_operation(
                 }
                 BulkGitOperation::Pull => service.pull_with_context(repo_id, context).await,
             };
+            broker.finish_operation(&repo_operation_id);
             drop(permit);
             BulkRepoResult {
                 repo_id,
