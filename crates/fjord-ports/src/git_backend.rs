@@ -21,10 +21,11 @@ impl RepoPath {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitProgress {
     pub completed: u32,
     pub total: u32,
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Default)]

@@ -1,6 +1,6 @@
 use std::ffi::OsString;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use fjord_domain::RemoteRef;
@@ -14,6 +14,7 @@ use super::process_runner::{
 use crate::locking;
 
 const REMOTE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Clone, Default)]
 pub struct SystemGitRemoteBackend {
@@ -42,13 +43,17 @@ impl SystemGitRemoteBackend {
                 }
             })?;
         let progress_context = context.clone();
+        let throttle = Arc::new(Mutex::new(ProgressThrottle::default()));
         let handler: GitProcessEventHandler = Arc::new(move |event| {
             if let GitProcessEvent::Stdout(line) | GitProcessEvent::Stderr(line) = event {
-                if let Some(percent) = parse_percent(&line) {
-                    progress_context.emit(GitProgress {
-                        completed: percent,
-                        total: 100,
-                    });
+                if let Some(progress) = parse_progress(&line) {
+                    let should_emit = throttle
+                        .lock()
+                        .expect("progress throttle lock should not be poisoned")
+                        .should_emit(&progress);
+                    if should_emit {
+                        progress_context.emit(progress);
+                    }
                 }
             }
         });
@@ -140,7 +145,58 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
     }
 }
 
-fn parse_percent(line: &str) -> Option<u32> {
+#[derive(Default)]
+struct ProgressThrottle {
+    last_emit: Option<Instant>,
+    last_message: Option<String>,
+}
+
+impl ProgressThrottle {
+    fn should_emit(&mut self, progress: &GitProgress) -> bool {
+        let now = Instant::now();
+        let phase_changed = progress.message != self.last_message;
+        let finished = progress.total > 0 && progress.completed >= progress.total;
+        let interval_elapsed = self
+            .last_emit
+            .is_none_or(|last| now.duration_since(last) >= PROGRESS_EMIT_INTERVAL);
+        if phase_changed || finished || interval_elapsed {
+            self.last_emit = Some(now);
+            self.last_message.clone_from(&progress.message);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn parse_progress(line: &str) -> Option<GitProgress> {
+    let line = line.trim().strip_prefix("remote: ").unwrap_or(line.trim());
+    let phase = [
+        "Enumerating objects",
+        "Counting objects",
+        "Compressing objects",
+        "Receiving objects",
+        "Resolving deltas",
+        "Writing objects",
+        "Total",
+    ]
+    .into_iter()
+    .find(|phase| line.starts_with(phase))?;
+
+    if let Some(open) = line.find('(') {
+        if let Some(close) = line[open + 1..].find(')') {
+            if let Some((completed, total)) = line[open + 1..open + 1 + close].split_once('/') {
+                if let (Ok(completed), Ok(total)) = (completed.parse(), total.parse()) {
+                    return Some(GitProgress {
+                        completed,
+                        total,
+                        message: Some(phase.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
     let percent = line.find('%')?;
     let digits = line[..percent]
         .chars()
@@ -150,7 +206,15 @@ fn parse_percent(line: &str) -> Option<u32> {
         .chars()
         .rev()
         .collect::<String>();
-    digits.parse::<u32>().ok().filter(|value| *value <= 100)
+    digits
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value <= 100)
+        .map(|completed| GitProgress {
+            completed,
+            total: 100,
+            message: Some(phase.to_string()),
+        })
 }
 
 fn parse_ls_remote(output: &str) -> Vec<RemoteRef> {
@@ -180,9 +244,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_progress_percentages() {
-        assert_eq!(parse_percent("Receiving objects:  42% (42/100)"), Some(42));
-        assert_eq!(parse_percent("remote: done"), None);
+    fn parses_progress_counts_and_phases() {
+        assert_eq!(
+            parse_progress("Receiving objects:  42% (21/50)"),
+            Some(GitProgress {
+                completed: 21,
+                total: 50,
+                message: Some("Receiving objects".into()),
+            })
+        );
+        assert_eq!(parse_progress("remote: done"), None);
     }
 
     #[test]

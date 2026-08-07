@@ -113,7 +113,7 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-09** — Preserve pull semantics with system fetch plus local integration.
 - [x] **P5-10** — Route push through system Git.
 - [x] **P5-11** — Route remote branch operations through system Git.
-- [ ] **P5-12** — Parse/throttle system Git progress and surface raw sanitized diagnostics.
+- [x] **P5-12** — Parse/throttle system Git progress and surface raw sanitized diagnostics.
 - [ ] **P5-13** — Compute real ahead/behind without hidden network access.
 - [ ] **P5-14** — Git environment diagnostics and connection test backend.
 - [ ] **P5-15** — Git section in Settings UI.

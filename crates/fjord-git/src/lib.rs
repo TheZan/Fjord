@@ -215,6 +215,7 @@ impl GixGitBackend {
             context.emit(GitProgress {
                 completed: stats.received_objects() as u32,
                 total: stats.total_objects() as u32,
+                message: None,
             });
             !context.is_cancelled()
         });
@@ -237,6 +238,7 @@ impl GixGitBackend {
             push_context.emit(GitProgress {
                 completed: current as u32,
                 total: total as u32,
+                message: None,
             });
         });
 

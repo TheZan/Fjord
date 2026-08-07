@@ -3,21 +3,27 @@ use fjord_services::{RepoError, WorkspaceError};
 use serde::Serialize;
 
 /// The only error shape that crosses the Tauri IPC boundary. `code` is
-/// stable and localizable (the frontend maps it through the i18n catalog);
-/// `message` is a developer-facing fallback, never shown to the user
-/// without going through translation first. See docs/SDD.md §8.
+/// stable and localizable; `message` is a developer-facing fallback and
+/// `diagnostics` contains only sanitized remote output.
 #[derive(Debug, Serialize)]
 pub struct AppError {
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<String>,
 }
 
 impl AppError {
-    pub fn operation_cancelled() -> Self {
-        AppError {
-            code: "operation_cancelled".to_string(),
-            message: "operation cancelled".to_string(),
+    fn new(code: &str, message: String) -> Self {
+        Self {
+            code: code.to_string(),
+            message,
+            diagnostics: None,
         }
+    }
+
+    pub fn operation_cancelled() -> Self {
+        Self::new("operation_cancelled", "operation cancelled".to_string())
     }
 }
 
@@ -29,10 +35,7 @@ impl From<StoreError> for AppError {
             StoreError::RepositoryAlreadyExists(_) => "repository_already_added",
             StoreError::Database(_) => "database_error",
         };
-        AppError {
-            code: code.to_string(),
-            message: err.to_string(),
-        }
+        Self::new(code, err.to_string())
     }
 }
 
@@ -40,28 +43,20 @@ impl From<WorkspaceError> for AppError {
     fn from(err: WorkspaceError) -> Self {
         match err {
             WorkspaceError::Store(inner) => inner.into(),
-            WorkspaceError::NotAGitRepository(_) => AppError {
-                code: "not_a_git_repository".to_string(),
-                message: err.to_string(),
-            },
-            WorkspaceError::RepositoryAlreadyAdded(_) => AppError {
-                code: "repository_already_added".to_string(),
-                message: err.to_string(),
-            },
-            WorkspaceError::Git(_) => AppError {
-                code: "git_error".to_string(),
-                message: err.to_string(),
-            },
+            error @ WorkspaceError::NotAGitRepository(_) => {
+                Self::new("not_a_git_repository", error.to_string())
+            }
+            error @ WorkspaceError::RepositoryAlreadyAdded(_) => {
+                Self::new("repository_already_added", error.to_string())
+            }
+            error @ WorkspaceError::Git(_) => Self::new("git_error", error.to_string()),
         }
     }
 }
 
 impl From<fjord_fs::DiscoveryError> for AppError {
     fn from(err: fjord_fs::DiscoveryError) -> Self {
-        AppError {
-            code: "repository_discovery_failed".to_string(),
-            message: err.to_string(),
-        }
+        Self::new("repository_discovery_failed", err.to_string())
     }
 }
 
@@ -83,11 +78,7 @@ fn launch_error_to_app_error(err: LaunchError) -> AppError {
         LaunchError::NoTerminalAvailable => "no_terminal_available",
         LaunchError::SpawnFailed(_) => "ide_launch_failed",
     };
-
-    AppError {
-        code: code.to_string(),
-        message: err.to_string(),
-    }
+    AppError::new(code, err.to_string())
 }
 
 fn git_error_to_app_error(err: GitError) -> AppError {
@@ -106,17 +97,14 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::Cancelled => "operation_cancelled",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
-
-    AppError {
-        code: code.to_string(),
-        message: err.to_string(),
-    }
+    AppError::new(code, err.to_string())
 }
 
 fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
     AppError {
         code: err.code().to_string(),
         message: err.to_string(),
+        diagnostics: err.diagnostics().map(ToString::to_string),
     }
 }
 
@@ -132,5 +120,14 @@ mod tests {
 
         assert_eq!(error.code, "repository_already_added");
         assert!(error.message.contains("C:/repos/fjord"));
+    }
+
+    #[test]
+    fn remote_diagnostics_cross_the_boundary_sanitized() {
+        let error = remote_error_to_app_error(GitRemoteError::AuthenticationFailed {
+            stderr_tail: "fatal: Authentication failed for https://[REDACTED]@example.test".into(),
+        });
+        assert_eq!(error.code, "git_auth_failed");
+        assert!(error.diagnostics.unwrap().contains("[REDACTED]"));
     }
 }

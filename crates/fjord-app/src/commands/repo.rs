@@ -475,7 +475,14 @@ where
     let (status, completed, error) = match &result {
         Ok(()) => (OperationStatus::Succeeded, 1, None),
         Err(error) if error.code == "operation_cancelled" => (OperationStatus::Cancelled, 0, None),
-        Err(error) => (OperationStatus::Failed, 0, Some(error.message.clone())),
+        Err(error) => (
+            OperationStatus::Failed,
+            0,
+            error
+                .diagnostics
+                .clone()
+                .or_else(|| Some(error.message.clone())),
+        ),
     };
 
     emit_operation(

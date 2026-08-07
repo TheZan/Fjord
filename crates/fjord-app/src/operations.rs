@@ -163,7 +163,7 @@ impl OperationGuard {
                         repo_id: Some(repo_id),
                         completed: progress.completed,
                         total: progress.total,
-                        message: None,
+                        message: progress.message,
                         error: None,
                     },
                 );
