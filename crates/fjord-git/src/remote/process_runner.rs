@@ -1,0 +1,362 @@
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use fjord_ports::{GitOperationContext, GitProgress, GitRemoteError};
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::process::{Child, Command};
+
+const STDERR_TAIL_LIMIT: usize = 64 * 1024;
+const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(40);
+
+#[derive(Debug, Clone)]
+pub struct GitCommandSpec {
+    pub executable: PathBuf,
+    pub cwd: PathBuf,
+    pub args: Vec<OsString>,
+    pub environment: Vec<(OsString, OsString)>,
+    pub timeout: Option<Duration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitProcessEvent {
+    Stdout(String),
+    Stderr(String),
+    Progress(GitProgress),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitCommandResult {
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr_tail: String,
+}
+
+pub type GitProcessEventHandler = Arc<dyn Fn(GitProcessEvent) + Send + Sync>;
+
+#[derive(Debug, Clone, Default)]
+pub struct GitProcessRunner;
+
+impl GitProcessRunner {
+    pub async fn run(
+        &self,
+        spec: &GitCommandSpec,
+        context: GitOperationContext,
+        event_handler: Option<GitProcessEventHandler>,
+    ) -> Result<GitCommandResult, GitRemoteError> {
+        if context.is_cancelled() {
+            return Err(GitRemoteError::Cancelled);
+        }
+
+        let mut command = Command::new(&spec.executable);
+        command
+            .args(&spec.args)
+            .current_dir(&spec.cwd)
+            .envs(spec.environment.iter().cloned())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        suppress_console_window(&mut command);
+
+        let mut child = command
+            .spawn()
+            .map_err(|error| GitRemoteError::SpawnFailed(error.to_string()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| GitRemoteError::SpawnFailed("Git stdout pipe is unavailable".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| GitRemoteError::SpawnFailed("Git stderr pipe is unavailable".into()))?;
+
+        let stdout_handler = event_handler.clone();
+        let stdout_task =
+            tokio::spawn(
+                async move { read_stream(stdout, StreamKind::Stdout, stdout_handler).await },
+            );
+        let stderr_task =
+            tokio::spawn(
+                async move { read_stream(stderr, StreamKind::Stderr, event_handler).await },
+            );
+
+        let started = Instant::now();
+        let mut poll = tokio::time::interval(CANCELLATION_POLL_INTERVAL);
+        let status = loop {
+            tokio::select! {
+                status = child.wait() => {
+                    break status.map_err(|error| GitRemoteError::ProcessFailed {
+                        exit_code: None,
+                        summary: "failed to wait for Git process".into(),
+                        stderr_tail: error.to_string(),
+                    })?;
+                }
+                _ = poll.tick() => {
+                    if context.is_cancelled() {
+                        terminate_process(&mut child).await;
+                        let _ = child.wait().await;
+                        finish_reader_tasks(stdout_task, stderr_task).await;
+                        return Err(GitRemoteError::Cancelled);
+                    }
+                    if spec.timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
+                        terminate_process(&mut child).await;
+                        let _ = child.wait().await;
+                        finish_reader_tasks(stdout_task, stderr_task).await;
+                        return Err(GitRemoteError::Timeout);
+                    }
+                }
+            }
+        };
+
+        let stdout = join_reader(stdout_task, "stdout").await?;
+        let stderr = join_reader(stderr_task, "stderr").await?;
+        Ok(GitCommandResult {
+            exit_code: status.code(),
+            stdout: redact_output(&stdout),
+            stderr_tail: tail(&redact_output(&stderr), STDERR_TAIL_LIMIT),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum StreamKind {
+    Stdout,
+    Stderr,
+}
+
+async fn read_stream<R>(
+    mut reader: R,
+    kind: StreamKind,
+    event_handler: Option<GitProcessEventHandler>,
+) -> std::io::Result<String>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    let mut record = Vec::new();
+    let mut buffer = [0_u8; 8192];
+
+    loop {
+        let count = reader.read(&mut buffer).await?;
+        if count == 0 {
+            emit_record(kind, &mut record, &event_handler);
+            break;
+        }
+
+        output.extend_from_slice(&buffer[..count]);
+        for byte in &buffer[..count] {
+            if matches!(byte, b'\n' | b'\r') {
+                emit_record(kind, &mut record, &event_handler);
+            } else {
+                record.push(*byte);
+            }
+        }
+    }
+
+    Ok(String::from_utf8_lossy(&output).into_owned())
+}
+
+fn emit_record(
+    kind: StreamKind,
+    record: &mut Vec<u8>,
+    event_handler: &Option<GitProcessEventHandler>,
+) {
+    if record.is_empty() {
+        return;
+    }
+    let value = redact_output(&String::from_utf8_lossy(record));
+    record.clear();
+    if let Some(handler) = event_handler {
+        handler(match kind {
+            StreamKind::Stdout => GitProcessEvent::Stdout(value),
+            StreamKind::Stderr => GitProcessEvent::Stderr(value),
+        });
+    }
+}
+
+async fn terminate_process(child: &mut Child) {
+    if let Err(error) = child.kill().await {
+        tracing::debug!(%error, "Git process already exited while cancelling");
+    }
+}
+
+async fn finish_reader_tasks(
+    stdout_task: tokio::task::JoinHandle<std::io::Result<String>>,
+    stderr_task: tokio::task::JoinHandle<std::io::Result<String>>,
+) {
+    let _ = stdout_task.await;
+    let _ = stderr_task.await;
+}
+
+async fn join_reader(
+    task: tokio::task::JoinHandle<std::io::Result<String>>,
+    stream: &'static str,
+) -> Result<String, GitRemoteError> {
+    task.await
+        .map_err(|error| GitRemoteError::ProcessFailed {
+            exit_code: None,
+            summary: format!("Git {stream} reader task failed"),
+            stderr_tail: error.to_string(),
+        })?
+        .map_err(|error| GitRemoteError::ProcessFailed {
+            exit_code: None,
+            summary: format!("failed to read Git {stream}"),
+            stderr_tail: error.to_string(),
+        })
+}
+
+fn tail(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_string();
+    }
+    let mut start = value.len() - limit;
+    while !value.is_char_boundary(start) {
+        start += 1;
+    }
+    value[start..].to_string()
+}
+
+fn redact_output(value: &str) -> String {
+    // Full classification/redaction lives in remote/errors.rs (P5-07). Keep
+    // authorization headers out of runner events even before classification.
+    value
+        .lines()
+        .map(|line| {
+            if line
+                .trim_start()
+                .to_ascii_lowercase()
+                .starts_with("authorization:")
+            {
+                "Authorization: [REDACTED]".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(windows)]
+fn suppress_console_window(command: &mut Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_console_window(_command: &mut Command) {}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+
+    use super::*;
+
+    fn helper_spec(mode: &str, timeout: Option<Duration>) -> GitCommandSpec {
+        GitCommandSpec {
+            executable: std::env::current_exe().unwrap(),
+            cwd: std::env::current_dir().unwrap(),
+            args: vec![
+                "--exact".into(),
+                "remote::process_runner::tests::runner_helper".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ],
+            environment: vec![("FJORD_RUNNER_HELPER".into(), mode.into())],
+            timeout,
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn runner_helper() {
+        match std::env::var("FJORD_RUNNER_HELPER").as_deref() {
+            Ok("stream") => {
+                print!("Counting objects: 1%\rCounting objects: 100%\nfinished\n");
+                eprint!("remote: first\rremote: second\n");
+            }
+            Ok("large-stderr") => eprint!("{}", "x".repeat(STDERR_TAIL_LIMIT * 2)),
+            Ok("wait") => std::thread::sleep(Duration::from_secs(30)),
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn streams_stdout_and_stderr_records() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let handler: GitProcessEventHandler = Arc::new(move |event| {
+            captured.lock().unwrap().push(event);
+        });
+        let result = GitProcessRunner
+            .run(
+                &helper_spec("stream", None),
+                GitOperationContext::default(),
+                Some(handler),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        let events = events.lock().unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GitProcessEvent::Stdout(value) if value.contains("Counting objects: 1%")
+        )));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            GitProcessEvent::Stderr(value) if value.contains("remote: second")
+        )));
+    }
+
+    #[tokio::test]
+    async fn bounds_the_stderr_tail() {
+        let result = GitProcessRunner
+            .run(
+                &helper_spec("large-stderr", None),
+                GitOperationContext::default(),
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.stderr_tail.len(), STDERR_TAIL_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn cancellation_terminates_the_running_process() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let signal = cancelled.clone();
+        let context = GitOperationContext::new(|_| {}, move || signal.load(Ordering::Relaxed));
+        let cancellation = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            cancelled.store(true, Ordering::Relaxed);
+        });
+        let result = GitProcessRunner
+            .run(&helper_spec("wait", None), context, None)
+            .await;
+        cancellation.await.unwrap();
+        assert!(matches!(result, Err(GitRemoteError::Cancelled)));
+    }
+
+    #[tokio::test]
+    async fn timeout_terminates_the_running_process() {
+        let result = GitProcessRunner
+            .run(
+                &helper_spec("wait", Some(Duration::from_millis(150))),
+                GitOperationContext::default(),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(GitRemoteError::Timeout)));
+    }
+
+    #[test]
+    fn redacts_authorization_headers() {
+        assert_eq!(
+            redact_output("Authorization: Bearer secret"),
+            "Authorization: [REDACTED]"
+        );
+    }
+}

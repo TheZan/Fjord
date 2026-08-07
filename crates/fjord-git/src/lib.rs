@@ -2239,7 +2239,7 @@ mod tests {
     #[test]
     fn numstat_parser_handles_binary_files_and_tabs_in_paths() {
         let parsed = GixGitBackend::parse_numstat(
-            b"12\t3\tsrc/file.rs\0-\t-\tassets/image.png\01\t0\tpath/with\ttab.txt\0",
+            b"12\t3\tsrc/file.rs\0-\t-\tassets/image.png\x001\t0\tpath/with\ttab.txt\0",
         );
 
         assert_eq!(parsed.get("src/file.rs"), Some(&(12, 3)));
