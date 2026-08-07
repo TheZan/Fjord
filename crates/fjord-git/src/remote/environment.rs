@@ -14,9 +14,12 @@ use fjord_ports::{
 use super::backend::SystemGitRemoteBackend;
 use super::errors::sanitize_diagnostics;
 use super::executable::{GitExecutableError, GitExecutableResolver};
-use super::process_runner::{GitCommandResult, GitCommandSpec, GitProcessRunner};
+use super::process_runner::{GitCommandResult, GitCommandSpec, GitProcessRunner, OutputCapture};
 
 const DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(15);
+/// Diagnostic commands print a handful of config lines; anything larger is a
+/// misconfiguration, not something worth buffering.
+const DIAGNOSTIC_STDOUT_LIMIT: usize = 1024 * 1024;
 
 pub(crate) fn remote_process_environment(
     context: &GitOperationContext,
@@ -78,6 +81,9 @@ impl SystemGitEnvironmentProvider {
                     args,
                     environment: vec![("LC_ALL".into(), "C".into()), ("LANG".into(), "C".into())],
                     timeout: Some(DIAGNOSTIC_TIMEOUT),
+                    stdout_capture: OutputCapture::Full {
+                        max_bytes: DIAGNOSTIC_STDOUT_LIMIT,
+                    },
                 },
                 GitOperationContext::default(),
                 None,

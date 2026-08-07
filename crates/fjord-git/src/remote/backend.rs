@@ -11,11 +11,18 @@ use super::errors::classify_failure;
 use super::executable::{GitExecutableError, GitExecutableResolver};
 use super::process_runner::{
     GitCommandResult, GitCommandSpec, GitProcessEvent, GitProcessEventHandler, GitProcessRunner,
+    OutputCapture,
 };
 use super::progress::{parse_progress, ProgressThrottle};
 use crate::locking;
 
 const REMOTE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// Transfer commands report through stderr; their stdout only ever holds a
+/// short summary, so a tail is enough to diagnose a failure.
+const TRANSFER_STDOUT_TAIL: usize = 16 * 1024;
+/// `ls-remote` output is parsed, so it is kept whole up to a hard ceiling that
+/// still covers repositories with hundreds of thousands of refs.
+const LS_REMOTE_STDOUT_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default)]
 pub struct SystemGitRemoteBackend {
@@ -32,6 +39,7 @@ impl SystemGitRemoteBackend {
         &self,
         repo: &RepoPath,
         args: Vec<OsString>,
+        stdout_capture: OutputCapture,
         context: GitOperationContext,
     ) -> Result<GitCommandResult, GitRemoteError> {
         let executable = self
@@ -64,6 +72,7 @@ impl SystemGitRemoteBackend {
             args,
             environment: remote_process_environment(&context),
             timeout: Some(REMOTE_OPERATION_TIMEOUT),
+            stdout_capture,
         };
         let result = self.runner.run(&spec, context, Some(handler)).await?;
         if result.exit_code == Some(0) {
@@ -90,7 +99,14 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         let _guard = locking::write(repo).await;
         let mut args = vec!["fetch".into(), "--prune".into(), remote.into()];
         args.extend(refspecs.iter().map(OsString::from));
-        self.run(repo, args, context).await.map(|_| ())
+        self.run(
+            repo,
+            args,
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
+            context,
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn push(
@@ -103,7 +119,14 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         let _guard = locking::write(repo).await;
         let mut args = vec!["push".into(), remote.into()];
         args.extend(refspecs.iter().map(OsString::from));
-        self.run(repo, args, context).await.map(|_| ())
+        self.run(
+            repo,
+            args,
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
+            context,
+        )
+        .await
+        .map(|_| ())
     }
 
     async fn delete_remote_branch(
@@ -122,6 +145,7 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
                 "--delete".into(),
                 branch.into(),
             ],
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
         .await
@@ -139,6 +163,9 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
             .run(
                 repo,
                 vec!["ls-remote".into(), "--symref".into(), remote.into()],
+                OutputCapture::Full {
+                    max_bytes: LS_REMOTE_STDOUT_LIMIT,
+                },
                 context,
             )
             .await?;

@@ -260,7 +260,8 @@ mod tests {
             "git_remote_rejected"
         );
 
-        let protected_branch = "remote: error: GH006: Protected branch update failed for refs/heads/main.\n\
+        let protected_branch =
+            "remote: error: GH006: Protected branch update failed for refs/heads/main.\n\
              To https://example.test/team/app.git\n\
              ! [remote rejected] main -> main (protected branch hook declined)\n\
              error: failed to push some refs to 'https://example.test/team/app.git'";

@@ -15,6 +15,18 @@ const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(40);
 #[cfg(unix)]
 const TERMINATION_GRACE_PERIOD: Duration = Duration::from_millis(250);
 
+/// How much of a stream the runner keeps in memory. Git can produce unbounded
+/// output — a pathological remote, a runaway hook, a hostile server — so no
+/// mode grows without a limit. Streaming events are emitted either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputCapture {
+    /// Keep only the last `n` bytes; older output is dropped as it arrives.
+    Tail(usize),
+    /// Keep everything up to `max_bytes`, then fail rather than return a
+    /// silently truncated result. For output that is parsed, not displayed.
+    Full { max_bytes: usize },
+}
+
 // Intentionally no `Debug`: `environment` may contain the askpass bearer token.
 #[derive(Clone)]
 pub struct GitCommandSpec {
@@ -23,6 +35,8 @@ pub struct GitCommandSpec {
     pub args: Vec<OsString>,
     pub environment: Vec<(OsString, OsString)>,
     pub timeout: Option<Duration>,
+    /// stderr is always bounded to a tail; only stdout varies by command.
+    pub stdout_capture: OutputCapture,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,14 +94,19 @@ impl GitProcessRunner {
             .ok_or_else(|| GitRemoteError::SpawnFailed("Git stderr pipe is unavailable".into()))?;
 
         let stdout_handler = event_handler.clone();
-        let stdout_task =
-            tokio::spawn(
-                async move { read_stream(stdout, StreamKind::Stdout, stdout_handler).await },
-            );
-        let stderr_task =
-            tokio::spawn(
-                async move { read_stream(stderr, StreamKind::Stderr, event_handler).await },
-            );
+        let stdout_capture = spec.stdout_capture;
+        let stdout_task = tokio::spawn(async move {
+            read_stream(stdout, StreamKind::Stdout, stdout_capture, stdout_handler).await
+        });
+        let stderr_task = tokio::spawn(async move {
+            read_stream(
+                stderr,
+                StreamKind::Stderr,
+                OutputCapture::Tail(STDERR_TAIL_LIMIT),
+                event_handler,
+            )
+            .await
+        });
 
         let started = Instant::now();
         let mut poll = tokio::time::interval(CANCELLATION_POLL_INTERVAL);
@@ -119,10 +138,17 @@ impl GitProcessRunner {
 
         let stdout = join_reader(stdout_task, "stdout").await?;
         let stderr = join_reader(stderr_task, "stderr").await?;
+        if stdout.truncated && matches!(spec.stdout_capture, OutputCapture::Full { .. }) {
+            return Err(GitRemoteError::ProcessFailed {
+                exit_code: status.code(),
+                summary: "Git produced more output than Fjord can buffer".into(),
+                stderr_tail: tail(&sanitize_diagnostics(&stderr.text), STDERR_TAIL_LIMIT),
+            });
+        }
         Ok(GitCommandResult {
             exit_code: status.code(),
-            stdout: sanitize_diagnostics(&stdout),
-            stderr_tail: tail(&sanitize_diagnostics(&stderr), STDERR_TAIL_LIMIT),
+            stdout: sanitize_diagnostics(&stdout.text),
+            stderr_tail: tail(&sanitize_diagnostics(&stderr.text), STDERR_TAIL_LIMIT),
         })
     }
 }
@@ -136,12 +162,13 @@ enum StreamKind {
 async fn read_stream<R>(
     mut reader: R,
     kind: StreamKind,
+    capture: OutputCapture,
     event_handler: Option<GitProcessEventHandler>,
-) -> std::io::Result<String>
+) -> std::io::Result<CapturedStream>
 where
     R: AsyncRead + Unpin,
 {
-    let mut output = Vec::new();
+    let mut output = BoundedBuffer::new(capture);
     let mut record = Vec::new();
     let mut buffer = [0_u8; 8192];
 
@@ -152,7 +179,7 @@ where
             break;
         }
 
-        output.extend_from_slice(&buffer[..count]);
+        output.push(&buffer[..count]);
         for byte in &buffer[..count] {
             if matches!(byte, b'\n' | b'\r') {
                 emit_record(kind, &mut record, &event_handler);
@@ -162,7 +189,62 @@ where
         }
     }
 
-    Ok(String::from_utf8_lossy(&output).into_owned())
+    Ok(output.finish())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CapturedStream {
+    text: String,
+    truncated: bool,
+}
+
+/// Collects a stream without ever holding more than the configured limit.
+struct BoundedBuffer {
+    capture: OutputCapture,
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl BoundedBuffer {
+    fn new(capture: OutputCapture) -> Self {
+        Self {
+            capture,
+            bytes: Vec::new(),
+            truncated: false,
+        }
+    }
+
+    fn push(&mut self, chunk: &[u8]) {
+        match self.capture {
+            OutputCapture::Tail(limit) => {
+                if limit == 0 {
+                    self.truncated |= !chunk.is_empty();
+                    return;
+                }
+                self.bytes.extend_from_slice(chunk);
+                if self.bytes.len() > limit {
+                    let excess = self.bytes.len() - limit;
+                    self.bytes.drain(..excess);
+                    self.truncated = true;
+                }
+            }
+            OutputCapture::Full { max_bytes } => {
+                let free = max_bytes.saturating_sub(self.bytes.len());
+                if free < chunk.len() {
+                    self.truncated = true;
+                }
+                self.bytes
+                    .extend_from_slice(&chunk[..free.min(chunk.len())]);
+            }
+        }
+    }
+
+    fn finish(self) -> CapturedStream {
+        CapturedStream {
+            text: String::from_utf8_lossy(&self.bytes).into_owned(),
+            truncated: self.truncated,
+        }
+    }
 }
 
 fn emit_record(
@@ -223,17 +305,17 @@ async fn terminate_process(child: &mut Child) {
 }
 
 async fn finish_reader_tasks(
-    stdout_task: tokio::task::JoinHandle<std::io::Result<String>>,
-    stderr_task: tokio::task::JoinHandle<std::io::Result<String>>,
+    stdout_task: tokio::task::JoinHandle<std::io::Result<CapturedStream>>,
+    stderr_task: tokio::task::JoinHandle<std::io::Result<CapturedStream>>,
 ) {
     let _ = stdout_task.await;
     let _ = stderr_task.await;
 }
 
 async fn join_reader(
-    task: tokio::task::JoinHandle<std::io::Result<String>>,
+    task: tokio::task::JoinHandle<std::io::Result<CapturedStream>>,
     stream: &'static str,
-) -> Result<String, GitRemoteError> {
+) -> Result<CapturedStream, GitRemoteError> {
     task.await
         .map_err(|error| GitRemoteError::ProcessFailed {
             exit_code: None,
@@ -296,6 +378,9 @@ mod tests {
             ],
             environment: vec![("FJORD_RUNNER_HELPER".into(), mode.into())],
             timeout,
+            stdout_capture: OutputCapture::Full {
+                max_bytes: 1024 * 1024,
+            },
         }
     }
 
@@ -309,6 +394,7 @@ mod tests {
                 eprint!("remote: first\rremote: second\n");
             }
             Ok("large-stderr") => eprint!("{}", "x".repeat(STDERR_TAIL_LIMIT * 2)),
+            Ok("large-stdout") => print!("{}", "y".repeat(64 * 1024)),
             Ok("wait") => std::thread::sleep(Duration::from_secs(30)),
             Ok("tree-parent") => {
                 let pid_file = std::env::var_os("FJORD_HELPER_PID_FILE").unwrap();
@@ -368,6 +454,56 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.stderr_tail.len(), STDERR_TAIL_LIMIT);
+    }
+
+    #[test]
+    fn tail_capture_keeps_only_the_end_and_full_capture_reports_truncation() {
+        let mut tail = BoundedBuffer::new(OutputCapture::Tail(4));
+        tail.push(b"abcdef");
+        tail.push(b"gh");
+        let tail = tail.finish();
+        assert_eq!(tail.text, "efgh");
+        assert!(tail.truncated);
+
+        let mut bounded = BoundedBuffer::new(OutputCapture::Full { max_bytes: 4 });
+        bounded.push(b"abc");
+        bounded.push(b"de");
+        let bounded = bounded.finish();
+        assert_eq!(bounded.text, "abcd");
+        assert!(bounded.truncated);
+
+        let mut whole = BoundedBuffer::new(OutputCapture::Full { max_bytes: 8 });
+        whole.push(b"abcd");
+        let whole = whole.finish();
+        assert_eq!(whole.text, "abcd");
+        assert!(!whole.truncated);
+    }
+
+    /// Output that is parsed must never be silently cut in half.
+    #[tokio::test]
+    async fn full_capture_fails_instead_of_returning_truncated_output() {
+        let mut spec = helper_spec("large-stdout", None);
+        spec.stdout_capture = OutputCapture::Full { max_bytes: 1024 };
+        let result = GitProcessRunner
+            .run(&spec, GitOperationContext::default(), None)
+            .await;
+        assert!(matches!(
+            result,
+            Err(GitRemoteError::ProcessFailed { ref summary, .. })
+                if summary.contains("more output than Fjord can buffer")
+        ));
+    }
+
+    #[tokio::test]
+    async fn tail_capture_bounds_stdout_without_failing() {
+        let mut spec = helper_spec("large-stdout", None);
+        spec.stdout_capture = OutputCapture::Tail(1024);
+        let result = GitProcessRunner
+            .run(&spec, GitOperationContext::default(), None)
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert_eq!(result.stdout.len(), 1024);
     }
 
     #[tokio::test]
