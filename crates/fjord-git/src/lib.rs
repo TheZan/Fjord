@@ -4,12 +4,15 @@
 //! what `gix` doesn't cover yet (fetch/pull/push today). See
 //! docs/specs/git-backend.md for the full routing table and rationale.
 
+mod locking;
 pub mod remote;
+
+pub use remote::backend::SystemGitRemoteBackend;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
@@ -159,21 +162,6 @@ impl GixGitBackend {
         command
     }
 
-    fn repo_lock(repo: &RepoPath) -> Arc<tokio::sync::RwLock<()>> {
-        static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<tokio::sync::RwLock<()>>>>> =
-            OnceLock::new();
-
-        let key = std::fs::canonicalize(&repo.0).unwrap_or_else(|_| repo.0.clone());
-        let mut locks = LOCKS
-            .get_or_init(|| Mutex::new(HashMap::new()))
-            .lock()
-            .expect("repo lock registry should not be poisoned");
-        locks
-            .entry(key)
-            .or_insert_with(|| Arc::new(tokio::sync::RwLock::new(())))
-            .clone()
-    }
-
     /// Shared guard for operations that only read. Concurrent readers
     /// overlap; a writer still excludes them.
     ///
@@ -185,7 +173,7 @@ impl GixGitBackend {
     /// slowest read (`cargo run -p fjord-bench -- --repo <path>
     /// --profile-open`).
     async fn acquire_repo_read_lock(repo: &RepoPath) -> tokio::sync::OwnedRwLockReadGuard<()> {
-        Self::repo_lock(repo).read_owned().await
+        locking::read(repo).await
     }
 
     /// Exclusive guard for operations that mutate the repository — checkout,
@@ -193,7 +181,7 @@ impl GixGitBackend {
     /// (or running while a read observes a half-applied state) is what the
     /// lock exists to prevent.
     async fn acquire_repo_write_lock(repo: &RepoPath) -> tokio::sync::OwnedRwLockWriteGuard<()> {
-        Self::repo_lock(repo).write_owned().await
+        locking::write(repo).await
     }
 
     fn map_git2_error(err: git2::Error) -> GitError {

@@ -31,6 +31,7 @@ pub struct GitProgress {
 pub struct GitOperationContext {
     progress: Option<Arc<dyn Fn(GitProgress) + Send + Sync>>,
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    git_executable_path: Option<Arc<PathBuf>>,
 }
 
 impl GitOperationContext {
@@ -41,6 +42,7 @@ impl GitOperationContext {
         Self {
             progress: Some(Arc::new(progress)),
             cancelled: Some(Arc::new(cancelled)),
+            git_executable_path: None,
         }
     }
 
@@ -52,6 +54,15 @@ impl GitOperationContext {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.as_ref().is_some_and(|cancelled| cancelled())
+    }
+
+    pub fn with_git_executable_path(mut self, path: Option<PathBuf>) -> Self {
+        self.git_executable_path = path.map(Arc::new);
+        self
+    }
+
+    pub fn git_executable_path(&self) -> Option<&std::path::Path> {
+        self.git_executable_path.as_deref().map(PathBuf::as_path)
     }
 }
 

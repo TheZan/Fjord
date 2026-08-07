@@ -379,8 +379,8 @@ impl RepoService {
     }
 
     pub async fn fetch(&self, repo_id: RepositoryId, remote: &str) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.fetch(&RepoPath::new(repo.path), remote).await?)
+        self.fetch_with_context(repo_id, remote, GitOperationContext::default())
+            .await
     }
 
     pub async fn fetch_with_context(
@@ -390,9 +390,11 @@ impl RepoService {
         context: GitOperationContext,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
         Ok(self
-            .git
-            .fetch_with_context(&RepoPath::new(repo.path), remote, context)
+            .remote
+            .fetch(&RepoPath::new(repo.path), remote, &[], context)
             .await?)
     }
 
@@ -451,12 +453,22 @@ impl RepoService {
         workspace_id: WorkspaceId,
     ) -> Result<Vec<BulkRepoResult>, RepoError> {
         let repos = self.workspaces.list_repositories(workspace_id).await?;
+        let settings = self.settings.get_settings().await?;
+        let git_executable_path = settings.git_executable_path.map(Arc::new);
         Ok(run_bulk(repos, {
-            let git = self.git.clone();
+            let remote = self.remote.clone();
             move |repo| {
-                let git = git.clone();
+                let remote = remote.clone();
+                let git_executable_path = git_executable_path.clone();
                 async move {
-                    git.fetch(&RepoPath::new(repo.path), "origin")
+                    remote
+                        .fetch(
+                            &RepoPath::new(repo.path),
+                            "origin",
+                            &[],
+                            GitOperationContext::default()
+                                .with_git_executable_path(git_executable_path.as_deref().cloned()),
+                        )
                         .await
                         .map_err(|e| e.to_string())
                 }
@@ -753,20 +765,23 @@ mod tests {
     }
 
     struct FakeGit {
-        seen_path: Mutex<Option<PathBuf>>,
+        seen_path: Arc<Mutex<Option<PathBuf>>>,
     }
 
-    struct FakeRemoteGit;
+    struct FakeRemoteGit {
+        seen_path: Arc<Mutex<Option<PathBuf>>>,
+    }
 
     #[async_trait]
     impl GitRemoteBackend for FakeRemoteGit {
         async fn fetch(
             &self,
-            _repo: &RepoPath,
+            repo: &RepoPath,
             _remote: &str,
             _refspecs: &[String],
             _context: GitOperationContext,
         ) -> Result<(), GitRemoteError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
 
@@ -817,8 +832,9 @@ mod tests {
         RepoService,
     ) {
         let repo = repo_entry();
+        let seen_path = Arc::new(Mutex::new(None));
         let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
+            seen_path: seen_path.clone(),
         });
         let ide = Arc::new(FakeIdeLauncher {
             opened: Mutex::new(None),
@@ -833,7 +849,7 @@ mod tests {
                 },
             }),
             git.clone(),
-            Arc::new(FakeRemoteGit),
+            Arc::new(FakeRemoteGit { seen_path }),
             ide.clone(),
         );
         (repo, git, ide, service)
@@ -1038,7 +1054,7 @@ mod tests {
             sort_order: 0,
         };
         let git = Arc::new(FakeGit {
-            seen_path: Mutex::new(None),
+            seen_path: Arc::new(Mutex::new(None)),
         });
         let service = RepoService::new(
             Arc::new(FakeStore { repo }),
@@ -1046,7 +1062,9 @@ mod tests {
                 settings: Settings::default(),
             }),
             git,
-            Arc::new(FakeRemoteGit),
+            Arc::new(FakeRemoteGit {
+                seen_path: Arc::new(Mutex::new(None)),
+            }),
             Arc::new(FakeIdeLauncher {
                 opened: Mutex::new(None),
                 terminal_opened: Mutex::new(None),
