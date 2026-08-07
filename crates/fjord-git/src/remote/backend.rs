@@ -251,6 +251,20 @@ mod tests {
             git_output(&remote, &["rev-parse", "refs/heads/main"]),
             expected
         );
+
+        SystemGitRemoteBackend::new()
+            .delete_remote_branch(
+                &RepoPath::new(source),
+                "origin",
+                "main",
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+        assert!(!git_succeeds(
+            &remote,
+            &["show-ref", "--verify", "refs/heads/main"]
+        ));
     }
 
     fn run_git(cwd: &Path, args: &[&str]) {
@@ -270,5 +284,14 @@ mod tests {
             .unwrap();
         assert!(output.status.success(), "git {args:?} failed");
         String::from_utf8(output.stdout).unwrap().trim().to_string()
+    }
+
+    fn git_succeeds(cwd: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .status()
+            .unwrap()
+            .success()
     }
 }

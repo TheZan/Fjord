@@ -193,7 +193,22 @@ impl RepoService {
         branch: &str,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.checkout(&RepoPath::new(repo.path), branch).await?)
+        let repo_path = RepoPath::new(repo.path);
+        if let Some((remote, refspec)) =
+            self.git.remote_checkout_refspec(&repo_path, branch).await?
+        {
+            let settings = self.settings.get_settings().await?;
+            self.remote
+                .fetch(
+                    &repo_path,
+                    &remote,
+                    &[refspec],
+                    GitOperationContext::default()
+                        .with_git_executable_path(settings.git_executable_path),
+                )
+                .await?;
+        }
+        Ok(self.git.checkout_local(&repo_path, branch).await?)
     }
 
     pub async fn get_working_changes(
@@ -271,9 +286,20 @@ impl RepoService {
         name: &str,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
+        let (remote, branch) = name
+            .split_once('/')
+            .filter(|(remote, branch)| !remote.is_empty() && !branch.is_empty())
+            .ok_or_else(|| GitError::Git2(format!("remote branch name is invalid: {name}")))?;
+        let settings = self.settings.get_settings().await?;
         Ok(self
-            .git
-            .delete_remote_branch(&RepoPath::new(repo.path), name)
+            .remote
+            .delete_remote_branch(
+                &RepoPath::new(repo.path),
+                remote,
+                branch,
+                GitOperationContext::default()
+                    .with_git_executable_path(settings.git_executable_path),
+            )
             .await?)
     }
 
@@ -829,11 +855,12 @@ mod tests {
 
         async fn delete_remote_branch(
             &self,
-            _repo: &RepoPath,
+            repo: &RepoPath,
             _remote: &str,
             _branch: &str,
             _context: GitOperationContext,
         ) -> Result<(), GitRemoteError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
 

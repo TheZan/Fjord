@@ -152,6 +152,19 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<FileDiffDetail, GitError>;
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
+    /// Returns `(remote, refspec)` when checkout needs a remote branch to be
+    /// materialized first. No network I/O is performed.
+    async fn remote_checkout_refspec(
+        &self,
+        _repo: &RepoPath,
+        _branch: &str,
+    ) -> Result<Option<(String, String)>, GitError> {
+        Ok(None)
+    }
+    /// Performs checkout after any required remote ref was fetched.
+    async fn checkout_local(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
+        self.checkout(repo, branch).await
+    }
     /// Creates `name` at the current HEAD, optionally switching to it.
     async fn create_branch(
         &self,

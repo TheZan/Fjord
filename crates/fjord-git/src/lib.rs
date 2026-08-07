@@ -577,9 +577,10 @@ impl GixGitBackend {
         git: &git2::Repository,
         repo: &RepoPath,
         branch: &str,
+        fetch_remote: bool,
     ) -> Result<String, GitError> {
         if let Some(remote_branch) = branch.strip_prefix("refs/remotes/") {
-            return Self::checkout_remote_tracking_branch(git, repo, remote_branch);
+            return Self::checkout_remote_tracking_branch(git, repo, remote_branch, fetch_remote);
         }
 
         if branch.starts_with("refs/") {
@@ -593,7 +594,7 @@ impl GixGitBackend {
         }
 
         if Self::remote_branch_parts(git, branch).is_some() {
-            return Self::checkout_remote_tracking_branch(git, repo, branch);
+            return Self::checkout_remote_tracking_branch(git, repo, branch, fetch_remote);
         }
 
         git.find_reference(&local_refname)
@@ -605,18 +606,21 @@ impl GixGitBackend {
         git: &git2::Repository,
         repo: &RepoPath,
         remote_branch: &str,
+        fetch_remote: bool,
     ) -> Result<String, GitError> {
         let (remote_name, local_name) =
             Self::remote_branch_parts(git, remote_branch).ok_or_else(|| {
                 GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
             })?;
-        let refspec = format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}");
-        Self::fetch_remote_with_system_git(
-            repo,
-            remote_name,
-            &[refspec.as_str()],
-            GitOperationContext::default(),
-        )?;
+        if fetch_remote {
+            let refspec = format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}");
+            Self::fetch_remote_with_system_git(
+                repo,
+                remote_name,
+                &[refspec.as_str()],
+                GitOperationContext::default(),
+            )?;
+        }
 
         let local_refname = format!("refs/heads/{local_name}");
         if git.find_reference(&local_refname).is_ok() {
@@ -1412,12 +1416,48 @@ impl GitBackend for GixGitBackend {
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch)?;
+            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch, true)?;
 
             Self::checkout_refname(&git, &refname)
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
+    }
+
+    async fn remote_checkout_refspec(
+        &self,
+        repo: &RepoPath,
+        branch: &str,
+    ) -> Result<Option<(String, String)>, GitError> {
+        let repo = repo.clone();
+        let branch = branch.to_string();
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let remote_branch = branch.strip_prefix("refs/remotes/").unwrap_or(&branch);
+            let Some((remote, local_name)) = Self::remote_branch_parts(&git, remote_branch) else {
+                return Ok(None);
+            };
+            Ok(Some((
+                remote.to_string(),
+                format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}"),
+            )))
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
+    }
+
+    async fn checkout_local(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let branch = branch.to_string();
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch, false)?;
+            Self::checkout_refname(&git, &refname)
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
     }
 
     async fn create_branch(
