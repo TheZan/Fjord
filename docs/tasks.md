@@ -94,3 +94,30 @@ Added 2026-08 from the technical audit. Grouped by horizon; within a group, roug
 ## Out of scope for this board
 
 Anything under SDD §3 (Non-goals) — forge/PR object model, in-app merge editor, mobile. Revisit only as a deliberate new proposal, not a drive-by addition to an existing phase.
+
+## Phase 5 — System Git transport and authentication
+
+Goal: use the user's installed Git and existing authentication environment for all
+remote operations, with streaming progress, real cancellation, stable diagnostics,
+and an operation-scoped askpass fallback. See
+[`specs/system-git-transport.md`](specs/system-git-transport.md).
+
+- [x] **P5-01** — Architecture and migration contract.
+- [ ] **P5-02** — Split `fjord-git` into local/legacy-remote modules without behavior changes.
+- [ ] **P5-03** — Add separate `GitRemoteBackend` and service injection.
+- [ ] **P5-04** — Discover and validate the system Git executable; persist an optional override.
+- [ ] **P5-05** — Async streaming Git process runner.
+- [ ] **P5-06** — Terminate the complete process tree on cancel/timeout.
+- [ ] **P5-07** — Stable remote error classification and diagnostic redaction.
+- [ ] **P5-08** — Route fetch through system Git.
+- [ ] **P5-09** — Preserve pull semantics with system fetch plus local integration.
+- [ ] **P5-10** — Route push through system Git.
+- [ ] **P5-11** — Route remote branch operations through system Git.
+- [ ] **P5-12** — Parse/throttle system Git progress and surface raw sanitized diagnostics.
+- [ ] **P5-13** — Compute real ahead/behind without hidden network access.
+- [ ] **P5-14** — Git environment diagnostics and connection test backend.
+- [ ] **P5-15** — Git section in Settings UI.
+- [ ] **P5-16** — Operation-scoped askpass protocol and loopback broker.
+- [ ] **P5-17** — Build and package the `fjord-askpass` sidecar.
+- [ ] **P5-18** — Auth prompt UI and concurrent prompt queue.
+- [ ] **P5-19** — Integration fixtures, three-OS CI/release gates, cleanup, and troubleshooting docs.

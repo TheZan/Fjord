@@ -15,7 +15,9 @@ Status markers used throughout this document:
 - ⚠️ — partially implemented, or the implementation diverges from the target described here.
 - 🚧 — planned / designed but not implemented yet.
 
-**Implementation snapshot (2026-08):** Phases 0–3 are implemented through the release-readiness checklist. See §12 and [`tasks.md`](tasks.md).
+**Implementation snapshot (2026-08):** Phases 0–4 are implemented. Phase 5
+replaces libgit2 network transport with the installed system Git; see §5.2 and
+[`tasks.md`](tasks.md).
 
 ## 1. Vision
 
@@ -79,7 +81,7 @@ fjord/
     fjord-domain/     # entities + value objects (Workspace, RepositoryEntry, RepoStatus, ...), zero deps beyond std/serde
     fjord-ports/      # trait definitions: GitBackend, WorkspaceStore, SettingsStore, IdeLauncher
     fjord-services/   # use-cases (WorkspaceService, RepoService, SettingsService), depends only on domain + ports
-    fjord-git/        # GitBackend impl: gix primary, git2 fallback
+    fjord-git/        # local gix/git2 backend + system-Git remote backend
     fjord-db/         # sqlx + SQLite migrations, implements *Store traits
     fjord-fs/         # filesystem watching (notify), path/case-sensitivity helpers
     fjord-app/        # Tauri commands, DI wiring, per-OS IdeLauncher impls — the only crate depending on `tauri`
@@ -89,15 +91,25 @@ fjord/
 
 `fjord-domain` and `fjord-services` have no knowledge that Tauri, SQLite, or gix exist. Identifiers use the NewType pattern (`WorkspaceId`, `RepositoryId`) so IDs of different entities cannot be confused at compile time.
 
-### 5.2 Git engine: gix primary, git2 fallback behind a trait ✅
+### 5.2 Git engine: local engines plus system Git transport 🚧
 
 - **[`gix`](https://github.com/GitoxideLabs/gitoxide)** (gitoxide) is a pure-Rust, memory-safe Git implementation. Its read paths — status, diff, commit-graph traversal, index access — are fast and are exactly the hot paths for a *workspace manager* (computing "24 repos, 3 need attention" means running status across every repo, repeatedly, cheaply). No C dependency; cross-compiles cleanly.
 - Its gaps as of today: push, full merge workflows, rebase, and hooks are still maturing.
-- **[`git2`](https://github.com/rust-lang/git2-rs)** (libgit2 bindings) is the mature, complete fallback — push, merge, credential/transport handling for every edge case.
+- **[`git2`](https://github.com/rust-lang/git2-rs)** (libgit2 bindings) owns
+  working-tree/index mutations and integration after fetch.
+- The user's **installed Git** owns all network transport so Fjord honors existing
+  credential helpers, GCM, SSH agent/configuration, proxies, and certificates.
 
 This is the same hybrid GitButler (the closest prior art: also Rust + Tauri) has converged on, with the balance shifting toward gix over time.
 
-Implemented design: the `GitBackend` trait in `fjord-ports` expresses operations in domain terms (`status`, `log(cursor, limit)`, `file_diff`, `branches`, `checkout`, `fetch`, `pull`, `push`, `commit`, stash operations, merge-tool handoff). `fjord-git` routes each method internally: **gix serves the hot read paths** (status/log/diff/branches), **git2 serves mutations and network transport** (fetch/pull/push/checkout/commit). Callers in `fjord-services` never know which engine served a call — when a `gix` feature matures, it's a one-crate change with zero blast radius. No shelling out to the system `git` binary in the hot path.
+Target design: `GitBackend` expresses local operations, `GitRemoteBackend`
+expresses remote operations, and `GitEnvironmentProvider` expresses discovery and
+read-only diagnostics. **gix serves hot reads**, **git2 serves local mutations and
+merge/fast-forward**, and **system Git serves fetch/push/remote inspection**.
+`pull` remains system fetch followed by local integration, preserving Fjord's
+existing semantics regardless of user `pull.rebase` configuration. Details and
+security constraints are in
+[`specs/system-git-transport.md`](specs/system-git-transport.md).
 
 Concurrency inside the adapter: all blocking git work runs under `tokio::task::spawn_blocking`; a per-repository `RwLock` (keyed by canonicalized path) allows parallel reads of the same repo while serializing writes.
 
@@ -240,7 +252,8 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 1 — Single-repo core (branches, graph, inspector, diff, mutations, push, conflicts, benchmark) | ✅ done |
 | Phase 2 — Workspace layer (CRUD, status cache, dashboard, list-detail, bulk ops, IDE launcher, benchmark) | ✅ done |
 | Phase 3 — Polish and release | ✅ done through release readiness: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`), contributor docs and public release checklist (`P3-05`) |
-| Phase 4 — Hardening & tech debt (2026-08 audit) | 🚧 open; see [`tasks.md`](tasks.md) §Phase 4 |
+| Phase 4 — Hardening & tech debt (2026-08 audit) | ✅ done |
+| Phase 5 — System Git transport and authentication | 🚧 active; architecture contract complete, implementation tracked in [`tasks.md`](tasks.md) |
 
 Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (data fetching §6.1, type generation §6.1, virtualization §5.3, CSP §9, logging §10, CI §5.4).
 

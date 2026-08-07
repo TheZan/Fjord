@@ -41,14 +41,21 @@ type OperationProgressEvent = {
 };
 ```
 
-`completed` / `total` are object-count progress for libgit2 network transfer events and repository-count progress for bulk operations. When a Git backend cannot expose granular transfer numbers, it still emits lifecycle events.
+`completed` / `total` are parsed system-Git object-count progress for network
+operations and repository-count progress for bulk operations. Indeterminate phases
+use a message with `total = 0`. Carriage-return output is treated as a progress
+boundary and noisy events may be coalesced before IPC.
 
 ## Cancellation Semantics
 
-Cancellation is cooperative. `fjord-app` stores an atomic cancellation flag per active operation and passes it into `GitBackend` through `GitOperationContext`.
+Cancellation is process-aware. `fjord-app` stores an atomic cancellation flag per
+active operation and passes it through `GitOperationContext` to the system-Git
+runner.
 
-- Fetch and the fetch phase of pull abort from libgit2 transfer callbacks.
-- Push emits transfer progress; cancellation is honored at safe libgit2 callback boundaries and before/after the operation.
-- Bulk operations stop scheduling queued repositories after cancellation and wait for already-started Git operations to return through their cancellation-aware contexts, preserving per-repository write locks.
+- Fetch, pull's fetch phase, and push terminate the complete Git process tree.
+- Reader tasks drain/finish, the runner returns `Cancelled`, and only then is the
+  final `cancelled` event emitted and the registry entry removed.
+- Bulk operations stop scheduling queued repositories and cancel already-started
+  remote processes while preserving per-repository write locks.
 
 Cancelled commands reject with `AppError { code: "operation_cancelled", message: "operation cancelled" }`. The frontend treats that as a controlled stop, not a user-facing failure.

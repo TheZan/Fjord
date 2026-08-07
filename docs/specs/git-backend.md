@@ -1,10 +1,14 @@
-# Spec: `GitBackend` port
+# Spec: Git backend ports
 
 Referenced by: P0-02, P0-03, P1-01–P1-08.
 
 ## Purpose
 
-`fjord-services` must never import `gix` or `git2` directly (SDD §5.1). Every Git operation the app needs is expressed here, in domain terms, as a trait in `fjord-ports`. `fjord-git` is the only crate that implements it and the only crate allowed to depend on `gix`/`git2`.
+`fjord-services` must never import `gix`, `git2`, or process APIs directly (SDD
+§5.1). Repository-local operations are expressed by `GitBackend`; network
+operations are expressed by `GitRemoteBackend`; discovery and diagnostics are
+expressed by `GitEnvironmentProvider`. `fjord-git` implements all three adapters.
+See [`system-git-transport.md`](system-git-transport.md).
 
 ## Trait surface (initial cut)
 
@@ -20,10 +24,19 @@ pub trait GitBackend: Send + Sync {
     async fn checkout(&self, repo: &RepoPath, branch: &BranchName) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<CommitId, GitError>;
+    // Legacy migration methods only; removed after P5 replacement coverage.
     async fn fetch(&self, repo: &RepoPath, remote: &RemoteName) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn push(&self, repo: &RepoPath, refspec: &RefSpec) -> Result<(), GitError>;
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
+}
+
+#[async_trait]
+pub trait GitRemoteBackend: Send + Sync {
+    async fn fetch(/* repo, remote, refspecs, context */) -> Result<(), GitRemoteError>;
+    async fn push(/* repo, remote, refspecs, context */) -> Result<(), GitRemoteError>;
+    async fn delete_remote_branch(/* ... */) -> Result<(), GitRemoteError>;
+    async fn ls_remote(/* ... */) -> Result<Vec<RemoteRef>, GitRemoteError>;
 }
 ```
 
@@ -42,15 +55,21 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `file_diff` | `gix` | Read-only; unified line diff via `gix-diff`'s blob platform and `imara-diff`. |
 | `checkout` | `git2` | Working-tree writes are already proven in libgit2 and share error handling with the other mutation paths. |
 | `stage` / `unstage` / `commit` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories. |
-| `fetch` / `pull` | `git2` | Transport/credential handling is the mature path in git2 today. `pull` performs fetch + fast-forward/merge and reports conflicts as `GitError::Conflict`. |
-| `push` | `git2` | Same — credentials, refspec edge cases, remote HTTP/SSH transports. |
+| `fetch` | system Git | Uses the user's credential helpers, SSH configuration, proxy, and certificates. |
+| `pull` network phase | system Git | Fetch through `GitRemoteBackend`, then local fast-forward/merge through `git2`; never delegated to configurable `git pull`. |
+| `push` / remote branch deletion | system Git | Same user Git environment; no libgit2 credential callbacks in the final path. |
 | `open_merge_tool` | system `git mergetool` | Explicit escape hatch for P1-08 conflict flow; launches the user's configured external merge tool and is not used in hot-path status/log/diff operations. |
 
-This table is expected to change as `gix` matures — that's the entire point of routing through one trait instead of splitting the call sites. When a method's "Engine (today)" column changes, it's a one-line change in `fjord-git`, invisible to `fjord-services` and the frontend.
+The local/remote split is deliberate: maturing local engines can change behind
+`GitBackend`, while authentication and transport stay delegated to the installed
+Git through `GitRemoteBackend`.
 
 ## Error handling
 
-One `GitError` enum (via `thiserror`) wraps both engines' error types as variants (`GitError::Gix(...)`, `GitError::Git2(...)`) plus domain-level variants (`GitError::RepoNotFound`, `GitError::Conflict { paths }`, `GitError::AuthenticationFailed`). `fjord-app` maps this to the serializable `AppError { code, message }` at the Tauri command boundary (SDD §8) — the frontend switches on `code`, never on engine-specific error text.
+Local failures use `GitError`. Remote failures use `GitRemoteError`, which maps to
+the stable codes defined in [`system-git-transport.md`](system-git-transport.md).
+`fjord-app` maps both to `AppError { code, message, diagnostics? }`; the frontend
+switches on `code`, never engine-specific or localized text.
 
 ## Testing
 
