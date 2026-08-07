@@ -6,11 +6,12 @@
 //! `GitBackend` impl as pure wiring and delegates each method to that
 //! submodule.
 
+use crate::executable::GitCommandFactory;
 use crate::locking;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use async_trait::async_trait;
 use fjord_domain::{
@@ -36,17 +37,27 @@ mod repository;
 mod status;
 mod working_tree;
 
-pub struct LocalGitBackend;
+pub struct LocalGitBackend {
+    /// Shared with the application so a Git executable chosen in Settings is
+    /// used by local subprocess commands too, not just remote transport.
+    commands: GitCommandFactory,
+}
 
 impl LocalGitBackend {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    pub fn with_commands(commands: GitCommandFactory) -> Self {
+        Self { commands }
     }
 }
 
 impl Default for LocalGitBackend {
     fn default() -> Self {
-        Self::new()
+        Self {
+            commands: GitCommandFactory::new(),
+        }
     }
 }
 
@@ -91,7 +102,7 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
-        diff::diff(repo, commit_id).await
+        diff::diff(&self.commands, repo, commit_id).await
     }
 
     async fn file_diff(
@@ -148,7 +159,7 @@ impl GitBackend for LocalGitBackend {
         target: &str,
         checkout: bool,
     ) -> Result<(), GitError> {
-        refs::create_branch_at(repo, name, target, checkout).await
+        refs::create_branch_at(&self.commands, repo, name, target, checkout).await
     }
 
     async fn rename_branch(
@@ -157,31 +168,31 @@ impl GitBackend for LocalGitBackend {
         old_name: &str,
         new_name: &str,
     ) -> Result<(), GitError> {
-        refs::rename_branch(repo, old_name, new_name).await
+        refs::rename_branch(&self.commands, repo, old_name, new_name).await
     }
 
     async fn delete_branch(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
-        refs::delete_branch(repo, name).await
+        refs::delete_branch(&self.commands, repo, name).await
     }
 
     async fn create_tag(&self, repo: &RepoPath, name: &str, target: &str) -> Result<(), GitError> {
-        refs::create_tag(repo, name, target).await
+        refs::create_tag(&self.commands, repo, name, target).await
     }
 
     async fn delete_tag(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
-        refs::delete_tag(repo, name).await
+        refs::delete_tag(&self.commands, repo, name).await
     }
 
     async fn cherry_pick(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::cherry_pick(repo, commit_id).await
+        mutations::cherry_pick(&self.commands, repo, commit_id).await
     }
 
     async fn revert(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::revert(repo, commit_id).await
+        mutations::revert(&self.commands, repo, commit_id).await
     }
 
     async fn reset(&self, repo: &RepoPath, commit_id: &str, mode: &str) -> Result<(), GitError> {
-        mutations::reset(repo, commit_id, mode).await
+        mutations::reset(&self.commands, repo, commit_id, mode).await
     }
 
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
@@ -225,7 +236,11 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
-        mutations::open_merge_tool(repo).await
+        mutations::open_merge_tool(&self.commands, repo).await
+    }
+
+    fn set_git_executable(&self, path: Option<PathBuf>) {
+        self.commands.set_executable(path);
     }
 }
 

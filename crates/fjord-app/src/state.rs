@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher};
-use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
+use fjord_git::{
+    GitCommandFactory, LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend,
+};
 use fjord_ports::GitAskpassConfig;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 use serde::Serialize;
@@ -73,7 +75,10 @@ pub async fn bootstrap(
 
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
-    let git_backend = Arc::new(LocalGitBackend::new());
+    // One executable for every Git subprocess: the local backend shares this
+    // factory, and `refresh_git_executable` below points it at the same path
+    // the remote transport resolves from settings.
+    let git_backend = Arc::new(LocalGitBackend::with_commands(GitCommandFactory::new()));
     let remote_backend = Arc::new(SystemGitRemoteBackend::new());
     let git_environment = Arc::new(SystemGitEnvironmentProvider::new());
     let ide_launcher = Arc::new(SystemIdeLauncher);
@@ -116,6 +121,9 @@ pub async fn bootstrap(
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
+
+    // Before anything can run a local Git command.
+    state.repos.refresh_git_executable().await;
 
     for repo in existing_repos {
         state.watch_repository_status(repo);

@@ -14,18 +14,6 @@ impl LocalGitBackend {
         git2::Repository::open(&repo.0).map_err(Self::map_git2_error)
     }
 
-    pub(super) fn background_git_command() -> Command {
-        let mut command = Command::new("git");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        command
-    }
-
     /// Shared guard for operations that only read. Concurrent readers
     /// overlap; a writer still excludes them.
     ///
@@ -64,8 +52,13 @@ impl LocalGitBackend {
 
     /// Runs a local-only Git mutation that does not use transport. Network
     /// commands must go through `GitRemoteBackend` and its async runner.
-    pub(super) fn run_local_git(repo: &RepoPath, args: &[&str]) -> Result<(), GitError> {
-        let status = Self::background_git_command()
+    pub(super) fn run_local_git(
+        commands: &GitCommandFactory,
+        repo: &RepoPath,
+        args: &[&str],
+    ) -> Result<(), GitError> {
+        let status = commands
+            .command()
             .args(args)
             .current_dir(&repo.0)
             .stdin(Stdio::null())

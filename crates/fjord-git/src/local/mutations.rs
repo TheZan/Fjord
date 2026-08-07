@@ -74,29 +74,45 @@ impl LocalGitBackend {
     }
 }
 
-pub(super) async fn cherry_pick(repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
+pub(super) async fn cherry_pick(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    commit_id: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let commit_id = commit_id.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["cherry-pick", &commit_id])
+        LocalGitBackend::run_local_git(&commands, &repo, &["cherry-pick", &commit_id])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn revert(repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
+pub(super) async fn revert(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    commit_id: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let commit_id = commit_id.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["revert", "--no-edit", &commit_id])
+        LocalGitBackend::run_local_git(&commands, &repo, &["revert", "--no-edit", &commit_id])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn reset(repo: &RepoPath, commit_id: &str, mode: &str) -> Result<(), GitError> {
+pub(super) async fn reset(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    commit_id: &str,
+    mode: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let commit_id = commit_id.to_string();
     let mode = mode.to_string();
@@ -108,7 +124,7 @@ pub(super) async fn reset(repo: &RepoPath, commit_id: &str, mode: &str) -> Resul
             "hard" => "--hard",
             _ => return Err(GitError::Git2(format!("unknown reset mode: {mode}"))),
         };
-        LocalGitBackend::run_local_git(&repo, &["reset", flag, &commit_id])
+        LocalGitBackend::run_local_git(&commands, &repo, &["reset", flag, &commit_id])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
@@ -262,7 +278,11 @@ pub(super) async fn integrate_upstream(repo: &RepoPath) -> Result<(), GitError> 
     .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
-pub(super) async fn open_merge_tool(repo: &RepoPath) -> Result<(), GitError> {
+pub(super) async fn open_merge_tool(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
@@ -270,7 +290,8 @@ pub(super) async fn open_merge_tool(repo: &RepoPath) -> Result<(), GitError> {
             return Err(GitError::NoConflicts);
         }
 
-        Command::new("git")
+        commands
+            .command()
             .args(["mergetool", "--no-prompt"])
             .current_dir(&repo.0)
             .spawn()

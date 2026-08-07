@@ -69,12 +69,13 @@ impl LocalGitBackend {
     /// implementation prepared and diffed each blob separately, making the
     /// inspector latency proportional to N independent diff setups.
     pub(super) fn commit_line_stats(
+        commands: &GitCommandFactory,
         repo: &RepoPath,
         commit_id: &str,
         old_tree: Option<&gix::Tree<'_>>,
         new_tree: &gix::Tree<'_>,
     ) -> Result<HashMap<String, (u32, u32)>, GitError> {
-        let mut command = Self::background_git_command();
+        let mut command = commands.command();
         command.current_dir(&repo.0).stdin(Stdio::null());
 
         if let Some(old_tree) = old_tree {
@@ -239,7 +240,12 @@ pub(super) async fn diff_files(
     .map_err(|e| GitError::Gix(e.to_string()))?
 }
 
-pub(super) async fn diff(repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
+pub(super) async fn diff(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    commit_id: &str,
+) -> Result<Vec<FileDiff>, GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let commit_id = commit_id.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
@@ -247,8 +253,13 @@ pub(super) async fn diff(repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDif
         let git = LocalGitBackend::open(&repo)?;
         let (old_tree, new_tree) = LocalGitBackend::commit_trees(&git, &commit_id)?;
         let changes = LocalGitBackend::tree_changes(&git, old_tree.as_ref(), &new_tree)?;
-        let mut line_stats =
-            LocalGitBackend::commit_line_stats(&repo, &commit_id, old_tree.as_ref(), &new_tree)?;
+        let mut line_stats = LocalGitBackend::commit_line_stats(
+            &commands,
+            &repo,
+            &commit_id,
+            old_tree.as_ref(),
+            &new_tree,
+        )?;
 
         let mut out = Vec::with_capacity(changes.len());
         for change in &changes {

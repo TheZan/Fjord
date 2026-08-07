@@ -70,6 +70,17 @@ impl RepoService {
         }
     }
 
+    /// Display name for an operation's UI, e.g. the repository an
+    /// authentication prompt belongs to. Absent rather than fatal: a prompt is
+    /// still shown for a repository that vanished from the store.
+    pub async fn repository_name(&self, repo_id: RepositoryId) -> Option<String> {
+        self.workspaces
+            .get_repository(repo_id)
+            .await
+            .ok()
+            .map(|repo| repo.name)
+    }
+
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
@@ -101,6 +112,7 @@ impl RepoService {
         let mut settings = self.settings.get_settings().await?;
         settings.git_executable_path = Some(path);
         self.settings.update_settings(&settings).await?;
+        self.git.set_git_executable(info.executable_path.clone());
         Ok(info)
     }
 
@@ -108,7 +120,29 @@ impl RepoService {
         let mut settings = self.settings.get_settings().await?;
         settings.git_executable_path = None;
         self.settings.update_settings(&settings).await?;
-        Ok(self.environment.inspect(None).await?)
+        let info = self.environment.inspect(None).await?;
+        self.git.set_git_executable(info.executable_path.clone());
+        Ok(info)
+    }
+
+    /// Applies the stored executable setting to the local backend. Called once
+    /// at startup so local and remote operations run the same Git from the
+    /// first command, not only after the user visits Settings.
+    pub async fn refresh_git_executable(&self) {
+        let configured = match self.settings.get_settings().await {
+            Ok(settings) => settings.git_executable_path,
+            Err(error) => {
+                tracing::warn!(%error, "could not read the Git executable setting");
+                return;
+            }
+        };
+        match self.environment.inspect(configured.as_deref()).await {
+            Ok(info) => self.git.set_git_executable(info.executable_path),
+            Err(error) => {
+                tracing::warn!(%error, "could not resolve a Git executable for local operations");
+                self.git.set_git_executable(None);
+            }
+        }
     }
 
     pub async fn test_git_connection(
@@ -1446,6 +1480,143 @@ mod tests {
 
         service.push(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    /// A Git chosen in Settings must drive local subprocess operations too —
+    /// otherwise cherry-pick, reset, and tag silently run a different binary
+    /// (or none at all, when Git is not on `PATH`) than fetch and push.
+    #[tokio::test]
+    async fn the_resolved_git_executable_reaches_the_local_backend() {
+        #[derive(Default)]
+        struct RecordingGit {
+            executable: Mutex<Option<Option<PathBuf>>>,
+        }
+
+        #[async_trait]
+        impl GitBackend for RecordingGit {
+            async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
+                Err(GitError::NotImplemented("status"))
+            }
+            async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn tags(&self, _repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn log(
+                &self,
+                _repo: &RepoPath,
+                _from: Option<LogCursor>,
+                _limit: u32,
+            ) -> Result<CommitPage, GitError> {
+                Err(GitError::NotImplemented("log"))
+            }
+            async fn search_commits(
+                &self,
+                _repo: &RepoPath,
+                _query: &str,
+                _limit: u32,
+            ) -> Result<Vec<CommitSummary>, GitError> {
+                Ok(vec![])
+            }
+            async fn diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+            ) -> Result<Vec<FileDiff>, GitError> {
+                Ok(vec![])
+            }
+            async fn file_diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+                _path: &str,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("file_diff"))
+            }
+            async fn working_changes(&self, _repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+                Err(GitError::NotImplemented("working_changes"))
+            }
+            async fn working_file_diff(
+                &self,
+                _repo: &RepoPath,
+                _path: &str,
+                _staged: bool,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("working_file_diff"))
+            }
+            async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn create_branch(
+                &self,
+                _repo: &RepoPath,
+                _name: &str,
+                _checkout: bool,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+                Ok(vec![])
+            }
+            async fn stash_push(
+                &self,
+                _repo: &RepoPath,
+                _message: Option<&str>,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn unstage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+                Ok(String::new())
+            }
+            async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+            fn set_git_executable(&self, path: Option<PathBuf>) {
+                *self.executable.lock().unwrap() = Some(path);
+            }
+        }
+
+        let git = Arc::new(RecordingGit::default());
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo_entry() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            git.clone(),
+            Arc::new(FakeRemoteGit::default()),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        service.refresh_git_executable().await;
+        assert_eq!(
+            *git.executable.lock().unwrap(),
+            Some(Some(PathBuf::from("git"))),
+            "startup must apply the resolved executable"
+        );
+
+        service
+            .set_git_executable_path(PathBuf::from("/opt/git/bin/git"))
+            .await
+            .unwrap();
+        assert_eq!(
+            *git.executable.lock().unwrap(),
+            Some(Some(PathBuf::from("git"))),
+            "the backend follows what diagnostics resolved, not the raw input"
+        );
     }
 
     /// A branch tracking `company/trunk` must not be pushed to `origin/develop`

@@ -332,19 +332,21 @@ pub(super) async fn create_branch(
 }
 
 pub(super) async fn create_branch_at(
+    commands: &GitCommandFactory,
     repo: &RepoPath,
     name: &str,
     target: &str,
     checkout: bool,
 ) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let name = name.to_string();
     let target = target.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["branch", &name, &target])?;
+        LocalGitBackend::run_local_git(&commands, &repo, &["branch", &name, &target])?;
         if checkout {
-            LocalGitBackend::run_local_git(&repo, &["checkout", &name])?;
+            LocalGitBackend::run_local_git(&commands, &repo, &["checkout", &name])?;
         }
         Ok(())
     })
@@ -353,50 +355,68 @@ pub(super) async fn create_branch_at(
 }
 
 pub(super) async fn rename_branch(
+    commands: &GitCommandFactory,
     repo: &RepoPath,
     old_name: &str,
     new_name: &str,
 ) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let old_name = old_name.to_string();
     let new_name = new_name.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["branch", "-m", &old_name, &new_name])
+        LocalGitBackend::run_local_git(&commands, &repo, &["branch", "-m", &old_name, &new_name])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn delete_branch(repo: &RepoPath, name: &str) -> Result<(), GitError> {
+pub(super) async fn delete_branch(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    name: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let name = name.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["branch", "-d", &name])
+        LocalGitBackend::run_local_git(&commands, &repo, &["branch", "-d", &name])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn create_tag(repo: &RepoPath, name: &str, target: &str) -> Result<(), GitError> {
+pub(super) async fn create_tag(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    name: &str,
+    target: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let name = name.to_string();
     let target = target.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["tag", &name, &target])
+        LocalGitBackend::run_local_git(&commands, &repo, &["tag", &name, &target])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn delete_tag(repo: &RepoPath, name: &str) -> Result<(), GitError> {
+pub(super) async fn delete_tag(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    name: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
     let repo = repo.clone();
     let name = name.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::run_local_git(&repo, &["tag", "-d", &name])
+        LocalGitBackend::run_local_git(&commands, &repo, &["tag", "-d", &name])
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?

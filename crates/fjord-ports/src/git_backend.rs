@@ -307,4 +307,8 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("integrate_upstream"))
     }
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
+    /// Points the backend's own Git subprocess calls at a resolved executable,
+    /// so a path chosen in Settings applies to local operations too and not
+    /// only to remote transport. `None` restores the `PATH` lookup.
+    fn set_git_executable(&self, _path: Option<PathBuf>) {}
 }

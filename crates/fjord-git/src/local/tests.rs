@@ -109,6 +109,39 @@ async fn status_reports_real_ahead_count_from_local_tracking_refs() {
     assert_eq!(status.behind, 0);
 }
 
+/// Local subprocess operations must run the executable Fjord was configured
+/// with, not whatever `git` resolves to on `PATH`.
+#[tokio::test]
+async fn local_git_commands_use_the_configured_executable() {
+    let (_dir, repo_path) = empty_repo();
+    let commands = GitCommandFactory::new();
+    let backend = LocalGitBackend::with_commands(commands.clone());
+
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let head = backend.commit(&repo_path, "Initial").await.unwrap();
+    backend
+        .create_tag(&repo_path, "v1", &head)
+        .await
+        .expect("the default factory resolves Git from PATH");
+
+    commands.set_executable(Some(PathBuf::from("fjord-not-a-real-git")));
+    let error = backend
+        .create_tag(&repo_path, "v2", &head)
+        .await
+        .expect_err("a configured executable that cannot run must fail loudly");
+    assert!(
+        matches!(&error, GitError::Git2(message) if message.contains("failed to run git")),
+        "unexpected error: {error:?}"
+    );
+
+    commands.set_executable(None);
+    backend.create_tag(&repo_path, "v3", &head).await.unwrap();
+}
+
 /// The push target comes from the branch's upstream configuration, including a
 /// non-`origin` remote and a remote branch with a different name.
 #[tokio::test]
