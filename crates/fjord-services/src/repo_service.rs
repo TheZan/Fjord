@@ -423,8 +423,8 @@ impl RepoService {
     }
 
     pub async fn push(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.push(&RepoPath::new(repo.path), "").await?)
+        self.push_with_context(repo_id, GitOperationContext::default())
+            .await
     }
 
     pub async fn push_with_context(
@@ -433,9 +433,13 @@ impl RepoService {
         context: GitOperationContext,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let refspec = self.git.current_branch_refspec(&repo_path).await?;
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
         Ok(self
-            .git
-            .push_with_context(&RepoPath::new(repo.path), "", context)
+            .remote
+            .push(&repo_path, "origin", &[refspec], context)
             .await?)
     }
 
@@ -814,11 +818,12 @@ mod tests {
 
         async fn push(
             &self,
-            _repo: &RepoPath,
+            repo: &RepoPath,
             _remote: &str,
             _refspecs: &[String],
             _context: GitOperationContext,
         ) -> Result<(), GitRemoteError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
 
@@ -1051,6 +1056,10 @@ mod tests {
         async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
+        }
+        async fn current_branch_refspec(&self, repo: &RepoPath) -> Result<String, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok("refs/heads/main:refs/heads/main".into())
         }
         async fn fetch(&self, repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());

@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_updates_a_local_remote_tracking_ref() {
+    async fn fetch_and_push_use_the_system_git_transport() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
         let remote = temp.path().join("remote.git");
@@ -234,6 +234,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(git_output(&clone, &["rev-parse", "origin/main"]), expected);
+
+        std::fs::write(source.join("README.md"), "three\n").unwrap();
+        run_git(&source, &["commit", "-am", "third"]);
+        let expected = git_output(&source, &["rev-parse", "HEAD"]);
+        SystemGitRemoteBackend::new()
+            .push(
+                &RepoPath::new(source.clone()),
+                "origin",
+                &["refs/heads/main:refs/heads/main".into()],
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            git_output(&remote, &["rev-parse", "refs/heads/main"]),
+            expected
+        );
     }
 
     fn run_git(cwd: &Path, args: &[&str]) {

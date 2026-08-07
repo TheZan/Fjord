@@ -1827,6 +1827,18 @@ impl GitBackend for GixGitBackend {
         .map_err(|error| GitError::Git2(error.to_string()))?
     }
 
+    async fn current_branch_refspec(&self, repo: &RepoPath) -> Result<String, GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head_refname = Self::current_branch_refname(&git)?;
+            Ok(format!("{head_refname}:{head_refname}"))
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
+    }
+
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
         self.fetch_with_context(repo, remote, GitOperationContext::default())
             .await

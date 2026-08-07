@@ -111,7 +111,7 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-07** — Stable remote error classification and diagnostic redaction.
 - [x] **P5-08** — Route fetch through system Git.
 - [x] **P5-09** — Preserve pull semantics with system fetch plus local integration.
-- [ ] **P5-10** — Route push through system Git.
+- [x] **P5-10** — Route push through system Git.
 - [ ] **P5-11** — Route remote branch operations through system Git.
 - [ ] **P5-12** — Parse/throttle system Git progress and surface raw sanitized diagnostics.
 - [ ] **P5-13** — Compute real ahead/behind without hidden network access.

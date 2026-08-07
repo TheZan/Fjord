@@ -213,6 +213,10 @@ pub trait GitBackend: Send + Sync {
     async fn upstream_remote(&self, _repo: &RepoPath) -> Result<String, GitError> {
         Err(GitError::NotImplemented("upstream_remote"))
     }
+    /// Returns an explicit current-branch refspec for system-Git push.
+    async fn current_branch_refspec(&self, _repo: &RepoPath) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("current_branch_refspec"))
+    }
     /// Integrates the already-fetched upstream using Fjord's fixed
     /// fast-forward/merge semantics. This method never performs network I/O.
     async fn integrate_upstream(&self, _repo: &RepoPath) -> Result<(), GitError> {
