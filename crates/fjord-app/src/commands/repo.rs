@@ -428,7 +428,9 @@ pub async fn cancel_operation(
     state: State<'_, AppState>,
     operation_id: String,
 ) -> Result<bool, AppError> {
-    Ok(state.operations.cancel(&operation_id))
+    let cancelled = state.operations.cancel(&operation_id);
+    state.askpass.cancel_operation(&operation_id);
+    Ok(cancelled)
 }
 
 #[tauri::command]

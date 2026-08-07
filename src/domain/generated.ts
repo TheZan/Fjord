@@ -87,6 +87,10 @@ export type GitConnectionProtocol = "https" | "ssh" | "local" | "other";
 
 export type GitConnectionTestResult = { success: boolean, durationMs: bigint, remote: string, protocol: GitConnectionProtocol, referenceCount: number, };
 
+export type GitAuthPromptKind = "username" | "secret" | "confirmation" | "unknown";
+
+export type GitAuthPrompt = { operationId: string, promptId: string, prompt: string, kind: GitAuthPromptKind, repositoryName: string | null, operationKind: string | null, };
+
 export type Settings = { 
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.

@@ -5,6 +5,7 @@
 //! thin entrypoint that just calls [`builder`] and runs it — see
 //! docs/tasks.md P0-05.
 
+mod askpass;
 mod commands;
 mod error;
 mod ide_launcher;
@@ -117,5 +118,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::bulk_open_in_ide,
             commands::cancel_operation,
             commands::test_git_connection,
+            commands::answer_git_auth_prompt,
+            commands::cancel_git_auth_prompt,
         ])
 }

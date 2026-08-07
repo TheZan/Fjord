@@ -361,6 +361,30 @@ pub struct GitConnectionTestResult {
     pub reference_count: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum GitAuthPromptKind {
+    Username,
+    Secret,
+    Confirmation,
+    Unknown,
+}
+
+/// A credential prompt safe to send to the frontend. Broker address and
+/// authentication token deliberately never cross this boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct GitAuthPrompt {
+    pub operation_id: String,
+    pub prompt_id: String,
+    pub prompt: String,
+    pub kind: GitAuthPromptKind,
+    pub repository_name: Option<String>,
+    pub operation_kind: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]

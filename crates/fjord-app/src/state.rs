@@ -10,6 +10,7 @@ use fjord_services::{RepoService, SettingsService, WorkspaceService};
 use serde::Serialize;
 use tauri::Emitter;
 
+use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
 use crate::ide_launcher::SystemIdeLauncher;
 use crate::operations::OperationRegistry;
 
@@ -52,6 +53,7 @@ pub struct AppState {
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
     pub operations: Arc<OperationRegistry>,
+    pub askpass: Arc<AskpassBroker>,
     app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
@@ -82,6 +84,15 @@ pub async fn bootstrap(
         .await
         .map_err(|e| e.to_string())?;
 
+    let prompt_app = app_handle.clone();
+    let askpass = AskpassBroker::start(move |prompt| {
+        if let Err(error) = prompt_app.emit(AUTH_PROMPT_EVENT, prompt) {
+            tracing::warn!(error = %error, "failed to emit Git authentication prompt");
+        }
+    })
+    .await
+    .map_err(|error| format!("could not start askpass broker: {error}"))?;
+
     let state = AppState {
         settings: Arc::new(SettingsService::new(settings_store.clone())),
         workspaces: workspace_service,
@@ -94,6 +105,7 @@ pub async fn bootstrap(
             ide_launcher,
         )),
         operations: Arc::new(OperationRegistry::default()),
+        askpass: Arc::new(askpass),
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
