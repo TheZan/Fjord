@@ -7,6 +7,6 @@ mod local;
 mod locking;
 pub mod remote;
 
-pub use local::GixGitBackend;
+pub use local::LocalGitBackend;
 pub use remote::backend::SystemGitRemoteBackend;
 pub use remote::environment::SystemGitEnvironmentProvider;

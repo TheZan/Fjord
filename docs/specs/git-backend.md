@@ -64,6 +64,38 @@ Git through `GitRemoteBackend`.
 The local trait has no fetch, push, or remote-branch deletion methods. This is a
 compile-time guard against reintroducing libgit2 transport or hidden network I/O.
 
+## Adapter layout
+
+`fjord-git` mirrors that split on disk:
+
+```text
+crates/fjord-git/src/
+├── lib.rs                # exports only
+├── locking.rs
+├── local/                # LocalGitBackend
+│   ├── mod.rs            # GitBackend wiring, one delegation per method
+│   ├── repository.rs     # handles, locking, shared error/command plumbing
+│   ├── status.rs
+│   ├── refs.rs
+│   ├── history.rs
+│   ├── diff.rs
+│   ├── working_tree.rs
+│   ├── mutations.rs
+│   └── tests.rs
+└── remote/               # SystemGitRemoteBackend, SystemGitEnvironmentProvider
+    ├── backend.rs
+    ├── process_runner.rs
+    ├── executable.rs
+    ├── progress.rs
+    ├── errors.rs
+    └── environment.rs
+```
+
+Rust requires a trait implementation to live in a single block, so `local/mod.rs`
+keeps the `GitBackend` impl and delegates every method to the module that owns
+the concern. The adapter is named `LocalGitBackend` because it is hybrid by
+design (`gix` plus `git2`), not a `gix`-only backend.
+
 ## Error handling
 
 Local failures use `GitError`. Remote failures use `GitRemoteError`, which maps to

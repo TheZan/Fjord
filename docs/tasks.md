@@ -103,7 +103,7 @@ and an operation-scoped askpass fallback. See
 [`specs/system-git-transport.md`](specs/system-git-transport.md).
 
 - [x] **P5-01** — Architecture and migration contract.
-- [x] **P5-02** — Split `fjord-git` into local/legacy-remote modules without behavior changes.
+- [x] **P5-02** — Split `fjord-git` into local and remote modules without behavior changes; `local/` is split per concern and the local adapter is named `LocalGitBackend` (see [`specs/git-backend.md`](specs/git-backend.md)).
 - [x] **P5-03** — Add separate `GitRemoteBackend` and service injection.
 - [x] **P5-04** — Discover and validate the system Git executable; persist an optional override.
 - [x] **P5-05** — Async streaming Git process runner.

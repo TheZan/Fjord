@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher};
-use fjord_git::{GixGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
+use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
 use fjord_ports::GitAskpassConfig;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 use serde::Serialize;
@@ -73,7 +73,7 @@ pub async fn bootstrap(
 
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
-    let git_backend = Arc::new(GixGitBackend::new());
+    let git_backend = Arc::new(LocalGitBackend::new());
     let remote_backend = Arc::new(SystemGitRemoteBackend::new());
     let git_environment = Arc::new(SystemGitEnvironmentProvider::new());
     let ide_launcher = Arc::new(SystemIdeLauncher);

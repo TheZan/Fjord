@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
-use fjord_git::{GixGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
+use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
 use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
 use fjord_services::RepoService;
 use git2::{Repository, RepositoryInitOptions, Signature};
@@ -277,7 +277,7 @@ async fn run_open_profile(args: Args) -> Result<(), String> {
         return Err(format!("{} is not a git repository", args.repo.display()));
     }
 
-    let backend = Arc::new(GixGitBackend::new());
+    let backend = Arc::new(LocalGitBackend::new());
     let repo = RepoPath::new(args.repo.clone());
 
     println!("repo={}", args.repo.display());
@@ -426,7 +426,7 @@ async fn main() -> Result<(), String> {
     Repository::open(&args.repo).map_err(|e| e.message().to_string())?;
     let open_elapsed = open_start.elapsed();
 
-    let backend = GixGitBackend::new();
+    let backend = LocalGitBackend::new();
     let repo = RepoPath::new(args.repo.clone());
 
     let status_start = Instant::now();
@@ -463,7 +463,7 @@ async fn main() -> Result<(), String> {
 async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     let generated = prepare_workspace_dir(&args.repo, args.force)?;
 
-    let backend = Arc::new(GixGitBackend::new());
+    let backend = Arc::new(LocalGitBackend::new());
     let pool = fjord_db::connect(Path::new(":memory:"))
         .await
         .map_err(|e| e.to_string())?;

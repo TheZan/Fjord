@@ -1,10 +1,10 @@
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use fjord_domain::RemoteRef;
-use fjord_ports::{GitOperationContext, GitProgress, GitRemoteBackend, GitRemoteError, RepoPath};
+use fjord_ports::{GitOperationContext, GitRemoteBackend, GitRemoteError, RepoPath};
 
 use super::environment::remote_process_environment;
 use super::errors::classify_failure;
@@ -12,10 +12,10 @@ use super::executable::{GitExecutableError, GitExecutableResolver};
 use super::process_runner::{
     GitCommandResult, GitCommandSpec, GitProcessEvent, GitProcessEventHandler, GitProcessRunner,
 };
+use super::progress::{parse_progress, ProgressThrottle};
 use crate::locking;
 
 const REMOTE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(75);
 
 #[derive(Debug, Clone, Default)]
 pub struct SystemGitRemoteBackend {
@@ -146,78 +146,6 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
     }
 }
 
-#[derive(Default)]
-struct ProgressThrottle {
-    last_emit: Option<Instant>,
-    last_message: Option<String>,
-}
-
-impl ProgressThrottle {
-    fn should_emit(&mut self, progress: &GitProgress) -> bool {
-        let now = Instant::now();
-        let phase_changed = progress.message != self.last_message;
-        let finished = progress.total > 0 && progress.completed >= progress.total;
-        let interval_elapsed = self
-            .last_emit
-            .is_none_or(|last| now.duration_since(last) >= PROGRESS_EMIT_INTERVAL);
-        if phase_changed || finished || interval_elapsed {
-            self.last_emit = Some(now);
-            self.last_message.clone_from(&progress.message);
-            true
-        } else {
-            false
-        }
-    }
-}
-
-fn parse_progress(line: &str) -> Option<GitProgress> {
-    let line = line.trim().strip_prefix("remote: ").unwrap_or(line.trim());
-    let phase = [
-        "Enumerating objects",
-        "Counting objects",
-        "Compressing objects",
-        "Receiving objects",
-        "Resolving deltas",
-        "Writing objects",
-        "Total",
-    ]
-    .into_iter()
-    .find(|phase| line.starts_with(phase))?;
-
-    if let Some(open) = line.find('(') {
-        if let Some(close) = line[open + 1..].find(')') {
-            if let Some((completed, total)) = line[open + 1..open + 1 + close].split_once('/') {
-                if let (Ok(completed), Ok(total)) = (completed.parse(), total.parse()) {
-                    return Some(GitProgress {
-                        completed,
-                        total,
-                        message: Some(phase.to_string()),
-                    });
-                }
-            }
-        }
-    }
-
-    let percent = line.find('%')?;
-    let digits = line[..percent]
-        .chars()
-        .rev()
-        .take_while(|character| character.is_ascii_digit())
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    digits
-        .parse::<u32>()
-        .ok()
-        .filter(|value| *value <= 100)
-        .map(|completed| GitProgress {
-            completed,
-            total: 100,
-            message: Some(phase.to_string()),
-        })
-}
-
 fn parse_ls_remote(output: &str) -> Vec<RemoteRef> {
     let mut symbolic = std::collections::HashMap::new();
     let mut refs = Vec::new();
@@ -243,21 +171,8 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::GixGitBackend;
+    use crate::LocalGitBackend;
     use fjord_ports::GitBackend;
-
-    #[test]
-    fn parses_progress_counts_and_phases() {
-        assert_eq!(
-            parse_progress("Receiving objects:  42% (21/50)"),
-            Some(GitProgress {
-                completed: 21,
-                total: 50,
-                message: Some("Receiving objects".into()),
-            })
-        );
-        assert_eq!(parse_progress("remote: done"), None);
-    }
 
     #[test]
     fn parses_symbolic_and_direct_remote_refs() {
@@ -367,7 +282,7 @@ mod tests {
         configure_identity(&clone);
 
         let remote_backend = SystemGitRemoteBackend::new();
-        let local_backend = GixGitBackend::new();
+        let local_backend = LocalGitBackend::new();
         let clone_path = RepoPath::new(clone.clone());
 
         std::fs::write(source.join("remote-only.txt"), "fast-forward\n").unwrap();
