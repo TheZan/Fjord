@@ -323,6 +323,33 @@ impl GixGitBackend {
         Ok(head_refname)
     }
 
+    fn current_ahead_behind(git: &git2::Repository) -> Result<(u32, u32), GitError> {
+        let head = match git.head() {
+            Ok(head) if head.is_branch() => head,
+            Ok(_) => return Ok((0, 0)),
+            Err(error) if error.code() == ErrorCode::UnbornBranch => return Ok((0, 0)),
+            Err(error) => return Err(Self::map_git2_error(error)),
+        };
+        let head_name = head.name().map_err(Self::map_git2_error)?;
+        let upstream_name = match git.branch_upstream_name(head_name) {
+            Ok(name) => name,
+            Err(error) if error.code() == ErrorCode::NotFound => return Ok((0, 0)),
+            Err(error) => return Err(Self::map_git2_error(error)),
+        };
+        let upstream_name = upstream_name.as_str().map_err(Self::map_git2_error)?;
+        let local_oid = head.peel_to_commit().map_err(Self::map_git2_error)?.id();
+        let upstream_oid = git
+            .find_reference(upstream_name)
+            .map_err(Self::map_git2_error)?
+            .peel_to_commit()
+            .map_err(Self::map_git2_error)?
+            .id();
+        let (ahead, behind) = git
+            .graph_ahead_behind(local_oid, upstream_oid)
+            .map_err(Self::map_git2_error)?;
+        Ok((ahead as u32, behind as u32))
+    }
+
     fn conflict_paths(index: &git2::Index) -> Vec<String> {
         index
             .conflicts()
@@ -981,14 +1008,14 @@ impl GitBackend for GixGitBackend {
 
             let has_conflict = Self::has_conflicts(&repo)?;
 
-            // Ahead/behind against the branch's upstream is left at 0 until
-            // P2 status-cache work wires up remote-tracking comparison —
-            // status/dirty/conflict detection is what the single-repo phases
-            // need to prove out first.
+            // Compare only local refs. Network freshness is owned explicitly by
+            // System Git fetch; status never performs hidden network access.
+            let git2 = Self::open_git2(&repo)?;
+            let (ahead, behind) = Self::current_ahead_behind(&git2)?;
             Ok(RepoStatus {
                 branch,
-                ahead: 0,
-                behind: 0,
+                ahead,
+                behind,
                 dirty_count,
                 has_conflict,
             })
@@ -2117,6 +2144,45 @@ mod tests {
         let backend = GixGitBackend::new();
         let status = backend.status(&this_repo_path()).await.unwrap();
         assert!(status.branch.is_some());
+    }
+
+    #[tokio::test]
+    async fn status_reports_real_ahead_count_from_local_tracking_refs() {
+        let (_dir, repo_path) = empty_repo();
+        let backend = GixGitBackend::new();
+        write_file(&repo_path, "README.md", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        let base = backend.commit(&repo_path, "Initial").await.unwrap();
+
+        let repo = Repository::open(&repo_path.0).unwrap();
+        repo.remote("origin", "https://example.invalid/repo.git")
+            .unwrap();
+        repo.reference(
+            "refs/remotes/origin/main",
+            Oid::from_str(&base).unwrap(),
+            true,
+            "test remote tracking ref",
+        )
+        .unwrap();
+        repo.find_branch("main", BranchType::Local)
+            .unwrap()
+            .set_upstream(Some("origin/main"))
+            .unwrap();
+        drop(repo);
+
+        write_file(&repo_path, "README.md", "local change\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Ahead").await.unwrap();
+
+        let status = backend.status(&repo_path).await.unwrap();
+        assert_eq!(status.ahead, 1);
+        assert_eq!(status.behind, 0);
     }
 
     #[tokio::test]
