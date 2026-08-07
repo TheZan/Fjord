@@ -40,6 +40,13 @@ Without a credential helper, Git can prompt through Fjord's bundled askpass;
 rejected or unavailable interaction is classified as `git_auth_required` or
 `git_auth_failed` from sanitized Git diagnostics.
 
+Automated coverage uses fake helpers against a loopback endpoint that demands
+Basic auth (`crates/fjord-git/tests/credential_helper.rs`): a helper that
+answers, a helper that stays silent, and a helper that fails, so helper
+chaining and fall-through are verified without a real account or stored secret.
+Provider-specific helpers — GCM, Keychain, libsecret — cannot be faked
+meaningfully and stay in [`../manual-git-compatibility.md`](../manual-git-compatibility.md).
+
 ## Executable discovery
 
 Discovery checks, in order:

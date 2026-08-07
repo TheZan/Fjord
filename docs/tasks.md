@@ -120,4 +120,4 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-16** — Operation-scoped askpass protocol and loopback broker.
 - [x] **P5-17** — Build and package the `fjord-askpass` sidecar.
 - [x] **P5-18** — Auth prompt UI and concurrent prompt queue.
-- [ ] **P5-19** — Integration fixtures, three-OS CI/release gates, cleanup, and troubleshooting docs. Automated work is complete; manual provider/OS sign-off remains in [`manual-git-compatibility.md`](manual-git-compatibility.md).
+- [ ] **P5-19** — Integration fixtures, three-OS CI/release gates, cleanup, and troubleshooting docs. Automated work is complete, including the fake credential-helper fixtures; manual provider/OS sign-off remains in [`manual-git-compatibility.md`](manual-git-compatibility.md).
