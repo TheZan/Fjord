@@ -58,9 +58,26 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
     } else if contains_any(
         &lowered,
         &[
+            "remote rejected",
+            "pre-receive hook declined",
+            "update hook declined",
+            "hook declined",
+            "protected branch",
+        ],
+    ) {
+        // Checked before non-fast-forward: a hook rejection also prints the
+        // generic "failed to push some refs" summary line.
+        GitRemoteError::RemoteRejected {
+            summary,
+            stderr_tail,
+        }
+    } else if contains_any(
+        &lowered,
+        &[
             "non-fast-forward",
-            "updates were rejected because the tip of your current branch is behind",
-            "failed to push some refs",
+            "! [rejected]",
+            "updates were rejected because",
+            "fetch first",
         ],
     ) {
         GitRemoteError::NonFastForward { stderr_tail }
@@ -115,14 +132,9 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
         ],
     ) {
         GitRemoteError::NetworkUnavailable { stderr_tail }
-    } else if contains_any(
-        &lowered,
-        &[
-            "remote rejected",
-            "pre-receive hook declined",
-            "remote: error:",
-        ],
-    ) {
+    } else if contains_any(&lowered, &["remote: error:"]) {
+        // Last resort before the generic failure: the remote said something
+        // went wrong but none of the specific families matched.
         GitRemoteError::RemoteRejected {
             summary,
             stderr_tail,
@@ -231,6 +243,56 @@ mod tests {
         assert_eq!(
             classify_failure(Some(128), "", "unexpected failure").code(),
             "git_remote_error"
+        );
+    }
+
+    /// Real Git output, not one-line excerpts: every push rejection ends with
+    /// the same generic `failed to push some refs` summary, so classification
+    /// has to key off the specific line above it.
+    #[test]
+    fn classifies_realistic_multiline_push_rejections() {
+        let hook_declined = "remote: error: hook declined to update refs/heads/main\n\
+             To https://example.test/team/app.git\n\
+             ! [remote rejected] main -> main (pre-receive hook declined)\n\
+             error: failed to push some refs to 'https://example.test/team/app.git'";
+        assert_eq!(
+            classify_failure(Some(1), "", hook_declined).code(),
+            "git_remote_rejected"
+        );
+
+        let protected_branch = "remote: error: GH006: Protected branch update failed for refs/heads/main.\n\
+             To https://example.test/team/app.git\n\
+             ! [remote rejected] main -> main (protected branch hook declined)\n\
+             error: failed to push some refs to 'https://example.test/team/app.git'";
+        assert_eq!(
+            classify_failure(Some(1), "", protected_branch).code(),
+            "git_remote_rejected"
+        );
+
+        let stale_tip = "To https://example.test/team/app.git\n\
+             ! [rejected]        main -> main (fetch first)\n\
+             error: failed to push some refs to 'https://example.test/team/app.git'\n\
+             hint: Updates were rejected because the remote contains work that you do not have locally.";
+        assert_eq!(
+            classify_failure(Some(1), "", stale_tip).code(),
+            "git_non_fast_forward"
+        );
+
+        let behind_tip = "To https://example.test/team/app.git\n\
+             ! [rejected]        main -> main (non-fast-forward)\n\
+             error: failed to push some refs to 'https://example.test/team/app.git'\n\
+             hint: Updates were rejected because the tip of your current branch is behind its remote counterpart.";
+        assert_eq!(
+            classify_failure(Some(1), "", behind_tip).code(),
+            "git_non_fast_forward"
+        );
+
+        let permission_denied = "remote: Permission to team/app.git denied to someone.\n\
+             fatal: unable to access 'https://example.test/team/app.git/': \
+             The requested URL returned error: 403";
+        assert_eq!(
+            classify_failure(Some(1), "", permission_denied).code(),
+            "git_permission_denied"
         );
     }
 
