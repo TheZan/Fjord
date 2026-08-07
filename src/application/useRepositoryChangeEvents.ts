@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import { queryKeys } from "@/application/queryKeys";
@@ -7,8 +7,6 @@ import {
   listenRepositoryChanges,
   type RepositoryChangedEvent,
 } from "@/infrastructure/tauriClient";
-
-const UI_EVENT_DEBOUNCE_MS = 80;
 
 export function repositoryChangeScopes(event: RepositoryChangedEvent): RepoDataScope[] {
   const scopes: RepoDataScope[] = [];
@@ -27,16 +25,18 @@ export function repositoryChangeScopes(event: RepositoryChangedEvent): RepoDataS
  */
 export function useRepositoryChangeEvents(repositories: RepositoryEntry[]) {
   const queryClient = useQueryClient();
+  const repositoriesByIdRef = useRef(new Map<string, RepositoryEntry>());
 
   useEffect(() => {
-    const repositoriesById = new Map(repositories.map((repo) => [repo.id, repo]));
-    const pendingScopes = new Map<string, Set<RepoDataScope>>();
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    repositoriesByIdRef.current = new Map(repositories.map((repo) => [repo.id, repo]));
+  }, [repositories]);
+
+  useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
     void listenRepositoryChanges((event) => {
-      const repo = repositoriesById.get(event.repoId);
+      const repo = repositoriesByIdRef.current.get(event.repoId);
       if (!repo) return;
 
       const statusSummary = event.statusSummary;
@@ -48,25 +48,12 @@ export function useRepositoryChangeEvents(repositories: RepositoryEntry[]) {
         );
       }
 
-      const scopes = pendingScopes.get(repo.id) ?? new Set<RepoDataScope>();
-      for (const scope of repositoryChangeScopes(event)) {
-        if (scope !== "status" || !statusSummary) scopes.add(scope);
-      }
-      pendingScopes.set(repo.id, scopes);
-
-      const existingTimer = timers.get(repo.id);
-      if (existingTimer) clearTimeout(existingTimer);
-      timers.set(
-        repo.id,
-        setTimeout(() => {
-          timers.delete(repo.id);
-          const requested = [...(pendingScopes.get(repo.id) ?? [])];
-          pendingScopes.delete(repo.id);
-          if (requested.length > 0) {
-            void invalidateRepoData(queryClient, repo.id, repo.workspaceId, requested);
-          }
-        }, UI_EVENT_DEBOUNCE_MS),
+      const requested = repositoryChangeScopes(event).filter(
+        (scope) => scope !== "status" || !statusSummary,
       );
+      if (requested.length > 0) {
+        void invalidateRepoData(queryClient, repo.id, repo.workspaceId, requested);
+      }
     }).then((stopListening) => {
       if (disposed) stopListening();
       else unlisten = stopListening;
@@ -75,9 +62,8 @@ export function useRepositoryChangeEvents(repositories: RepositoryEntry[]) {
     return () => {
       disposed = true;
       unlisten?.();
-      for (const timer of timers.values()) clearTimeout(timer);
     };
-  }, [queryClient, repositories]);
+  }, [queryClient]);
 }
 
 function replaceStatusSummary(
