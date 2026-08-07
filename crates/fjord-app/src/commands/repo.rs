@@ -1,7 +1,7 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail,
-    GlobalSearchResult, LogCursor, RepoStatus, RepositoryId, StashEntry, TagInfo, WorkingChanges,
-    WorkspaceId,
+    GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId, StashEntry,
+    TagInfo, WorkingChanges, WorkspaceId,
 };
 use std::future::Future;
 use std::path::PathBuf;
@@ -429,6 +429,18 @@ pub async fn cancel_operation(
     operation_id: String,
 ) -> Result<bool, AppError> {
     Ok(state.operations.cancel(&operation_id))
+}
+
+#[tauri::command]
+pub async fn test_git_connection(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    remote: Option<String>,
+) -> Result<GitConnectionTestResult, AppError> {
+    Ok(state
+        .repos
+        .test_git_connection(repo_id, remote.as_deref().unwrap_or("origin"))
+        .await?)
 }
 
 async fn run_repo_operation<Fut>(

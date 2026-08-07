@@ -79,6 +79,14 @@ export type GitExecutableSource = "settings" | "path" | "standard-location";
 
 export type GitExecutable = { path: string, version: string, source: GitExecutableSource, };
 
+export type CredentialHelperInfo = { value: string, source: string, };
+
+export type GitEnvironmentInfo = { executablePath: string | null, version: string | null, executableSource: GitExecutableSource | null, configuredPathValid: boolean, credentialHelpers: Array<CredentialHelperInfo>, sshCommand: string | null, sshAgentAvailable: boolean, proxyConfigured: boolean, };
+
+export type GitConnectionProtocol = "https" | "ssh" | "local" | "other";
+
+export type GitConnectionTestResult = { success: boolean, durationMs: bigint, remote: string, protocol: GitConnectionProtocol, referenceCount: number, };
+
 export type Settings = { 
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.

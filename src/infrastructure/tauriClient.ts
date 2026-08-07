@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Settings } from "@/domain/settings";
+import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type {
   BranchInfo,
@@ -179,6 +179,25 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeAbortable("get_branches", { repoId }, signal);
+}
+
+export function getGitEnvironment(): Promise<GitEnvironmentInfo> {
+  return invoke("get_git_environment");
+}
+
+export function selectGitExecutable(path: string): Promise<GitEnvironmentInfo> {
+  return invoke("select_git_executable", { path });
+}
+
+export function resetGitExecutable(): Promise<GitEnvironmentInfo> {
+  return invoke("reset_git_executable");
+}
+
+export function testGitConnection(
+  repoId: string,
+  remote: string | null = null,
+): Promise<GitConnectionTestResult> {
+  return invoke("test_git_connection", { repoId, remote });
 }
 
 export function listenRepositoryChanges(

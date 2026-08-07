@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
-use fjord_git::{GixGitBackend, LegacyGitRemoteBackend};
+use fjord_git::{GixGitBackend, LegacyGitRemoteBackend, SystemGitEnvironmentProvider};
 use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
 use fjord_services::RepoService;
 use git2::{Repository, RepositoryInitOptions, Signature};
@@ -523,6 +523,7 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         settings_store,
         backend.clone(),
         remote_backend,
+        Arc::new(SystemGitEnvironmentProvider::new()),
         Arc::new(NoopIdeLauncher),
     );
     let search_start = Instant::now();

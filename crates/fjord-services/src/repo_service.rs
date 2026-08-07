@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail,
-    GlobalSearchResult, LogCursor, RepoStatus, RepositoryEntry, RepositoryId, SearchResultKind,
-    StashEntry, TagInfo, WorkingChanges, WorkspaceId,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, RepoStatus,
+    RepositoryEntry, RepositoryId, SearchResultKind, StashEntry, TagInfo, WorkingChanges,
+    WorkspaceId,
 };
 use fjord_ports::{
-    GitBackend, GitError, GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher,
-    LaunchError, RepoPath, SettingsStore, StoreError, WorkspaceStore,
+    GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitOperationContext,
+    GitRemoteBackend, GitRemoteError, IdeLauncher, LaunchError, RepoPath, SettingsStore,
+    StoreError, WorkspaceStore,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -26,6 +28,8 @@ pub enum RepoError {
     #[error(transparent)]
     Remote(#[from] GitRemoteError),
     #[error(transparent)]
+    Environment(#[from] GitEnvironmentError),
+    #[error(transparent)]
     Launch(#[from] LaunchError),
 }
 
@@ -39,6 +43,7 @@ pub struct RepoService {
     git: Arc<dyn GitBackend>,
     #[allow(dead_code)]
     remote: Arc<dyn GitRemoteBackend>,
+    environment: Arc<dyn GitEnvironmentProvider>,
     ide: Arc<dyn IdeLauncher>,
 }
 
@@ -48,6 +53,7 @@ impl RepoService {
         settings: Arc<dyn SettingsStore>,
         git: Arc<dyn GitBackend>,
         remote: Arc<dyn GitRemoteBackend>,
+        environment: Arc<dyn GitEnvironmentProvider>,
         ide: Arc<dyn IdeLauncher>,
     ) -> Self {
         Self {
@@ -55,6 +61,7 @@ impl RepoService {
             settings,
             git,
             remote,
+            environment,
             ide,
         }
     }
@@ -72,6 +79,50 @@ impl RepoService {
     pub async fn get_status(&self, repo_id: RepositoryId) -> Result<RepoStatus, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.status(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_git_environment(&self) -> Result<GitEnvironmentInfo, RepoError> {
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .environment
+            .inspect(settings.git_executable_path.as_deref())
+            .await?)
+    }
+
+    pub async fn set_git_executable_path(
+        &self,
+        path: PathBuf,
+    ) -> Result<GitEnvironmentInfo, RepoError> {
+        let info = self.environment.inspect(Some(&path)).await?;
+        let mut settings = self.settings.get_settings().await?;
+        settings.git_executable_path = Some(path);
+        self.settings.update_settings(&settings).await?;
+        Ok(info)
+    }
+
+    pub async fn reset_git_executable_path(&self) -> Result<GitEnvironmentInfo, RepoError> {
+        let mut settings = self.settings.get_settings().await?;
+        settings.git_executable_path = None;
+        self.settings.update_settings(&settings).await?;
+        Ok(self.environment.inspect(None).await?)
+    }
+
+    pub async fn test_git_connection(
+        &self,
+        repo_id: RepositoryId,
+        remote: &str,
+    ) -> Result<GitConnectionTestResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .environment
+            .test_connection(
+                &RepoPath::new(repo.path),
+                remote,
+                GitOperationContext::default()
+                    .with_git_executable_path(settings.git_executable_path),
+            )
+            .await?)
     }
 
     pub async fn get_commit_log(
@@ -829,6 +880,42 @@ mod tests {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
     }
 
+    struct FakeEnvironment;
+
+    #[async_trait]
+    impl GitEnvironmentProvider for FakeEnvironment {
+        async fn inspect(
+            &self,
+            _configured_path: Option<&Path>,
+        ) -> Result<GitEnvironmentInfo, GitEnvironmentError> {
+            Ok(GitEnvironmentInfo {
+                executable_path: Some("git".into()),
+                version: Some("test".into()),
+                executable_source: None,
+                configured_path_valid: true,
+                credential_helpers: vec![],
+                ssh_command: None,
+                ssh_agent_available: false,
+                proxy_configured: false,
+            })
+        }
+
+        async fn test_connection(
+            &self,
+            _repo: &RepoPath,
+            remote: &str,
+            _context: GitOperationContext,
+        ) -> Result<GitConnectionTestResult, GitRemoteError> {
+            Ok(GitConnectionTestResult {
+                success: true,
+                duration_ms: 1,
+                remote: remote.into(),
+                protocol: fjord_domain::GitConnectionProtocol::Local,
+                reference_count: 1,
+            })
+        }
+    }
+
     #[async_trait]
     impl GitRemoteBackend for FakeRemoteGit {
         async fn fetch(
@@ -909,6 +996,7 @@ mod tests {
             }),
             git.clone(),
             Arc::new(FakeRemoteGit { seen_path }),
+            Arc::new(FakeEnvironment),
             ide.clone(),
         );
         (repo, git, ide, service)
@@ -1136,6 +1224,7 @@ mod tests {
             Arc::new(FakeRemoteGit {
                 seen_path: Arc::new(Mutex::new(None)),
             }),
+            Arc::new(FakeEnvironment),
             Arc::new(FakeIdeLauncher {
                 opened: Mutex::new(None),
                 terminal_opened: Mutex::new(None),

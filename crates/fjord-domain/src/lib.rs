@@ -320,6 +320,50 @@ pub struct GitExecutable {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct CredentialHelperInfo {
+    pub value: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct GitEnvironmentInfo {
+    #[ts(type = "string | null")]
+    pub executable_path: Option<PathBuf>,
+    pub version: Option<String>,
+    pub executable_source: Option<GitExecutableSource>,
+    pub configured_path_valid: bool,
+    pub credential_helpers: Vec<CredentialHelperInfo>,
+    pub ssh_command: Option<String>,
+    pub ssh_agent_available: bool,
+    pub proxy_configured: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum GitConnectionProtocol {
+    Https,
+    Ssh,
+    Local,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct GitConnectionTestResult {
+    pub success: bool,
+    pub duration_ms: u64,
+    pub remote: String,
+    pub protocol: GitConnectionProtocol,
+    pub reference_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct Settings {
     /// BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
     pub locale: String,

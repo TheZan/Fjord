@@ -64,6 +64,9 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::get_git_environment,
+            commands::select_git_executable,
+            commands::reset_git_executable,
             commands::list_workspaces,
             commands::create_workspace,
             commands::rename_workspace,
@@ -113,5 +116,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::bulk_pull,
             commands::bulk_open_in_ide,
             commands::cancel_operation,
+            commands::test_git_connection,
         ])
 }

@@ -2,11 +2,12 @@ use std::fs;
 use std::path::Path;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine,
-    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GitExecutable, GitExecutableSource,
-    GlobalSearchResult, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry,
-    RepositoryId, SearchResultKind, Settings, StashEntry, TagInfo, Theme, WorkingChanges,
-    WorkingFile, Workspace, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, CredentialHelperInfo,
+    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail,
+    GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo, GitExecutable,
+    GitExecutableSource, GlobalSearchResult, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary,
+    RepositoryEntry, RepositoryId, SearchResultKind, Settings, StashEntry, TagInfo, Theme,
+    WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -53,6 +54,10 @@ fn generated_types() -> String {
     push::<Theme>(&mut output, &config);
     push::<GitExecutableSource>(&mut output, &config);
     push::<GitExecutable>(&mut output, &config);
+    push::<CredentialHelperInfo>(&mut output, &config);
+    push::<GitEnvironmentInfo>(&mut output, &config);
+    push::<GitConnectionProtocol>(&mut output, &config);
+    push::<GitConnectionTestResult>(&mut output, &config);
     push::<Settings>(&mut output, &config);
 
     output

@@ -8,6 +8,7 @@ mod locking;
 pub mod remote;
 
 pub use remote::backend::SystemGitRemoteBackend;
+pub use remote::environment::SystemGitEnvironmentProvider;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
