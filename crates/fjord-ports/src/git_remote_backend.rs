@@ -110,6 +110,17 @@ pub trait GitRemoteBackend: Send + Sync {
         context: GitOperationContext,
     ) -> Result<(), GitRemoteError>;
 
+    /// Pushes a branch that has no upstream yet and records the tracking
+    /// configuration. Separate from `push` because publishing is a deliberate
+    /// user decision, not a fallback.
+    async fn publish_branch(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        branch_ref: &str,
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError>;
+
     async fn delete_remote_branch(
         &self,
         repo: &RepoPath,

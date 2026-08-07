@@ -33,6 +33,10 @@ pub enum RepoError {
     Launch(#[from] LaunchError),
 }
 
+/// The remote a branch is published to when the caller does not name one.
+/// Only ever used for the explicit publish action, never for a plain push.
+const DEFAULT_PUBLISH_REMOTE: &str = "origin";
+
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
 /// this is the layer that resolves "which repo is this" (via
 /// `WorkspaceStore`) before ever calling into `GitBackend`, so command
@@ -531,6 +535,9 @@ impl RepoService {
             .await
     }
 
+    /// Pushes to the branch's configured upstream. A branch without one fails
+    /// with [`GitError::NoUpstream`] instead of guessing `origin`, so the user
+    /// publishes it explicitly through [`Self::publish_branch_with_context`].
     pub async fn push_with_context(
         &self,
         repo_id: RepositoryId,
@@ -538,12 +545,43 @@ impl RepoService {
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let repo_path = RepoPath::new(repo.path);
-        let refspec = self.git.current_branch_refspec(&repo_path).await?;
+        let target = self.git.current_push_target(&repo_path).await?;
         let settings = self.settings.get_settings().await?;
         let context = context.with_git_executable_path(settings.git_executable_path);
         Ok(self
             .remote
-            .push(&repo_path, "origin", &[refspec], context)
+            .push(&repo_path, &target.remote, &[target.refspec()], context)
+            .await?)
+    }
+
+    pub async fn publish_branch(
+        &self,
+        repo_id: RepositoryId,
+        remote: Option<&str>,
+    ) -> Result<(), RepoError> {
+        self.publish_branch_with_context(repo_id, remote, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn publish_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        remote: Option<&str>,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let branch_ref = self.git.current_branch_ref(&repo_path).await?;
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        Ok(self
+            .remote
+            .publish_branch(
+                &repo_path,
+                remote.unwrap_or(DEFAULT_PUBLISH_REMOTE),
+                &branch_ref,
+                context,
+            )
             .await?)
     }
 
@@ -793,6 +831,7 @@ mod tests {
         RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
         WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
+    use fjord_ports::PushTarget;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use time::OffsetDateTime;
@@ -903,8 +942,14 @@ mod tests {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
     }
 
+    /// Remote and refspecs of one recorded call.
+    type RecordedPush = (String, Vec<String>);
+
+    #[derive(Default)]
     struct FakeRemoteGit {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
+        pushes: Arc<Mutex<Vec<RecordedPush>>>,
+        publishes: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     struct FakeEnvironment;
@@ -959,11 +1004,30 @@ mod tests {
         async fn push(
             &self,
             repo: &RepoPath,
-            _remote: &str,
-            _refspecs: &[String],
+            remote: &str,
+            refspecs: &[String],
             _context: GitOperationContext,
         ) -> Result<(), GitRemoteError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.pushes
+                .lock()
+                .unwrap()
+                .push((remote.to_string(), refspecs.to_vec()));
+            Ok(())
+        }
+
+        async fn publish_branch(
+            &self,
+            repo: &RepoPath,
+            remote: &str,
+            branch_ref: &str,
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.publishes
+                .lock()
+                .unwrap()
+                .push((remote.to_string(), branch_ref.to_string()));
             Ok(())
         }
 
@@ -1022,7 +1086,10 @@ mod tests {
                 },
             }),
             git.clone(),
-            Arc::new(FakeRemoteGit { seen_path }),
+            Arc::new(FakeRemoteGit {
+                seen_path,
+                ..FakeRemoteGit::default()
+            }),
             Arc::new(FakeEnvironment),
             ide.clone(),
         );
@@ -1199,9 +1266,17 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
         }
-        async fn current_branch_refspec(&self, repo: &RepoPath) -> Result<String, GitError> {
+        async fn current_push_target(&self, repo: &RepoPath) -> Result<PushTarget, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
-            Ok("refs/heads/main:refs/heads/main".into())
+            Ok(PushTarget {
+                remote: "company".into(),
+                local_ref: "refs/heads/develop".into(),
+                remote_ref: "refs/heads/trunk".into(),
+            })
+        }
+        async fn current_branch_ref(&self, repo: &RepoPath) -> Result<String, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok("refs/heads/develop".into())
         }
         async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -1236,9 +1311,7 @@ mod tests {
                 settings: Settings::default(),
             }),
             git,
-            Arc::new(FakeRemoteGit {
-                seen_path: Arc::new(Mutex::new(None)),
-            }),
+            Arc::new(FakeRemoteGit::default()),
             Arc::new(FakeEnvironment),
             Arc::new(FakeIdeLauncher {
                 opened: Mutex::new(None),
@@ -1373,6 +1446,170 @@ mod tests {
 
         service.push(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    /// A branch tracking `company/trunk` must not be pushed to `origin/develop`
+    /// just because the local branch is called `develop`.
+    #[tokio::test]
+    async fn push_targets_the_configured_upstream_and_publish_names_its_remote() {
+        let repo = repo_entry();
+        let remote = Arc::new(FakeRemoteGit::default());
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            Arc::new(FakeGit {
+                seen_path: Arc::new(Mutex::new(None)),
+            }),
+            remote.clone(),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        service.push(repo.id).await.unwrap();
+        assert_eq!(
+            remote.pushes.lock().unwrap().as_slice(),
+            [(
+                "company".to_string(),
+                vec!["refs/heads/develop:refs/heads/trunk".to_string()]
+            )]
+        );
+
+        service.publish_branch(repo.id, None).await.unwrap();
+        service
+            .publish_branch(repo.id, Some("company"))
+            .await
+            .unwrap();
+        assert_eq!(
+            remote.publishes.lock().unwrap().as_slice(),
+            [
+                ("origin".to_string(), "refs/heads/develop".to_string()),
+                ("company".to_string(), "refs/heads/develop".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn push_without_an_upstream_reports_no_upstream_instead_of_guessing() {
+        struct NoUpstreamGit;
+
+        #[async_trait]
+        impl GitBackend for NoUpstreamGit {
+            async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
+                Err(GitError::NotImplemented("status"))
+            }
+            async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn tags(&self, _repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn log(
+                &self,
+                _repo: &RepoPath,
+                _from: Option<LogCursor>,
+                _limit: u32,
+            ) -> Result<CommitPage, GitError> {
+                Err(GitError::NotImplemented("log"))
+            }
+            async fn search_commits(
+                &self,
+                _repo: &RepoPath,
+                _query: &str,
+                _limit: u32,
+            ) -> Result<Vec<CommitSummary>, GitError> {
+                Ok(vec![])
+            }
+            async fn diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+            ) -> Result<Vec<FileDiff>, GitError> {
+                Ok(vec![])
+            }
+            async fn file_diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+                _path: &str,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("file_diff"))
+            }
+            async fn working_changes(&self, _repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+                Err(GitError::NotImplemented("working_changes"))
+            }
+            async fn working_file_diff(
+                &self,
+                _repo: &RepoPath,
+                _path: &str,
+                _staged: bool,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("working_file_diff"))
+            }
+            async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn create_branch(
+                &self,
+                _repo: &RepoPath,
+                _name: &str,
+                _checkout: bool,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+                Ok(vec![])
+            }
+            async fn stash_push(
+                &self,
+                _repo: &RepoPath,
+                _message: Option<&str>,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn unstage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+                Ok(String::new())
+            }
+            async fn current_push_target(&self, _repo: &RepoPath) -> Result<PushTarget, GitError> {
+                Err(GitError::NoUpstream)
+            }
+            async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+        }
+
+        let repo = repo_entry();
+        let remote = Arc::new(FakeRemoteGit::default());
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            Arc::new(NoUpstreamGit),
+            remote.clone(),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        let error = service.push(repo.id).await.unwrap_err();
+        assert!(matches!(error, RepoError::Git(GitError::NoUpstream)));
+        assert!(remote.pushes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

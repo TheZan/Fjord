@@ -115,6 +115,24 @@ impl GitOperationContext {
     }
 }
 
+/// Where the current branch pushes: resolved from its upstream configuration,
+/// never assumed to be `origin` and never left to `push.default`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PushTarget {
+    pub remote: String,
+    /// Fully-qualified local ref, e.g. `refs/heads/main`.
+    pub local_ref: String,
+    /// Fully-qualified ref on the remote, e.g. `refs/heads/trunk`.
+    pub remote_ref: String,
+}
+
+impl PushTarget {
+    /// The explicit refspec passed to system Git.
+    pub fn refspec(&self) -> String {
+        format!("{}:{}", self.local_ref, self.remote_ref)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum GitError {
     #[error("repository not found at {0}")]
@@ -272,9 +290,16 @@ pub trait GitBackend: Send + Sync {
     async fn upstream_remote(&self, _repo: &RepoPath) -> Result<String, GitError> {
         Err(GitError::NotImplemented("upstream_remote"))
     }
-    /// Returns an explicit current-branch refspec for system-Git push.
-    async fn current_branch_refspec(&self, _repo: &RepoPath) -> Result<String, GitError> {
-        Err(GitError::NotImplemented("current_branch_refspec"))
+    /// Resolves where the current branch pushes, from its configured upstream.
+    /// Returns [`GitError::NoUpstream`] when the branch has none, so callers
+    /// publish deliberately instead of inheriting `push.default`.
+    async fn current_push_target(&self, _repo: &RepoPath) -> Result<PushTarget, GitError> {
+        Err(GitError::NotImplemented("current_push_target"))
+    }
+    /// Returns the current branch's ref name, used when publishing a branch
+    /// that has no upstream yet.
+    async fn current_branch_ref(&self, _repo: &RepoPath) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("current_branch_ref"))
     }
     /// Integrates the already-fetched upstream using Fjord's fixed
     /// fast-forward/merge semantics. This method never performs network I/O.

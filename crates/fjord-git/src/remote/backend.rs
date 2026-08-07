@@ -136,6 +136,30 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         .map(|_| ())
     }
 
+    async fn publish_branch(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        branch_ref: &str,
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        let _guard = locking::write(repo).await;
+        self.run(
+            repo,
+            vec![
+                "push".into(),
+                "--progress".into(),
+                "--set-upstream".into(),
+                remote.into(),
+                format!("{branch_ref}:{branch_ref}").into(),
+            ],
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
+            context,
+        )
+        .await
+        .map(|_| ())
+    }
+
     async fn delete_remote_branch(
         &self,
         repo: &RepoPath,

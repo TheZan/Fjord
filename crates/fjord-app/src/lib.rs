@@ -111,6 +111,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::fetch_repo,
             commands::pull_repo,
             commands::push_repo,
+            commands::publish_branch,
             commands::open_merge_tool,
             commands::open_in_ide,
             commands::bulk_fetch,

@@ -18,7 +18,8 @@ import type { RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
   | { kind: "origin"; action: "fetch" | "pull" | "push" | "stash-pop" }
-  | { kind: "remote-checkout"; branch: string };
+  | { kind: "remote-checkout"; branch: string }
+  | { kind: "publish"; branch: string };
 
 /**
  * A selected repository used to render *below* the dashboard, so clicking a
@@ -339,7 +340,7 @@ export function RepoDetailView({
       {actionConfirmation && (
         <ConfirmActionDialog
           title={t(`context.confirm.${confirmationKey(actionConfirmation)}.title`)}
-          description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "remote-checkout" ? actionConfirmation.branch : undefined })}
+          description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "origin" ? undefined : actionConfirmation.branch })}
           confirmLabel={t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
           danger={actionConfirmation.kind === "origin" && actionConfirmation.action === "stash-pop"}
           onClose={onCancelActionConfirmation}
@@ -412,5 +413,6 @@ async function copyText(value: string) {
 
 function confirmationKey(action: ActionConfirmation) {
   if (action.kind === "remote-checkout") return "remoteCheckout";
+  if (action.kind === "publish") return "publishBranch";
   return action.action === "stash-pop" ? "stashPop" : action.action;
 }

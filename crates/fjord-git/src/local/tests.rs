@@ -109,6 +109,51 @@ async fn status_reports_real_ahead_count_from_local_tracking_refs() {
     assert_eq!(status.behind, 0);
 }
 
+/// The push target comes from the branch's upstream configuration, including a
+/// non-`origin` remote and a remote branch with a different name.
+#[tokio::test]
+async fn push_target_follows_the_configured_upstream() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Initial").await.unwrap();
+
+    assert!(matches!(
+        backend.current_push_target(&repo_path).await,
+        Err(GitError::NoUpstream)
+    ));
+    assert_eq!(
+        backend.current_branch_ref(&repo_path).await.unwrap(),
+        "refs/heads/main"
+    );
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    repo.remote("company", "https://example.invalid/team/app.git")
+        .unwrap();
+    repo.reference(
+        "refs/remotes/company/trunk",
+        Oid::from_str(&base).unwrap(),
+        true,
+        "test remote tracking ref",
+    )
+    .unwrap();
+    repo.find_branch("main", BranchType::Local)
+        .unwrap()
+        .set_upstream(Some("company/trunk"))
+        .unwrap();
+    drop(repo);
+
+    let target = backend.current_push_target(&repo_path).await.unwrap();
+    assert_eq!(target.remote, "company");
+    assert_eq!(target.local_ref, "refs/heads/main");
+    assert_eq!(target.remote_ref, "refs/heads/trunk");
+    assert_eq!(target.refspec(), "refs/heads/main:refs/heads/trunk");
+}
+
 #[tokio::test]
 async fn branches_includes_the_current_branch() {
     let backend = LocalGitBackend::new();

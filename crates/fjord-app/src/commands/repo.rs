@@ -388,6 +388,35 @@ pub async fn push_repo(
     .await
 }
 
+/// Publishes a branch that has no upstream yet. Separate from `push_repo`
+/// because it is the user's explicit answer to `no_upstream`.
+#[tauri::command]
+pub async fn publish_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    remote: Option<String>,
+    operation_id: Option<String>,
+) -> Result<(), AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Publish,
+        repo_id,
+        |context| {
+            let repos = state.repos.clone();
+            let remote = remote.clone();
+            async move {
+                repos
+                    .publish_branch_with_context(repo_id, remote.as_deref(), context)
+                    .await
+            }
+        },
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn open_merge_tool(
     state: State<'_, AppState>,

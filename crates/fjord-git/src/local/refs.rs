@@ -421,14 +421,71 @@ pub(super) async fn upstream_remote(repo: &RepoPath) -> Result<String, GitError>
     .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
-pub(super) async fn current_branch_refspec(repo: &RepoPath) -> Result<String, GitError> {
+pub(super) async fn current_branch_ref(repo: &RepoPath) -> Result<String, GitError> {
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
         let git = LocalGitBackend::open_git2(&repo)?;
-        let head_refname = LocalGitBackend::current_branch_refname(&git)?;
-        Ok(format!("{head_refname}:{head_refname}"))
+        LocalGitBackend::current_branch_refname(&git)
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+pub(super) async fn current_push_target(repo: &RepoPath) -> Result<PushTarget, GitError> {
+    let repo = repo.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        let git = LocalGitBackend::open_git2(&repo)?;
+        let local_ref = LocalGitBackend::current_branch_refname(&git)?;
+        let remote = git
+            .branch_upstream_remote(&local_ref)
+            .map_err(upstream_error)?
+            .as_str()
+            .map_err(LocalGitBackend::map_git2_error)?
+            .to_string();
+        let upstream = git
+            .branch_upstream_name(&local_ref)
+            .map_err(upstream_error)?
+            .as_str()
+            .map_err(LocalGitBackend::map_git2_error)?
+            .to_string();
+
+        Ok(PushTarget {
+            remote_ref: remote_ref_for_upstream(&git, &remote, &upstream),
+            remote,
+            local_ref,
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn upstream_error(error: git2::Error) -> GitError {
+    match error.code() {
+        ErrorCode::NotFound => GitError::NoUpstream,
+        _ => LocalGitBackend::map_git2_error(error),
+    }
+}
+
+/// Maps a remote-tracking ref back to the ref it mirrors on the remote. The
+/// remote's own fetch refspecs answer this exactly, including non-default
+/// layouts; the prefix strip is only a fallback for unusual configurations.
+fn remote_ref_for_upstream(git: &git2::Repository, remote: &str, upstream: &str) -> String {
+    if let Ok(configured) = git.find_remote(remote) {
+        let reversed = configured
+            .refspecs()
+            .filter(|refspec| refspec.direction() == git2::Direction::Fetch)
+            .find_map(|refspec| refspec.rtransform(upstream).ok());
+        if let Some(reversed) = reversed {
+            if let Ok(value) = std::str::from_utf8(&reversed) {
+                return value.to_string();
+            }
+        }
+    }
+
+    match upstream.strip_prefix(&format!("refs/remotes/{remote}/")) {
+        Some(branch) => format!("refs/heads/{branch}"),
+        None => upstream.to_string(),
+    }
 }

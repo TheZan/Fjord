@@ -18,7 +18,7 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
     WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, RepoPath};
+use fjord_ports::{GitBackend, GitError, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
 use git2::{ErrorCode, IndexAddOption, Oid, Sort, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
@@ -216,8 +216,12 @@ impl GitBackend for LocalGitBackend {
         mutations::integrate_upstream(repo).await
     }
 
-    async fn current_branch_refspec(&self, repo: &RepoPath) -> Result<String, GitError> {
-        refs::current_branch_refspec(repo).await
+    async fn current_push_target(&self, repo: &RepoPath) -> Result<PushTarget, GitError> {
+        refs::current_push_target(repo).await
+    }
+
+    async fn current_branch_ref(&self, repo: &RepoPath) -> Result<String, GitError> {
+        refs::current_branch_ref(repo).await
     }
 
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {

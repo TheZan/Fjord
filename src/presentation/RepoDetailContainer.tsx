@@ -27,6 +27,7 @@ import {
   openTerminal,
   runFetchRepo,
   runPullRepo,
+  runPublishBranch,
   runPushRepo,
   renameBranch,
   resetToCommit,
@@ -87,6 +88,7 @@ export function RepoDetailContainer({
     action: string,
     run: () => Promise<void>,
     scopes: RepoDataScope[] = [],
+    handleError?: (error: unknown) => boolean,
   ): Promise<boolean> {
     setActionError(null);
     setActionPending(action);
@@ -98,7 +100,8 @@ export function RepoDetailContainer({
       }
       return true;
     } catch (e) {
-      if (invokeErrorCode(e) !== "operation_cancelled") {
+      const handled = handleError?.(e) ?? false;
+      if (!handled && invokeErrorCode(e) !== "operation_cancelled") {
         setActionError(userErrorMessage(e));
       }
       return false;
@@ -182,7 +185,15 @@ export function RepoDetailContainer({
     const networkTask = startNetworkAction(action);
     if (networkTask) {
       setActionOperationId(networkTask.operationId);
-      void runRepoAction(action, () => networkTask.promise, scopesForRepoAction(action));
+      void runRepoAction(
+        action,
+        () => networkTask.promise,
+        scopesForRepoAction(action),
+        // A branch with no upstream is not a failure to report — it is a
+        // branch that has never been published. Offer to publish it instead
+        // of pushing somewhere the user never configured.
+        action === "push" ? offerToPublishBranch : undefined,
+      );
       return;
     }
 
@@ -208,6 +219,18 @@ export function RepoDetailContainer({
       default:
         return null;
     }
+  }
+
+  function offerToPublishBranch(error: unknown): boolean {
+    if (invokeErrorCode(error) !== "no_upstream") return false;
+    setActionConfirmation({ kind: "publish", branch: status?.branch ?? "" });
+    return true;
+  }
+
+  function publishCurrentBranch() {
+    const task = runPublishBranch(repo.id);
+    setActionOperationId(task.operationId);
+    void runRepoAction("publish", () => task.promise, ["status", "refs"]);
   }
 
   function onCreateBranch(name: string) {
@@ -324,6 +347,7 @@ export function RepoDetailContainer({
         const confirmation = actionConfirmation;
         setActionConfirmation(null);
         if (confirmation.kind === "origin") executeAction(confirmation.action);
+        else if (confirmation.kind === "publish") publishCurrentBranch();
         else performCheckoutAndScrollToBranch(confirmation.branch);
       }}
       onCancelActionConfirmation={() => setActionConfirmation(null)}
@@ -356,7 +380,8 @@ export function RepoDetailContainer({
 type ConfirmableAction = "fetch" | "pull" | "push" | "stash-pop";
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
-  | { kind: "remote-checkout"; branch: string };
+  | { kind: "remote-checkout"; branch: string }
+  | { kind: "publish"; branch: string };
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
   return action === "fetch" || action === "pull" || action === "push" || action === "stash-pop";

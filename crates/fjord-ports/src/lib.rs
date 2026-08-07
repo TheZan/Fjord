@@ -9,7 +9,7 @@ mod ide_launcher;
 mod store;
 
 pub use git_backend::{
-    GitAskpassConfig, GitBackend, GitError, GitOperationContext, GitProgress, RepoPath,
+    GitAskpassConfig, GitBackend, GitError, GitOperationContext, GitProgress, PushTarget, RepoPath,
 };
 pub use git_environment::{GitEnvironmentError, GitEnvironmentProvider};
 pub use git_remote_backend::{GitRemoteBackend, GitRemoteError};

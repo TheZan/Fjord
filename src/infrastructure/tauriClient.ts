@@ -35,7 +35,7 @@ export interface RepositoryChangedEvent {
   statusSummary: RepoStatusSummary | null;
 }
 
-export type OperationKind = "fetch" | "pull" | "push" | "bulk-fetch" | "bulk-pull";
+export type OperationKind = "fetch" | "pull" | "push" | "publish" | "bulk-fetch" | "bulk-pull";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -394,6 +394,12 @@ export function pushRepo(repoId: string, operationId: string | null = null): Pro
 
 export function runPushRepo(repoId: string): OperationTask<void> {
   return invokeOperation("push", "push_repo", { repoId });
+}
+
+// Publishes the current branch and sets its upstream. The remote is chosen by
+// the caller; the backend never guesses one for a plain push.
+export function runPublishBranch(repoId: string, remote: string | null = null): OperationTask<void> {
+  return invokeOperation("publish", "publish_branch", { repoId, remote });
 }
 
 export function openMergeTool(repoId: string): Promise<void> {
