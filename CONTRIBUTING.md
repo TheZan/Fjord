@@ -19,6 +19,10 @@ npm ci
 npm run tauri dev
 ```
 
+Remote Git operations require an installed system Git. Release-style local
+bundles also require the askpass sidecar; `npm run tauri:build` builds, names,
+and bundles it for the current Rust host target.
+
 Run the standard checks before opening a pull request:
 
 ```bash
@@ -45,15 +49,18 @@ cargo test --workspace
   `docs/SDD.md`.
 - Frontend IPC calls should go through `src/infrastructure/tauriClient.ts`.
 - Rust command handlers should stay thin and delegate behavior to services.
-- Do not shell out to `git` for hot-path Git operations; use the `GitBackend`
-  port and the existing `fjord-git` adapter.
+- Do not shell out to `git` for hot-path local reads. Use `GitBackend` for local
+  work and `GitRemoteBackend` for every network operation. Never add libgit2
+  remote callbacks or credential storage.
+- Never log askpass environment values, prompt responses, credential-helper
+  output, or URLs containing userinfo.
 
 ## Localization
 
-Fjord ships English and Russian catalogs. When adding or changing user-visible
+Fjord ships English, Russian, German, French, and Spanish catalogs. When adding or changing user-visible
 text:
 
-- Add keys to the English and Russian catalogs.
+- Add matching keys to every locale catalog.
 - Keep Git vocabulary consistent with `src/locales/en/glossary.md`.
 - Run `npm run check-i18n`.
 

@@ -513,15 +513,6 @@ mod tests {
         async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
             Ok("deadbeef".into())
         }
-        async fn fetch(&self, _repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
-            Ok(())
-        }
-        async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
-            Ok(())
-        }
-        async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-            Ok(())
-        }
         async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
             Ok(())
         }

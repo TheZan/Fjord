@@ -35,13 +35,39 @@ Fjord starts from the workspace, not the repository. Group your repositories the
 - **English and Russian out of the box**, switchable at runtime — more languages coming.
 - **Native and cross-platform** — one fast, quiet app on Windows, macOS, and Linux.
 
+## Git and authentication
+
+Fjord uses the installed system Git for fetch, pull's network phase, push, and
+remote branch operations. This preserves your existing Git Credential Manager,
+credential helpers, SSH agent/config, proxy, and certificate setup. Fjord never
+stores passwords, tokens, or private keys. If Git or SSH still needs input, the
+bundled one-shot askpass helper shows a native Fjord prompt for that operation.
+
+Open **Settings → Git** to see the executable/version and credential environment,
+select a different Git binary, or run a read-only connection test.
+
+### Troubleshooting remote operations
+
+- **Git not found:** install Git or select its executable in Settings → Git.
+- **Authentication failed / no credential helper:** configure the provider's
+  recommended credential helper (for example Git Credential Manager), then use
+  the connection test. Fjord does not accept or save a PAT in Settings.
+- **SSH key not found:** verify `ssh-add -l`, `SSH_AUTH_SOCK`, and `~/.ssh/config`.
+- **Host key verification failed:** connect with `ssh` in a terminal and verify
+  the server fingerprint before accepting it; Fjord never bypasses host checks.
+- **Certificate or proxy error:** fix the system Git `http.ssl*`/`http.proxy`
+  configuration or corporate trust store. Fjord does not change global config.
+- **More detail:** expand **Raw diagnostics** after a failed connection test.
+  Application logs are stored in the platform app-data directory under `logs`;
+  diagnostics are bounded and credentials are redacted.
+
 ## Tech stack
 
 | | |
 |---|---|
 | **Desktop shell** | [Tauri v2](https://tauri.app/) — native webview, not Electron |
 | **Backend** | Rust, [Tokio](https://tokio.rs/) |
-| **Git engine** | [`gix`](https://github.com/GitoxideLabs/gitoxide) (gitoxide) with [`git2`](https://github.com/rust-lang/git2-rs) as fallback |
+| **Git engine** | [`gix`](https://github.com/GitoxideLabs/gitoxide) for local reads, [`git2`](https://github.com/rust-lang/git2-rs) for local mutations, system Git for all network transport |
 | **Persistence** | SQLite via [`sqlx`](https://github.com/launchbadge/sqlx) |
 | **Frontend** | React, TypeScript, [Vite](https://vitejs.dev/) |
 | **UI** | Tailwind CSS v4, custom component primitives |

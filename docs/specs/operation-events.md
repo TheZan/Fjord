@@ -16,6 +16,8 @@ Long Git operations (`fetch`, `pull`, `push`) and workspace bulk operations can 
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
+| `answer_git_auth_prompt` | `{ operation_id, prompt_id, value }` | `boolean` | Resolves one waiting prompt once. The value is never persisted or logged. |
+| `cancel_git_auth_prompt` | `{ operation_id, prompt_id }` | `boolean` | Cancels the prompt and its registered Git operation. |
 
 The TypeScript IPC wrapper generates `operationId` before invoking a cancellable command, so the UI can subscribe and cancel immediately.
 
@@ -59,3 +61,13 @@ runner.
   remote processes while preserving per-repository write locks.
 
 Cancelled commands reject with `AppError { code: "operation_cancelled", message: "operation cancelled" }`. The frontend treats that as a controlled stop, not a user-facing failure.
+
+## Authentication prompt event
+
+Event name: `fjord-auth-prompt`.
+
+The payload contains `operationId`, one-use `promptId`, prompt text, kind
+(`username`, `secret`, `confirmation`, or `unknown`), and optional repository /
+operation labels. It never contains the broker address or bearer token. Prompts
+are displayed one at a time; terminal operation events remove every queued prompt
+for that operation.

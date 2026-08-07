@@ -241,9 +241,6 @@ pub trait GitBackend: Send + Sync {
     async fn delete_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
         Err(GitError::NotImplemented("delete_branch"))
     }
-    async fn delete_remote_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("delete_remote_branch"))
-    }
     async fn create_tag(
         &self,
         _repo: &RepoPath,
@@ -283,34 +280,6 @@ pub trait GitBackend: Send + Sync {
     /// fast-forward/merge semantics. This method never performs network I/O.
     async fn integrate_upstream(&self, _repo: &RepoPath) -> Result<(), GitError> {
         Err(GitError::NotImplemented("integrate_upstream"))
-    }
-    // Legacy migration surface. Production remote call sites use
-    // `GitRemoteBackend`; these methods remain until P5-19 cleanup.
-    async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError>;
-    async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
-    async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError>;
-    async fn fetch_with_context(
-        &self,
-        repo: &RepoPath,
-        remote: &str,
-        _context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        self.fetch(repo, remote).await
-    }
-    async fn pull_with_context(
-        &self,
-        repo: &RepoPath,
-        _context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        self.pull(repo).await
-    }
-    async fn push_with_context(
-        &self,
-        repo: &RepoPath,
-        refspec: &str,
-        _context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        self.push(repo, refspec).await
     }
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }

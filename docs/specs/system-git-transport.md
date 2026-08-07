@@ -16,9 +16,8 @@ Fjord separates repository-local work from network transport:
 - `GitEnvironmentProvider` discovers and inspects Git and performs a read-only
   connection test.
 
-`RepoService` receives the three ports separately. Legacy network methods may
-temporarily remain on `GitBackend` only as migration adapters; no final production
-remote path may use libgit2 transport.
+`RepoService` receives the three ports separately. `GitBackend` contains no
+network methods, and no production remote path uses libgit2 transport.
 
 ## Authentication
 
@@ -37,8 +36,9 @@ Askpass is a fallback prompt channel, never credential storage. Its token,
 operation ID, prompt response, and broker address are operation-scoped and must
 not be logged.
 
-Without a credential helper, a non-interactive operation may return
-`git_auth_required`; once askpass is available, Git can prompt through Fjord.
+Without a credential helper, Git can prompt through Fjord's bundled askpass;
+rejected or unavailable interaction is classified as `git_auth_required` or
+`git_auth_failed` from sanitized Git diagnostics.
 
 ## Executable discovery
 
@@ -154,6 +154,15 @@ credential-helper names and origins, sanitized SSH command presence, SSH-agent
 availability, and proxy configured/not-configured. Connection testing uses
 `git ls-remote --symref <remote> HEAD` and does not mutate the repository.
 
-Askpass is enabled only after system fetch/pull/push and process cancellation are
-stable. The broker listens on loopback, authenticates short-lived one-use prompt
-requests, keeps concurrent operations isolated, and clears responses immediately.
+The broker listens only on `127.0.0.1` at an ephemeral port. Every operation has
+a CSPRNG bearer token, expiry, and one-use prompt IDs. The sidecar sends one
+newline-delimited JSON request and receives one response with `answered`,
+`cancelled`, `timed-out`, or `operation-cancelled`; token/address never cross the
+Tauri event boundary. Concurrent prompts are queued in the UI, and secret React
+state is cleared before the answer IPC promise settles.
+
+`fjord-askpass` is a minimal Tauri-free binary. Git receives its absolute path in
+`GIT_ASKPASS` and `SSH_ASKPASS`; Unix additionally uses process-local OpenSSH
+askpass variables. `GIT_TERMINAL_PROMPT` is deliberately not forced off so GCM
+browser/MFA flows remain available. Release and bundle-smoke matrices build a
+target-suffixed sidecar and fail if it is absent from the bundle.

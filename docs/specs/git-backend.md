@@ -24,10 +24,7 @@ pub trait GitBackend: Send + Sync {
     async fn checkout(&self, repo: &RepoPath, branch: &BranchName) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<CommitId, GitError>;
-    // Legacy migration methods only; removed after P5 replacement coverage.
-    async fn fetch(&self, repo: &RepoPath, remote: &RemoteName) -> Result<(), GitError>;
-    async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
-    async fn push(&self, repo: &RepoPath, refspec: &RefSpec) -> Result<(), GitError>;
+    async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }
 
@@ -63,6 +60,9 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 The local/remote split is deliberate: maturing local engines can change behind
 `GitBackend`, while authentication and transport stay delegated to the installed
 Git through `GitRemoteBackend`.
+
+The local trait has no fetch, push, or remote-branch deletion methods. This is a
+compile-time guard against reintroducing libgit2 transport or hidden network I/O.
 
 ## Error handling
 

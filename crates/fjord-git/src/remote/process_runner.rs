@@ -15,7 +15,8 @@ const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(40);
 #[cfg(unix)]
 const TERMINATION_GRACE_PERIOD: Duration = Duration::from_millis(250);
 
-#[derive(Debug, Clone)]
+// Intentionally no `Debug`: `environment` may contain the askpass bearer token.
+#[derive(Clone)]
 pub struct GitCommandSpec {
     pub executable: PathBuf,
     pub cwd: PathBuf,

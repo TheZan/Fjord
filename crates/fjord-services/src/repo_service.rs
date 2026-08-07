@@ -1203,18 +1203,6 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok("refs/heads/main:refs/heads/main".into())
         }
-        async fn fetch(&self, repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
-            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
-            Ok(())
-        }
-        async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
-            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
-            Ok(())
-        }
-        async fn push(&self, repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
-            Ok(())
-        }
         async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())

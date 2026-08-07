@@ -85,13 +85,14 @@ fjord/
     fjord-db/         # sqlx + SQLite migrations, implements *Store traits
     fjord-fs/         # filesystem watching (notify), path/case-sensitivity helpers
     fjord-app/        # Tauri commands, DI wiring, per-OS IdeLauncher impls — the only crate depending on `tauri`
+    fjord-askpass/    # minimal one-shot credential prompt sidecar; no Tauri or storage
     fjord-bench/      # benchmark harness: synthetic repo/workspace generator + timed scenarios
   src-tauri/          # thin Tauri entrypoint, re-exports fjord-app
 ```
 
 `fjord-domain` and `fjord-services` have no knowledge that Tauri, SQLite, or gix exist. Identifiers use the NewType pattern (`WorkspaceId`, `RepositoryId`) so IDs of different entities cannot be confused at compile time.
 
-### 5.2 Git engine: local engines plus system Git transport 🚧
+### 5.2 Git engine: local engines plus system Git transport ✅
 
 - **[`gix`](https://github.com/GitoxideLabs/gitoxide)** (gitoxide) is a pure-Rust, memory-safe Git implementation. Its read paths — status, diff, commit-graph traversal, index access — are fast and are exactly the hot paths for a *workspace manager* (computing "24 repos, 3 need attention" means running status across every repo, repeatedly, cheaply). No C dependency; cross-compiles cleanly.
 - Its gaps as of today: push, full merge workflows, rebase, and hooks are still maturing.
@@ -110,6 +111,12 @@ merge/fast-forward**, and **system Git serves fetch/push/remote inspection**.
 existing semantics regardless of user `pull.rebase` configuration. Details and
 security constraints are in
 [`specs/system-git-transport.md`](specs/system-git-transport.md).
+
+Remote commands use an async streaming runner with process-tree cancellation,
+stable error codes, bounded/redacted diagnostics, and operation-scoped askpass.
+The local port has no transport methods, so libgit2 cannot become a hidden
+network fallback. Git environment and connection diagnostics are exposed in
+Settings without changing global configuration or storing credentials.
 
 Concurrency inside the adapter: all blocking git work runs under `tokio::task::spawn_blocking`; a per-repository `RwLock` (keyed by canonicalized path) allows parallel reads of the same repo while serializing writes.
 
@@ -193,7 +200,7 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
 ## 8. Cross-cutting concerns
 
 - ✅ **Errors**: `thiserror` typed errors per crate (`GitError`, `StoreError`, service-level enums), mapped at the `commands` boundary to a small serializable `AppError { code, message }` — the frontend switches on `code` (stable, localizable) and never parses Rust `Display` strings. Error *messages* shown to the user go through the i18n catalog.
-- ✅ **Async runtime**: Tokio throughout the backend; blocking git work wrapped in `spawn_blocking`. Long-running Git operations (`fetch`/`pull`/`push`) and workspace bulk operations emit `fjord-operation-progress` Tauri events, take caller-generated operation IDs, and can be cancelled through `cancel_operation` (`P4-17`). See [`specs/operation-events.md`](specs/operation-events.md).
+- ✅ **Async runtime**: Tokio throughout the backend; blocking local git work is wrapped in `spawn_blocking`, while system-Git transport uses `tokio::process`. Long-running Git operations (`fetch`/`pull`/`push`) and workspace bulk operations emit `fjord-operation-progress` Tauri events, take caller-generated operation IDs, and can be cancelled through `cancel_operation`; cancellation terminates the process tree. See [`specs/operation-events.md`](specs/operation-events.md).
 - ✅ **Logging/tracing**: `tracing` + a daily-rotating file appender in the app data dir so bug reports can include real diagnostics (`P4-14`). See §10.
 - **Testing** (current state; gaps tracked in `P4-09`):
   - ✅ `fjord-domain` / `fjord-services`: unit tests with in-memory fakes of the port traits — no real Git or SQLite needed.
@@ -213,6 +220,7 @@ Threat model in one line: the WebView renders only local data (no remote content
 - ✅ **External process launching** (`fjord-app/src/ide_launcher.rs`): the `ide` string from settings/IPC only launches commands from an explicit allowlist of known IDE CLIs; the custom-editor escape hatch requires the deliberate `custom:<command>` form and an unrecognized bare value is rejected with `ide_not_allowed`. The Unix availability check walks `PATH` directly instead of interpolating into `sh -c` (`P4-04`).
 - ✅ **Startup robustness**: bootstrap failures (app data dir resolution, DB open) surface a blocking error dialog and a non-zero exit code instead of a panic (`P4-02`).
 - ✅ **Input validation**: repository paths from IPC are canonicalized and checked for being actual Git repositories before use; IDs are opaque NewTypes generated backend-side.
+- ✅ **Credential handling**: Fjord delegates to system Git/GCM/SSH first and stores no credentials. The fallback askpass broker is loopback-only with expiring operation tokens and one-use prompt IDs; secrets never enter arguments, storage, tracing, or retained frontend state.
 
 ## 10. Observability
 
@@ -253,7 +261,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 2 — Workspace layer (CRUD, status cache, dashboard, list-detail, bulk ops, IDE launcher, benchmark) | ✅ done |
 | Phase 3 — Polish and release | ✅ done through release readiness: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`), contributor docs and public release checklist (`P3-05`) |
 | Phase 4 — Hardening & tech debt (2026-08 audit) | ✅ done |
-| Phase 5 — System Git transport and authentication | 🚧 active; architecture contract complete, implementation tracked in [`tasks.md`](tasks.md) |
+| Phase 5 — System Git transport and authentication | ✅ implementation complete; manual provider/OS compatibility sign-off tracked in [`manual-git-compatibility.md`](manual-git-compatibility.md) |
 
 Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (data fetching §6.1, type generation §6.1, virtualization §5.3, CSP §9, logging §10, CI §5.4).
 
@@ -261,7 +269,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 
 | Risk | Mitigation |
 |---|---|
-| `gix` push/merge/rebase support matures slower than expected | `GitBackend` trait already isolates this — worst case, those calls stay on `git2` indefinitely with no architectural cost |
+| `gix` mutation support matures slower than expected | `GitBackend` isolates local engines; network transport remains system Git regardless of local engine choices. |
 | Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks run weekly/on demand (`P4-18`) |
 | Generated TS domain types drift from Rust domain | `cargo test --workspace` includes the `fjord-domain` export drift check (`P4-11`) |
 | Large-monorepo performance is partly a claim | Release-profile benchmarks now cover 50k single-repo history and a 60k-total-commit workspace (`P4-18`); expand toward 100k–200k fixtures when CI runtime budget allows |

@@ -243,6 +243,8 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::GixGitBackend;
+    use fjord_ports::GitBackend;
 
     #[test]
     fn parses_progress_counts_and_phases() {
@@ -339,6 +341,93 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn composed_pull_fast_forwards_merges_and_reports_conflicts() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        let clone = temp.path().join("clone");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        std::fs::write(source.join("README.md"), "initial\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "initial"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&source, &["push", "-u", "origin", "main"]);
+        run_git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        run_git(
+            temp.path(),
+            &["clone", remote.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        configure_identity(&clone);
+
+        let remote_backend = SystemGitRemoteBackend::new();
+        let local_backend = GixGitBackend::new();
+        let clone_path = RepoPath::new(clone.clone());
+
+        std::fs::write(source.join("remote-only.txt"), "fast-forward\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "remote fast-forward"]);
+        run_git(&source, &["push"]);
+        remote_backend
+            .fetch(&clone_path, "origin", &[], GitOperationContext::default())
+            .await
+            .unwrap();
+        local_backend.integrate_upstream(&clone_path).await.unwrap();
+        assert_eq!(
+            git_output(&clone, &["rev-parse", "HEAD"]),
+            git_output(&source, &["rev-parse", "HEAD"])
+        );
+
+        std::fs::write(clone.join("local-only.txt"), "local\n").unwrap();
+        run_git(&clone, &["add", "."]);
+        run_git(&clone, &["commit", "-m", "local change"]);
+        std::fs::write(source.join("upstream-only.txt"), "upstream\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "upstream change"]);
+        run_git(&source, &["push"]);
+        remote_backend
+            .fetch(&clone_path, "origin", &[], GitOperationContext::default())
+            .await
+            .unwrap();
+        local_backend.integrate_upstream(&clone_path).await.unwrap();
+        assert_eq!(
+            git_output(&clone, &["rev-list", "--parents", "-n", "1", "HEAD"])
+                .split_whitespace()
+                .count(),
+            3
+        );
+        assert!(clone.join("local-only.txt").is_file());
+        assert!(clone.join("upstream-only.txt").is_file());
+
+        std::fs::write(clone.join("conflict.txt"), "local\n").unwrap();
+        run_git(&clone, &["add", "."]);
+        run_git(&clone, &["commit", "-m", "local conflict"]);
+        std::fs::write(source.join("conflict.txt"), "remote\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "remote conflict"]);
+        run_git(&source, &["push"]);
+        remote_backend
+            .fetch(&clone_path, "origin", &[], GitOperationContext::default())
+            .await
+            .unwrap();
+        let error = local_backend
+            .integrate_upstream(&clone_path)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, fjord_ports::GitError::Conflict { .. }));
+        assert!(git2::Repository::open(&clone)
+            .unwrap()
+            .index()
+            .unwrap()
+            .has_conflicts());
+    }
+
     fn run_git(cwd: &Path, args: &[&str]) {
         let status = std::process::Command::new("git")
             .args(args)
@@ -346,6 +435,12 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "git {args:?} failed");
+    }
+
+    fn configure_identity(cwd: &Path) {
+        run_git(cwd, &["config", "user.name", "Fjord Test"]);
+        run_git(cwd, &["config", "user.email", "fjord@example.test"]);
+        run_git(cwd, &["config", "core.autocrlf", "false"]);
     }
 
     fn git_output(cwd: &Path, args: &[&str]) -> String {

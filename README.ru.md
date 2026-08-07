@@ -35,13 +35,41 @@ Fjord отталкивается от рабочего пространства,
 - **Русский и английский из коробки**, переключаются на лету — другие языки на подходе.
 - **Нативное кроссплатформенное приложение** — быстро и незаметно работает на Windows, macOS и Linux.
 
+## Git и авторизация
+
+Для fetch, сетевого этапа pull, push и операций с удалёнными ветками Fjord
+использует установленный системный Git. Поэтому продолжают работать ваши Git
+Credential Manager, credential helpers, SSH agent/config, proxy и сертификаты.
+Fjord не хранит пароли, токены и приватные ключи. Если Git или SSH всё же нужен
+ввод, встроенный одноразовый askpass показывает нативное окно Fjord только для
+текущей операции.
+
+В **Настройки → Git** можно увидеть путь и версию Git, проверить окружение,
+выбрать другой executable и выполнить read-only проверку подключения.
+
+### Диагностика сетевых операций
+
+- **Git не найден:** установите Git или выберите executable в Настройки → Git.
+- **Ошибка авторизации / нет credential helper:** настройте рекомендованный
+  хостингом helper (например, Git Credential Manager) и проверьте подключение.
+  Fjord не принимает и не сохраняет PAT в настройках.
+- **SSH-ключ не найден:** проверьте `ssh-add -l`, `SSH_AUTH_SOCK` и `~/.ssh/config`.
+- **Ошибка host key:** подключитесь через `ssh` в терминале и сверьте fingerprint
+  сервера перед подтверждением; Fjord не отключает проверку host key.
+- **Ошибка сертификата или proxy:** исправьте системные настройки Git
+  `http.ssl*`/`http.proxy` или корпоративное хранилище доверия. Fjord не меняет
+  глобальный Git config.
+- **Подробности:** раскройте **Raw diagnostics** после неудачной проверки.
+  Логи приложения находятся в каталоге app-data платформы, в папке `logs`;
+  диагностика ограничена по размеру, credentials редактируются.
+
 ## Стек технологий
 
 | | |
 |---|---|
 | **Desktop-обёртка** | [Tauri v2](https://tauri.app/) — нативный webview, не Electron |
 | **Backend** | Rust, [Tokio](https://tokio.rs/) |
-| **Git-движок** | [`gix`](https://github.com/GitoxideLabs/gitoxide) (gitoxide) с [`git2`](https://github.com/rust-lang/git2-rs) как фолбэком |
+| **Git-движок** | [`gix`](https://github.com/GitoxideLabs/gitoxide) для локального чтения, [`git2`](https://github.com/rust-lang/git2-rs) для локальных изменений, системный Git для всего сетевого transport |
 | **Хранение данных** | SQLite через [`sqlx`](https://github.com/launchbadge/sqlx) |
 | **Frontend** | React, TypeScript, [Vite](https://vitejs.dev/) |
 | **UI** | Tailwind CSS v4, собственные UI-примитивы |

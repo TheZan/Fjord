@@ -13,9 +13,9 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
     WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
+use fjord_ports::{GitBackend, GitError, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{Cred, ErrorCode, IndexAddOption, Oid, PushOptions, RemoteCallbacks, Sort, StashFlags};
+use git2::{ErrorCode, IndexAddOption, Oid, Sort, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -68,7 +68,7 @@ impl GixGitBackend {
     }
 
     /// Exclusive guard for operations that mutate the repository — checkout,
-    /// staging, commit, fetch/pull/push, stash. Two of these interleaving
+    /// staging, commit, integration, stash. Two of these interleaving
     /// (or running while a read observes a half-applied state) is what the
     /// lock exists to prevent.
     async fn acquire_repo_write_lock(repo: &RepoPath) -> tokio::sync::OwnedRwLockWriteGuard<()> {
@@ -85,121 +85,27 @@ impl GixGitBackend {
         }
     }
 
-    fn remote_callbacks(context: GitOperationContext) -> RemoteCallbacks<'static> {
-        let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, allowed| {
-            if allowed.is_ssh_key() {
-                if let Some(username) = username_from_url {
-                    if let Ok(cred) = Cred::ssh_key_from_agent(username) {
-                        return Ok(cred);
-                    }
-                }
-            }
-
-            Cred::default().or_else(|_| {
-                username_from_url
-                    .map(Cred::username)
-                    .unwrap_or_else(Cred::default)
-            })
-        });
-        callbacks.transfer_progress(move |stats| {
-            context.emit(GitProgress {
-                completed: stats.received_objects() as u32,
-                total: stats.total_objects() as u32,
-                message: None,
-            });
-            !context.is_cancelled()
-        });
-        callbacks
-    }
-
-    fn push_options(context: GitOperationContext) -> PushOptions<'static> {
-        let push_context = context.clone();
-        let update_context = context.clone();
-        let mut callbacks = Self::remote_callbacks(context);
-        callbacks.push_update_reference(move |refname, status| {
-            if update_context.is_cancelled() {
-                return Err(git2::Error::from_str("operation cancelled"));
-            }
-            status
-                .map(|message| Err(git2::Error::from_str(&format!("{refname}: {message}"))))
-                .unwrap_or(Ok(()))
-        });
-        callbacks.push_transfer_progress(move |current, total, _bytes| {
-            push_context.emit(GitProgress {
-                completed: current as u32,
-                total: total as u32,
-                message: None,
-            });
-        });
-
-        let mut options = PushOptions::new();
-        options.remote_callbacks(callbacks);
-        options
-    }
-
-    fn fetch_remote_with_system_git(
-        repo: &RepoPath,
-        remote_name: &str,
-        refspecs: &[&str],
-        context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        let mut args = vec!["fetch", "--prune", remote_name];
-        args.extend(refspecs.iter().copied());
-        Self::run_system_git(repo, &args, context)
-    }
-
-    fn run_system_git(
-        repo: &RepoPath,
-        args: &[&str],
-        context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        if context.is_cancelled() {
-            return Err(GitError::Cancelled);
-        }
-
-        let output = Self::background_git_command()
+    /// Runs a local-only Git mutation that does not use transport. Network
+    /// commands must go through `GitRemoteBackend` and its async runner.
+    fn run_local_git(repo: &RepoPath, args: &[&str]) -> Result<(), GitError> {
+        let status = Self::background_git_command()
             .args(args)
             .current_dir(&repo.0)
             .stdin(Stdio::null())
-            .output()
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
             .map_err(|err| {
                 GitError::Git2(format!("failed to run git {}: {err}", args.join(" ")))
             })?;
 
-        if context.is_cancelled() {
-            return Err(GitError::Cancelled);
-        }
-        if output.status.success() {
+        if status.success() {
             return Ok(());
         }
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let message = stderr
-            .trim()
-            .split('\n')
-            .next()
-            .filter(|line| !line.is_empty())
-            .or_else(|| {
-                stdout
-                    .trim()
-                    .split('\n')
-                    .next()
-                    .filter(|line| !line.is_empty())
-            })
-            .unwrap_or("git command failed");
-        let lowered = message.to_ascii_lowercase();
-        if lowered.contains("authentication failed")
-            || lowered.contains("could not read username")
-            || lowered.contains("permission denied")
-        {
-            return Err(GitError::AuthenticationFailed);
-        }
-
         Err(GitError::Git2(format!(
-            "git {} failed: {message}",
-            args.join(" ")
+            "local git {} failed with exit code {:?}",
+            args.join(" "),
+            status.code()
         )))
     }
 
@@ -274,6 +180,17 @@ impl GixGitBackend {
         local_refname: &str,
         remote_commit: &git2::AnnotatedCommit<'_>,
     ) -> Result<(), GitError> {
+        // Update the index/worktree while HEAD still points at the old tree.
+        // Moving the reference first makes libgit2 see an already-current HEAD
+        // and leaves the worktree stale even though the ref advanced.
+        let target = git
+            .find_object(remote_commit.id(), Some(git2::ObjectType::Commit))
+            .map_err(Self::map_git2_error)?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.safe();
+        git.checkout_tree(&target, Some(&mut checkout))
+            .map_err(Self::map_git2_error)?;
+
         let mut local_ref = git
             .find_reference(local_refname)
             .map_err(Self::map_git2_error)?;
@@ -283,12 +200,7 @@ impl GixGitBackend {
                 &format!("Fast-forward {local_refname} to {}", remote_commit.id()),
             )
             .map_err(Self::map_git2_error)?;
-        git.set_head(local_refname).map_err(Self::map_git2_error)?;
-
-        let mut checkout = CheckoutBuilder::new();
-        checkout.safe();
-        git.checkout_head(Some(&mut checkout))
-            .map_err(Self::map_git2_error)
+        git.set_head(local_refname).map_err(Self::map_git2_error)
     }
 
     fn normal_merge(
@@ -302,31 +214,21 @@ impl GixGitBackend {
         let remote = git
             .find_commit(remote_commit.id())
             .map_err(Self::map_git2_error)?;
-        let ancestor = git
-            .find_commit(
-                git.merge_base(local_commit.id(), remote_commit.id())
-                    .map_err(Self::map_git2_error)?,
-            )
+        let mut checkout = CheckoutBuilder::new();
+        checkout
+            .safe()
+            .allow_conflicts(true)
+            .conflict_style_merge(true);
+        git.merge(&[remote_commit], None, Some(&mut checkout))
             .map_err(Self::map_git2_error)?;
-        let mut index = git
-            .merge_trees(
-                &ancestor.tree().map_err(Self::map_git2_error)?,
-                &local.tree().map_err(Self::map_git2_error)?,
-                &remote.tree().map_err(Self::map_git2_error)?,
-                None,
-            )
-            .map_err(Self::map_git2_error)?;
+        let mut index = git.index().map_err(Self::map_git2_error)?;
 
         if index.has_conflicts() {
             let paths = Self::conflict_paths(&index);
-            let mut checkout = CheckoutBuilder::new();
-            checkout.allow_conflicts(true).conflict_style_merge(true);
-            git.checkout_index(Some(&mut index), Some(&mut checkout))
-                .map_err(Self::map_git2_error)?;
             return Err(GitError::Conflict { paths });
         }
 
-        let tree_oid = index.write_tree_to(git).map_err(Self::map_git2_error)?;
+        let tree_oid = index.write_tree().map_err(Self::map_git2_error)?;
         let tree = git.find_tree(tree_oid).map_err(Self::map_git2_error)?;
         let signature = git.signature().map_err(Self::map_git2_error)?;
         let message = format!("Merge {} into {}", remote_commit.id(), local_commit.id());
@@ -339,11 +241,8 @@ impl GixGitBackend {
             &[&local, &remote],
         )
         .map_err(Self::map_git2_error)?;
-
-        let mut checkout = CheckoutBuilder::new();
-        checkout.safe();
-        git.checkout_head(Some(&mut checkout))
-            .map_err(Self::map_git2_error)
+        git.cleanup_state().map_err(Self::map_git2_error)?;
+        Ok(())
     }
 
     /// The commit's tree and its first parent's tree (`None` for a root commit), which
@@ -495,12 +394,10 @@ impl GixGitBackend {
 
     fn checkout_refname_for_branch(
         git: &git2::Repository,
-        repo: &RepoPath,
         branch: &str,
-        fetch_remote: bool,
     ) -> Result<String, GitError> {
         if let Some(remote_branch) = branch.strip_prefix("refs/remotes/") {
-            return Self::checkout_remote_tracking_branch(git, repo, remote_branch, fetch_remote);
+            return Self::checkout_remote_tracking_branch(git, remote_branch);
         }
 
         if branch.starts_with("refs/") {
@@ -514,7 +411,7 @@ impl GixGitBackend {
         }
 
         if Self::remote_branch_parts(git, branch).is_some() {
-            return Self::checkout_remote_tracking_branch(git, repo, branch, fetch_remote);
+            return Self::checkout_remote_tracking_branch(git, branch);
         }
 
         git.find_reference(&local_refname)
@@ -524,23 +421,12 @@ impl GixGitBackend {
 
     fn checkout_remote_tracking_branch(
         git: &git2::Repository,
-        repo: &RepoPath,
         remote_branch: &str,
-        fetch_remote: bool,
     ) -> Result<String, GitError> {
-        let (remote_name, local_name) =
+        let (_remote_name, local_name) =
             Self::remote_branch_parts(git, remote_branch).ok_or_else(|| {
                 GitError::Git2(format!("remote branch name is invalid: {remote_branch}"))
             })?;
-        if fetch_remote {
-            let refspec = format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}");
-            Self::fetch_remote_with_system_git(
-                repo,
-                remote_name,
-                &[refspec.as_str()],
-                GitOperationContext::default(),
-            )?;
-        }
 
         let local_refname = format!("refs/heads/{local_name}");
         if git.find_reference(&local_refname).is_ok() {
@@ -1336,7 +1222,7 @@ impl GitBackend for GixGitBackend {
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch, true)?;
+            let refname = Self::checkout_refname_for_branch(&git, &branch)?;
 
             Self::checkout_refname(&git, &refname)
         })
@@ -1373,7 +1259,7 @@ impl GitBackend for GixGitBackend {
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
             let git = Self::open_git2(&repo)?;
-            let refname = Self::checkout_refname_for_branch(&git, &repo, &branch, false)?;
+            let refname = Self::checkout_refname_for_branch(&git, &branch)?;
             Self::checkout_refname(&git, &refname)
         })
         .await
@@ -1422,13 +1308,9 @@ impl GitBackend for GixGitBackend {
         let target = target.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["branch", &name, &target],
-                GitOperationContext::default(),
-            )?;
+            Self::run_local_git(&repo, &["branch", &name, &target])?;
             if checkout {
-                Self::run_system_git(&repo, &["checkout", &name], GitOperationContext::default())?;
+                Self::run_local_git(&repo, &["checkout", &name])?;
             }
             Ok(())
         })
@@ -1447,11 +1329,7 @@ impl GitBackend for GixGitBackend {
         let new_name = new_name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["branch", "-m", &old_name, &new_name],
-                GitOperationContext::default(),
-            )
+            Self::run_local_git(&repo, &["branch", "-m", &old_name, &new_name])
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1461,38 +1339,9 @@ impl GitBackend for GixGitBackend {
         let repo = repo.clone();
         let name = name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["branch", "-d", &name],
-                GitOperationContext::default(),
-            )
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
-    }
-
-    async fn delete_remote_branch(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
-        let repo = repo.clone();
-        let name = name.to_string();
-        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            let (remote, branch) = name
-                .split_once('/')
-                .ok_or_else(|| GitError::Git2(format!("remote branch name is invalid: {name}")))?;
-            if remote.is_empty() || branch.is_empty() {
-                return Err(GitError::Git2(format!(
-                    "remote branch name is invalid: {name}"
-                )));
-            }
-            Self::run_system_git(
-                &repo,
-                &["push", remote, "--delete", branch],
-                GitOperationContext::default(),
-            )
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
+        tokio::task::spawn_blocking(move || Self::run_local_git(&repo, &["branch", "-d", &name]))
+            .await
+            .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn create_tag(&self, repo: &RepoPath, name: &str, target: &str) -> Result<(), GitError> {
@@ -1500,26 +1349,18 @@ impl GitBackend for GixGitBackend {
         let name = name.to_string();
         let target = target.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["tag", &name, &target],
-                GitOperationContext::default(),
-            )
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
+        tokio::task::spawn_blocking(move || Self::run_local_git(&repo, &["tag", &name, &target]))
+            .await
+            .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn delete_tag(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
         let repo = repo.clone();
         let name = name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["tag", "-d", &name], GitOperationContext::default())
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
+        tokio::task::spawn_blocking(move || Self::run_local_git(&repo, &["tag", "-d", &name]))
+            .await
+            .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn cherry_pick(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
@@ -1527,11 +1368,7 @@ impl GitBackend for GixGitBackend {
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["cherry-pick", &commit_id],
-                GitOperationContext::default(),
-            )
+            Self::run_local_git(&repo, &["cherry-pick", &commit_id])
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1542,11 +1379,7 @@ impl GitBackend for GixGitBackend {
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(
-                &repo,
-                &["revert", "--no-edit", &commit_id],
-                GitOperationContext::default(),
-            )
+            Self::run_local_git(&repo, &["revert", "--no-edit", &commit_id])
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1564,11 +1397,7 @@ impl GitBackend for GixGitBackend {
                 "hard" => "--hard",
                 _ => return Err(GitError::Git2(format!("unknown reset mode: {mode}"))),
             };
-            Self::run_system_git(
-                &repo,
-                &["reset", flag, &commit_id],
-                GitOperationContext::default(),
-            )
+            Self::run_local_git(&repo, &["reset", flag, &commit_id])
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1797,146 +1626,6 @@ impl GitBackend for GixGitBackend {
         })
         .await
         .map_err(|error| GitError::Git2(error.to_string()))?
-    }
-
-    async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
-        self.fetch_with_context(repo, remote, GitOperationContext::default())
-            .await
-    }
-
-    async fn fetch_with_context(
-        &self,
-        repo: &RepoPath,
-        remote: &str,
-        context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        let repo = repo.clone();
-        let remote = remote.to_string();
-        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            Self::fetch_remote_with_system_git(&repo, &remote, &[], context)
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
-    }
-
-    async fn pull(&self, repo: &RepoPath) -> Result<(), GitError> {
-        self.pull_with_context(repo, GitOperationContext::default())
-            .await
-    }
-
-    async fn pull_with_context(
-        &self,
-        repo: &RepoPath,
-        context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        let repo = repo.clone();
-        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            if context.is_cancelled() {
-                return Err(GitError::Cancelled);
-            }
-
-            let git = Self::open_git2(&repo)?;
-            let head = git.head().map_err(Self::map_git2_error)?;
-            let head_refname = Self::current_branch_refname(&git)?;
-
-            let upstream_refname = git
-                .branch_upstream_name(&head_refname)
-                .map_err(|err| match err.code() {
-                    ErrorCode::NotFound => GitError::NoUpstream,
-                    _ => Self::map_git2_error(err),
-                })?
-                .as_str()
-                .map_err(Self::map_git2_error)?
-                .to_string();
-            let remote_name = git
-                .branch_upstream_remote(&head_refname)
-                .map_err(Self::map_git2_error)?
-                .as_str()
-                .map_err(Self::map_git2_error)?
-                .to_string();
-
-            Self::fetch_remote_with_system_git(&repo, &remote_name, &[], context.clone())?;
-            if context.is_cancelled() {
-                return Err(GitError::Cancelled);
-            }
-
-            let upstream_ref = git
-                .find_reference(&upstream_refname)
-                .map_err(Self::map_git2_error)?;
-            let remote_commit = git
-                .reference_to_annotated_commit(&upstream_ref)
-                .map_err(Self::map_git2_error)?;
-            let analysis = git
-                .merge_analysis(&[&remote_commit])
-                .map_err(Self::map_git2_error)?;
-
-            if analysis.0.is_up_to_date() {
-                return Ok(());
-            }
-
-            if analysis.0.is_fast_forward() {
-                return Self::fast_forward(&git, &head_refname, &remote_commit);
-            }
-
-            if analysis.0.is_normal() {
-                let local_commit = git
-                    .reference_to_annotated_commit(&head)
-                    .map_err(Self::map_git2_error)?;
-                return Self::normal_merge(&git, &local_commit, &remote_commit);
-            }
-
-            Ok(())
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
-    }
-
-    async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError> {
-        self.push_with_context(repo, refspec, GitOperationContext::default())
-            .await
-    }
-
-    async fn push_with_context(
-        &self,
-        repo: &RepoPath,
-        refspec: &str,
-        context: GitOperationContext,
-    ) -> Result<(), GitError> {
-        let repo = repo.clone();
-        let refspec = refspec.to_string();
-        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
-        tokio::task::spawn_blocking(move || {
-            if context.is_cancelled() {
-                return Err(GitError::Cancelled);
-            }
-
-            let git = Self::open_git2(&repo)?;
-            let refspec = if refspec.trim().is_empty() {
-                let head_refname = Self::current_branch_refname(&git)?;
-                format!("{head_refname}:{head_refname}")
-            } else {
-                refspec
-            };
-
-            let mut remote = git.find_remote("origin").map_err(Self::map_git2_error)?;
-            let mut options = Self::push_options(context.clone());
-            match remote.push(&[refspec.as_str()], Some(&mut options)) {
-                Ok(()) => Ok(()),
-                Err(error) if error.code() == ErrorCode::Auth && !context.is_cancelled() => {
-                    // libgit2 doesn't integrate with Git Credential Manager,
-                    // which is the usual credential source for HTTPS remotes
-                    // on Windows. Let the system Git ask GCM instead.
-                    drop(remote);
-                    Self::run_system_git(&repo, &["push", "origin", &refspec], context)
-                }
-                Err(_error) if context.is_cancelled() => Err(GitError::Cancelled),
-                Err(error) => Err(Self::map_git2_error(error)),
-            }
-        })
-        .await
-        .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
@@ -2409,9 +2098,6 @@ mod tests {
     #[tokio::test]
     async fn checkout_remote_branch_creates_local_tracking_branch() {
         let (_dir, repo_path) = empty_repo();
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "# Fjord\n");
         backend
@@ -2421,17 +2107,19 @@ mod tests {
         backend.commit(&repo_path, "Initial commit").await.unwrap();
 
         let repo = Repository::open(&repo_path.0).unwrap();
-        repo.remote("origin", remote_dir.path().to_str().unwrap())
+        repo.remote("origin", "https://example.invalid/repo.git")
             .unwrap();
         let head = repo.head().unwrap().peel_to_commit().unwrap();
         repo.branch("feature", &head, false).unwrap();
+        repo.reference(
+            "refs/remotes/origin/feature",
+            head.id(),
+            true,
+            "materialize fetched remote ref",
+        )
+        .unwrap();
         drop(head);
         drop(repo);
-
-        backend
-            .push(&repo_path, "refs/heads/feature:refs/heads/feature")
-            .await
-            .unwrap();
 
         Repository::open(&repo_path.0)
             .unwrap()
@@ -2441,7 +2129,7 @@ mod tests {
             .unwrap();
 
         backend
-            .checkout(&repo_path, "origin/feature")
+            .checkout_local(&repo_path, "origin/feature")
             .await
             .unwrap();
 
@@ -2451,99 +2139,6 @@ mod tests {
         assert_eq!(
             branch.upstream().unwrap().name().unwrap(),
             Some("origin/feature")
-        );
-    }
-
-    #[tokio::test]
-    async fn checkout_remote_branch_fast_forwards_existing_local_branch() {
-        let (_dir, repo_path) = empty_repo();
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let backend = GixGitBackend::new();
-        write_file(&repo_path, "README.md", "main\n");
-        backend
-            .stage(&repo_path, &[PathBuf::from("README.md")])
-            .await
-            .unwrap();
-        backend.commit(&repo_path, "Initial commit").await.unwrap();
-
-        Repository::open(&repo_path.0)
-            .unwrap()
-            .remote("origin", remote_dir.path().to_str().unwrap())
-            .unwrap();
-        backend
-            .push(&repo_path, "refs/heads/main:refs/heads/main")
-            .await
-            .unwrap();
-
-        backend
-            .create_branch(&repo_path, "feature", true)
-            .await
-            .unwrap();
-        write_file(&repo_path, "README.md", "feature v1\n");
-        backend
-            .stage(&repo_path, &[PathBuf::from("README.md")])
-            .await
-            .unwrap();
-        let stale_oid = backend.commit(&repo_path, "Feature v1").await.unwrap();
-        backend
-            .push(&repo_path, "refs/heads/feature:refs/heads/feature")
-            .await
-            .unwrap();
-        backend.checkout(&repo_path, "main").await.unwrap();
-
-        let clone_dir = TempDir::new().unwrap();
-        Repository::clone(remote_dir.path().to_str().unwrap(), clone_dir.path()).unwrap();
-        let clone_path = RepoPath(clone_dir.path().to_path_buf());
-        let clone = Repository::open(&clone_path.0).unwrap();
-        let mut config = clone.config().unwrap();
-        config.set_str("user.name", "Fjord Test").unwrap();
-        config.set_str("user.email", "fjord@example.com").unwrap();
-        config.set_bool("core.autocrlf", false).unwrap();
-        let feature = clone
-            .find_reference("refs/remotes/origin/feature")
-            .unwrap()
-            .peel_to_commit()
-            .unwrap();
-        clone.branch("feature", &feature, false).unwrap();
-        clone.set_head("refs/heads/feature").unwrap();
-        clone
-            .checkout_head(Some(CheckoutBuilder::new().safe()))
-            .unwrap();
-        drop(feature);
-        drop(config);
-        drop(clone);
-
-        write_file(&clone_path, "README.md", "feature v2\n");
-        backend
-            .stage(&clone_path, &[PathBuf::from("README.md")])
-            .await
-            .unwrap();
-        let remote_oid = backend.commit(&clone_path, "Feature v2").await.unwrap();
-        backend
-            .push(&clone_path, "refs/heads/feature:refs/heads/feature")
-            .await
-            .unwrap();
-
-        backend
-            .checkout(&repo_path, "origin/feature")
-            .await
-            .unwrap();
-
-        let repo = Repository::open(&repo_path.0).unwrap();
-        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "feature");
-        assert_eq!(
-            repo.find_reference("refs/heads/feature")
-                .unwrap()
-                .target()
-                .unwrap(),
-            Oid::from_str(&remote_oid).unwrap()
-        );
-        assert_ne!(stale_oid, remote_oid);
-        assert_eq!(
-            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
-            "feature v2\n"
         );
     }
 
@@ -2892,75 +2487,6 @@ mod tests {
             std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
             "local edit\n"
         );
-    }
-
-    #[tokio::test]
-    async fn push_updates_origin_branch() {
-        let (_local_dir, repo_path) = empty_repo();
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-
-        let backend = GixGitBackend::new();
-        write_file(&repo_path, "README.md", "# Fjord\n");
-        backend
-            .stage(&repo_path, &[PathBuf::from("README.md")])
-            .await
-            .unwrap();
-        let local_oid = backend.commit(&repo_path, "Initial commit").await.unwrap();
-
-        Repository::open(&repo_path.0)
-            .unwrap()
-            .remote("origin", remote_dir.path().to_str().unwrap())
-            .unwrap();
-
-        backend.push(&repo_path, "").await.unwrap();
-
-        let remote = Repository::open_bare(remote_dir.path()).unwrap();
-        let remote_oid = remote
-            .find_reference("refs/heads/main")
-            .unwrap()
-            .target()
-            .unwrap();
-        assert_eq!(remote_oid.to_string(), local_oid);
-    }
-
-    #[tokio::test]
-    async fn delete_remote_branch_removes_the_origin_ref() {
-        let (_local_dir, repo_path) = empty_repo();
-        let remote_dir = TempDir::new().unwrap();
-        Repository::init_bare(remote_dir.path()).unwrap();
-        let backend = GixGitBackend::new();
-        write_file(&repo_path, "README.md", "# Fjord\n");
-        backend
-            .stage(&repo_path, &[PathBuf::from("README.md")])
-            .await
-            .unwrap();
-        backend.commit(&repo_path, "Initial commit").await.unwrap();
-
-        let repo = Repository::open(&repo_path.0).unwrap();
-        repo.remote("origin", remote_dir.path().to_str().unwrap())
-            .unwrap();
-        let head = repo.head().unwrap().peel_to_commit().unwrap();
-        repo.branch("feature/remove-me", &head, false).unwrap();
-        drop(head);
-        drop(repo);
-        backend
-            .push(
-                &repo_path,
-                "refs/heads/feature/remove-me:refs/heads/feature/remove-me",
-            )
-            .await
-            .unwrap();
-
-        backend
-            .delete_remote_branch(&repo_path, "origin/feature/remove-me")
-            .await
-            .unwrap();
-
-        let remote = Repository::open_bare(remote_dir.path()).unwrap();
-        assert!(remote
-            .find_reference("refs/heads/feature/remove-me")
-            .is_err());
     }
 
     #[tokio::test]

@@ -71,6 +71,23 @@ cargo test --workspace
 
 The release workflow repeats the packaging step on Windows, macOS, and Linux.
 
+### Askpass sidecar
+
+Every bundle must contain `fjord-askpass`. Build and prepare it before a manual
+Tauri bundle:
+
+```bash
+cargo build --release -p fjord-askpass
+npm run prepare:askpass
+npm run tauri -- build --config src-tauri/tauri.sidecar.conf.json
+```
+
+For cross-target builds set `FJORD_SIDECAR_TARGET` to the Rust target triple.
+The release workflow performs these steps per matrix target. Tauri's sidecar
+config and the preparation script intentionally fail the build when the expected
+target-specific binary is absent. CI also opens/scrutinizes each unsigned smoke
+bundle and checks that the helper is present.
+
 ## Public release checklist
 
 Before publishing a draft release:
@@ -83,6 +100,11 @@ Before publishing a draft release:
 - Install the generated artifacts on at least one machine per supported OS.
 - Verify first-run onboarding, workspace creation, repository import, status
   refresh, branch checkout, fetch/pull/push, and external IDE launch.
+- Verify Settings → Git diagnostics and connection test, then exercise HTTPS
+  and SSH with saved credentials, first login/browser MFA, expired credentials,
+  passphrase-protected keys, cancellation, proxy, and certificate failures.
+- Record the manual compatibility result for GitHub, GitLab, Azure DevOps, and
+  the supported self-hosted HTTPS/SSH environments before publishing.
 - Verify the updater manifest (`latest.json`) is attached and every platform
   entry has a URL and signature.
 - Write release notes with known limitations, especially unsigned Linux package
