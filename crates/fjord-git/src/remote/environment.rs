@@ -18,6 +18,40 @@ use super::process_runner::{GitCommandResult, GitCommandSpec, GitProcessRunner};
 
 const DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(15);
 
+pub(crate) fn remote_process_environment(
+    context: &GitOperationContext,
+) -> Vec<(OsString, OsString)> {
+    let mut environment = vec![("LC_ALL".into(), "C".into()), ("LANG".into(), "C".into())];
+    let Some(askpass) = context.askpass() else {
+        return environment;
+    };
+
+    let executable = askpass.executable().as_os_str().to_owned();
+    environment.extend([
+        ("GIT_ASKPASS".into(), executable.clone()),
+        ("SSH_ASKPASS".into(), executable),
+        ("FJORD_ASKPASS_ADDRESS".into(), askpass.address().into()),
+        ("FJORD_ASKPASS_TOKEN".into(), askpass.token().into()),
+        (
+            "FJORD_ASKPASS_OPERATION_ID".into(),
+            askpass.operation_id().into(),
+        ),
+    ]);
+
+    // OpenSSH on Unix otherwise ignores SSH_ASKPASS when no graphical
+    // display exists. These values are process-local and are not needed on
+    // Windows, where Git for Windows invokes the askpass executable directly.
+    #[cfg(unix)]
+    {
+        environment.push(("SSH_ASKPASS_REQUIRE".into(), "force".into()));
+        if std::env::var_os("DISPLAY").is_none() {
+            environment.push(("DISPLAY".into(), "fjord-askpass".into()));
+        }
+    }
+
+    environment
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SystemGitEnvironmentProvider {
     resolver: GitExecutableResolver,
@@ -201,6 +235,7 @@ fn classify_protocol(url: &str) -> GitConnectionProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fjord_ports::GitAskpassConfig;
 
     #[test]
     fn parses_helper_origins_without_exposing_custom_commands() {
@@ -226,6 +261,31 @@ mod tests {
             classify_protocol("file:///tmp/repo.git"),
             GitConnectionProtocol::Local
         );
+    }
+
+    #[test]
+    fn adds_operation_scoped_askpass_environment_without_disabling_helpers() {
+        let context = GitOperationContext::default().with_askpass(Some(GitAskpassConfig::new(
+            PathBuf::from("/tmp/fjord askpass"),
+            "127.0.0.1:12345".into(),
+            "secret-token".into(),
+            "op-1".into(),
+        )));
+        let environment = remote_process_environment(&context);
+        let value = |name: &str| {
+            environment
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.to_string_lossy().into_owned())
+        };
+
+        assert_eq!(value("GIT_ASKPASS").as_deref(), Some("/tmp/fjord askpass"));
+        assert_eq!(
+            value("FJORD_ASKPASS_ADDRESS").as_deref(),
+            Some("127.0.0.1:12345")
+        );
+        assert_eq!(value("FJORD_ASKPASS_OPERATION_ID").as_deref(), Some("op-1"));
+        assert!(value("GIT_TERMINAL_PROMPT").is_none());
     }
 
     #[tokio::test]

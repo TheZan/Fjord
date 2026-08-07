@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use fjord_domain::RemoteRef;
 use fjord_ports::{GitOperationContext, GitProgress, GitRemoteBackend, GitRemoteError, RepoPath};
 
+use super::environment::remote_process_environment;
 use super::errors::classify_failure;
 use super::executable::{GitExecutableError, GitExecutableResolver};
 use super::process_runner::{
@@ -61,7 +62,7 @@ impl SystemGitRemoteBackend {
             executable: executable.path,
             cwd: repo.0.clone(),
             args,
-            environment: vec![("LC_ALL".into(), "C".into()), ("LANG".into(), "C".into())],
+            environment: remote_process_environment(&context),
             timeout: Some(REMOTE_OPERATION_TIMEOUT),
         };
         let result = self.runner.run(&spec, context, Some(handler)).await?;

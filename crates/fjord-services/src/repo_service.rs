@@ -112,6 +112,16 @@ impl RepoService {
         repo_id: RepositoryId,
         remote: &str,
     ) -> Result<GitConnectionTestResult, RepoError> {
+        self.test_git_connection_with_context(repo_id, remote, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn test_git_connection_with_context(
+        &self,
+        repo_id: RepositoryId,
+        remote: &str,
+        context: GitOperationContext,
+    ) -> Result<GitConnectionTestResult, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let settings = self.settings.get_settings().await?;
         Ok(self
@@ -119,8 +129,7 @@ impl RepoService {
             .test_connection(
                 &RepoPath::new(repo.path),
                 remote,
-                GitOperationContext::default()
-                    .with_git_executable_path(settings.git_executable_path),
+                context.with_git_executable_path(settings.git_executable_path),
             )
             .await?)
     }
@@ -243,6 +252,16 @@ impl RepoService {
         repo_id: RepositoryId,
         branch: &str,
     ) -> Result<(), RepoError> {
+        self.checkout_branch_with_context(repo_id, branch, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn checkout_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let repo_path = RepoPath::new(repo.path);
         if let Some((remote, refspec)) =
@@ -254,8 +273,7 @@ impl RepoService {
                     &repo_path,
                     &remote,
                     &[refspec],
-                    GitOperationContext::default()
-                        .with_git_executable_path(settings.git_executable_path),
+                    context.with_git_executable_path(settings.git_executable_path),
                 )
                 .await?;
         }
@@ -336,6 +354,16 @@ impl RepoService {
         repo_id: RepositoryId,
         name: &str,
     ) -> Result<(), RepoError> {
+        self.delete_remote_branch_with_context(repo_id, name, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn delete_remote_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let (remote, branch) = name
             .split_once('/')
@@ -348,8 +376,7 @@ impl RepoService {
                 &RepoPath::new(repo.path),
                 remote,
                 branch,
-                GitOperationContext::default()
-                    .with_git_executable_path(settings.git_executable_path),
+                context.with_git_executable_path(settings.git_executable_path),
             )
             .await?)
     }

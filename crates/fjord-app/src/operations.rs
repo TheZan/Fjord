@@ -41,6 +41,18 @@ pub enum OperationKind {
     BulkPull,
 }
 
+impl OperationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fetch => "fetch",
+            Self::Pull => "pull",
+            Self::Push => "push",
+            Self::BulkFetch => "bulk-fetch",
+            Self::BulkPull => "bulk-pull",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum OperationScope {

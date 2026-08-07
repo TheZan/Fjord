@@ -28,11 +28,49 @@ pub struct GitProgress {
     pub message: Option<String>,
 }
 
+/// Operation-local askpass configuration. It is intentionally opaque and
+/// has no `Debug` implementation because it contains a bearer token.
+#[derive(Clone)]
+pub struct GitAskpassConfig {
+    executable: Arc<PathBuf>,
+    address: Arc<str>,
+    token: Arc<str>,
+    operation_id: Arc<str>,
+}
+
+impl GitAskpassConfig {
+    pub fn new(executable: PathBuf, address: String, token: String, operation_id: String) -> Self {
+        Self {
+            executable: Arc::new(executable),
+            address: Arc::from(address),
+            token: Arc::from(token),
+            operation_id: Arc::from(operation_id),
+        }
+    }
+
+    pub fn executable(&self) -> &std::path::Path {
+        self.executable.as_path()
+    }
+
+    pub fn address(&self) -> &str {
+        &self.address
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct GitOperationContext {
     progress: Option<Arc<dyn Fn(GitProgress) + Send + Sync>>,
     cancelled: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     git_executable_path: Option<Arc<PathBuf>>,
+    askpass: Option<GitAskpassConfig>,
 }
 
 impl GitOperationContext {
@@ -44,6 +82,7 @@ impl GitOperationContext {
             progress: Some(Arc::new(progress)),
             cancelled: Some(Arc::new(cancelled)),
             git_executable_path: None,
+            askpass: None,
         }
     }
 
@@ -64,6 +103,15 @@ impl GitOperationContext {
 
     pub fn git_executable_path(&self) -> Option<&std::path::Path> {
         self.git_executable_path.as_deref().map(PathBuf::as_path)
+    }
+
+    pub fn with_askpass(mut self, askpass: Option<GitAskpassConfig>) -> Self {
+        self.askpass = askpass;
+        self
+    }
+
+    pub fn askpass(&self) -> Option<&GitAskpassConfig> {
+        self.askpass.as_ref()
     }
 }
 

@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher};
 use fjord_git::{GixGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
+use fjord_ports::GitAskpassConfig;
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
 use crate::ide_launcher::SystemIdeLauncher;
@@ -54,6 +55,7 @@ pub struct AppState {
     pub repos: Arc<RepoService>,
     pub operations: Arc<OperationRegistry>,
     pub askpass: Arc<AskpassBroker>,
+    askpass_executable: Option<PathBuf>,
     app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
@@ -92,6 +94,10 @@ pub async fn bootstrap(
     })
     .await
     .map_err(|error| format!("could not start askpass broker: {error}"))?;
+    let askpass_executable = resolve_askpass_executable(&app_handle);
+    if askpass_executable.is_none() {
+        tracing::warn!("fjord-askpass sidecar was not found; interactive fallback is unavailable");
+    }
 
     let state = AppState {
         settings: Arc::new(SettingsService::new(settings_store.clone())),
@@ -106,6 +112,7 @@ pub async fn bootstrap(
         )),
         operations: Arc::new(OperationRegistry::default()),
         askpass: Arc::new(askpass),
+        askpass_executable,
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
@@ -118,6 +125,24 @@ pub async fn bootstrap(
 }
 
 impl AppState {
+    pub fn begin_askpass_operation(
+        &self,
+        operation_id: &str,
+        repository_name: Option<String>,
+        operation_kind: Option<String>,
+    ) -> Option<GitAskpassConfig> {
+        let executable = self.askpass_executable.clone()?;
+        let session =
+            self.askpass
+                .begin_operation(operation_id.to_string(), repository_name, operation_kind);
+        Some(GitAskpassConfig::new(
+            executable,
+            session.address().to_string(),
+            session.token().to_string(),
+            session.operation_id().to_string(),
+        ))
+    }
+
     pub fn watch_repository_status(&self, repo: RepositoryEntry) {
         let repo_id = repo.id;
         let mut watchers = self.status_watchers.lock().unwrap();
@@ -164,4 +189,27 @@ impl AppState {
     pub fn unwatch_repository_status(&self, repo_id: RepositoryId) {
         self.status_watchers.lock().unwrap().remove(&repo_id);
     }
+}
+
+fn resolve_askpass_executable(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    let file_name = if cfg!(windows) {
+        "fjord-askpass.exe"
+    } else {
+        "fjord-askpass"
+    };
+    let mut candidates = Vec::new();
+    if let Ok(current_executable) = std::env::current_exe() {
+        if let Some(directory) = current_executable.parent() {
+            candidates.push(directory.join(file_name));
+            if directory.file_name().is_some_and(|name| name == "deps") {
+                if let Some(parent) = directory.parent() {
+                    candidates.push(parent.join(file_name));
+                }
+            }
+        }
+    }
+    if let Ok(resource_directory) = app_handle.path().resource_dir() {
+        candidates.push(resource_directory.join(file_name));
+    }
+    candidates.into_iter().find(|path| path.is_file())
 }

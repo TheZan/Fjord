@@ -118,6 +118,6 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-14** — Git environment diagnostics and connection test backend.
 - [x] **P5-15** — Git section in Settings UI.
 - [x] **P5-16** — Operation-scoped askpass protocol and loopback broker.
-- [ ] **P5-17** — Build and package the `fjord-askpass` sidecar.
+- [x] **P5-17** — Build and package the `fjord-askpass` sidecar.
 - [ ] **P5-18** — Auth prompt UI and concurrent prompt queue.
 - [ ] **P5-19** — Integration fixtures, three-OS CI/release gates, cleanup, and troubleshooting docs.

@@ -1096,6 +1096,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fjord-askpass"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fjord-bench"
 version = "0.1.0"
 dependencies = [

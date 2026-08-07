@@ -116,7 +116,22 @@ pub async fn checkout_branch(
     repo_id: RepositoryId,
     branch: String,
 ) -> Result<(), AppError> {
-    Ok(state.repos.checkout_branch(repo_id, &branch).await?)
+    let operation_id = OperationRegistry::next_id();
+    let askpass = state.begin_askpass_operation(
+        &operation_id,
+        None,
+        Some("checkout-remote-branch".to_string()),
+    );
+    let result = state
+        .repos
+        .checkout_branch_with_context(
+            repo_id,
+            &branch,
+            fjord_ports::GitOperationContext::default().with_askpass(askpass),
+        )
+        .await;
+    state.askpass.finish_operation(&operation_id);
+    Ok(result?)
 }
 
 #[tauri::command]
@@ -192,7 +207,22 @@ pub async fn delete_remote_branch(
     repo_id: RepositoryId,
     name: String,
 ) -> Result<(), AppError> {
-    Ok(state.repos.delete_remote_branch(repo_id, &name).await?)
+    let operation_id = OperationRegistry::next_id();
+    let askpass = state.begin_askpass_operation(
+        &operation_id,
+        None,
+        Some("delete-remote-branch".to_string()),
+    );
+    let result = state
+        .repos
+        .delete_remote_branch_with_context(
+            repo_id,
+            &name,
+            fjord_ports::GitOperationContext::default().with_askpass(askpass),
+        )
+        .await;
+    state.askpass.finish_operation(&operation_id);
+    Ok(result?)
 }
 
 #[tauri::command]
@@ -439,10 +469,19 @@ pub async fn test_git_connection(
     repo_id: RepositoryId,
     remote: Option<String>,
 ) -> Result<GitConnectionTestResult, AppError> {
-    Ok(state
+    let operation_id = OperationRegistry::next_id();
+    let askpass =
+        state.begin_askpass_operation(&operation_id, None, Some("connection-test".to_string()));
+    let result = state
         .repos
-        .test_git_connection(repo_id, remote.as_deref().unwrap_or("origin"))
-        .await?)
+        .test_git_connection_with_context(
+            repo_id,
+            remote.as_deref().unwrap_or("origin"),
+            fjord_ports::GitOperationContext::default().with_askpass(askpass),
+        )
+        .await;
+    state.askpass.finish_operation(&operation_id);
+    Ok(result?)
 }
 
 async fn run_repo_operation<Fut>(
@@ -474,7 +513,10 @@ where
         },
     );
 
-    let context = guard.git_context(app.clone(), kind, scope.clone(), repo_id);
+    let askpass = state.begin_askpass_operation(guard.id(), None, Some(kind.as_str().to_string()));
+    let context = guard
+        .git_context(app.clone(), kind, scope.clone(), repo_id)
+        .with_askpass(askpass);
     let result = if guard.is_cancelled() {
         Err(AppError::operation_cancelled())
     } else {
@@ -486,6 +528,7 @@ where
         }
     };
 
+    state.askpass.finish_operation(guard.id());
     let (status, completed, error) = match &result {
         Ok(()) => (OperationStatus::Succeeded, 1, None),
         Err(error) if error.code == "operation_cancelled" => (OperationStatus::Cancelled, 0, None),
@@ -536,6 +579,7 @@ async fn run_bulk_operation(
     let scope = OperationScope::Workspace { workspace_id };
     let repos = state.workspaces.list_repositories(workspace_id).await?;
     let total = repos.len() as u32;
+    let askpass = state.begin_askpass_operation(guard.id(), None, Some(kind.as_str().to_string()));
 
     emit_operation(
         &app,
@@ -564,7 +608,9 @@ async fn run_bulk_operation(
         };
         let repo_id = repo.id;
         let service = state.repos.clone();
-        let context = guard.git_context(app.clone(), kind, scope.clone(), repo_id);
+        let context = guard
+            .git_context(app.clone(), kind, scope.clone(), repo_id)
+            .with_askpass(askpass.clone());
         emit_operation(
             &app,
             OperationProgress {
@@ -620,6 +666,7 @@ async fn run_bulk_operation(
     }
 
     if guard.is_cancelled() {
+        state.askpass.finish_operation(guard.id());
         emit_operation(
             &app,
             OperationProgress {
@@ -651,6 +698,8 @@ async fn run_bulk_operation(
             error: None,
         },
     );
+
+    state.askpass.finish_operation(guard.id());
 
     Ok(results)
 }
