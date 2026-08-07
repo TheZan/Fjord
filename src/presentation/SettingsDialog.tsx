@@ -1,20 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
+import { pickFile } from "@/infrastructure/dialog";
 import { setLocale } from "@/infrastructure/i18n";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
-import { getSettings, updateSettings } from "@/infrastructure/tauriClient";
+import {
+  getGitEnvironment,
+  getSettings,
+  resetGitExecutable,
+  selectGitExecutable,
+  testGitConnection,
+  updateSettings,
+} from "@/infrastructure/tauriClient";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
 import { ConfirmActionDialog } from "@/presentation/GitContextMenu";
 import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
-import type { Settings, Theme } from "@/domain/settings";
+import type {
+  GitConnectionTestResult,
+  GitEnvironmentInfo,
+  Settings,
+  Theme,
+} from "@/domain/settings";
+import type { RepositoryEntry } from "@/domain/workspace";
 
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 const CUSTOM_IDE_PREFIX = "custom:";
 
-type SettingsSection = "general" | "sync" | "appearance" | "tools";
+type SettingsSection = "general" | "sync" | "git" | "appearance" | "tools";
 
-const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "appearance", "tools"];
+const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "git", "appearance", "tools"];
 const DEFAULT_SETTINGS: Settings = {
   locale: "en",
   theme: "system",
@@ -43,9 +57,11 @@ const IDE_CHOICES: Array<{ value: string | null; key: string }> = [
  * the sidebar keeps its space for workspaces and navigation.
  */
 export function SettingsDialog({
+  repositories,
   onClose,
   onSettingsChange,
 }: {
+  repositories: RepositoryEntry[];
   onClose: () => void;
   onSettingsChange?: (settings: Settings) => void;
 }) {
@@ -58,6 +74,12 @@ export function SettingsDialog({
   const [error, setError] = useState<string | null>(null);
   const [customIde, setCustomIde] = useState("");
   const [confirmAutoFetch, setConfirmAutoFetch] = useState(false);
+  const [gitEnvironment, setGitEnvironment] = useState<GitEnvironmentInfo | null>(null);
+  const [gitPending, setGitPending] = useState(false);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [gitDiagnostics, setGitDiagnostics] = useState<string | null>(null);
+  const [connectionResult, setConnectionResult] = useState<GitConnectionTestResult | null>(null);
+  const [connectionRepoId, setConnectionRepoId] = useState(repositories[0]?.id ?? "");
 
   useEffect(() => {
     let mounted = true;
@@ -76,6 +98,14 @@ export function SettingsDialog({
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    void refreshGitEnvironment();
+  }, []);
+
+  useEffect(() => {
+    if (!connectionRepoId && repositories[0]) setConnectionRepoId(repositories[0].id);
+  }, [connectionRepoId, repositories]);
 
   const currentSettings = useMemo<Settings>(
     () => settings ?? { ...DEFAULT_SETTINGS, locale: i18n.language, theme: choice },
@@ -117,6 +147,70 @@ export function SettingsDialog({
   function commitCustomIde() {
     const trimmed = customIde.trim();
     void saveSettings({ defaultIde: trimmed ? `${CUSTOM_IDE_PREFIX}${trimmed}` : null }, "customIde");
+  }
+
+  async function refreshGitEnvironment() {
+    setGitPending(true);
+    setGitError(null);
+    setGitDiagnostics(null);
+    try {
+      setGitEnvironment(await getGitEnvironment());
+    } catch (reason) {
+      setGitEnvironment(null);
+      setGitError(userErrorMessage(reason));
+      setGitDiagnostics(readDiagnostics(reason));
+    } finally {
+      setGitPending(false);
+    }
+  }
+
+  async function chooseGitExecutable() {
+    const path = await pickFile();
+    if (!path) return;
+    setGitPending(true);
+    setGitError(null);
+    setGitDiagnostics(null);
+    try {
+      const environment = await selectGitExecutable(path);
+      setGitEnvironment(environment);
+      setSettings((current) => (current ? { ...current, gitExecutablePath: path } : current));
+    } catch (reason) {
+      setGitError(userErrorMessage(reason));
+      setGitDiagnostics(readDiagnostics(reason));
+    } finally {
+      setGitPending(false);
+    }
+  }
+
+  async function resetGitPath() {
+    setGitPending(true);
+    setGitError(null);
+    setGitDiagnostics(null);
+    try {
+      setGitEnvironment(await resetGitExecutable());
+      setSettings((current) => (current ? { ...current, gitExecutablePath: null } : current));
+    } catch (reason) {
+      setGitError(userErrorMessage(reason));
+      setGitDiagnostics(readDiagnostics(reason));
+    } finally {
+      setGitPending(false);
+    }
+  }
+
+  async function runConnectionTest() {
+    if (!connectionRepoId) return;
+    setGitPending(true);
+    setGitError(null);
+    setGitDiagnostics(null);
+    setConnectionResult(null);
+    try {
+      setConnectionResult(await testGitConnection(connectionRepoId));
+    } catch (reason) {
+      setGitError(userErrorMessage(reason));
+      setGitDiagnostics(readDiagnostics(reason));
+    } finally {
+      setGitPending(false);
+    }
   }
 
   const selectedIde = currentSettings.defaultIde?.startsWith(CUSTOM_IDE_PREFIX)
@@ -247,6 +341,101 @@ export function SettingsDialog({
               </SettingsGroup>
             )}
 
+            {activeSection === "git" && (
+              <div className="flex flex-col gap-5">
+                <SettingsGroup title={t("settings.git.executable")}>
+                  <div
+                    className="rounded-md border p-3"
+                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                  >
+                    <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
+                      {gitEnvironment ? t("settings.git.found") : t("settings.git.notFound")}
+                    </div>
+                    <Muted className="mt-1 block break-all text-[11px]">
+                      {gitEnvironment?.executablePath ?? t("settings.git.notFoundDescription")}
+                    </Muted>
+                    {gitEnvironment?.version && (
+                      <Muted className="mt-1 block text-[11px]">
+                        {t("settings.git.version", { version: gitEnvironment.version })} · {t(`settings.git.source.${gitEnvironment.executableSource ?? "path"}`)}
+                      </Muted>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" disabled={gitPending} onClick={() => void chooseGitExecutable()}>
+                        {t("settings.git.choose")}
+                      </Button>
+                      <Button size="sm" variant="secondary" disabled={gitPending} onClick={() => void refreshGitEnvironment()}>
+                        {t("settings.git.refresh")}
+                      </Button>
+                      {currentSettings.gitExecutablePath && (
+                        <Button size="sm" variant="secondary" disabled={gitPending} onClick={() => void resetGitPath()}>
+                          {t("settings.git.reset")}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </SettingsGroup>
+
+                {gitEnvironment && (
+                  <SettingsGroup title={t("settings.git.environment")}>
+                    <div className="grid gap-2 text-[12px]">
+                      <GitStatusRow
+                        label={t("settings.git.credentialHelper")}
+                        value={gitEnvironment.credentialHelpers.length > 0 ? t("settings.git.configured") : t("settings.git.notConfigured")}
+                      />
+                      {gitEnvironment.credentialHelpers.map((helper, index) => (
+                        <Muted key={`${helper.source}-${index}`} className="break-all pl-2 text-[11px]">
+                          {helper.value} · {helper.source}
+                        </Muted>
+                      ))}
+                      <GitStatusRow
+                        label={t("settings.git.sshAgent")}
+                        value={gitEnvironment.sshAgentAvailable ? t("settings.git.available") : t("settings.git.unavailable")}
+                      />
+                      <GitStatusRow
+                        label={t("settings.git.proxy")}
+                        value={gitEnvironment.proxyConfigured ? t("settings.git.configured") : t("settings.git.notConfigured")}
+                      />
+                    </div>
+                  </SettingsGroup>
+                )}
+
+                <SettingsGroup title={t("settings.git.connection")}>
+                  <div className="flex gap-2">
+                    <Select
+                      value={connectionRepoId}
+                      disabled={gitPending || repositories.length === 0}
+                      onChange={(event) => setConnectionRepoId(event.target.value)}
+                      className="min-w-0 flex-1"
+                    >
+                      {repositories.map((repository) => (
+                        <option key={repository.id} value={repository.id}>{repository.name}</option>
+                      ))}
+                    </Select>
+                    <Button size="sm" disabled={gitPending || !connectionRepoId} onClick={() => void runConnectionTest()}>
+                      {t("settings.git.testConnection")}
+                    </Button>
+                  </div>
+                  {repositories.length === 0 && <Muted className="text-[11px]">{t("settings.git.noRepositories")}</Muted>}
+                  {connectionResult && (
+                    <p className="text-[12px]" style={{ color: "var(--moss-ink)" }}>
+                      {t("settings.git.connectionSuccess", {
+                        duration: connectionResult.durationMs,
+                        protocol: connectionResult.protocol.toUpperCase(),
+                      })}
+                    </p>
+                  )}
+                </SettingsGroup>
+
+                {gitError && <p className="text-xs" style={{ color: "var(--rust-ink)" }}>{gitError}</p>}
+                {gitDiagnostics && (
+                  <details className="text-[11px]" style={{ color: "var(--slate)" }}>
+                    <summary className="cursor-pointer">{t("settings.git.diagnostics")}</summary>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all">{gitDiagnostics}</pre>
+                  </details>
+                )}
+              </div>
+            )}
+
             {activeSection === "appearance" && (
               <SettingsGroup title={t("settings.theme.label")}>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -341,6 +530,23 @@ function SettingsGroup({ title, children }: { title: string; children: React.Rea
       {children}
     </div>
   );
+}
+
+function GitStatusRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span style={{ color: "var(--slate)" }}>{label}</span>
+      <span className="text-right" style={{ color: "var(--ink)" }}>{value}</span>
+    </div>
+  );
+}
+
+function readDiagnostics(error: unknown): string | null {
+  if (error && typeof error === "object" && "diagnostics" in error) {
+    const value = error.diagnostics;
+    return typeof value === "string" && value.trim() ? value : null;
+  }
+  return null;
 }
 
 function customIdeCommand(defaultIde: string | null) {

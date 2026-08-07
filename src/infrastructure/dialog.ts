@@ -5,3 +5,9 @@ export async function pickFolder(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false });
   return typeof selected === "string" ? selected : null;
 }
+
+/** Native single-file picker used for executable overrides. */
+export async function pickFile(): Promise<string | null> {
+  const selected = await open({ directory: false, multiple: false });
+  return typeof selected === "string" ? selected : null;
+}

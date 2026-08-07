@@ -415,6 +415,7 @@ export function App() {
 
       {settingsOpen && (
         <SettingsDialog
+          repositories={allRepositories}
           onClose={() => setSettingsOpen(false)}
           onSettingsChange={(settings) => setAutoFetch(settings.autoFetch)}
         />
