@@ -399,8 +399,8 @@ impl RepoService {
     }
 
     pub async fn pull(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.pull(&RepoPath::new(repo.path)).await?)
+        self.pull_with_context(repo_id, GitOperationContext::default())
+            .await
     }
 
     pub async fn pull_with_context(
@@ -409,10 +409,17 @@ impl RepoService {
         context: GitOperationContext,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
-            .git
-            .pull_with_context(&RepoPath::new(repo.path), context)
-            .await?)
+        let repo_path = RepoPath::new(repo.path);
+        let remote = self.git.upstream_remote(&repo_path).await?;
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        self.remote
+            .fetch(&repo_path, &remote, &[], context.clone())
+            .await?;
+        if context.is_cancelled() {
+            return Err(GitError::Cancelled.into());
+        }
+        Ok(self.git.integrate_upstream(&repo_path).await?)
     }
 
     pub async fn push(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
@@ -482,14 +489,34 @@ impl RepoService {
         workspace_id: WorkspaceId,
     ) -> Result<Vec<BulkRepoResult>, RepoError> {
         let repos = self.workspaces.list_repositories(workspace_id).await?;
+        let settings = self.settings.get_settings().await?;
+        let git_executable_path = settings.git_executable_path.map(Arc::new);
         Ok(run_bulk(repos, {
             let git = self.git.clone();
+            let remote_backend = self.remote.clone();
             move |repo| {
                 let git = git.clone();
+                let remote_backend = remote_backend.clone();
+                let git_executable_path = git_executable_path.clone();
                 async move {
-                    git.pull(&RepoPath::new(repo.path))
+                    let repo_path = RepoPath::new(repo.path);
+                    let remote = git
+                        .upstream_remote(&repo_path)
                         .await
-                        .map_err(|e| e.to_string())
+                        .map_err(|error| error.to_string())?;
+                    remote_backend
+                        .fetch(
+                            &repo_path,
+                            &remote,
+                            &[],
+                            GitOperationContext::default()
+                                .with_git_executable_path(git_executable_path.as_deref().cloned()),
+                        )
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    git.integrate_upstream(&repo_path)
+                        .await
+                        .map_err(|error| error.to_string())
                 }
             }
         })
@@ -1016,6 +1043,14 @@ mod tests {
         async fn commit(&self, repo: &RepoPath, _message: &str) -> Result<String, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok("deadbeef".into())
+        }
+        async fn upstream_remote(&self, repo: &RepoPath) -> Result<String, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok("origin".into())
+        }
+        async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(())
         }
         async fn fetch(&self, repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());

@@ -1764,6 +1764,69 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
+    async fn upstream_remote(&self, repo: &RepoPath) -> Result<String, GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head_refname = Self::current_branch_refname(&git)?;
+            git.branch_upstream_remote(&head_refname)
+                .map_err(|error| match error.code() {
+                    ErrorCode::NotFound => GitError::NoUpstream,
+                    _ => Self::map_git2_error(error),
+                })?
+                .as_str()
+                .map_err(Self::map_git2_error)
+                .map(ToString::to_string)
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
+    }
+
+    async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError> {
+        let repo = repo.clone();
+        let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
+        tokio::task::spawn_blocking(move || {
+            let git = Self::open_git2(&repo)?;
+            let head = git.head().map_err(Self::map_git2_error)?;
+            let head_refname = Self::current_branch_refname(&git)?;
+            let upstream_refname = git
+                .branch_upstream_name(&head_refname)
+                .map_err(|error| match error.code() {
+                    ErrorCode::NotFound => GitError::NoUpstream,
+                    _ => Self::map_git2_error(error),
+                })?
+                .as_str()
+                .map_err(Self::map_git2_error)?
+                .to_string();
+            let upstream_ref = git
+                .find_reference(&upstream_refname)
+                .map_err(Self::map_git2_error)?;
+            let remote_commit = git
+                .reference_to_annotated_commit(&upstream_ref)
+                .map_err(Self::map_git2_error)?;
+            let analysis = git
+                .merge_analysis(&[&remote_commit])
+                .map_err(Self::map_git2_error)?;
+
+            if analysis.0.is_up_to_date() {
+                return Ok(());
+            }
+            if analysis.0.is_fast_forward() {
+                return Self::fast_forward(&git, &head_refname, &remote_commit);
+            }
+            if analysis.0.is_normal() {
+                let local_commit = git
+                    .reference_to_annotated_commit(&head)
+                    .map_err(Self::map_git2_error)?;
+                return Self::normal_merge(&git, &local_commit, &remote_commit);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
+    }
+
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError> {
         self.fetch_with_context(repo, remote, GitOperationContext::default())
             .await

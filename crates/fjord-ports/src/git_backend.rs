@@ -209,6 +209,17 @@ pub trait GitBackend: Send + Sync {
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
+    /// Returns the configured remote for the current branch's upstream.
+    async fn upstream_remote(&self, _repo: &RepoPath) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("upstream_remote"))
+    }
+    /// Integrates the already-fetched upstream using Fjord's fixed
+    /// fast-forward/merge semantics. This method never performs network I/O.
+    async fn integrate_upstream(&self, _repo: &RepoPath) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("integrate_upstream"))
+    }
+    // Legacy migration surface. Production remote call sites use
+    // `GitRemoteBackend`; these methods remain until P5-19 cleanup.
     async fn fetch(&self, repo: &RepoPath, remote: &str) -> Result<(), GitError>;
     async fn pull(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn push(&self, repo: &RepoPath, refspec: &str) -> Result<(), GitError>;
