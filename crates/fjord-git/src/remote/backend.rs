@@ -97,7 +97,14 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         context: GitOperationContext,
     ) -> Result<(), GitRemoteError> {
         let _guard = locking::write(repo).await;
-        let mut args = vec!["fetch".into(), "--prune".into(), remote.into()];
+        // `--progress` is required: Git only reports transfer progress on its
+        // own when stderr is a terminal, and the runner always pipes it.
+        let mut args = vec![
+            "fetch".into(),
+            "--progress".into(),
+            "--prune".into(),
+            remote.into(),
+        ];
         args.extend(refspecs.iter().map(OsString::from));
         self.run(
             repo,
@@ -117,7 +124,7 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         context: GitOperationContext,
     ) -> Result<(), GitRemoteError> {
         let _guard = locking::write(repo).await;
-        let mut args = vec!["push".into(), remote.into()];
+        let mut args = vec!["push".into(), "--progress".into(), remote.into()];
         args.extend(refspecs.iter().map(OsString::from));
         self.run(
             repo,
@@ -199,7 +206,7 @@ mod tests {
 
     use super::*;
     use crate::LocalGitBackend;
-    use fjord_ports::GitBackend;
+    use fjord_ports::{GitBackend, GitProgress};
 
     #[test]
     fn parses_symbolic_and_direct_remote_refs() {
@@ -208,6 +215,84 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].name, "HEAD");
         assert_eq!(refs[0].symbolic_target.as_deref(), Some("refs/heads/main"));
+    }
+
+    /// Guards the assumption the progress parser depends on: Git only writes
+    /// transfer progress to a piped stderr when `--progress` is passed, so this
+    /// exercises the real backend rather than the parser in isolation.
+    #[tokio::test]
+    async fn fetch_and_push_emit_real_progress() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        let clone = temp.path().join("clone");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        write_many_files(&source, "initial", 40);
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "initial"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&source, &["push", "-u", "origin", "main"]);
+        run_git(
+            temp.path(),
+            &["clone", remote.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+
+        write_many_files(&source, "second", 40);
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "second"]);
+
+        let (context, pushed) = recording_context();
+        SystemGitRemoteBackend::new()
+            .push(
+                &RepoPath::new(source.clone()),
+                "origin",
+                &["refs/heads/main:refs/heads/main".into()],
+                context,
+            )
+            .await
+            .unwrap();
+        assert!(
+            !pushed.lock().unwrap().is_empty(),
+            "push reported no progress"
+        );
+
+        let (context, fetched) = recording_context();
+        SystemGitRemoteBackend::new()
+            .fetch(&RepoPath::new(clone), "origin", &[], context)
+            .await
+            .unwrap();
+        let fetched = fetched.lock().unwrap();
+        assert!(!fetched.is_empty(), "fetch reported no progress");
+        assert!(
+            fetched.iter().any(|progress| progress.total > 0),
+            "no progress carried a total: {fetched:?}"
+        );
+    }
+
+    fn recording_context() -> (GitOperationContext, Arc<Mutex<Vec<GitProgress>>>) {
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&recorded);
+        let context = GitOperationContext::new(
+            move |progress| sink.lock().unwrap().push(progress),
+            || false,
+        );
+        (context, recorded)
+    }
+
+    fn write_many_files(repo: &Path, content: &str, count: u32) {
+        for index in 0..count {
+            std::fs::write(
+                repo.join(format!("file-{index}.txt")),
+                format!("{content} {index}\n"),
+            )
+            .unwrap();
+        }
     }
 
     #[tokio::test]
