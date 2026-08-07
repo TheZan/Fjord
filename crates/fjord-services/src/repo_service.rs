@@ -6,8 +6,8 @@ use fjord_domain::{
     StashEntry, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
-    GitBackend, GitError, GitOperationContext, IdeLauncher, LaunchError, RepoPath, SettingsStore,
-    StoreError, WorkspaceStore,
+    GitBackend, GitError, GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher,
+    LaunchError, RepoPath, SettingsStore, StoreError, WorkspaceStore,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -24,6 +24,8 @@ pub enum RepoError {
     #[error(transparent)]
     Git(#[from] GitError),
     #[error(transparent)]
+    Remote(#[from] GitRemoteError),
+    #[error(transparent)]
     Launch(#[from] LaunchError),
 }
 
@@ -35,6 +37,8 @@ pub struct RepoService {
     workspaces: Arc<dyn WorkspaceStore>,
     settings: Arc<dyn SettingsStore>,
     git: Arc<dyn GitBackend>,
+    #[allow(dead_code)]
+    remote: Arc<dyn GitRemoteBackend>,
     ide: Arc<dyn IdeLauncher>,
 }
 
@@ -43,12 +47,14 @@ impl RepoService {
         workspaces: Arc<dyn WorkspaceStore>,
         settings: Arc<dyn SettingsStore>,
         git: Arc<dyn GitBackend>,
+        remote: Arc<dyn GitRemoteBackend>,
         ide: Arc<dyn IdeLauncher>,
     ) -> Self {
         Self {
             workspaces,
             settings,
             git,
+            remote,
             ide,
         }
     }
@@ -232,27 +238,56 @@ impl RepoService {
         checkout: bool,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.create_branch_at(&RepoPath::new(repo.path), name, target, checkout).await?)
+        Ok(self
+            .git
+            .create_branch_at(&RepoPath::new(repo.path), name, target, checkout)
+            .await?)
     }
 
-    pub async fn rename_branch(&self, repo_id: RepositoryId, old_name: &str, new_name: &str) -> Result<(), RepoError> {
+    pub async fn rename_branch(
+        &self,
+        repo_id: RepositoryId,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.rename_branch(&RepoPath::new(repo.path), old_name, new_name).await?)
+        Ok(self
+            .git
+            .rename_branch(&RepoPath::new(repo.path), old_name, new_name)
+            .await?)
     }
 
     pub async fn delete_branch(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.delete_branch(&RepoPath::new(repo.path), name).await?)
+        Ok(self
+            .git
+            .delete_branch(&RepoPath::new(repo.path), name)
+            .await?)
     }
 
-    pub async fn delete_remote_branch(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
+    pub async fn delete_remote_branch(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.delete_remote_branch(&RepoPath::new(repo.path), name).await?)
+        Ok(self
+            .git
+            .delete_remote_branch(&RepoPath::new(repo.path), name)
+            .await?)
     }
 
-    pub async fn create_tag(&self, repo_id: RepositoryId, name: &str, target: &str) -> Result<(), RepoError> {
+    pub async fn create_tag(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        target: &str,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.create_tag(&RepoPath::new(repo.path), name, target).await?)
+        Ok(self
+            .git
+            .create_tag(&RepoPath::new(repo.path), name, target)
+            .await?)
     }
 
     pub async fn delete_tag(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
@@ -260,19 +295,37 @@ impl RepoService {
         Ok(self.git.delete_tag(&RepoPath::new(repo.path), name).await?)
     }
 
-    pub async fn cherry_pick(&self, repo_id: RepositoryId, commit_id: &str) -> Result<(), RepoError> {
+    pub async fn cherry_pick(
+        &self,
+        repo_id: RepositoryId,
+        commit_id: &str,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.cherry_pick(&RepoPath::new(repo.path), commit_id).await?)
+        Ok(self
+            .git
+            .cherry_pick(&RepoPath::new(repo.path), commit_id)
+            .await?)
     }
 
     pub async fn revert(&self, repo_id: RepositoryId, commit_id: &str) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.revert(&RepoPath::new(repo.path), commit_id).await?)
+        Ok(self
+            .git
+            .revert(&RepoPath::new(repo.path), commit_id)
+            .await?)
     }
 
-    pub async fn reset(&self, repo_id: RepositoryId, commit_id: &str, mode: &str) -> Result<(), RepoError> {
+    pub async fn reset(
+        &self,
+        repo_id: RepositoryId,
+        commit_id: &str,
+        mode: &str,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.reset(&RepoPath::new(repo.path), commit_id, mode).await?)
+        Ok(self
+            .git
+            .reset(&RepoPath::new(repo.path), commit_id, mode)
+            .await?)
     }
 
     pub async fn get_stashes(&self, repo_id: RepositoryId) -> Result<Vec<StashEntry>, RepoError> {
@@ -703,6 +756,50 @@ mod tests {
         seen_path: Mutex<Option<PathBuf>>,
     }
 
+    struct FakeRemoteGit;
+
+    #[async_trait]
+    impl GitRemoteBackend for FakeRemoteGit {
+        async fn fetch(
+            &self,
+            _repo: &RepoPath,
+            _remote: &str,
+            _refspecs: &[String],
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            Ok(())
+        }
+
+        async fn push(
+            &self,
+            _repo: &RepoPath,
+            _remote: &str,
+            _refspecs: &[String],
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            Ok(())
+        }
+
+        async fn delete_remote_branch(
+            &self,
+            _repo: &RepoPath,
+            _remote: &str,
+            _branch: &str,
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            Ok(())
+        }
+
+        async fn ls_remote(
+            &self,
+            _repo: &RepoPath,
+            _remote: &str,
+            _context: GitOperationContext,
+        ) -> Result<Vec<fjord_domain::RemoteRef>, GitRemoteError> {
+            Ok(vec![])
+        }
+    }
+
     fn repo_entry() -> RepositoryEntry {
         RepositoryEntry {
             id: RepositoryId::new(),
@@ -736,6 +833,7 @@ mod tests {
                 },
             }),
             git.clone(),
+            Arc::new(FakeRemoteGit),
             ide.clone(),
         );
         (repo, git, ide, service)
@@ -939,14 +1037,16 @@ mod tests {
             path: PathBuf::from("/repos/api-gateway"),
             sort_order: 0,
         };
+        let git = Arc::new(FakeGit {
+            seen_path: Mutex::new(None),
+        });
         let service = RepoService::new(
             Arc::new(FakeStore { repo }),
             Arc::new(FakeSettingsStore {
                 settings: Settings::default(),
             }),
-            Arc::new(FakeGit {
-                seen_path: Mutex::new(None),
-            }),
+            git,
+            Arc::new(FakeRemoteGit),
             Arc::new(FakeIdeLauncher {
                 opened: Mutex::new(None),
                 terminal_opened: Mutex::new(None),

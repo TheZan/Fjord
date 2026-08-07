@@ -138,6 +138,17 @@ pub struct BranchInfo {
     pub target_commit_id: CommitId,
 }
 
+/// A reference advertised by a remote repository. `symbolic_target` is set
+/// for entries such as `HEAD` returned by `git ls-remote --symref`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RemoteRef {
+    pub name: String,
+    pub target: String,
+    pub symbolic_target: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]

@@ -157,7 +157,12 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<(), GitError> {
         Err(GitError::NotImplemented("create_branch_at"))
     }
-    async fn rename_branch(&self, _repo: &RepoPath, _old_name: &str, _new_name: &str) -> Result<(), GitError> {
+    async fn rename_branch(
+        &self,
+        _repo: &RepoPath,
+        _old_name: &str,
+        _new_name: &str,
+    ) -> Result<(), GitError> {
         Err(GitError::NotImplemented("rename_branch"))
     }
     async fn delete_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
@@ -166,7 +171,12 @@ pub trait GitBackend: Send + Sync {
     async fn delete_remote_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
         Err(GitError::NotImplemented("delete_remote_branch"))
     }
-    async fn create_tag(&self, _repo: &RepoPath, _name: &str, _target: &str) -> Result<(), GitError> {
+    async fn create_tag(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _target: &str,
+    ) -> Result<(), GitError> {
         Err(GitError::NotImplemented("create_tag"))
     }
     async fn delete_tag(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {

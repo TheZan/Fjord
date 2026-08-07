@@ -1,4 +1,4 @@
-use fjord_ports::{GitError, LaunchError, StoreError};
+use fjord_ports::{GitError, GitRemoteError, LaunchError, StoreError};
 use fjord_services::{RepoError, WorkspaceError};
 use serde::Serialize;
 
@@ -70,6 +70,7 @@ impl From<RepoError> for AppError {
         match err {
             RepoError::Store(inner) => inner.into(),
             RepoError::Git(inner) => git_error_to_app_error(inner),
+            RepoError::Remote(inner) => remote_error_to_app_error(inner),
             RepoError::Launch(inner) => launch_error_to_app_error(inner),
         }
     }
@@ -108,6 +109,13 @@ fn git_error_to_app_error(err: GitError) -> AppError {
 
     AppError {
         code: code.to_string(),
+        message: err.to_string(),
+    }
+}
+
+fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
+    AppError {
+        code: err.code().to_string(),
         message: err.to_string(),
     }
 }

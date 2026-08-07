@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher};
-use fjord_git::GixGitBackend;
+use fjord_git::{GixGitBackend, LegacyGitRemoteBackend};
 use fjord_services::{RepoService, SettingsService, WorkspaceService};
 use serde::Serialize;
 use tauri::Emitter;
@@ -70,6 +70,7 @@ pub async fn bootstrap(
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
     let git_backend = Arc::new(GixGitBackend::new());
+    let remote_backend = Arc::new(LegacyGitRemoteBackend::new(git_backend.clone()));
     let ide_launcher = Arc::new(SystemIdeLauncher);
     let workspace_service = Arc::new(WorkspaceService::new(
         workspace_store.clone(),
@@ -87,6 +88,7 @@ pub async fn bootstrap(
             workspace_store,
             settings_store,
             git_backend,
+            remote_backend,
             ide_launcher,
         )),
         operations: Arc::new(OperationRegistry::default()),

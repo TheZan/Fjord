@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
-use fjord_git::GixGitBackend;
+use fjord_git::{GixGitBackend, LegacyGitRemoteBackend};
 use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
 use fjord_services::RepoService;
 use git2::{Repository, RepositoryInitOptions, Signature};
@@ -517,10 +517,12 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
 
     // Global search across every repo in the workspace (P4-13): a commit
     // query is the worst case — it forces a bounded `log` scan per repo.
+    let remote_backend = Arc::new(LegacyGitRemoteBackend::new(backend.clone()));
     let repo_service = RepoService::new(
         store.clone(),
         settings_store,
         backend.clone(),
+        remote_backend,
         Arc::new(NoopIdeLauncher),
     );
     let search_start = Instant::now();

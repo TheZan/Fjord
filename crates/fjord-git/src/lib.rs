@@ -12,10 +12,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineKind,
-    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges, WorkingFile,
+    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RemoteRef, RepoStatus, StashEntry,
+    TagInfo, WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, GitOperationContext, GitProgress, RepoPath};
+use fjord_ports::{
+    GitBackend, GitError, GitOperationContext, GitProgress, GitRemoteBackend, GitRemoteError,
+    RepoPath,
+};
 use git2::build::CheckoutBuilder;
 use git2::{Cred, ErrorCode, IndexAddOption, Oid, PushOptions, RemoteCallbacks, Sort, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
@@ -26,6 +29,103 @@ use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
 pub struct GixGitBackend;
+
+/// Migration-only adapter used while service call sites move from the legacy
+/// remote methods on `GitBackend` to `GitRemoteBackend`.
+pub struct LegacyGitRemoteBackend {
+    backend: Arc<dyn GitBackend>,
+}
+
+impl LegacyGitRemoteBackend {
+    pub fn new(backend: Arc<dyn GitBackend>) -> Self {
+        Self { backend }
+    }
+}
+
+fn legacy_remote_error(error: GitError) -> GitRemoteError {
+    match error {
+        GitError::AuthenticationFailed => GitRemoteError::AuthenticationFailed,
+        GitError::Cancelled => GitRemoteError::Cancelled,
+        other => GitRemoteError::ProcessFailed {
+            exit_code: None,
+            summary: other.to_string(),
+            stderr_tail: String::new(),
+        },
+    }
+}
+
+#[async_trait]
+impl GitRemoteBackend for LegacyGitRemoteBackend {
+    async fn fetch(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        refspecs: &[String],
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        if !refspecs.is_empty() {
+            return Err(GitRemoteError::ProcessFailed {
+                exit_code: None,
+                summary: "legacy backend does not support explicit fetch refspecs".into(),
+                stderr_tail: String::new(),
+            });
+        }
+        self.backend
+            .fetch_with_context(repo, remote, context)
+            .await
+            .map_err(legacy_remote_error)
+    }
+
+    async fn push(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        refspecs: &[String],
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        if remote != "origin" || refspecs.len() > 1 {
+            return Err(GitRemoteError::ProcessFailed {
+                exit_code: None,
+                summary: "legacy backend supports one refspec on origin".into(),
+                stderr_tail: String::new(),
+            });
+        }
+        self.backend
+            .push_with_context(
+                repo,
+                refspecs.first().map(String::as_str).unwrap_or(""),
+                context,
+            )
+            .await
+            .map_err(legacy_remote_error)
+    }
+
+    async fn delete_remote_branch(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        branch: &str,
+        _context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        self.backend
+            .delete_remote_branch(repo, &format!("{remote}/{branch}"))
+            .await
+            .map_err(legacy_remote_error)
+    }
+
+    async fn ls_remote(
+        &self,
+        _repo: &RepoPath,
+        _remote: &str,
+        _context: GitOperationContext,
+    ) -> Result<Vec<RemoteRef>, GitRemoteError> {
+        Err(GitRemoteError::ProcessFailed {
+            exit_code: None,
+            summary: "ls-remote is unavailable on the legacy adapter".into(),
+            stderr_tail: String::new(),
+        })
+    }
+}
 
 impl GixGitBackend {
     pub fn new() -> Self {
@@ -436,9 +536,9 @@ impl GixGitBackend {
                 .arg(commit_id);
         }
 
-        let output = command
-            .output()
-            .map_err(|error| GitError::Git2(format!("failed to read commit statistics: {error}")))?;
+        let output = command.output().map_err(|error| {
+            GitError::Git2(format!("failed to read commit statistics: {error}"))
+        })?;
         if !output.status.success() {
             let message = String::from_utf8_lossy(&output.stderr);
             return Err(GitError::Git2(format!(
@@ -1078,7 +1178,11 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn diff_files(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
+    async fn diff_files(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+    ) -> Result<Vec<FileDiff>, GitError> {
         let repo = repo.clone();
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_read_lock(&repo).await;
@@ -1366,7 +1470,11 @@ impl GitBackend for GixGitBackend {
         let target = target.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["branch", &name, &target], GitOperationContext::default())?;
+            Self::run_system_git(
+                &repo,
+                &["branch", &name, &target],
+                GitOperationContext::default(),
+            )?;
             if checkout {
                 Self::run_system_git(&repo, &["checkout", &name], GitOperationContext::default())?;
             }
@@ -1376,13 +1484,22 @@ impl GitBackend for GixGitBackend {
         .map_err(|e| GitError::Git2(e.to_string()))?
     }
 
-    async fn rename_branch(&self, repo: &RepoPath, old_name: &str, new_name: &str) -> Result<(), GitError> {
+    async fn rename_branch(
+        &self,
+        repo: &RepoPath,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), GitError> {
         let repo = repo.clone();
         let old_name = old_name.to_string();
         let new_name = new_name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["branch", "-m", &old_name, &new_name], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["branch", "-m", &old_name, &new_name],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1393,7 +1510,11 @@ impl GitBackend for GixGitBackend {
         let name = name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["branch", "-d", &name], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["branch", "-d", &name],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1404,13 +1525,19 @@ impl GitBackend for GixGitBackend {
         let name = name.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            let (remote, branch) = name.split_once('/').ok_or_else(|| {
-                GitError::Git2(format!("remote branch name is invalid: {name}"))
-            })?;
+            let (remote, branch) = name
+                .split_once('/')
+                .ok_or_else(|| GitError::Git2(format!("remote branch name is invalid: {name}")))?;
             if remote.is_empty() || branch.is_empty() {
-                return Err(GitError::Git2(format!("remote branch name is invalid: {name}")));
+                return Err(GitError::Git2(format!(
+                    "remote branch name is invalid: {name}"
+                )));
             }
-            Self::run_system_git(&repo, &["push", remote, "--delete", branch], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["push", remote, "--delete", branch],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1422,7 +1549,11 @@ impl GitBackend for GixGitBackend {
         let target = target.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["tag", &name, &target], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["tag", &name, &target],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1444,7 +1575,11 @@ impl GitBackend for GixGitBackend {
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["cherry-pick", &commit_id], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["cherry-pick", &commit_id],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1455,7 +1590,11 @@ impl GitBackend for GixGitBackend {
         let commit_id = commit_id.to_string();
         let _repo_guard = Self::acquire_repo_write_lock(&repo).await;
         tokio::task::spawn_blocking(move || {
-            Self::run_system_git(&repo, &["revert", "--no-edit", &commit_id], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["revert", "--no-edit", &commit_id],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -1473,7 +1612,11 @@ impl GitBackend for GixGitBackend {
                 "hard" => "--hard",
                 _ => return Err(GitError::Git2(format!("unknown reset mode: {mode}"))),
             };
-            Self::run_system_git(&repo, &["reset", flag, &commit_id], GitOperationContext::default())
+            Self::run_system_git(
+                &repo,
+                &["reset", flag, &commit_id],
+                GitOperationContext::default(),
+            )
         })
         .await
         .map_err(|e| GitError::Git2(e.to_string()))?
@@ -2076,7 +2219,10 @@ mod tests {
         let (_dir, repo_path) = empty_repo();
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "first line\nsecond line\n");
-        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
         let root = backend.commit(&repo_path, "Root commit").await.unwrap();
 
         let files = backend.diff(&repo_path, &root).await.unwrap();
@@ -2502,25 +2648,45 @@ mod tests {
         let (_dir, repo_path) = empty_repo();
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "base\n");
-        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
         let base = backend.commit(&repo_path, "Initial commit").await.unwrap();
 
-        backend.create_branch_at(&repo_path, "feature/menu", &base, true).await.unwrap();
-        backend.rename_branch(&repo_path, "feature/menu", "feature/context-menu").await.unwrap();
-        backend.create_tag(&repo_path, "v-context", &base).await.unwrap();
+        backend
+            .create_branch_at(&repo_path, "feature/menu", &base, true)
+            .await
+            .unwrap();
+        backend
+            .rename_branch(&repo_path, "feature/menu", "feature/context-menu")
+            .await
+            .unwrap();
+        backend
+            .create_tag(&repo_path, "v-context", &base)
+            .await
+            .unwrap();
 
         let git = Repository::open(&repo_path.0).unwrap();
-        assert_eq!(git.head().unwrap().shorthand().unwrap(), "feature/context-menu");
+        assert_eq!(
+            git.head().unwrap().shorthand().unwrap(),
+            "feature/context-menu"
+        );
         assert!(git.find_reference("refs/tags/v-context").is_ok());
         drop(git);
 
         backend.delete_tag(&repo_path, "v-context").await.unwrap();
         backend.checkout(&repo_path, "main").await.unwrap();
-        backend.delete_branch(&repo_path, "feature/context-menu").await.unwrap();
+        backend
+            .delete_branch(&repo_path, "feature/context-menu")
+            .await
+            .unwrap();
 
         let git = Repository::open(&repo_path.0).unwrap();
         assert!(git.find_reference("refs/tags/v-context").is_err());
-        assert!(git.find_reference("refs/heads/feature/context-menu").is_err());
+        assert!(git
+            .find_reference("refs/heads/feature/context-menu")
+            .is_err());
     }
 
     #[tokio::test]
@@ -2528,19 +2694,34 @@ mod tests {
         let (_dir, repo_path) = empty_repo();
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "base\n");
-        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
         let base = backend.commit(&repo_path, "Initial commit").await.unwrap();
         write_file(&repo_path, "README.md", "next\n");
-        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
         let next = backend.commit(&repo_path, "Second commit").await.unwrap();
 
         backend.reset(&repo_path, &base, "hard").await.unwrap();
-        assert_eq!(std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(), "base\n");
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "base\n"
+        );
 
         backend.cherry_pick(&repo_path, &next).await.unwrap();
-        assert_eq!(std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(), "next\n");
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "next\n"
+        );
         backend.revert(&repo_path, &next).await.unwrap();
-        assert_eq!(std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(), "base\n");
+        assert_eq!(
+            std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+            "base\n"
+        );
     }
 
     #[tokio::test]
@@ -2684,21 +2865,36 @@ mod tests {
         Repository::init_bare(remote_dir.path()).unwrap();
         let backend = GixGitBackend::new();
         write_file(&repo_path, "README.md", "# Fjord\n");
-        backend.stage(&repo_path, &[PathBuf::from("README.md")]).await.unwrap();
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
         backend.commit(&repo_path, "Initial commit").await.unwrap();
 
         let repo = Repository::open(&repo_path.0).unwrap();
-        repo.remote("origin", remote_dir.path().to_str().unwrap()).unwrap();
+        repo.remote("origin", remote_dir.path().to_str().unwrap())
+            .unwrap();
         let head = repo.head().unwrap().peel_to_commit().unwrap();
         repo.branch("feature/remove-me", &head, false).unwrap();
         drop(head);
         drop(repo);
-        backend.push(&repo_path, "refs/heads/feature/remove-me:refs/heads/feature/remove-me").await.unwrap();
+        backend
+            .push(
+                &repo_path,
+                "refs/heads/feature/remove-me:refs/heads/feature/remove-me",
+            )
+            .await
+            .unwrap();
 
-        backend.delete_remote_branch(&repo_path, "origin/feature/remove-me").await.unwrap();
+        backend
+            .delete_remote_branch(&repo_path, "origin/feature/remove-me")
+            .await
+            .unwrap();
 
         let remote = Repository::open_bare(remote_dir.path()).unwrap();
-        assert!(remote.find_reference("refs/heads/feature/remove-me").is_err());
+        assert!(remote
+            .find_reference("refs/heads/feature/remove-me")
+            .is_err());
     }
 
     #[tokio::test]

@@ -27,6 +27,8 @@ export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId,
 
 export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, targetCommitId: CommitId, };
 
+export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
+
 export type TagInfo = { name: string, targetCommitId: CommitId, };
 
 export type StashEntry = { index: number, message: string, };
