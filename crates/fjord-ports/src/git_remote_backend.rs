@@ -15,27 +15,30 @@ pub enum GitRemoteError {
     #[error("failed to start Git process: {0}")]
     SpawnFailed(String),
     #[error("Git authentication is required")]
-    AuthenticationRequired,
+    AuthenticationRequired { stderr_tail: String },
     #[error("Git authentication failed")]
-    AuthenticationFailed,
+    AuthenticationFailed { stderr_tail: String },
     #[error("permission denied by remote")]
-    PermissionDenied,
+    PermissionDenied { stderr_tail: String },
     #[error("remote repository not found")]
-    RepositoryNotFound,
+    RepositoryNotFound { stderr_tail: String },
     #[error("SSH host key verification failed")]
-    HostKeyVerificationFailed,
+    HostKeyVerificationFailed { stderr_tail: String },
     #[error("SSH key is unavailable")]
-    SshKeyUnavailable,
+    SshKeyUnavailable { stderr_tail: String },
     #[error("certificate validation failed")]
-    CertificateFailed,
+    CertificateFailed { stderr_tail: String },
     #[error("proxy connection failed")]
-    ProxyFailed,
+    ProxyFailed { stderr_tail: String },
     #[error("network is unavailable")]
-    NetworkUnavailable,
+    NetworkUnavailable { stderr_tail: String },
     #[error("push is not a fast-forward")]
-    NonFastForward,
-    #[error("remote rejected the update: {0}")]
-    RemoteRejected(String),
+    NonFastForward { stderr_tail: String },
+    #[error("remote rejected the update: {summary}")]
+    RemoteRejected {
+        summary: String,
+        stderr_tail: String,
+    },
     #[error("Git operation timed out")]
     Timeout,
     #[error("operation cancelled")]
@@ -53,17 +56,17 @@ impl GitRemoteError {
         match self {
             Self::GitExecutableNotFound => "git_executable_not_found",
             Self::SpawnFailed(_) => "git_process_spawn_failed",
-            Self::AuthenticationRequired => "git_auth_required",
-            Self::AuthenticationFailed => "git_auth_failed",
-            Self::PermissionDenied => "git_permission_denied",
-            Self::RepositoryNotFound => "git_repository_not_found",
-            Self::HostKeyVerificationFailed => "git_host_key_verification_failed",
-            Self::SshKeyUnavailable => "git_ssh_key_unavailable",
-            Self::CertificateFailed => "git_certificate_failed",
-            Self::ProxyFailed => "git_proxy_failed",
-            Self::NetworkUnavailable => "git_network_unavailable",
-            Self::NonFastForward => "git_non_fast_forward",
-            Self::RemoteRejected(_) => "git_remote_rejected",
+            Self::AuthenticationRequired { .. } => "git_auth_required",
+            Self::AuthenticationFailed { .. } => "git_auth_failed",
+            Self::PermissionDenied { .. } => "git_permission_denied",
+            Self::RepositoryNotFound { .. } => "git_repository_not_found",
+            Self::HostKeyVerificationFailed { .. } => "git_host_key_verification_failed",
+            Self::SshKeyUnavailable { .. } => "git_ssh_key_unavailable",
+            Self::CertificateFailed { .. } => "git_certificate_failed",
+            Self::ProxyFailed { .. } => "git_proxy_failed",
+            Self::NetworkUnavailable { .. } => "git_network_unavailable",
+            Self::NonFastForward { .. } => "git_non_fast_forward",
+            Self::RemoteRejected { .. } => "git_remote_rejected",
             Self::Timeout => "git_operation_timeout",
             Self::Cancelled => "operation_cancelled",
             Self::ProcessFailed { .. } => "git_remote_error",
@@ -72,7 +75,18 @@ impl GitRemoteError {
 
     pub fn diagnostics(&self) -> Option<&str> {
         match self {
-            Self::ProcessFailed { stderr_tail, .. } => Some(stderr_tail),
+            Self::AuthenticationRequired { stderr_tail }
+            | Self::AuthenticationFailed { stderr_tail }
+            | Self::PermissionDenied { stderr_tail }
+            | Self::RepositoryNotFound { stderr_tail }
+            | Self::HostKeyVerificationFailed { stderr_tail }
+            | Self::SshKeyUnavailable { stderr_tail }
+            | Self::CertificateFailed { stderr_tail }
+            | Self::ProxyFailed { stderr_tail }
+            | Self::NetworkUnavailable { stderr_tail }
+            | Self::NonFastForward { stderr_tail }
+            | Self::RemoteRejected { stderr_tail, .. }
+            | Self::ProcessFailed { stderr_tail, .. } => Some(stderr_tail),
             _ => None,
         }
     }

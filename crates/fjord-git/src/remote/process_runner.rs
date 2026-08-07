@@ -8,6 +8,8 @@ use fjord_ports::{GitOperationContext, GitProgress, GitRemoteError};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
 
+use super::errors::sanitize_diagnostics;
+
 const STDERR_TAIL_LIMIT: usize = 64 * 1024;
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(40);
 #[cfg(unix)]
@@ -118,8 +120,8 @@ impl GitProcessRunner {
         let stderr = join_reader(stderr_task, "stderr").await?;
         Ok(GitCommandResult {
             exit_code: status.code(),
-            stdout: redact_output(&stdout),
-            stderr_tail: tail(&redact_output(&stderr), STDERR_TAIL_LIMIT),
+            stdout: sanitize_diagnostics(&stdout),
+            stderr_tail: tail(&sanitize_diagnostics(&stderr), STDERR_TAIL_LIMIT),
         })
     }
 }
@@ -170,7 +172,7 @@ fn emit_record(
     if record.is_empty() {
         return;
     }
-    let value = redact_output(&String::from_utf8_lossy(record));
+    let value = sanitize_diagnostics(&String::from_utf8_lossy(record));
     record.clear();
     if let Some(handler) = event_handler {
         handler(match kind {
@@ -253,26 +255,6 @@ fn tail(value: &str, limit: usize) -> String {
         start += 1;
     }
     value[start..].to_string()
-}
-
-fn redact_output(value: &str) -> String {
-    // Full classification/redaction lives in remote/errors.rs (P5-07). Keep
-    // authorization headers out of runner events even before classification.
-    value
-        .lines()
-        .map(|line| {
-            if line
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("authorization:")
-            {
-                "Authorization: [REDACTED]".to_string()
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 #[cfg(windows)]
@@ -481,7 +463,7 @@ mod tests {
     #[test]
     fn redacts_authorization_headers() {
         assert_eq!(
-            redact_output("Authorization: Bearer secret"),
+            sanitize_diagnostics("Authorization: Bearer secret"),
             "Authorization: [REDACTED]"
         );
     }

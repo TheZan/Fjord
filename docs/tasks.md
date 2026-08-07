@@ -108,7 +108,7 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-04** — Discover and validate the system Git executable; persist an optional override.
 - [x] **P5-05** — Async streaming Git process runner.
 - [x] **P5-06** — Terminate the complete process tree on cancel/timeout.
-- [ ] **P5-07** — Stable remote error classification and diagnostic redaction.
+- [x] **P5-07** — Stable remote error classification and diagnostic redaction.
 - [ ] **P5-08** — Route fetch through system Git.
 - [ ] **P5-09** — Preserve pull semantics with system fetch plus local integration.
 - [ ] **P5-10** — Route push through system Git.

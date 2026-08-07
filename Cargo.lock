@@ -1151,6 +1151,7 @@ dependencies = [
  "git2",
  "gix",
  "libc",
+ "regex",
  "tempfile",
  "thiserror 2.0.19",
  "time",

@@ -46,7 +46,9 @@ impl LegacyGitRemoteBackend {
 
 fn legacy_remote_error(error: GitError) -> GitRemoteError {
     match error {
-        GitError::AuthenticationFailed => GitRemoteError::AuthenticationFailed,
+        GitError::AuthenticationFailed => GitRemoteError::AuthenticationFailed {
+            stderr_tail: String::new(),
+        },
         GitError::Cancelled => GitRemoteError::Cancelled,
         other => GitRemoteError::ProcessFailed {
             exit_code: None,
