@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
-import { getFileDiff, getWorkingFileDiff, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { getFileDiff, getWorkingFileDiff } from "@/infrastructure/tauriClient";
 import type { FileDiffDetail } from "@/domain/git";
 
 /**
@@ -46,6 +47,6 @@ export function useFileDiff(
   return {
     diff: query.data ?? null,
     loading: query.isFetching,
-    error: query.error ? invokeErrorMessage(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
   };
 }

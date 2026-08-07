@@ -9,6 +9,30 @@
     "reload": "Recargar app",
     "retry": "Intentar de nuevo"
   },
+  "errors": {
+    "auth_failed": "La autenticación falló. Comprueba tus credenciales o clave SSH e inténtalo de nuevo.",
+    "branch_exists": "Ya existe una rama con este nombre.",
+    "database_error": "Fjord no pudo guardar sus datos. Inténtalo de nuevo o reinicia la app.",
+    "git_error": "Git no pudo completar la operación. Comprueba el estado del repositorio e inténtalo de nuevo.",
+    "ide_launch_failed": "No se pudo abrir el IDE. Comprueba su instalación y configuración.",
+    "ide_not_allowed": "Este comando de IDE no está permitido. Elige un IDE compatible en Ajustes.",
+    "merge_conflict": "La operación se detuvo por conflictos de fusión. Resuélvelos antes de continuar.",
+    "merge_tool_failed": "No se pudo abrir la herramienta de fusión. Comprueba su configuración de Git.",
+    "no_conflicts": "No hay conflictos de fusión que resolver.",
+    "no_ide_available": "No se encontró un IDE compatible. Elige uno en Ajustes.",
+    "no_terminal_available": "No se encontró una aplicación de terminal en este equipo.",
+    "no_upstream": "La rama actual no tiene una rama upstream. Publícala primero.",
+    "not_a_git_repository": "La carpeta seleccionada no es un repositorio Git.",
+    "nothing_to_commit": "No hay cambios preparados para confirmar.",
+    "nothing_to_stash": "No hay cambios locales para guardar en el stash.",
+    "operation_cancelled": "La operación fue cancelada.",
+    "repository_already_added": "Este repositorio ya está en el workspace seleccionado.",
+    "repository_discovery_failed": "No se pudieron buscar repositorios en la carpeta seleccionada.",
+    "repository_not_found": "No se encontró el repositorio. Puede haberse movido o eliminado.",
+    "stash_empty": "No hay stashes guardados para aplicar.",
+    "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
+    "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo."
+  },
   "settings": {
     "sections": {
       "general": "General",

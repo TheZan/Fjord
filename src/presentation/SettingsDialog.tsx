@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { userErrorMessage } from "@/application/errorMessage";
 import { setLocale } from "@/infrastructure/i18n";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
 import { getSettings, updateSettings } from "@/infrastructure/tauriClient";
@@ -67,7 +68,7 @@ export function SettingsDialog({
       })
       .catch((reason) => {
         if (!mounted) return;
-        setError(errorMessage(reason));
+        setError(userErrorMessage(reason));
       });
 
     return () => {
@@ -92,7 +93,7 @@ export function SettingsDialog({
       onSettingsChange?.(persisted);
     } catch (reason) {
       setSettings(previous);
-      setError(errorMessage(reason));
+      setError(userErrorMessage(reason));
     } finally {
       setPendingKey(null);
     }
@@ -345,10 +346,6 @@ function customIdeCommand(defaultIde: string | null) {
   return defaultIde?.startsWith(CUSTOM_IDE_PREFIX)
     ? defaultIde.slice(CUSTOM_IDE_PREFIX.length).trim()
     : "";
-}
-
-function errorMessage(reason: unknown) {
-  return reason instanceof Error ? reason.message : String(reason);
 }
 
 function CloseIcon() {

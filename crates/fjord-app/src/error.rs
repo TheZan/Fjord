@@ -26,6 +26,7 @@ impl From<StoreError> for AppError {
         let code = match &err {
             StoreError::WorkspaceNotFound(_) => "workspace_not_found",
             StoreError::RepositoryNotFound(_) => "repository_not_found",
+            StoreError::RepositoryAlreadyExists(_) => "repository_already_added",
             StoreError::Database(_) => "database_error",
         };
         AppError {
@@ -41,6 +42,10 @@ impl From<WorkspaceError> for AppError {
             WorkspaceError::Store(inner) => inner.into(),
             WorkspaceError::NotAGitRepository(_) => AppError {
                 code: "not_a_git_repository".to_string(),
+                message: err.to_string(),
+            },
+            WorkspaceError::RepositoryAlreadyAdded(_) => AppError {
+                code: "repository_already_added".to_string(),
                 message: err.to_string(),
             },
             WorkspaceError::Git(_) => AppError {
@@ -104,5 +109,20 @@ fn git_error_to_app_error(err: GitError) -> AppError {
     AppError {
         code: code.to_string(),
         message: err.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn duplicate_repository_has_a_stable_localizable_code() {
+        let error: AppError =
+            WorkspaceError::RepositoryAlreadyAdded(PathBuf::from("C:/repos/fjord")).into();
+
+        assert_eq!(error.code, "repository_already_added");
+        assert!(error.message.contains("C:/repos/fjord"));
     }
 }

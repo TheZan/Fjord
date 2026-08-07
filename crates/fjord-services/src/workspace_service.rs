@@ -12,6 +12,8 @@ pub enum WorkspaceError {
     Store(#[from] StoreError),
     #[error("not a git repository: {0}")]
     NotAGitRepository(PathBuf),
+    #[error("repository is already in this workspace: {0}")]
+    RepositoryAlreadyAdded(PathBuf),
     #[error("git error: {0}")]
     Git(String),
 }
@@ -145,13 +147,26 @@ impl WorkspaceService {
         workspace_id: WorkspaceId,
         path: PathBuf,
     ) -> Result<RepositoryEntry, WorkspaceError> {
+        let path = fjord_fs::canonicalize_path(&path).unwrap_or(path);
+        let repositories = self.store.list_repositories(workspace_id).await?;
+        if repositories.iter().any(|repository| {
+            let existing = fjord_fs::canonicalize_path(&repository.path)
+                .unwrap_or_else(|_| repository.path.clone());
+            fjord_fs::paths_equal(&existing, &path)
+        }) {
+            return Err(WorkspaceError::RepositoryAlreadyAdded(path));
+        }
+
         self.git.status(&RepoPath::new(path.clone())).await?;
 
         let name = repo_display_name(&path);
-        Ok(self
-            .store
-            .add_repository(workspace_id, &name, &path)
-            .await?)
+        match self.store.add_repository(workspace_id, &name, &path).await {
+            Ok(repository) => Ok(repository),
+            Err(StoreError::RepositoryAlreadyExists(_)) => {
+                Err(WorkspaceError::RepositoryAlreadyAdded(path))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub async fn remove_repository(&self, id: RepositoryId) -> Result<(), WorkspaceError> {
@@ -546,6 +561,68 @@ mod tests {
             .await;
         assert!(matches!(result, Err(WorkspaceError::NotAGitRepository(_))));
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn adding_the_same_repository_twice_is_rejected_before_persisting() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let path = PathBuf::from("/repos/api-gateway");
+        service.add_repository(ws.id, path.clone()).await.unwrap();
+
+        let result = service.add_repository(ws.id, path.clone()).await;
+
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::RepositoryAlreadyAdded(duplicate)) if duplicate == path
+        ));
+        assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn equivalent_filesystem_paths_are_treated_as_the_same_repository() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let root = tempfile::TempDir::new().unwrap();
+        let repository = root.path().join("repository");
+        std::fs::create_dir_all(repository.join("nested")).unwrap();
+
+        service
+            .add_repository(ws.id, repository.clone())
+            .await
+            .unwrap();
+        let result = service
+            .add_repository(ws.id, repository.join("nested/.."))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::RepositoryAlreadyAdded(_))
+        ));
+        assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_same_repository_can_belong_to_different_workspaces() {
+        let service = service(true);
+        let backend = service.create_workspace("Backend").await.unwrap();
+        let frontend = service.create_workspace("Frontend").await.unwrap();
+        let path = PathBuf::from("/repos/shared");
+
+        service
+            .add_repository(backend.id, path.clone())
+            .await
+            .unwrap();
+        service.add_repository(frontend.id, path).await.unwrap();
+
+        assert_eq!(
+            service.list_repositories(backend.id).await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            service.list_repositories(frontend.id).await.unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]

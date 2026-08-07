@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import { pickFolder } from "@/infrastructure/dialog";
 import {
@@ -8,7 +9,6 @@ import {
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
   importRepositories as importRepositoriesCommand,
-  invokeErrorMessage,
   listRepositories,
   listWorkspaces,
   removeRepository as removeRepositoryCommand,
@@ -27,7 +27,7 @@ function withLocalOrder(workspaces: Workspace[]): Workspace[] {
 
 function queryError(queries: Array<{ error: Error | null }>): string | null {
   const failed = queries.find((query) => query.error);
-  return failed?.error ? invokeErrorMessage(failed.error) : null;
+  return failed?.error ? userErrorMessage(failed.error) : null;
 }
 
 export interface UseRepositoriesResult {
@@ -40,6 +40,7 @@ export interface UseRepositoriesResult {
   loading: boolean;
   error: string | null;
   workspaceActionPending: string | null;
+  clearError: () => void;
   selectWorkspace: (id: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
@@ -170,7 +171,7 @@ export function useRepositories(): UseRepositoriesResult {
         await invalidateWorkspace(created.id);
         return created;
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
         return null;
       } finally {
         setWorkspaceActionPending(null);
@@ -192,7 +193,7 @@ export function useRepositories(): UseRepositoriesResult {
           sortWorkspaces(current.map((workspace) => (workspace.id === id ? renamed : workspace))),
         );
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
       } finally {
         setWorkspaceActionPending(null);
       }
@@ -218,7 +219,7 @@ export function useRepositories(): UseRepositoriesResult {
         }
         setSelectedWorkspaceId(nextSelectedId);
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
       } finally {
         setWorkspaceActionPending(null);
       }
@@ -249,7 +250,7 @@ export function useRepositories(): UseRepositoriesResult {
         await reorderWorkspacesMutation.mutateAsync(locallyOrdered.map((workspace) => workspace.id));
         queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), locallyOrdered);
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
         await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() });
       } finally {
         setWorkspaceActionPending(null);
@@ -276,7 +277,7 @@ export function useRepositories(): UseRepositoriesResult {
         await reorderWorkspacesMutation.mutateAsync(locallyOrdered.map((workspace) => workspace.id));
         queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), locallyOrdered);
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
         await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() });
       } finally {
         setWorkspaceActionPending(null);
@@ -296,7 +297,7 @@ export function useRepositories(): UseRepositoriesResult {
       await addRepositoryMutation.mutateAsync({ workspaceId: selectedWorkspaceId, path });
       await invalidateWorkspace(selectedWorkspaceId);
     } catch (e) {
-      setLocalError(invokeErrorMessage(e));
+      setLocalError(userErrorMessage(e));
     }
   }, [addRepositoryMutation, invalidateWorkspace, selectedWorkspaceId]);
 
@@ -314,7 +315,7 @@ export function useRepositories(): UseRepositoriesResult {
         await invalidateWorkspace(workspaceId);
         return imported;
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
         return [];
       } finally {
         setWorkspaceActionPending(null);
@@ -333,14 +334,14 @@ export function useRepositories(): UseRepositoriesResult {
         queryClient.removeQueries({ queryKey: queryKeys.repos.detail(id) });
         await invalidateWorkspace(selectedWorkspaceId);
       } catch (e) {
-        setLocalError(invokeErrorMessage(e));
+        setLocalError(userErrorMessage(e));
       }
     },
     [invalidateWorkspace, queryClient, removeRepositoryMutation, selectedWorkspaceId],
   );
 
   const queryBackedError =
-    workspacesQuery.error ? invokeErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
+    workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
 
   return {
     workspaces,
@@ -355,6 +356,7 @@ export function useRepositories(): UseRepositoriesResult {
       statusQueries.some((query) => query.isLoading),
     error: localError ?? queryBackedError,
     workspaceActionPending,
+    clearError: () => setLocalError(null),
     selectWorkspace,
     createWorkspace,
     renameWorkspace,

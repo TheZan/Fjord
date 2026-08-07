@@ -26,7 +26,6 @@ export class ErrorBoundary extends Component<
     if (this.state.error) {
       return (
         <ErrorFallback
-          error={this.state.error}
           onRetry={() => this.setState({ error: null })}
         />
       );
@@ -35,7 +34,7 @@ export class ErrorBoundary extends Component<
   }
 }
 
-function ErrorFallback({ error, onRetry }: { error: Error; onRetry: () => void }) {
+function ErrorFallback({ onRetry }: { onRetry: () => void }) {
   const { t } = useTranslation();
 
   return (
@@ -54,12 +53,6 @@ function ErrorFallback({ error, onRetry }: { error: Error; onRetry: () => void }
         <p className="text-sm" style={{ color: "var(--slate)" }}>
           {t("errorBoundary.body")}
         </p>
-        <pre
-          className="overflow-x-auto rounded-lg p-2 text-xs"
-          style={{ background: "var(--page-bg)", color: "var(--mist)" }}
-        >
-          {error.message}
-        </pre>
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
             {t("errorBoundary.reload")}

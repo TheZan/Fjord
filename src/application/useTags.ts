@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import {
   REPOSITORY_QUERY_GC_TIME,
@@ -26,6 +27,6 @@ export function useTags(repoId: string | null): UseTagsResult {
   return {
     tags: query.data ?? [],
     loading: query.isPending,
-    error: query.error ? String(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
   };
 }

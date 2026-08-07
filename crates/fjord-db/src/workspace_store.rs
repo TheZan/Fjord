@@ -220,7 +220,16 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| StoreError::Database(e.to_string()))?;
+        .map_err(|error| {
+            if error
+                .as_database_error()
+                .is_some_and(|database| database.is_unique_violation())
+            {
+                StoreError::RepositoryAlreadyExists(path.to_path_buf())
+            } else {
+                StoreError::Database(error.to_string())
+            }
+        })?;
 
         Ok(RepositoryEntry {
             id,
@@ -415,6 +424,24 @@ mod tests {
         let store = store().await;
         let result = store.get_repository(RepositoryId::new()).await;
         assert!(matches!(result, Err(StoreError::RepositoryNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn duplicate_repository_has_a_typed_error() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let path = std::path::Path::new("/repos/api-gateway");
+        store
+            .add_repository(ws.id, "api-gateway", path)
+            .await
+            .unwrap();
+
+        let result = store.add_repository(ws.id, "api-gateway", path).await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::RepositoryAlreadyExists(duplicate)) if duplicate == path
+        ));
     }
 
     #[tokio::test]

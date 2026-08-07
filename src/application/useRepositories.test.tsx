@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useRepositories } from "@/application/useRepositories";
+import * as dialog from "@/infrastructure/dialog";
+import { initI18n } from "@/infrastructure/i18n";
 import * as tauriClient from "@/infrastructure/tauriClient";
 import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 
@@ -16,8 +18,6 @@ vi.mock("@/infrastructure/tauriClient", () => ({
   deleteWorkspace: vi.fn(),
   getWorkspaceStatus: vi.fn(),
   importRepositories: vi.fn(),
-  invokeErrorMessage: (error: unknown) =>
-    error instanceof Error ? error.message : String(error),
   listRepositories: vi.fn(),
   listWorkspaces: vi.fn(),
   removeRepository: vi.fn(),
@@ -149,5 +149,26 @@ describe("useRepositories", () => {
       "backend",
       "frontend",
     ]);
+  });
+
+  it("shows a localized dismissible error when a repository is added twice", async () => {
+    await initI18n("ru");
+    vi.mocked(dialog.pickFolder).mockResolvedValue("C:\\dev\\web");
+    vi.mocked(tauriClient.addRepository).mockRejectedValue({
+      code: "repository_already_added",
+      message: "UNIQUE constraint failed: repositories.workspace_id, repositories.path",
+    });
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => result.current.openRepository());
+
+    expect(result.current.error).toBe(
+      "Этот репозиторий уже добавлен в выбранное рабочее пространство.",
+    );
+    expect(result.current.error).not.toContain("UNIQUE");
+
+    act(() => result.current.clearError());
+    expect(result.current.error).toBeNull();
   });
 });

@@ -13,6 +13,8 @@ pub enum StoreError {
     WorkspaceNotFound(WorkspaceId),
     #[error("repository not found: {0:?}")]
     RepositoryNotFound(RepositoryId),
+    #[error("repository is already in this workspace: {0}")]
+    RepositoryAlreadyExists(std::path::PathBuf),
     #[error("database error: {0}")]
     Database(String),
 }

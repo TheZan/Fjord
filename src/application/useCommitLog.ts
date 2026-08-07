@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import {
   REPOSITORY_LOG_PAGE_SIZE,
@@ -121,7 +122,7 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
   return {
     commits,
     loading: query.isPending,
-    error: query.error ? String(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
     hasMore: query.hasNextPage,
     loadMore,
     loadingUntilCommitId,

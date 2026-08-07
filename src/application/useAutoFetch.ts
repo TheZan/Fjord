@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchRepo, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { userErrorMessage } from "@/application/errorMessage";
+import { fetchRepo } from "@/infrastructure/tauriClient";
 
 const INITIAL_FETCH_DELAY_MS = 3_000;
 const FETCH_INTERVAL_MS = 60_000;
@@ -56,7 +57,7 @@ export function useAutoFetch(repoId: string, enabled: boolean) {
         if (stopped) return;
         failures += 1;
         lastFinishedAt = Date.now();
-        setError(invokeErrorMessage(reason));
+        setError(userErrorMessage(reason));
         schedule(autoFetchRetryDelay(failures));
       } finally {
         inFlight = false;

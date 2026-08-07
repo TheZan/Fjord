@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
-use fjord_ports::StoreError;
 use fjord_services::WorkspaceError;
 use tauri::State;
 
@@ -97,8 +96,7 @@ pub async fn import_repositories(
                 state.watch_repository_status(entry.clone());
                 imported.push(entry);
             }
-            Err(WorkspaceError::Store(StoreError::Database(message)))
-                if is_duplicate_repository_error(&message) => {}
+            Err(WorkspaceError::RepositoryAlreadyAdded(_)) => {}
             Err(WorkspaceError::NotAGitRepository(_)) => {}
             Err(error) => return Err(error.into()),
         }
@@ -114,8 +112,4 @@ pub async fn remove_repository(
 ) -> Result<(), AppError> {
     state.unwatch_repository_status(id);
     Ok(state.workspaces.remove_repository(id).await?)
-}
-
-fn is_duplicate_repository_error(message: &str) -> bool {
-    message.to_lowercase().contains("unique")
 }

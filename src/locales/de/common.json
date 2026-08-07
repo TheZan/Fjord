@@ -9,6 +9,30 @@
     "reload": "App neu laden",
     "retry": "Erneut versuchen"
   },
+  "errors": {
+    "auth_failed": "Die Anmeldung ist fehlgeschlagen. Prüfe deine Zugangsdaten oder deinen SSH-Schlüssel.",
+    "branch_exists": "Ein Branch mit diesem Namen existiert bereits.",
+    "database_error": "Fjord konnte seine Daten nicht speichern. Versuche es erneut oder starte die App neu.",
+    "git_error": "Git konnte den Vorgang nicht abschließen. Prüfe den Repository-Status und versuche es erneut.",
+    "ide_launch_failed": "Die IDE konnte nicht geöffnet werden. Prüfe Installation und Einstellungen.",
+    "ide_not_allowed": "Dieser IDE-Befehl ist nicht zulässig. Wähle eine unterstützte IDE in den Einstellungen.",
+    "merge_conflict": "Der Vorgang wurde wegen Merge-Konflikten angehalten. Löse sie zuerst.",
+    "merge_tool_failed": "Das Merge-Werkzeug konnte nicht geöffnet werden. Prüfe die Git-Konfiguration.",
+    "no_conflicts": "Es gibt keine Merge-Konflikte zu lösen.",
+    "no_ide_available": "Keine unterstützte IDE wurde gefunden. Wähle eine in den Einstellungen.",
+    "no_terminal_available": "Auf diesem Computer wurde keine Terminal-App gefunden.",
+    "no_upstream": "Der aktuelle Branch hat keinen Upstream-Branch. Veröffentliche ihn zuerst.",
+    "not_a_git_repository": "Der ausgewählte Ordner ist kein Git-Repository.",
+    "nothing_to_commit": "Es gibt keine bereitgestellten Änderungen für einen Commit.",
+    "nothing_to_stash": "Es gibt keine lokalen Änderungen für den Stash.",
+    "operation_cancelled": "Der Vorgang wurde abgebrochen.",
+    "repository_already_added": "Dieses Repository ist bereits im ausgewählten Workspace enthalten.",
+    "repository_discovery_failed": "Im ausgewählten Ordner konnten keine Repositories durchsucht werden.",
+    "repository_not_found": "Das Repository wurde nicht gefunden. Es wurde möglicherweise verschoben oder entfernt.",
+    "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
+    "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
+    "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut."
+  },
   "settings": {
     "sections": {
       "general": "Allgemein",

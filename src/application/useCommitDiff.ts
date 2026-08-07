@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import { getCommitDiff, getCommitFiles } from "@/infrastructure/tauriClient";
 import type { FileDiff } from "@/domain/git";
@@ -41,6 +42,6 @@ export function useCommitDiff(repoId: string | null, commitId: string | null): U
     loading: files.length === 0 && filesQuery.isPending,
     statsLoading,
     statsReady: statsQuery.data !== undefined,
-    error: error ? String(error) : null,
+    error: error ? userErrorMessage(error) : null,
   };
 }

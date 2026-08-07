@@ -64,13 +64,6 @@ export interface OperationTask<T> {
   promise: Promise<T>;
 }
 
-export function invokeErrorMessage(error: unknown): string {
-  if (error && typeof error === "object" && "message" in error) {
-    return String(error.message);
-  }
-  return String(error);
-}
-
 export function invokeErrorCode(error: unknown): string | null {
   if (error && typeof error === "object" && "code" in error) {
     return String(error.code);

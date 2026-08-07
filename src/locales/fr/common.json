@@ -9,6 +9,30 @@
     "reload": "Recharger l'app",
     "retry": "Réessayer"
   },
+  "errors": {
+    "auth_failed": "L'authentification a échoué. Vérifiez vos identifiants ou votre clé SSH.",
+    "branch_exists": "Une branche portant ce nom existe déjà.",
+    "database_error": "Fjord n'a pas pu enregistrer ses données. Réessayez ou redémarrez l'application.",
+    "git_error": "Git n'a pas pu terminer l'opération. Vérifiez l'état du dépôt et réessayez.",
+    "ide_launch_failed": "L'IDE n'a pas pu être ouvert. Vérifiez son installation et ses paramètres.",
+    "ide_not_allowed": "Cette commande d'IDE n'est pas autorisée. Choisissez un IDE pris en charge dans les paramètres.",
+    "merge_conflict": "L'opération s'est arrêtée à cause de conflits de fusion. Résolvez-les avant de continuer.",
+    "merge_tool_failed": "L'outil de fusion n'a pas pu être ouvert. Vérifiez sa configuration Git.",
+    "no_conflicts": "Il n'y a aucun conflit de fusion à résoudre.",
+    "no_ide_available": "Aucun IDE pris en charge n'a été trouvé. Choisissez-en un dans les paramètres.",
+    "no_terminal_available": "Aucune application de terminal n'a été trouvée sur cet ordinateur.",
+    "no_upstream": "La branche actuelle n'a pas de branche upstream. Publiez-la d'abord.",
+    "not_a_git_repository": "Le dossier sélectionné n'est pas un dépôt Git.",
+    "nothing_to_commit": "Aucune modification préparée n'est disponible pour le commit.",
+    "nothing_to_stash": "Aucune modification locale n'est disponible pour le stash.",
+    "operation_cancelled": "L'opération a été annulée.",
+    "repository_already_added": "Ce dépôt est déjà présent dans l'espace de travail sélectionné.",
+    "repository_discovery_failed": "Impossible de rechercher des dépôts dans le dossier sélectionné.",
+    "repository_not_found": "Le dépôt est introuvable. Il a peut-être été déplacé ou supprimé.",
+    "stash_empty": "Aucun stash enregistré n'est disponible.",
+    "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
+    "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez."
+  },
   "settings": {
     "sections": {
       "general": "Général",

@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import {
   REPOSITORY_QUERY_GC_TIME,
   REPOSITORY_QUERY_STALE_TIME,
 } from "@/application/repositoryQueryPolicy";
-import { getRepoStatus, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { getRepoStatus } from "@/infrastructure/tauriClient";
 import type { RepoStatus } from "@/domain/git";
 
 export interface UseRepoStatusResult {
@@ -25,6 +26,6 @@ export function useRepoStatus(repoId: string | null): UseRepoStatusResult {
   return {
     status: query.data ?? null,
     loading: query.isPending,
-    error: query.error ? invokeErrorMessage(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
   };
 }

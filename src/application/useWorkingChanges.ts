@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import {
   REPOSITORY_QUERY_GC_TIME,
   REPOSITORY_QUERY_STALE_TIME,
 } from "@/application/repositoryQueryPolicy";
-import { getWorkingChanges, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { getWorkingChanges } from "@/infrastructure/tauriClient";
 import type { WorkingChanges } from "@/domain/git";
 
 export interface UseWorkingChangesResult {
@@ -28,6 +29,6 @@ export function useWorkingChanges(repoId: string | null): UseWorkingChangesResul
   return {
     changes: query.data ?? EMPTY,
     loading: query.isPending,
-    error: query.error ? invokeErrorMessage(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
   };
 }

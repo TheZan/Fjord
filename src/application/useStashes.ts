@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
-import { getStashes, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { getStashes } from "@/infrastructure/tauriClient";
 import type { StashEntry } from "@/domain/git";
 
 export interface UseStashesResult {
@@ -20,6 +21,6 @@ export function useStashes(repoId: string | null): UseStashesResult {
   return {
     stashes: query.data ?? [],
     loading: query.isFetching,
-    error: query.error ? invokeErrorMessage(query.error) : null,
+    error: query.error ? userErrorMessage(query.error) : null,
   };
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { userErrorMessage } from "@/application/errorMessage";
 import { useAutoFetch } from "@/application/useAutoFetch";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
@@ -21,7 +22,6 @@ import {
   deleteRemoteBranch,
   deleteTag,
   invokeErrorCode,
-  invokeErrorMessage,
   openInIde,
   openMergeTool,
   openTerminal,
@@ -99,7 +99,7 @@ export function RepoDetailContainer({
       return true;
     } catch (e) {
       if (invokeErrorCode(e) !== "operation_cancelled") {
-        setActionError(invokeErrorMessage(e));
+        setActionError(userErrorMessage(e));
       }
       return false;
     } finally {

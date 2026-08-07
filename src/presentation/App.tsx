@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { userErrorMessage } from "@/application/errorMessage";
 import { useBranches } from "@/application/useBranches";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
@@ -14,7 +15,6 @@ import {
   cancelOperation,
   getSettings,
   invokeErrorCode,
-  invokeErrorMessage,
   runBulkFetch,
   runBulkPull,
   type OperationProgressEvent,
@@ -54,6 +54,7 @@ export function App() {
     loading,
     error,
     workspaceActionPending,
+    clearError,
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
@@ -184,7 +185,7 @@ export function App() {
       setBulkActionNotice(
         invokeErrorCode(e) === "operation_cancelled"
           ? tw("operations.cancelled")
-          : invokeErrorMessage(e),
+          : userErrorMessage(e),
       );
     } finally {
       setBulkActionPending(null);
@@ -333,15 +334,24 @@ export function App() {
 
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
         {(error || bulkActionNotice) && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px]"
-            style={{ background: "var(--paper)", color: error ? "var(--rust-ink)" : "var(--slate)" }}
+          <div
+            role={error ? "alert" : "status"}
+            className="mb-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[13px]"
+            style={{
+              background: error ? "var(--rust-tint)" : "var(--paper)",
+              borderColor: error ? "var(--rust)" : "var(--hairline)",
+              color: error ? "var(--rust-ink)" : "var(--slate)",
+            }}
           >
             <span>{error ?? bulkActionNotice}</span>
-            {bulkActionNotice && !error && (
-              <Button size="sm" variant="ghost" onClick={() => setBulkActionNotice(null)}>
-                ✕
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={tw("notifications.close")}
+              onClick={error ? clearError : () => setBulkActionNotice(null)}
+            >
+              ✕
+            </Button>
           </div>
         )}
 
