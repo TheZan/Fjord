@@ -75,9 +75,13 @@ isBinary: boolean, hunks: Array<DiffHunk>, };
 
 export type Theme = "light" | "dark" | "system";
 
+export type GitExecutableSource = "settings" | "path" | "standard-location";
+
+export type GitExecutable = { path: string, version: string, source: GitExecutableSource, };
+
 export type Settings = { 
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, gitExecutablePath: string | null, };
 

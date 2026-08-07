@@ -4,6 +4,8 @@
 //! what `gix` doesn't cover yet (fetch/pull/push today). See
 //! docs/specs/git-backend.md for the full routing table and rationale.
 
+pub mod remote;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};

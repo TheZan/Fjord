@@ -3,9 +3,10 @@ use std::path::Path;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine,
-    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GlobalSearchResult, LogCursor,
-    RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, SearchResultKind,
-    Settings, StashEntry, TagInfo, Theme, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GitExecutable, GitExecutableSource,
+    GlobalSearchResult, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry,
+    RepositoryId, SearchResultKind, Settings, StashEntry, TagInfo, Theme, WorkingChanges,
+    WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -50,6 +51,8 @@ fn generated_types() -> String {
     push::<DiffHunk>(&mut output, &config);
     push::<FileDiffDetail>(&mut output, &config);
     push::<Theme>(&mut output, &config);
+    push::<GitExecutableSource>(&mut output, &config);
+    push::<GitExecutable>(&mut output, &config);
     push::<Settings>(&mut output, &config);
 
     output

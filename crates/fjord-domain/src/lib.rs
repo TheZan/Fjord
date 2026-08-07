@@ -298,6 +298,25 @@ pub enum Theme {
     System,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(rename_all = "kebab-case")]
+pub enum GitExecutableSource {
+    Settings,
+    Path,
+    StandardLocation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct GitExecutable {
+    #[ts(type = "string")]
+    pub path: PathBuf,
+    pub version: String,
+    pub source: GitExecutableSource,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
@@ -307,6 +326,8 @@ pub struct Settings {
     pub theme: Theme,
     pub default_ide: Option<String>,
     pub auto_fetch: bool,
+    #[ts(type = "string | null")]
+    pub git_executable_path: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -316,6 +337,7 @@ impl Default for Settings {
             theme: Theme::System,
             default_ide: None,
             auto_fetch: false,
+            git_executable_path: None,
         }
     }
 }

@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   defaultIde: null,
   autoFetch: false,
+  gitExecutablePath: null,
 };
 
 const IDE_CHOICES: Array<{ value: string | null; key: string }> = [

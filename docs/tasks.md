@@ -105,7 +105,7 @@ and an operation-scoped askpass fallback. See
 - [x] **P5-01** — Architecture and migration contract.
 - [ ] **P5-02** — Split `fjord-git` into local/legacy-remote modules without behavior changes.
 - [x] **P5-03** — Add separate `GitRemoteBackend` and service injection.
-- [ ] **P5-04** — Discover and validate the system Git executable; persist an optional override.
+- [x] **P5-04** — Discover and validate the system Git executable; persist an optional override.
 - [ ] **P5-05** — Async streaming Git process runner.
 - [ ] **P5-06** — Terminate the complete process tree on cancel/timeout.
 - [ ] **P5-07** — Stable remote error classification and diagnostic redaction.
