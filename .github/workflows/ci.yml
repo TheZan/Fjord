@@ -157,4 +157,10 @@ jobs:
           $installer = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis" -Filter *.exe | Select-Object -First 1
           if (-not $installer) { throw "NSIS installer was not produced" }
           $listing = 7z l $installer.FullName
-          if ($listing -notmatch "fjord-askpass.exe") { throw "fjord-askpass.exe is missing from the installer" }
+          if ($LASTEXITCODE -ne 0) { $listing; throw "could not list the NSIS installer" }
+          # `-notmatch` against an array filters it instead of returning a
+          # boolean, so the old check threw on every run, sidecar or not.
+          if (-not ($listing | Select-String -SimpleMatch 'fjord-askpass.exe' -Quiet)) {
+            $listing
+            throw "fjord-askpass.exe is missing from the installer"
+          }

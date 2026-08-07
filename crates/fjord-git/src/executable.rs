@@ -45,16 +45,24 @@ impl GitCommandFactory {
     /// runs inside `spawn_blocking`, so it does not use the async runner.
     pub fn command(&self) -> Command {
         let mut command = Command::new(self.executable());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
+        suppress_console_window(&mut command);
         command
     }
 }
+
+// Taking `&mut` in both variants keeps the binding used on every platform; an
+// inline `#[cfg(windows)]` block instead leaves `mut` unused elsewhere, which
+// is a hard error under `-D warnings`.
+#[cfg(windows)]
+fn suppress_console_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_console_window(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {

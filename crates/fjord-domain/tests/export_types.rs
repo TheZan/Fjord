@@ -76,8 +76,16 @@ fn export_types() {
     }
 
     let current = fs::read_to_string(path).expect("generated TypeScript types should exist");
+    // Compared with normalized newlines: the file is checked in with LF, but a
+    // clone with `core.autocrlf=true` writes CRLF to the working tree, and a
+    // line-ending difference says nothing about whether the types are stale.
     assert_eq!(
-        current, generated,
+        normalize_newlines(&current),
+        normalize_newlines(&generated),
         "generated TypeScript domain types are stale; run `FJORD_UPDATE_DOMAIN_TYPES=1 cargo test -p fjord-domain export_types -- --exact`"
     );
+}
+
+fn normalize_newlines(value: &str) -> String {
+    value.replace("\r\n", "\n")
 }
