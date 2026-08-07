@@ -10,6 +10,8 @@ use tokio::process::{Child, Command};
 
 const STDERR_TAIL_LIMIT: usize = 64 * 1024;
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(40);
+#[cfg(unix)]
+const TERMINATION_GRACE_PERIOD: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone)]
 pub struct GitCommandSpec {
@@ -60,6 +62,7 @@ impl GitProcessRunner {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         suppress_console_window(&mut command);
+        configure_process_tree(&mut command);
 
         let mut child = command
             .spawn()
@@ -177,9 +180,42 @@ fn emit_record(
     }
 }
 
+#[cfg(unix)]
 async fn terminate_process(child: &mut Child) {
+    let Some(pid) = child.id() else {
+        return;
+    };
+    let process_group = -(pid as i32);
+    // SAFETY: `kill` is called with a process-group id created for this child;
+    // no pointers or shared memory cross the FFI boundary.
+    unsafe {
+        libc::kill(process_group, libc::SIGTERM);
+    }
+    tokio::time::sleep(TERMINATION_GRACE_PERIOD).await;
+    // SAFETY: same validated process-group id as above. ESRCH simply means the
+    // group exited during the grace period.
+    unsafe {
+        libc::kill(process_group, libc::SIGKILL);
+    }
+}
+
+#[cfg(windows)]
+async fn terminate_process(child: &mut Child) {
+    let Some(pid) = child.id() else {
+        return;
+    };
+
+    let mut taskkill = Command::new("taskkill.exe");
+    taskkill
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    suppress_console_window(&mut taskkill);
+    let _ = tokio::time::timeout(Duration::from_secs(5), taskkill.status()).await;
+
     if let Err(error) = child.kill().await {
-        tracing::debug!(%error, "Git process already exited while cancelling");
+        tracing::debug!(%error, "Git process tree already exited while cancelling");
     }
 }
 
@@ -248,6 +284,16 @@ fn suppress_console_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn suppress_console_window(_command: &mut Command) {}
 
+#[cfg(unix)]
+fn configure_process_tree(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.as_std_mut().process_group(0);
+}
+
+#[cfg(windows)]
+fn configure_process_tree(_command: &mut Command) {}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -272,6 +318,7 @@ mod tests {
 
     #[test]
     #[ignore]
+    #[allow(clippy::zombie_processes)]
     fn runner_helper() {
         match std::env::var("FJORD_RUNNER_HELPER").as_deref() {
             Ok("stream") => {
@@ -280,6 +327,22 @@ mod tests {
             }
             Ok("large-stderr") => eprint!("{}", "x".repeat(STDERR_TAIL_LIMIT * 2)),
             Ok("wait") => std::thread::sleep(Duration::from_secs(30)),
+            Ok("tree-parent") => {
+                let pid_file = std::env::var_os("FJORD_HELPER_PID_FILE").unwrap();
+                let child = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "remote::process_runner::tests::runner_helper",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env("FJORD_RUNNER_HELPER", "tree-child")
+                    .spawn()
+                    .unwrap();
+                std::fs::write(pid_file, child.id().to_string()).unwrap();
+                std::thread::sleep(Duration::from_secs(30));
+            }
+            Ok("tree-child") => std::thread::sleep(Duration::from_secs(30)),
             _ => {}
         }
     }
@@ -350,6 +413,69 @@ mod tests {
             )
             .await;
         assert!(matches!(result, Err(GitRemoteError::Timeout)));
+    }
+
+    #[tokio::test]
+    async fn cancellation_terminates_child_processes_too() {
+        let temp = tempfile::tempdir().unwrap();
+        let pid_file = temp.path().join("child.pid");
+        let mut spec = helper_spec("tree-parent", None);
+        spec.environment.push((
+            "FJORD_HELPER_PID_FILE".into(),
+            pid_file.as_os_str().to_owned(),
+        ));
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let signal = cancelled.clone();
+        let context = GitOperationContext::new(|_| {}, move || signal.load(Ordering::Relaxed));
+        let pid_path = pid_file.clone();
+        let cancellation = tokio::spawn(async move {
+            for _ in 0..100 {
+                if pid_path.is_file() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            cancelled.store(true, Ordering::Relaxed);
+        });
+
+        let result = GitProcessRunner.run(&spec, context, None).await;
+        cancellation.await.unwrap();
+        assert!(matches!(result, Err(GitRemoteError::Cancelled)));
+        let child_pid = std::fs::read_to_string(pid_file)
+            .unwrap()
+            .trim()
+            .parse::<u32>()
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!process_is_running(child_pid));
+    }
+
+    #[cfg(unix)]
+    fn process_is_running(pid: u32) -> bool {
+        // SAFETY: signal 0 performs existence/permission checking only.
+        unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+
+    #[cfg(windows)]
+    fn process_is_running(pid: u32) -> bool {
+        use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        // SAFETY: handle ownership is local and closed before returning; the
+        // output pointer references a valid local `u32` for the duration call.
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return false;
+            }
+            let mut exit_code = 0;
+            let success = GetExitCodeProcess(handle, &mut exit_code);
+            CloseHandle(handle);
+            success != 0 && exit_code == STILL_ACTIVE as u32
+        }
     }
 
     #[test]

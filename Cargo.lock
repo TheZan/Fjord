@@ -1150,11 +1150,13 @@ dependencies = [
  "fjord-ports",
  "git2",
  "gix",
+ "libc",
  "tempfile",
  "thiserror 2.0.19",
  "time",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
