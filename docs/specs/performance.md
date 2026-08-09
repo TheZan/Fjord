@@ -82,48 +82,70 @@ and on subjective impressions. Three concrete consequences:
 ### 1. SLO catalogue
 
 Budgets are **P95 on a release build**, on the reference machine defined below,
-unless a row says otherwise. Each row names the scenario that measures it. Rows
-marked *provisional* have no measurement yet and are the first thing P6-16
-must confirm or correct — a provisional number is a hypothesis, not a promise.
+unless a row says otherwise. Rows marked *provisional* have no measurement yet
+and are what `P6-18` must confirm or correct — a provisional number is a
+hypothesis, not a promise, and is never quoted as a property of the product.
 
 Reference machine for published numbers: the CI runner class used by
 `.github/workflows/benchmarks.yml`, plus one recorded developer machine per OS in
 [`../benchmarks/`](../benchmarks/). Budgets are compared against the CI runner;
 developer runs are context, not gates.
 
-| # | Interaction | Budget (P95) | Basis |
-|---|---|---|---|
-| SLO-1 | Cold start → first usable UI (window painted, workspace list rendered from snapshot, input accepted) | 1200 ms | provisional |
-| SLO-2 | Warm start → first usable UI | 600 ms | provisional |
-| SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | extrapolated from cached dashboard read 0.1 ms (24 repos) + render cost; provisional |
-| SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | provisional |
-| SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | provisional |
-| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | measured today: 3.5 ms at 200 files / 50k commits; unknown at 300k files |
-| SLO-7 | `status`, ≤5k files, warm runtime | 40 ms | measured: 3.5 ms (200 files) |
-| SLO-8 | First commit page (30 commits) on a 1M-commit repository | 200 ms | measured: 9.7 ms for 200 commits at 50k history |
-| SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | provisional |
-| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | provisional; requires the windowed transport below |
-| SLO-11 | Watcher event → visible UI update, single repository | 500 ms | current watcher debounce is 300 ms quiet / 5 s max delay — the max-delay path is deliberately outside this budget and must be reported separately |
-| SLO-12 | UI input latency (keystroke → frame) during any background work | 50 ms | provisional |
-| SLO-13 | Idle CPU, 100 tracked repositories, no user input, 60 s window | < 1% of one core, mean | provisional |
-| SLO-14 | Resident memory, 100 tracked repositories, 5 hot | 600 MB | provisional |
-| SLO-15 | Bulk fetch, 24 repositories | wall clock ≤ 2× slowest single repository | architectural invariant of the bounded pool |
+Every row names the **scenario** that measures it: a harness entry point plus the
+fixture it runs against (§2). A scenario name is the identifier `fjord-bench`
+emits in its JSON output, so a budget, a measurement, and a CI result can always
+be joined. No SLO may exist without one — a budget nobody can run is a wish.
 
-Existing SDD §11 budgets are absorbed here: cached dashboard read (24 repos) < 5 ms
-and uncached parallel refresh < 1 s remain as measured floors and become SLO-3's
-and SLO-15's smaller-scale anchors.
+| # | Interaction | Budget (P95) | Scenario | Fixture | Status |
+|---|---|---|---|---|---|
+| SLO-1 | Cold start → first usable UI (window painted, workspace list rendered from snapshot, input accepted) | 1200 ms | `startup-cold` | `ws-100` | provisional |
+| SLO-2 | Warm start → first usable UI | 600 ms | `startup-warm` | `ws-100` | provisional |
+| SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | `workspace-render` | `ws-100` | provisional; anchored by a measured 0.1 ms cached dashboard read at 24 repos |
+| SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | `repo-switch-warm` | `ws-100` | provisional |
+| SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | `repo-switch-cold` | `ws-100` | provisional |
+| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | provisional; measured 3.5 ms at 200 files, unknown at 300k |
+| SLO-7 | `status`, ≤5k files, warm runtime | 40 ms | `status-small-tree` | `wt-noisy` | measured: 3.5 ms at 200 files ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
+| SLO-8 | First commit page (30 commits) on a 1M-commit repository | 200 ms | `log-first-page` | `hist-deep` | measured: 9.7 ms for 200 commits at 50k history ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
+| SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | `diff-first-viewport` | `diff-giant` | provisional |
+| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | `diff-first-viewport-giant` | `diff-giant` | provisional; needs the windowed transport in §9 |
+| SLO-11 | Watcher event → visible UI update, single repository | 500 ms | `watcher-to-paint` | `wt-noisy` | provisional; the 5 s max-delay debounce path is deliberately outside this budget and is reported separately |
+| SLO-12 | UI input latency (keystroke → frame) during background work | 50 ms | `input-under-load` | `ws-100` | provisional |
+| SLO-13 | Idle CPU, 100 tracked repositories, no input, 60 s window | < 1% of one core, mean | `idle-cost` | `ws-100` | provisional |
+| SLO-14 | Resident memory, 100 tracked repositories, 5 hot | 600 MB | `idle-cost` | `ws-100` | provisional |
+| SLO-15 | Bulk fetch, 24 repositories | wall clock ≤ 2× slowest single repository | `bulk-fetch` | `ws-100` | architectural invariant of the bounded pool; measured 62 ms for a 24-repo live refresh |
+| SLO-16 | Refs read (branches + tags), 5k branches / 5k tags | 300 ms | `refs-read` | `refs-many` | provisional |
+
+Existing SDD §11 budgets are absorbed here: cached dashboard read (24 repos)
+< 5 ms and uncached parallel refresh < 1 s remain as measured floors and become
+the smaller-scale anchors of SLO-3 and SLO-15. The `log` page budget of < 150 ms
+becomes SLO-8 at a twenty-fold larger history.
+
+Eleven of the seventeen rows are provisional, which is the honest state: the
+existing benchmarks measure two scenarios on fixtures an order of magnitude
+smaller than the ones Fjord claims to handle. `P6-18` converts them or revises
+them with a recorded rationale; until then, no provisional number is quoted as a
+property of the product.
 
 **Measurement methodology.**
 
-- Backend-only budgets (SLO-6, SLO-7, SLO-8, SLO-15) are measured by `fjord-bench`
-  against a generated fixture, reported as JSON, and gated by budget flags.
-- End-to-end budgets (SLO-1–SLO-5, SLO-9–SLO-12) are measured through the
-  interaction-trace mechanism below, from a scripted interaction driver, and
-  reported as the P50/P95/max of ≥20 repetitions after 3 warmup repetitions.
-- Resource budgets (SLO-13, SLO-14) are sampled by the harness over a fixed
-  window with the app idle after a defined warmup.
-- A budget is only "enforced" once its scenario runs in CI and has produced at
-  least three consecutive stable results; until then it is reported, not gated.
+| Class | SLOs | Method |
+|---|---|---|
+| Backend | 6, 7, 8, 15, 16 | `fjord-bench` runs the scenario against a generated fixture, reports JSON, and fails on a budget flag. Timing brackets the port call only. |
+| End-to-end | 1–5, 9–12 | The interaction-trace mechanism (§3) driven by a scripted interaction driver; reported as P50/P95/max over ≥20 repetitions after 3 warmups. |
+| Resource | 13, 14 | Sampled by the harness over a fixed window with the app idle after a defined warmup; RSS and CPU read from the OS, not from inside the process. |
+
+Rules that apply to every class:
+
+- A run records OS, CPU model, profile, and fixture manifest hash. Results from
+  different platforms are never compared; the harness refuses to.
+- A budget is **reported** until its scenario has produced at least three
+  consecutive stable results in CI, and only then becomes a **gate** (§10). A
+  gate that lands before its baseline is noise, and noise gets disabled.
+- P95 over ≥20 repetitions is the comparison statistic. Single-shot timings are
+  recorded but never gated: the existing checkpoints are single-shot, which is
+  why they are anchors rather than budgets.
+- A measurement that cannot meet its scenario's preconditions (a cold OS file
+  cache, most often) is labeled, never silently reported as if it had.
 
 ### 2. Torture fixtures
 
