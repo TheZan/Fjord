@@ -72,7 +72,7 @@ and on subjective impressions. Three concrete consequences:
 | Graph layout | ✅ Moved off the UI thread (`src/presentation/graphLayout.worker.ts`, `useGraphLayout.ts`). |
 | Frontend timing | ⚠️ `src/presentation/performance.tsx` records React `Profiler` durations as `performance.measure` entries — dev-only, frontend-only, no IPC or backend correlation. |
 | Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
-| Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not bounded. |
+| Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not. Measured on `diff-giant`: a 50 MB file yields **2 694 458 `DiffLine` values in a single response** — the number `P6-16` exists to bound. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
 | Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with three budget flags and manifest-based fixture reuse (`P6-02`); emits both human-readable stdout and a machine-readable JSON record (`P6-03`). Weekly workflow `.github/workflows/benchmarks.yml`. The torture fixtures of §2 do not exist yet. |
 | Idle cost | 🚧 Never measured. One `RepoEventWatcher` thread per repository, created for every tracked repository at bootstrap (`crates/fjord-app/src/state.rs`). |

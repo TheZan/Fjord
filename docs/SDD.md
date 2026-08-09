@@ -147,7 +147,9 @@ Known limits of this strategy, and what Phase 6 does about them
 - 🚧 **No end-to-end latency measurement.** Every recorded number is an isolated
   backend call; user-perceived latency (action → paint) is unmeasured.
 - ⚠️ **Unbounded diff transport.** `get_file_diff` returns a whole file's hunks in
-  one payload; rendering is virtualized, the payload is not.
+  one payload; rendering is virtualized, the payload is not. Measured on the
+  `diff-giant` fixture: a 50 MB file yields 2 694 458 `DiffLine` values in a
+  single response.
 - ⚠️ **Startup blocks on IPC.** `src/main.tsx` awaits settings and i18n before the
   first render.
 

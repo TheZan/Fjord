@@ -20,6 +20,7 @@ use crate::manifest::{self, Fixture, Preparation};
 pub struct Overrides {
     pub files: Option<usize>,
     pub commits: Option<usize>,
+    pub workspace_repos: Option<usize>,
 }
 
 /// What to build, once the name and overrides are resolved.
@@ -42,6 +43,18 @@ pub enum Build {
         tags: usize,
         remotes: usize,
     },
+    /// A few very large files, each modified once so a diff exists.
+    Diff {
+        large_text_mb: usize,
+        long_text_lines: usize,
+        binary_mb: usize,
+    },
+    /// Many repositories under one root — the workspace shape.
+    Workspace {
+        repos: usize,
+        commits: usize,
+        files: usize,
+    },
 }
 
 /// Which measurement a fixture exists to support.
@@ -53,6 +66,10 @@ pub enum Scenario {
     LogFirstPage,
     /// Branches and tags together, as the repository tree loads them (SLO-16).
     RefsRead,
+    /// A single file's full diff — the payload P6-16 will window (SLO-9/10).
+    FileDiff,
+    /// Live status refresh plus the cached dashboard read (SLO-3, SLO-15).
+    WorkspaceDashboard,
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +80,18 @@ pub struct Plan {
     pub build: Build,
 }
 
-pub const NAMES: &[&str] = &["wt-huge", "wt-noisy", "hist-deep", "refs-many"];
+pub const NAMES: &[&str] = &[
+    "wt-huge",
+    "wt-noisy",
+    "hist-deep",
+    "refs-many",
+    "diff-giant",
+    "ws-100",
+];
+
+/// The file `diff-giant` measures against — the large text file, which is the
+/// case a diff view has to survive rather than the one it cannot render at all.
+pub const DIFF_TARGET: &str = "huge/large.txt";
 
 /// Resolves a fixture name and any overrides into a concrete plan.
 pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
@@ -146,6 +174,42 @@ pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
                 },
             })
         }
+        // SLO-9 and SLO-10. Three shapes that break a diff view differently:
+        // one file too large to hold comfortably, one with too many lines to
+        // render, and one with no line representation at all.
+        "diff-giant" => Ok(Plan {
+            name: "diff-giant",
+            scenario: Scenario::FileDiff,
+            fixture: Fixture::new("diff")
+                .with("large_text_mb", 50)
+                .with("long_text_lines", 500_000)
+                .with("binary_mb", 20),
+            build: Build::Diff {
+                large_text_mb: 50,
+                long_text_lines: 500_000,
+                binary_mb: 20,
+            },
+        }),
+        // SLO-3, SLO-13, SLO-14, SLO-15. The workspace shape: the cost is the
+        // number of repositories, not the size of any one of them.
+        "ws-100" => {
+            let repos = overrides.workspace_repos.unwrap_or(100);
+            let commits = overrides.commits.unwrap_or(2_000);
+            let files = overrides.files.unwrap_or(50);
+            Ok(Plan {
+                name: "ws-100",
+                scenario: Scenario::WorkspaceDashboard,
+                fixture: Fixture::new("workspace")
+                    .with("repos", repos)
+                    .with("commits_per_repo", commits)
+                    .with("files_per_repo", files),
+                build: Build::Workspace {
+                    repos,
+                    commits,
+                    files,
+                },
+            })
+        }
         other => Err(format!(
             "unknown fixture '{other}'; available: {}",
             NAMES.join(", ")
@@ -175,6 +239,16 @@ pub fn materialize(path: &Path, plan: &Plan, force: bool) -> Result<bool, String
             tags,
             remotes,
         } => build_refs(path, commits, branches, tags, remotes)?,
+        Build::Diff {
+            large_text_mb,
+            long_text_lines,
+            binary_mb,
+        } => build_diff(path, large_text_mb, long_text_lines, binary_mb)?,
+        Build::Workspace {
+            repos,
+            commits,
+            files,
+        } => build_workspace(path, repos, commits, files)?,
     }
 
     manifest::write(path, &plan.fixture)?;
@@ -262,6 +336,99 @@ fn build_refs(
 
     eprintln!("  packing refs");
     generate::pack_refs(path)
+}
+
+/// Three files that break a diff view in different ways, each committed and
+/// then modified, so `HEAD` carries a real diff against its parent.
+fn build_diff(
+    path: &Path,
+    large_text_mb: usize,
+    long_text_lines: usize,
+    binary_mb: usize,
+) -> Result<(), String> {
+    let mut builder = RepoBuilder::init(path)?;
+    manifest::exclude_from_git(path)?;
+
+    // Git treats a file with a NUL byte as binary, which is the point: the
+    // diff view must recognize it without attempting to render lines.
+    let binary = (0..binary_mb * 1024 * 1024)
+        .map(|index| (index % 256) as u8)
+        .collect::<Vec<_>>();
+
+    eprintln!("  writing large text file ({large_text_mb} MB)");
+    builder.write_file(DIFF_TARGET, &filler_text(large_text_mb * 1024 * 1024, 0))?;
+    builder.stage(DIFF_TARGET)?;
+
+    eprintln!("  writing long text file ({long_text_lines} lines)");
+    builder.write_file("huge/long.txt", &numbered_lines(long_text_lines, 0))?;
+    builder.stage("huge/long.txt")?;
+
+    eprintln!("  writing binary blob ({binary_mb} MB)");
+    builder.write_file("huge/blob.bin", &binary)?;
+    builder.stage("huge/blob.bin")?;
+    builder.commit("seed giant files")?;
+
+    // Modify each one, so every file has something to diff.
+    builder.write_file(DIFF_TARGET, &filler_text(large_text_mb * 1024 * 1024, 1))?;
+    builder.stage(DIFF_TARGET)?;
+    builder.write_file("huge/long.txt", &numbered_lines(long_text_lines, 1))?;
+    builder.stage("huge/long.txt")?;
+    builder.write_file(
+        "huge/blob.bin",
+        &binary.iter().rev().copied().collect::<Vec<_>>(),
+    )?;
+    builder.stage("huge/blob.bin")?;
+    builder.commit("revise giant files")?;
+
+    builder.finish()
+}
+
+/// Text of roughly `bytes`, with every line differing between revisions so the
+/// diff is dense rather than a single changed line at the top.
+fn filler_text(bytes: usize, revision: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes + 64);
+    let mut line = 0usize;
+    while out.len() < bytes {
+        out.extend_from_slice(
+            format!(
+                "line {line:08} revision {revision} {:x}\n",
+                line * 2_654_435_761usize
+            )
+            .as_bytes(),
+        );
+        line += 1;
+    }
+    out
+}
+
+fn numbered_lines(lines: usize, revision: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(lines * 32);
+    for line in 0..lines {
+        out.extend_from_slice(format!("{line:07}: value {}\n", line + revision).as_bytes());
+    }
+    out
+}
+
+/// Many repositories under one root. Each is a small repository built with the
+/// fast builder; the cost this fixture measures is their number.
+fn build_workspace(path: &Path, repos: usize, commits: usize, files: usize) -> Result<(), String> {
+    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
+
+    let mut progress = Progress::new("repositories", repos);
+    for index in 0..repos {
+        let repo_path = path.join(format!("repo-{index:03}"));
+        let mut builder = seed_repository(&repo_path, files)?;
+        for commit in 1..commits {
+            let file = bench_file_path("src", commit % files);
+            builder.write_file(&file, &bench_file_contents(commit % files, commit))?;
+            builder.stage(&file)?;
+            builder.commit(&format!("synthetic commit {commit}"))?;
+        }
+        builder.finish()?;
+        progress.tick(index + 1);
+    }
+    progress.finish();
+    Ok(())
 }
 
 /// Initializes a repository with `files` tracked files and one commit — the
@@ -385,7 +552,7 @@ mod tests {
             "wt-huge",
             Overrides {
                 files: Some(300_000),
-                commits: None,
+                ..Overrides::default()
             },
         )
         .unwrap();
@@ -446,7 +613,7 @@ mod tests {
             "hist-deep",
             Overrides {
                 commits: Some(1_000_000),
-                files: None,
+                ..Overrides::default()
             },
         )
         .unwrap();
@@ -520,6 +687,55 @@ mod tests {
             distinct.len() > 1,
             "refs stacked on one commit would measure nothing"
         );
+    }
+
+    /// Built at a fraction of the real size: the shape is that each giant file
+    /// has a diff against its parent, and that the binary one is recognized
+    /// without being rendered.
+    #[test]
+    fn a_diff_fixture_gives_every_giant_file_something_to_diff() {
+        let dir = TempDir::new().unwrap();
+        build_diff(dir.path(), 1, 500, 1).unwrap();
+
+        let repo = Repository::open(dir.path()).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let parent = head.parent(0).unwrap();
+        let diff = repo
+            .diff_tree_to_tree(
+                Some(&parent.tree().unwrap()),
+                Some(&head.tree().unwrap()),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(diff.deltas().len(), 3, "every giant file must have changed");
+        assert_eq!(repo.statuses(None).unwrap().len(), 0);
+
+        let blob = head
+            .tree()
+            .unwrap()
+            .get_path(std::path::Path::new("huge/blob.bin"))
+            .unwrap()
+            .to_object(&repo)
+            .unwrap();
+        assert!(
+            blob.as_blob().unwrap().is_binary(),
+            "the blob must be detected as binary, not diffed as text"
+        );
+    }
+
+    #[test]
+    fn a_workspace_fixture_builds_independent_repositories() {
+        let dir = TempDir::new().unwrap();
+        build_workspace(dir.path(), 3, 5, 4).unwrap();
+
+        for index in 0..3 {
+            let repo = Repository::open(dir.path().join(format!("repo-{index:03}"))).unwrap();
+            let mut walk = repo.revwalk().unwrap();
+            walk.push_head().unwrap();
+            assert_eq!(walk.count(), 5);
+            assert_eq!(repo.statuses(None).unwrap().len(), 0);
+        }
     }
 
     #[test]

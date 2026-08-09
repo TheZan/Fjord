@@ -50,6 +50,7 @@ struct Args {
     fixture: Option<String>,
     budget_status_ms: Option<f64>,
     budget_refs_ms: Option<f64>,
+    budget_diff_ms: Option<f64>,
 }
 
 impl Default for Args {
@@ -70,6 +71,7 @@ impl Default for Args {
             fixture: None,
             budget_status_ms: None,
             budget_refs_ms: None,
+            budget_diff_ms: None,
         }
     }
 }
@@ -123,6 +125,12 @@ fn parse_args() -> Result<Args, String> {
                 args.budget_refs_ms = Some(parse_f64(
                     next_value(&mut iter, "--budget-refs-ms")?,
                     "--budget-refs-ms",
+                )?)
+            }
+            "--budget-diff-ms" => {
+                args.budget_diff_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-diff-ms")?,
+                    "--budget-diff-ms",
                 )?)
             }
             "--scenario" => args.scenario = Some(next_value(&mut iter, "--scenario")?),
@@ -188,7 +196,7 @@ fn usage() -> String {
            --scenario NAME       scenario label recorded in the result\n  \
            --json PATH|-         write a machine-readable record\n\n\
          Budgets (fail the run when exceeded):\n  \
-           --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N\n  \
+           --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N  --budget-diff-ms N\n  \
            --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
          Other:\n  \
            --force               regenerate the fixture even if it matches\n  \
@@ -457,6 +465,8 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         fixtures::Overrides {
             files: (args.files != Args::default().files).then_some(args.files),
             commits: (args.commits != Args::default().commits).then_some(args.commits),
+            workspace_repos: (args.workspace_repos != Args::default().workspace_repos)
+                .then_some(args.workspace_repos),
         },
     )?;
 
@@ -479,9 +489,137 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         fixtures::Scenario::Status => measure_status(&root, &args, &mut record).await?,
         fixtures::Scenario::LogFirstPage => measure_log(&root, &args, &mut record).await?,
         fixtures::Scenario::RefsRead => measure_refs(&root, &args, &mut record).await?,
+        fixtures::Scenario::FileDiff => measure_file_diff(&root, &args, &mut record).await?,
+        fixtures::Scenario::WorkspaceDashboard => {
+            measure_workspace_dashboard(&root, &plan, &args, &mut record).await?
+        }
     }
 
     finish(&record, args.json.as_ref())
+}
+
+/// One file's complete diff. This is the payload `P6-16` will window: the
+/// number recorded here is the cost of *not* windowing it, which is what makes
+/// the case for the change rather than asserting it.
+async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Result<(), String> {
+    let backend = LocalGitBackend::new();
+    let repo = RepoPath::new(root.to_path_buf());
+    let head = Repository::open(root)
+        .map_err(|e| e.message().to_string())?
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .map_err(|e| e.message().to_string())?
+        .id()
+        .to_string();
+
+    let start = Instant::now();
+    let files = backend
+        .diff(&repo, &head)
+        .await
+        .map_err(|e| e.to_string())?;
+    let list_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let detail = backend
+        .file_diff(&repo, &head, fixtures::DIFF_TARGET)
+        .await
+        .map_err(|e| e.to_string())?;
+    let diff_ms = ms(start.elapsed());
+
+    let lines: usize = detail.hunks.iter().map(|hunk| hunk.lines.len()).sum();
+    println!("changed_files={}", files.len());
+    println!("diff_hunks={} diff_lines={lines}", detail.hunks.len());
+    println!("diff_list_ms={list_ms:.3}");
+    println!("file_diff_ms={diff_ms:.3}");
+
+    record
+        .count("changed_files", files.len() as u64)
+        .count("diff_hunks", detail.hunks.len() as u64)
+        .count("diff_lines", lines as u64)
+        .ms("diff_list", list_ms)
+        .ms("file_diff", diff_ms);
+    if let Some(budget) = check_budget("file_diff", diff_ms, args.budget_diff_ms) {
+        record.budget(budget);
+    }
+    Ok(())
+}
+
+/// The workspace dashboard: a live status refresh across every repository, then
+/// the cached read the UI actually renders from.
+async fn measure_workspace_dashboard(
+    root: &Path,
+    plan: &fixtures::Plan,
+    args: &Args,
+    record: &mut Report,
+) -> Result<(), String> {
+    let fixtures::Build::Workspace { repos, .. } = plan.build else {
+        return Err("the workspace scenario needs a workspace fixture".to_string());
+    };
+
+    let backend = LocalGitBackend::new();
+    let pool = fjord_db::connect(Path::new(":memory:"))
+        .await
+        .map_err(|e| e.to_string())?;
+    let store = Arc::new(SqliteWorkspaceStore::new(pool));
+    let workspace = store
+        .create_workspace("Synthetic workspace")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut registered = Vec::with_capacity(repos);
+    for index in 0..repos {
+        let name = format!("repo-{index:03}");
+        let entry = store
+            .add_repository(workspace.id, &name, root.join(&name).as_path())
+            .await
+            .map_err(|e| e.to_string())?;
+        registered.push(entry);
+    }
+
+    let start = Instant::now();
+    for repo in &registered {
+        let status = backend
+            .status(&RepoPath::new(repo.path.clone()))
+            .await
+            .map_err(|e| e.to_string())?;
+        store
+            .upsert_repo_status(repo.id, &status)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let live_refresh_ms = ms(start.elapsed());
+
+    let start = Instant::now();
+    let dashboard = store
+        .list_workspace_status(workspace.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let cached_dashboard_ms = ms(start.elapsed());
+
+    println!("workspace_repos={repos}");
+    println!("dashboard_rows={}", dashboard.len());
+    println!("live_refresh_ms={live_refresh_ms:.3}");
+    println!("cached_dashboard_ms={cached_dashboard_ms:.3}");
+
+    record
+        .count("workspace_repos", repos as u64)
+        .count("dashboard_rows", dashboard.len() as u64)
+        .ms("live_refresh", live_refresh_ms)
+        .ms("cached_dashboard", cached_dashboard_ms);
+    for budget in [
+        check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms),
+        check_budget(
+            "cached_dashboard",
+            cached_dashboard_ms,
+            args.budget_cached_dashboard_ms,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        record.budget(budget);
+    }
+    Ok(())
 }
 
 /// The read a repository view waits on: the first page of history (SLO-8).

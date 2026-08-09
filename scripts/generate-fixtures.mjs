@@ -69,13 +69,44 @@ const FIXTURES = [
     approxFiles: () => 20,
     needsGit: true,
   },
+  {
+    name: "diff-giant",
+    slo: "SLO-9, SLO-10",
+    summary:
+      "A 50 MB text file, a 500k-line file, and a binary blob — three ways a diff view breaks.",
+    sizeFlag: null,
+    approxFiles: () => 3,
+    approxDisk: "~115 MB",
+  },
+  {
+    name: "ws-100",
+    slo: "SLO-3, SLO-13, SLO-14, SLO-15",
+    summary: "100 repositories under one root — the workspace shape, where count is the cost.",
+    sizeFlag: "--workspace-repos",
+    workspaceRepos: 100,
+    variants: [100],
+    approxFiles: (repos) => repos * 50,
+    slowest: true,
+  },
 ];
 
-/** The size a fixture is generated at, and the flag that overrides it. */
+/**
+ * The size a fixture is generated at, and the flag that overrides it.
+ * `sizeFlag: null` means the fixture has one fixed shape.
+ */
 function sizeOf(fixture, options) {
+  if (fixture.sizeFlag === null) return { flag: null, value: null };
   const flag = fixture.sizeFlag ?? "--files";
-  const fallback = flag === "--commits" ? fixture.commits : fixture.files;
-  const override = flag === "--commits" ? options.commits : options.files;
+  const fallback = {
+    "--files": fixture.files,
+    "--commits": fixture.commits,
+    "--workspace-repos": fixture.workspaceRepos,
+  }[flag];
+  const override = {
+    "--files": options.files,
+    "--commits": options.commits,
+    "--workspace-repos": options.workspaceRepos,
+  }[flag];
   return { flag, value: override ?? fallback };
 }
 
@@ -84,6 +115,7 @@ function parseArgs(argv) {
     only: null,
     files: null,
     commits: null,
+    workspaceRepos: null,
     force: false,
     dryRun: false,
     list: false,
@@ -110,6 +142,12 @@ function parseArgs(argv) {
         options.commits = Number.parseInt(next(), 10);
         if (!Number.isFinite(options.commits) || options.commits <= 0) {
           throw new Error("--commits must be a positive integer");
+        }
+        break;
+      case "--workspace-repos":
+        options.workspaceRepos = Number.parseInt(next(), 10);
+        if (!Number.isFinite(options.workspaceRepos) || options.workspaceRepos <= 0) {
+          throw new Error("--workspace-repos must be a positive integer");
         }
         break;
       case "--force":
@@ -148,38 +186,39 @@ function selected(options) {
 
 function commandFor(fixture, options) {
   const { flag, value } = sizeOf(fixture, options);
-  const args = [
-    "run",
-    "--release",
-    "-p",
-    "fjord-bench",
-    "--",
-    "--fixture",
-    fixture.name,
-    flag,
-    String(value),
-    "--json",
-    join(RESULTS_DIR, `${fixture.name}-${value}.json`),
-  ];
+  const args = ["run", "--release", "-p", "fjord-bench", "--", "--fixture", fixture.name];
+  if (flag !== null) args.push(flag, String(value));
+  args.push("--json", join(RESULTS_DIR, `${fixture.name}${value === null ? "" : `-${value}`}.json`));
   if (options.force) args.push("--force");
   return args;
 }
 
+const SIZE_LABEL = {
+  "--files": "tracked files",
+  "--commits": "commits",
+  "--workspace-repos": "repositories",
+};
+
 function describe(fixture, options) {
   const { flag, value } = sizeOf(fixture, options);
-  const label = flag === "--commits" ? "commits" : "tracked files";
-  const variants =
-    fixture.variants.length > 1
-      ? ` (variants: ${fixture.variants.map((size) => size.toLocaleString("en-US")).join(", ")})`
-      : "";
-  const lines = [
-    `  ${fixture.name}  [${fixture.slo}]`,
-    `    ${fixture.summary}`,
-    `    ${label}: ${value.toLocaleString("en-US")}${variants}`,
-    `    files on disk: ~${fixture.approxFiles(value).toLocaleString("en-US")}`,
-  ];
+  const lines = [`  ${fixture.name}  [${fixture.slo}]`, `    ${fixture.summary}`];
+
+  if (flag !== null) {
+    const variants =
+      fixture.variants.length > 1
+        ? ` (variants: ${fixture.variants.map((size) => size.toLocaleString("en-US")).join(", ")})`
+        : "";
+    lines.push(`    ${SIZE_LABEL[flag]}: ${value.toLocaleString("en-US")}${variants}`);
+  }
+  lines.push(
+    `    files on disk: ~${fixture.approxFiles(value ?? 0).toLocaleString("en-US")}` +
+      (fixture.approxDisk ? ` (${fixture.approxDisk})` : ""),
+  );
   if (fixture.needsGit) {
     lines.push("    requires: git on PATH (commit-graph, packed refs)");
+  }
+  if (fixture.slowest) {
+    lines.push("    note: the longest build here — one repository's history, a hundred times");
   }
   return lines.join("\n");
 }
