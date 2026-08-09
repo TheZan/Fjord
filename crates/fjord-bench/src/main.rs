@@ -25,6 +25,8 @@ impl IdeLauncher for NoopIdeLauncher {
     }
 }
 
+mod fixtures;
+mod generate;
 mod manifest;
 mod report;
 
@@ -45,6 +47,8 @@ struct Args {
     profile_open: bool,
     scenario: Option<String>,
     json: Option<Destination>,
+    fixture: Option<String>,
+    budget_status_ms: Option<f64>,
 }
 
 impl Default for Args {
@@ -62,6 +66,8 @@ impl Default for Args {
             profile_open: false,
             scenario: None,
             json: None,
+            fixture: None,
+            budget_status_ms: None,
         }
     }
 }
@@ -102,6 +108,13 @@ fn parse_args() -> Result<Args, String> {
                 args.budget_cached_dashboard_ms = Some(parse_f64(
                     next_value(&mut iter, "--budget-cached-dashboard-ms")?,
                     "--budget-cached-dashboard-ms",
+                )?)
+            }
+            "--fixture" => args.fixture = Some(next_value(&mut iter, "--fixture")?),
+            "--budget-status-ms" => {
+                args.budget_status_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-status-ms")?,
+                    "--budget-status-ms",
                 )?)
             }
             "--scenario" => args.scenario = Some(next_value(&mut iter, "--scenario")?),
@@ -156,7 +169,24 @@ fn parse_f64(value: String, flag: &str) -> Result<f64, String> {
 }
 
 fn usage() -> String {
-    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--budget-log-ms N] [--budget-live-refresh-ms N] [--budget-cached-dashboard-ms N] [--scenario NAME] [--json PATH|-] [--force] [--profile-open]".to_string()
+    format!(
+        "Usage: cargo run --release -p fjord-bench -- [OPTIONS]\n\n\
+         Named fixtures (specs/performance.md §2):\n  \
+           --fixture NAME        one of: {}\n  \
+           --files N             override the fixture's file count\n\n\
+         Ad-hoc runs:\n  \
+           --repo PATH --commits N --files N [--workspace-repos N] [--log-limit N]\n\n\
+         Reporting:\n  \
+           --scenario NAME       scenario label recorded in the result\n  \
+           --json PATH|-         write a machine-readable record\n\n\
+         Budgets (fail the run when exceeded):\n  \
+           --budget-status-ms N  --budget-log-ms N\n  \
+           --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
+         Other:\n  \
+           --force               regenerate the fixture even if it matches\n  \
+           --profile-open        profile repository-open reads against --repo",
+        fixtures::NAMES.join(", ")
+    )
 }
 
 /// What a single synthetic repository is, for reuse purposes.
@@ -411,9 +441,82 @@ fn finish(report: &Report, destination: Option<&Destination>) -> Result<(), Stri
         .join("; "))
 }
 
+/// Runs a named fixture from the catalogue: generate it if the parameters do
+/// not already match what is on disk, then take the measurement it exists for.
+async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
+    let plan = fixtures::plan(
+        name,
+        fixtures::Overrides {
+            files: (args.files != Args::default().files).then_some(args.files),
+        },
+    )?;
+
+    let root = fixture_root(&args, plan.name);
+    let generated = fixtures::materialize(&root, &plan, args.force)?;
+
+    let mut record = Report::new(
+        args.scenario.as_deref().unwrap_or(plan.name),
+        plan.fixture.kind,
+        &plan.fixture.hash(),
+    );
+    record.fixture_generated(generated);
+
+    println!("fixture={}", plan.name);
+    println!("root={}", root.display());
+    println!("generated={generated}");
+    println!("fixture_hash={}", plan.fixture.hash());
+
+    match plan.scenario {
+        fixtures::Scenario::Status => measure_status(&root, &args, &mut record).await?,
+    }
+
+    finish(&record, args.json.as_ref())
+}
+
+/// Named fixtures live under a per-name directory so two fixtures never share a
+/// root and invalidate each other. `--repo` selects the parent.
+fn fixture_root(args: &Args, name: &str) -> PathBuf {
+    if args.repo == Args::default().repo {
+        PathBuf::from("target/fjord-bench").join(name)
+    } else {
+        args.repo.clone()
+    }
+}
+
+async fn measure_status(root: &Path, args: &Args, record: &mut Report) -> Result<(), String> {
+    let backend = LocalGitBackend::new();
+    let repo = RepoPath::new(root.to_path_buf());
+
+    // One untimed call first: the first `status` on a cold fixture pays for the
+    // OS reading the tree, which is a filesystem measurement, not Fjord's.
+    backend.status(&repo).await.map_err(|e| e.to_string())?;
+
+    let start = Instant::now();
+    let status = backend.status(&repo).await.map_err(|e| e.to_string())?;
+    let status_ms = ms(start.elapsed());
+
+    println!(
+        "branch={}",
+        status.branch.unwrap_or_else(|| "(detached)".into())
+    );
+    println!("dirty_count={}", status.dirty_count);
+    println!("status_ms={status_ms:.3}");
+
+    record
+        .count("dirty_count", u64::from(status.dirty_count))
+        .ms("status", status_ms);
+    if let Some(budget) = check_budget("status", status_ms, args.budget_status_ms) {
+        record.budget(budget);
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args = parse_args()?;
+    if let Some(name) = args.fixture.clone() {
+        return run_named_fixture(args, &name).await;
+    }
     if args.profile_open {
         return run_open_profile(args).await;
     }
