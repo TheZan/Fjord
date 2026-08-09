@@ -194,7 +194,11 @@ to name a default remote. Nothing depends on the user's `push.default`.
 
 Environment inspection is read-only and may reveal executable path/version,
 credential-helper names and origins, sanitized SSH command presence, SSH-agent
-availability, and proxy configured/not-configured. Connection testing uses
+availability, proxy configured/not-configured, and whether the bundled askpass
+sidecar was found. Sidecar resolution is a packaging concern the Git adapter
+cannot answer, so the application layer stamps `askpass_available` onto every
+environment result; reporting it matters because its absence otherwise reaches
+the user as an unexplained authentication failure. Connection testing uses
 `git ls-remote --symref <remote> HEAD` and does not mutate the repository.
 
 The broker listens only on `127.0.0.1` at an ephemeral port. Every operation has

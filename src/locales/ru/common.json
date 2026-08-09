@@ -107,6 +107,8 @@
       "credentialHelper": "Credential helper",
       "sshAgent": "SSH agent",
       "proxy": "Proxy",
+      "askpass": "Запрос через Fjord",
+      "askpassMissingDescription": "Встроенный askpass-помощник отсутствует, поэтому Git не может запросить учётные данные через Fjord. Операции, требующие ввода, будут завершаться ошибкой до переустановки приложения.",
       "configured": "Настроен",
       "notConfigured": "Не настроен",
       "available": "Доступен",

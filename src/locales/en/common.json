@@ -107,6 +107,8 @@
       "credentialHelper": "Credential helper",
       "sshAgent": "SSH agent",
       "proxy": "Proxy",
+      "askpass": "Fjord prompt",
+      "askpassMissingDescription": "The bundled askpass helper is missing, so Git cannot ask for credentials through Fjord. Operations that need a prompt will fail until the application is reinstalled.",
       "configured": "Configured",
       "notConfigured": "Not configured",
       "available": "Available",

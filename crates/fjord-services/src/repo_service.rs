@@ -1032,6 +1032,7 @@ mod tests {
                 ssh_command: None,
                 ssh_agent_available: false,
                 proxy_configured: false,
+                askpass_available: false,
             })
         }
 
@@ -1668,6 +1669,7 @@ mod tests {
                 ssh_command: None,
                 ssh_agent_available: false,
                 proxy_configured: false,
+                askpass_available: false,
             })
         }
 

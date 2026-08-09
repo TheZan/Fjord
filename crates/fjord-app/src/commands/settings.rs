@@ -19,11 +19,22 @@ pub async fn update_settings(
     Ok(state.settings.update_settings(settings).await?)
 }
 
+/// Sidecar resolution is a Tauri-resource concern, so `fjord-services` cannot
+/// answer it. The command layer owns the answer and stamps it onto the
+/// inspection result every environment command returns — the alternative,
+/// leaving it `false` on some paths, would report a missing askpass to a user
+/// whose askpass is fine (docs/tasks.md P5-21).
+fn with_askpass_availability(available: bool, mut info: GitEnvironmentInfo) -> GitEnvironmentInfo {
+    info.askpass_available = available;
+    info
+}
+
 #[tauri::command]
 pub async fn get_git_environment(
     state: State<'_, AppState>,
 ) -> Result<GitEnvironmentInfo, AppError> {
-    Ok(state.repos.get_git_environment().await?)
+    let info = state.repos.get_git_environment().await?;
+    Ok(with_askpass_availability(state.askpass_available(), info))
 }
 
 #[tauri::command]
@@ -31,12 +42,40 @@ pub async fn select_git_executable(
     state: State<'_, AppState>,
     path: PathBuf,
 ) -> Result<GitEnvironmentInfo, AppError> {
-    Ok(state.repos.set_git_executable_path(path).await?)
+    let info = state.repos.set_git_executable_path(path).await?;
+    Ok(with_askpass_availability(state.askpass_available(), info))
 }
 
 #[tauri::command]
 pub async fn reset_git_executable(
     state: State<'_, AppState>,
 ) -> Result<GitEnvironmentInfo, AppError> {
-    Ok(state.repos.reset_git_executable_path().await?)
+    let info = state.repos.reset_git_executable_path().await?;
+    Ok(with_askpass_availability(state.askpass_available(), info))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn inspected() -> GitEnvironmentInfo {
+        GitEnvironmentInfo {
+            executable_path: Some(PathBuf::from("git")),
+            version: Some("2.51.0".into()),
+            executable_source: None,
+            configured_path_valid: true,
+            credential_helpers: vec![],
+            ssh_command: None,
+            ssh_agent_available: false,
+            proxy_configured: false,
+            // What `fjord-git` always produces: the adapter cannot know.
+            askpass_available: false,
+        }
+    }
+
+    #[test]
+    fn availability_comes_from_the_application_not_the_git_adapter() {
+        assert!(with_askpass_availability(true, inspected()).askpass_available);
+        assert!(!with_askpass_availability(false, inspected()).askpass_available);
+    }
 }

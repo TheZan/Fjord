@@ -103,6 +103,8 @@
       "credentialHelper": "Credential Helper",
       "sshAgent": "SSH-Agent",
       "proxy": "Proxy",
+      "askpass": "Fjord-Abfrage",
+      "askpassMissingDescription": "Der mitgelieferte askpass-Helfer fehlt, daher kann Git keine Zugangsdaten über Fjord abfragen. Vorgänge, die eine Eingabe erfordern, schlagen bis zur Neuinstallation der Anwendung fehl.",
       "configured": "Konfiguriert",
       "notConfigured": "Nicht konfiguriert",
       "available": "Verfügbar",

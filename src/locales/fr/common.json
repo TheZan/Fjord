@@ -103,6 +103,8 @@
       "credentialHelper": "Gestionnaire d’identifiants",
       "sshAgent": "Agent SSH",
       "proxy": "Proxy",
+      "askpass": "Invite Fjord",
+      "askpassMissingDescription": "L'assistant askpass fourni est absent, Git ne peut donc pas demander d'identifiants via Fjord. Les opérations nécessitant une invite échoueront jusqu'à la réinstallation de l'application.",
       "configured": "Configuré",
       "notConfigured": "Non configuré",
       "available": "Disponible",

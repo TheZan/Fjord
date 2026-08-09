@@ -81,7 +81,14 @@ export type GitExecutable = { path: string, version: string, source: GitExecutab
 
 export type CredentialHelperInfo = { value: string, source: string, };
 
-export type GitEnvironmentInfo = { executablePath: string | null, version: string | null, executableSource: GitExecutableSource | null, configuredPathValid: boolean, credentialHelpers: Array<CredentialHelperInfo>, sshCommand: string | null, sshAgentAvailable: boolean, proxyConfigured: boolean, };
+export type GitEnvironmentInfo = { executablePath: string | null, version: string | null, executableSource: GitExecutableSource | null, configuredPathValid: boolean, credentialHelpers: Array<CredentialHelperInfo>, sshCommand: string | null, sshAgentAvailable: boolean, proxyConfigured: boolean, 
+/**
+ * Whether the bundled askpass sidecar was found. Without it Git cannot
+ * prompt through Fjord, so a packaging failure would otherwise surface as
+ * an authentication failure with no explanation. Filled in by the
+ * application layer, which owns sidecar resolution.
+ */
+askpassAvailable: boolean, };
 
 export type GitConnectionProtocol = "https" | "ssh" | "local" | "other";
 

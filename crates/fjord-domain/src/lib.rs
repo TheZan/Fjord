@@ -338,6 +338,11 @@ pub struct GitEnvironmentInfo {
     pub ssh_command: Option<String>,
     pub ssh_agent_available: bool,
     pub proxy_configured: bool,
+    /// Whether the bundled askpass sidecar was found. Without it Git cannot
+    /// prompt through Fjord, so a packaging failure would otherwise surface as
+    /// an authentication failure with no explanation. Filled in by the
+    /// application layer, which owns sidecar resolution.
+    pub askpass_available: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -133,6 +133,13 @@ pub async fn bootstrap(
 }
 
 impl AppState {
+    /// Whether Git can prompt through Fjord at all. `false` means the bundled
+    /// sidecar is missing — a packaging problem that otherwise only shows up as
+    /// an authentication failure on the first repository that needs a prompt.
+    pub fn askpass_available(&self) -> bool {
+        self.askpass_executable.is_some()
+    }
+
     pub fn begin_askpass_operation(
         &self,
         operation_id: &str,

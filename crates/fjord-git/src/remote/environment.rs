@@ -116,6 +116,7 @@ impl GitEnvironmentProvider for SystemGitEnvironmentProvider {
                     ssh_command: None,
                     ssh_agent_available: false,
                     proxy_configured: false,
+                    askpass_available: false,
                 })
             }
             Err(GitExecutableError::NotFound) => {
@@ -172,6 +173,8 @@ impl GitEnvironmentProvider for SystemGitEnvironmentProvider {
             ssh_agent_available: std::env::var_os("SSH_AUTH_SOCK")
                 .is_some_and(|value| !value.is_empty()),
             proxy_configured: proxy.exit_code == Some(0) && !proxy.stdout.trim().is_empty(),
+            // The application layer owns sidecar resolution and fills this in.
+            askpass_available: false,
         })
     }
 

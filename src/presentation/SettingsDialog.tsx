@@ -421,6 +421,19 @@ export function SettingsDialog({
                         label={t("settings.git.proxy")}
                         value={gitEnvironment.proxyConfigured ? t("settings.git.configured") : t("settings.git.notConfigured")}
                       />
+                      <GitStatusRow
+                        label={t("settings.git.askpass")}
+                        value={gitEnvironment.askpassAvailable ? t("settings.git.available") : t("settings.git.unavailable")}
+                        tone={gitEnvironment.askpassAvailable ? undefined : "var(--amber-ink)"}
+                      />
+                      {/* A missing sidecar is a packaging failure, and it only
+                          shows up later as an unexplained authentication
+                          failure. Say so here instead (docs/tasks.md P5-21). */}
+                      {!gitEnvironment.askpassAvailable && (
+                        <p className="pl-2 text-[11px]" style={{ color: "var(--amber-ink)" }}>
+                          {t("settings.git.askpassMissingDescription")}
+                        </p>
+                      )}
                     </div>
                   </SettingsGroup>
                 )}
@@ -558,11 +571,11 @@ function SettingsGroup({ title, children }: { title: string; children: React.Rea
   );
 }
 
-function GitStatusRow({ label, value }: { label: string; value: string }) {
+function GitStatusRow({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span style={{ color: "var(--slate)" }}>{label}</span>
-      <span className="text-right" style={{ color: "var(--ink)" }}>{value}</span>
+      <span className="text-right" style={{ color: tone ?? "var(--ink)" }}>{value}</span>
     </div>
   );
 }

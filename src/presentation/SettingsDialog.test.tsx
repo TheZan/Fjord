@@ -54,6 +54,7 @@ describe("SettingsDialog Git section", () => {
       sshCommand: null,
       sshAgentAvailable: true,
       proxyConfigured: false,
+      askpassAvailable: true,
     });
     testGitConnection.mockResolvedValue({
       success: true,
@@ -107,6 +108,7 @@ describe("SettingsDialog Git section", () => {
       sshCommand: null,
       sshAgentAvailable: false,
       proxyConfigured: false,
+      askpassAvailable: true,
     });
 
     render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
@@ -122,5 +124,29 @@ describe("SettingsDialog Git section", () => {
     expect(screen.queryByText("settings.git.environment")).not.toBeInTheDocument();
     // Resetting the path stays reachable — it is the way out of this state.
     expect(screen.getByRole("button", { name: "settings.git.reset" })).toBeInTheDocument();
+  });
+
+  // P5-21: a missing sidecar used to be a log line only, so the user met it as
+  // an authentication failure on their first prompt with nothing to connect it
+  // to.
+  it("reports a missing askpass sidecar in the authentication environment", async () => {
+    getGitEnvironment.mockResolvedValue({
+      executablePath: "/usr/bin/git",
+      version: "2.51.0",
+      executableSource: "path",
+      configuredPathValid: true,
+      credentialHelpers: [],
+      sshCommand: null,
+      sshAgentAvailable: false,
+      proxyConfigured: false,
+      askpassAvailable: false,
+    });
+
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Git" }));
+
+    expect(await screen.findByText("settings.git.askpass")).toBeInTheDocument();
+    expect(screen.getByText("settings.git.askpassMissingDescription")).toBeInTheDocument();
   });
 });
