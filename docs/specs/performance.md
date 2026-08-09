@@ -74,7 +74,8 @@ and on subjective impressions. Three concrete consequences:
 | Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
 | Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not. Measured on `diff-giant`: a 50 MB file yields **2 694 458 `DiffLine` values in a single response** — the number `P6-16` exists to bound. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
-| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with three budget flags and manifest-based fixture reuse (`P6-02`); emits both human-readable stdout and a machine-readable JSON record (`P6-03`). Weekly workflow `.github/workflows/benchmarks.yml`. The torture fixtures of §2 do not exist yet. |
+| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`) and refuses to compare runs from different platforms or cache states (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
+| Refs read | ⚠️ `branches` + `tags` on a repository with 5k branches, 5k tags, and 20 remotes measures **2005 ms** in release — see `P6-21`. |
 | Idle cost | 🚧 Never measured. One `RepoEventWatcher` thread per repository, created for every tracked repository at bootstrap (`crates/fjord-app/src/state.rs`). |
 
 ## Proposed design
@@ -103,17 +104,17 @@ be joined. No SLO may exist without one — a budget nobody can run is a wish.
 | SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | `workspace-render` | `ws-100` | provisional; anchored by a measured 0.1 ms cached dashboard read at 24 repos |
 | SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | `repo-switch-warm` | `ws-100` | provisional |
 | SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | `repo-switch-cold` | `ws-100` | provisional |
-| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | provisional; measured 3.5 ms at 200 files, unknown at 300k |
+| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | **measured 299 ms at 150k tracked files** (release, Windows); plausible at 300k but unconfirmed |
 | SLO-7 | `status`, ≤5k files, warm runtime | 40 ms | `status-small-tree` | `wt-noisy` | measured: 3.5 ms at 200 files ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
 | SLO-8 | First commit page (30 commits) on a 1M-commit repository | 200 ms | `log-first-page` | `hist-deep` | measured: 9.7 ms for 200 commits at 50k history ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
 | SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | `diff-first-viewport` | `diff-giant` | provisional |
-| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | `diff-first-viewport-giant` | `diff-giant` | provisional; needs the windowed transport in §9 |
+| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | `diff-first-viewport-giant` | `diff-giant` | **unreachable today**: the backend `file_diff` alone measures 601 ms, before IPC serialization of 2 694 458 lines and before any rendering. The windowed transport in §9 is a prerequisite, not an optimization |
 | SLO-11 | Watcher event → visible UI update, single repository | 500 ms | `watcher-to-paint` | `wt-noisy` | provisional; the 5 s max-delay debounce path is deliberately outside this budget and is reported separately |
 | SLO-12 | UI input latency (keystroke → frame) during background work | 50 ms | `input-under-load` | `ws-100` | provisional |
 | SLO-13 | Idle CPU, 100 tracked repositories, no input, 60 s window | < 1% of one core, mean | `idle-cost` | `ws-100` | provisional |
 | SLO-14 | Resident memory, 100 tracked repositories, 5 hot | 600 MB | `idle-cost` | `ws-100` | provisional |
 | SLO-15 | Bulk fetch, 24 repositories | wall clock ≤ 2× slowest single repository | `bulk-fetch` | `ws-100` | architectural invariant of the bounded pool; measured 62 ms for a 24-repo live refresh |
-| SLO-16 | Refs read (branches + tags), 5k branches / 5k tags | 300 ms | `refs-read` | `refs-many` | provisional |
+| SLO-16 | Refs read (branches + tags), 5k branches / 5k tags | 300 ms | `refs-read` | `refs-many` | **measured 2005 ms** (release, Windows, packed refs) — 6.7× over budget. Either the budget or the refs read path is wrong; `P6-21` investigates before `P6-18` ratifies a number |
 
 Existing SDD §11 budgets are absorbed here: cached dashboard read (24 repos)
 < 5 ms and uncached parallel refresh < 1 s remain as measured floors and become
@@ -171,7 +172,7 @@ byte-comparable enough for stable timings. Generation is expensive (the existing
 | Fixture | Parameters | Exercises |
 |---|---|---|
 | `wt-huge` | 150k / 300k tracked files, shallow history | SLO-6, watcher cost, index reads |
-| `wt-noisy` | 50k tracked + 200k ignored + 20k untracked files | status filtering, watcher filtering, ignore handling |
+| `wt-noisy` | 50k tracked + 200k ignored + 20k untracked, **interleaved** into the tracked directories | status filtering, watcher filtering, ignore handling |
 | `hist-deep` | 500k and 1M commits, 50 files, **with a commit-graph** | SLO-8, commit-graph traversal, cursor paging |
 | `refs-many` | 5k branches, 5k tags, 20 remotes, **packed** | SLO-16 refs read path, branch tree render, palette/search |
 | `diff-giant` | one 50 MB text file, one 500k-line file, one binary blob | SLO-9, SLO-10, diff transport |
@@ -190,8 +191,18 @@ OS file cache needs privileges and a different mechanism per platform, so
 `--cache-state cold|warm` is what the operator asserts and `unknown` is the
 default. A run that *might* have been warm is never recorded as cold.
 
-Two fixture properties are part of the *identity*, not incidental details, and
-both require Git on `PATH` during generation:
+`wt-noisy`'s noise must be **interleaved** with the tracked files, not parked in
+its own subtrees. The first version of the fixture put ignored files under
+`generated/` and untracked files under `scratch/`, and measured almost nothing:
+Git skips a wholly-ignored directory outright, and collapses a wholly-untracked
+one into a single `?? scratch/` entry without descending. Twenty thousand
+untracked files cost about as much as one, and `wt-noisy` measured *faster* than
+`wt-huge` despite holding more files. A real repository's noise sits beside its
+sources, so the fixture puts it there and the walker has to look at every file.
+The layout is part of the fixture's identity.
+
+Two further fixture properties are part of the *identity*, not incidental
+details, and both require Git on `PATH` during generation:
 
 - `hist-deep` carries a **commit-graph**. Every million-commit repository in the
   wild has one, because `git gc` and `git maintenance` write it. Measuring

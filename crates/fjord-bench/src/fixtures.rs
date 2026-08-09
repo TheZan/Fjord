@@ -125,7 +125,13 @@ pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
                 fixture: Fixture::new("working-tree")
                     .with("tracked", tracked)
                     .with("ignored", 200_000)
-                    .with("untracked", 20_000),
+                    .with("untracked", 20_000)
+                    // Where the noise sits is the measurement. The first
+                    // layout parked it in its own subtrees, which Git skips
+                    // wholesale; `interleaved` spreads it through the tracked
+                    // buckets. `wt-huge` carries no noise and so has no
+                    // layout to describe — its identity is unaffected.
+                    .with("layout", "interleaved"),
                 build: Build::WorkingTree {
                     tracked,
                     ignored: 200_000,
@@ -448,6 +454,17 @@ fn seed_repository(path: &Path, files: usize) -> Result<RepoBuilder, String> {
 
 /// A wide working tree: `tracked` committed files, `ignored` files excluded by
 /// a committed `.gitignore`, and `untracked` files that are neither.
+///
+/// The noisy files are **interleaved with the tracked ones**, not parked in
+/// their own subtrees. The first version of this fixture put them under
+/// `generated/` and `scratch/`, and measured almost nothing: Git collapses a
+/// wholly-untracked directory into a single `?? scratch/` entry and stops
+/// descending, and it skips an ignored directory outright. Twenty thousand
+/// untracked files cost about as much as one, and `wt-noisy` came out twice as
+/// fast as `wt-huge` despite holding more files. A real repository's noise
+/// sits beside its sources — build output next to the code that produced it —
+/// so that is where this fixture puts it, and the walker has to look at every
+/// one of them.
 fn build_working_tree(
     path: &Path,
     tracked: usize,
@@ -457,8 +474,10 @@ fn build_working_tree(
     let mut builder = RepoBuilder::init(path)?;
     manifest::exclude_from_git(path)?;
 
-    // Committed first, so the ignore rules apply to everything written after.
-    builder.write_file(".gitignore", b"generated/\nlocal/\n")?;
+    // Extension rules rather than directory rules: a directory rule lets Git
+    // skip a whole subtree, which is exactly the shortcut this fixture must
+    // not offer.
+    builder.write_file(".gitignore", b"*.generated\n*.log\n")?;
     builder.stage(".gitignore")?;
 
     let mut progress = Progress::new("tracked files", tracked);
@@ -481,11 +500,14 @@ fn build_working_tree(
     }
     builder.finish()?;
 
-    // Ignored and untracked files are written after the commits: they must not
-    // enter history, and the ignored ones must be invisible to `status`.
+    // Written after the commits so they never enter history, and spread across
+    // the same buckets the tracked files live in so no directory is uniformly
+    // ignored or uniformly untracked.
+    let buckets = tracked.div_ceil(1_000).max(1);
+
     let mut progress = Progress::new("ignored files", ignored);
     for index in 0..ignored {
-        let file = bench_file_path("generated", index);
+        let file = format!("src/{:04}/build-{index:07}.generated", index % buckets);
         write_plain(path, &file, index)?;
         progress.tick(index + 1);
     }
@@ -495,7 +517,7 @@ fn build_working_tree(
 
     let mut progress = Progress::new("untracked files", untracked);
     for index in 0..untracked {
-        let file = bench_file_path("scratch", index);
+        let file = format!("src/{:04}/scratch-{index:07}.txt", index % buckets);
         write_plain(path, &file, index)?;
         progress.tick(index + 1);
     }
@@ -595,6 +617,52 @@ mod tests {
             untracked, 3,
             "ignored files must not appear; untracked ones must"
         );
+    }
+
+    /// The invariant that makes `wt-noisy` measure anything at all: no
+    /// directory is uniformly ignored or uniformly untracked, so Git cannot
+    /// skip a subtree or collapse it into one `?? dir/` entry.
+    ///
+    /// Asserted on the layout rather than through a status call, because the
+    /// engine that reads it is the thing under test — the original fixture
+    /// looked correct to `git2` in this very test while `gix` reported one
+    /// entry for twenty thousand untracked files.
+    #[test]
+    fn noisy_files_share_directories_with_tracked_ones() {
+        let dir = TempDir::new().unwrap();
+        build_working_tree(dir.path(), 12, 5, 3).unwrap();
+
+        let mut checked = 0;
+        for bucket in std::fs::read_dir(dir.path().join("src")).unwrap() {
+            let bucket = bucket.unwrap().path();
+            let names: Vec<String> = std::fs::read_dir(&bucket)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+
+            let tracked = names
+                .iter()
+                .filter(|name| name.starts_with("file-"))
+                .count();
+            let noisy = names
+                .iter()
+                .filter(|name| name.starts_with("build-") || name.starts_with("scratch-"))
+                .count();
+
+            if noisy > 0 {
+                assert!(
+                    tracked > 0,
+                    "{} holds only noise; Git would skip or collapse it",
+                    bucket.display()
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "the fixture must actually contain noise");
+
+        // And nothing may sit in a subtree of its own.
+        assert!(!dir.path().join("scratch").exists());
+        assert!(!dir.path().join("generated").exists());
     }
 
     #[test]
