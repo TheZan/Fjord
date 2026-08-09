@@ -138,6 +138,22 @@ pub fn write(path: &Path, fixture: &Fixture) -> Result<(), String> {
     fs::write(path.join(MANIFEST_FILE), fixture.to_json()).map_err(|e| e.to_string())
 }
 
+/// Keeps the bookkeeping files out of `git status` for a generated repository.
+///
+/// They are written after the last commit — deliberately, so an interrupted
+/// generation regenerates — which would otherwise leave every fixture with two
+/// untracked files. `.git/info/exclude` is used rather than a committed
+/// `.gitignore` so the fixture's tree contains only the generated content.
+pub fn exclude_from_git(repo: &Path) -> Result<(), String> {
+    let info = repo.join(".git").join("info");
+    fs::create_dir_all(&info).map_err(|e| e.to_string())?;
+    fs::write(
+        info.join("exclude"),
+        format!("{MARKER_FILE}\n{MANIFEST_FILE}\n"),
+    )
+    .map_err(|e| e.to_string())
+}
+
 fn read_manifest(path: &Path) -> Option<String> {
     fs::read_to_string(path.join(MANIFEST_FILE)).ok()
 }

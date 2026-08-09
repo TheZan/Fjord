@@ -74,7 +74,7 @@ and on subjective impressions. Three concrete consequences:
 | Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
 | Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not bounded. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
-| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with three budget flags; weekly workflow `.github/workflows/benchmarks.yml`. Human-readable stdout only. |
+| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with three budget flags and manifest-based fixture reuse (`P6-02`); emits both human-readable stdout and a machine-readable JSON record (`P6-03`). Weekly workflow `.github/workflows/benchmarks.yml`. The torture fixtures of §2 do not exist yet. |
 | Idle cost | 🚧 Never measured. One `RepoEventWatcher` thread per repository, created for every tracked repository at bootstrap (`crates/fjord-app/src/state.rs`). |
 
 ## Proposed design
@@ -388,10 +388,17 @@ Additional ceilings:
 
 Two stages:
 
-1. **Reporting (P6-18).** The scheduled workflow emits JSON per scenario, appends
+1. **Reporting (P6-19).** The scheduled workflow emits JSON per scenario, appends
    to a results file stored as a workflow artifact and in
    [`../benchmarks/`](../benchmarks/), and a PR comment shows the delta against
    the last recorded baseline on the same runner class. Nothing fails yet.
+
+   ✅ The record format exists: `fjord-bench --scenario NAME --json PATH|-`
+   emits a versioned document with the scenario, the fixture kind/hash/generated
+   flag, the environment (OS, architecture, CPU model, profile), every metric
+   with its unit, and every budget with both sides of the comparison. The record
+   is written **before** a budget failure fails the run — a regression has to be
+   visible in the recorded result, not only in an exit code.
 2. **Gating (P6-19).** Once a scenario has three consecutive stable baselines, its
    SLO becomes a gate with an explicit tolerance (default: fail above
    `budget`, warn above `0.8 × budget`). Gates run on the scheduled workflow and

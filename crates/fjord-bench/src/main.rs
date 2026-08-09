@@ -26,8 +26,10 @@ impl IdeLauncher for NoopIdeLauncher {
 }
 
 mod manifest;
+mod report;
 
 use manifest::{Fixture, Preparation};
+use report::{BudgetResult, Destination, Report};
 
 #[derive(Debug)]
 struct Args {
@@ -41,6 +43,8 @@ struct Args {
     budget_cached_dashboard_ms: Option<f64>,
     force: bool,
     profile_open: bool,
+    scenario: Option<String>,
+    json: Option<Destination>,
 }
 
 impl Default for Args {
@@ -56,6 +60,8 @@ impl Default for Args {
             budget_cached_dashboard_ms: None,
             force: false,
             profile_open: false,
+            scenario: None,
+            json: None,
         }
     }
 }
@@ -97,6 +103,10 @@ fn parse_args() -> Result<Args, String> {
                     next_value(&mut iter, "--budget-cached-dashboard-ms")?,
                     "--budget-cached-dashboard-ms",
                 )?)
+            }
+            "--scenario" => args.scenario = Some(next_value(&mut iter, "--scenario")?),
+            "--json" => {
+                args.json = Some(Destination::parse(&next_value(&mut iter, "--json")?));
             }
             "--force" => args.force = true,
             "--profile-open" => args.profile_open = true,
@@ -146,7 +156,7 @@ fn parse_f64(value: String, flag: &str) -> Result<f64, String> {
 }
 
 fn usage() -> String {
-    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--budget-log-ms N] [--budget-live-refresh-ms N] [--budget-cached-dashboard-ms N] [--force] [--profile-open]".to_string()
+    "Usage: cargo run -p fjord-bench -- [--repo PATH] [--commits N] [--files N] [--workspace-repos N] [--log-limit N] [--budget-log-ms N] [--budget-live-refresh-ms N] [--budget-cached-dashboard-ms N] [--scenario NAME] [--json PATH|-] [--force] [--profile-open]".to_string()
 }
 
 /// What a single synthetic repository is, for reuse purposes.
@@ -176,6 +186,12 @@ fn generate_repo(path: &Path, commits: usize, files: usize) -> Result<(), String
     config
         .set_str("user.email", "bench@example.com")
         .map_err(|e| e.message().to_string())?;
+
+    // The manifest and marker are written after the last commit, so without
+    // this they would sit in the working tree as untracked files and every
+    // fixture would report `dirty_count=2`. Excluding them keeps the generated
+    // repository clean, which is what the recorded baselines measured.
+    manifest::exclude_from_git(path)?;
 
     for file_index in 0..files {
         write_bench_file(path, file_index, 0)?;
@@ -351,23 +367,48 @@ fn ms(duration: std::time::Duration) -> f64 {
     duration.as_secs_f64() * 1000.0
 }
 
-fn check_budget(name: &str, actual_ms: f64, budget_ms: Option<f64>) -> Result<(), String> {
-    let Some(budget_ms) = budget_ms else {
-        return Ok(());
-    };
-
-    let passed = actual_ms <= budget_ms;
+/// Records a budget comparison and prints the line the text output has always
+/// carried. Failing is deliberately *not* this function's job: a run that
+/// exceeds a budget is the run whose numbers matter most, so it has to finish
+/// reporting before it fails (see `finish`).
+fn check_budget(name: &str, actual_ms: f64, budget_ms: Option<f64>) -> Option<BudgetResult> {
+    let budget_ms = budget_ms?;
+    let ok = actual_ms <= budget_ms;
     println!(
-        "budget_{name}_ms={budget_ms:.3} actual_{name}_ms={actual_ms:.3} budget_{name}_ok={passed}"
+        "budget_{name}_ms={budget_ms:.3} actual_{name}_ms={actual_ms:.3} budget_{name}_ok={ok}"
     );
 
-    if passed {
-        Ok(())
-    } else {
-        Err(format!(
-            "{name} exceeded budget: {actual_ms:.3} ms > {budget_ms:.3} ms"
-        ))
+    Some(BudgetResult {
+        name: name.to_string(),
+        budget_ms,
+        actual_ms,
+        ok,
+    })
+}
+
+/// Emits the machine-readable record, then fails if any budget was exceeded.
+/// The order matters: a regression must be visible in the recorded result, not
+/// only in a non-zero exit code.
+fn finish(report: &Report, destination: Option<&Destination>) -> Result<(), String> {
+    if let Some(destination) = destination {
+        report.emit(destination)?;
     }
+
+    let failed = report.failed_budgets();
+    if failed.is_empty() {
+        return Ok(());
+    }
+
+    Err(failed
+        .iter()
+        .map(|budget| {
+            format!(
+                "{} exceeded budget: {:.3} ms > {:.3} ms",
+                budget.name, budget.actual_ms, budget.budget_ms
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; "))
 }
 
 #[tokio::main]
@@ -418,13 +459,32 @@ async fn main() -> Result<(), String> {
     println!("dirty_count={}", status.dirty_count);
     println!("has_conflict={}", status.has_conflict);
     println!("log_commits={}", log.commits.len());
-    println!("open_ms={:.3}", open_elapsed.as_secs_f64() * 1000.0);
-    println!("status_ms={:.3}", status_elapsed.as_secs_f64() * 1000.0);
-    let log_ms = log_elapsed.as_secs_f64() * 1000.0;
+    let open_ms = ms(open_elapsed);
+    let status_ms = ms(status_elapsed);
+    let log_ms = ms(log_elapsed);
+    println!("open_ms={open_ms:.3}");
+    println!("status_ms={status_ms:.3}");
     println!("log_ms={log_ms:.3}");
-    check_budget("log", log_ms, args.budget_log_ms)?;
 
-    Ok(())
+    let mut record = Report::new(
+        args.scenario.as_deref().unwrap_or("single-repo"),
+        fixture.kind,
+        &fixture.hash(),
+    );
+    record
+        .fixture_generated(should_generate)
+        .count("commits", args.commits as u64)
+        .count("files", args.files as u64)
+        .count("log_commits", log.commits.len() as u64)
+        .count("dirty_count", u64::from(status.dirty_count))
+        .ms("open", open_ms)
+        .ms("status", status_ms)
+        .ms("log", log_ms);
+    if let Some(budget) = check_budget("log", log_ms, args.budget_log_ms) {
+        record.budget(budget);
+    }
+
+    finish(&record, args.json.as_ref())
 }
 
 async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
@@ -526,31 +586,49 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     println!("dashboard_rows={}", dashboard.len());
     println!("need_attention={need_attention}");
     println!("behind_origin={behind_origin}");
-    println!(
-        "generation_ms={:.3}",
-        generation_elapsed.as_secs_f64() * 1000.0
-    );
-    println!(
-        "live_refresh_ms={:.3}",
-        live_refresh_elapsed.as_secs_f64() * 1000.0
-    );
-    let live_refresh_ms = live_refresh_elapsed.as_secs_f64() * 1000.0;
-    println!(
-        "cached_dashboard_ms={:.3}",
-        cached_dashboard_elapsed.as_secs_f64() * 1000.0
-    );
-    let cached_dashboard_ms = cached_dashboard_elapsed.as_secs_f64() * 1000.0;
+    let generation_ms = ms(generation_elapsed);
+    let live_refresh_ms = ms(live_refresh_elapsed);
+    let cached_dashboard_ms = ms(cached_dashboard_elapsed);
+    let search_ms = ms(search_elapsed);
+    println!("generation_ms={generation_ms:.3}");
+    println!("live_refresh_ms={live_refresh_ms:.3}");
+    println!("cached_dashboard_ms={cached_dashboard_ms:.3}");
     println!("global_search_hits={}", search_hits.len());
-    println!(
-        "global_search_ms={:.3}",
-        search_elapsed.as_secs_f64() * 1000.0
-    );
-    check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms)?;
-    check_budget(
-        "cached_dashboard",
-        cached_dashboard_ms,
-        args.budget_cached_dashboard_ms,
-    )?;
+    println!("global_search_ms={search_ms:.3}");
 
-    Ok(())
+    let mut record = Report::new(
+        args.scenario.as_deref().unwrap_or("workspace"),
+        fixture.kind,
+        &fixture.hash(),
+    );
+    record
+        .fixture_generated(generated)
+        .count("workspace_repos", args.workspace_repos as u64)
+        .count("commits_per_repo", args.commits as u64)
+        .count("dashboard_rows", dashboard.len() as u64)
+        .count("need_attention", need_attention as u64)
+        .count("behind_origin", behind_origin as u64)
+        .count("global_search_hits", search_hits.len() as u64)
+        // Generation is not a product metric — it is recorded so a run that
+        // spent an hour building a fixture is distinguishable from one that
+        // reused it.
+        .ms("generation", generation_ms)
+        .ms("live_refresh", live_refresh_ms)
+        .ms("cached_dashboard", cached_dashboard_ms)
+        .ms("global_search", search_ms);
+    for budget in [
+        check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms),
+        check_budget(
+            "cached_dashboard",
+            cached_dashboard_ms,
+            args.budget_cached_dashboard_ms,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        record.budget(budget);
+    }
+
+    finish(&record, args.json.as_ref())
 }
