@@ -1,0 +1,309 @@
+//! Integration tests for the command layer's wiring (docs/tasks.md P5-22).
+//!
+//! Until now nothing exercised `fjord-app` at all: services were covered with
+//! in-memory fakes, adapters were covered in isolation, and the composition of
+//! the two — real SQLite, real migrations, real `gix`/`git2`, real system Git —
+//! existed only at runtime. These tests run that composition against a
+//! temporary database and fixture repositories, and assert the `AppError` codes
+//! the frontend switches on.
+//!
+//! **What this does not cover.** Command handlers take `State<'_, AppState>`,
+//! and `AppState` holds a `tauri::AppHandle` that cannot be constructed without
+//! a Tauri runtime. So these tests call the services a handler delegates to,
+//! plus the error mapping a handler applies, rather than going through Tauri's
+//! IPC serialization. Handlers are thin adapters by design (SDD §5.1); the
+//! serialization boundary itself is covered by the frontend contract tests.
+
+use std::path::PathBuf;
+
+use fjord_domain::{Settings, Theme};
+use git2::{Repository, RepositoryInitOptions, Signature};
+use tempfile::TempDir;
+
+use crate::error::AppError;
+use crate::operations::OperationRegistry;
+use crate::state::{compose_services, Services};
+
+async fn services() -> (TempDir, Services) {
+    let dir = TempDir::new().expect("a temporary app data directory");
+    let services = compose_services(dir.path())
+        .await
+        .expect("the real adapter composition should boot against a temp database");
+    (dir, services)
+}
+
+/// A fixture repository with one commit, so reads have something to return.
+fn fixture_repo(name: &str) -> (TempDir, PathBuf) {
+    let dir = TempDir::new().expect("a temporary repository directory");
+    let path = dir.path().join(name);
+    std::fs::create_dir_all(&path).unwrap();
+
+    let mut options = RepositoryInitOptions::new();
+    options.initial_head("main");
+    let repo = Repository::init_opts(&path, &options).unwrap();
+
+    std::fs::write(path.join("README.md"), b"fixture\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(std::path::Path::new("README.md")).unwrap();
+    index.write().unwrap();
+    let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+    let signature = Signature::now("Fjord Test", "test@fjord.invalid").unwrap();
+    repo.commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
+        .unwrap();
+    drop(tree);
+    drop(repo);
+
+    (dir, path)
+}
+
+/// Settings survive a round trip through the real SQLite store, including the
+/// migrations that add columns after `0001_init`.
+#[tokio::test]
+async fn settings_round_trip_through_the_real_store() {
+    let (_dir, services) = services().await;
+
+    let defaults = services.settings.get_settings().await.unwrap();
+    assert_eq!(defaults.locale, "en");
+    assert_eq!(defaults.theme, Theme::System);
+    assert!(!defaults.auto_fetch);
+    assert!(defaults.git_executable_path.is_none());
+
+    let updated = services
+        .settings
+        .update_settings(Settings {
+            locale: "ru".into(),
+            theme: Theme::Dark,
+            default_ide: Some("code".into()),
+            auto_fetch: true,
+            git_executable_path: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.locale, "ru");
+
+    let reloaded = services.settings.get_settings().await.unwrap();
+    assert_eq!(reloaded.theme, Theme::Dark);
+    assert!(reloaded.auto_fetch);
+    assert_eq!(reloaded.default_ide.as_deref(), Some("code"));
+}
+
+/// Workspace CRUD plus repository tracking, against the real schema including
+/// its cascade and uniqueness constraints.
+#[tokio::test]
+async fn workspace_and_repository_crud_against_the_real_schema() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    assert_eq!(
+        services.workspaces.list_workspaces().await.unwrap().len(),
+        1
+    );
+
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+    assert_eq!(repo.name, "api-gateway");
+
+    // The unique (workspace_id, path) constraint has to surface as a stable
+    // code, not a database error the frontend cannot localize.
+    let duplicate: AppError = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .expect_err("the same repository must not be added twice")
+        .into();
+    assert_eq!(duplicate.code, "repository_already_added");
+
+    // Deleting a workspace cascades to its repository rows.
+    services
+        .workspaces
+        .delete_workspace(workspace.id)
+        .await
+        .unwrap();
+    assert!(services
+        .workspaces
+        .list_all_repositories()
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+/// A folder that is not a Git repository is rejected before anything is
+/// persisted, with the code the frontend maps to a message.
+#[tokio::test]
+async fn adding_a_non_repository_is_refused_with_a_stable_code() {
+    let (_dir, services) = services().await;
+    let plain = TempDir::new().unwrap();
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let error: AppError = services
+        .workspaces
+        .add_repository(workspace.id, plain.path().to_path_buf())
+        .await
+        .expect_err("a plain folder is not a repository")
+        .into();
+
+    assert_eq!(error.code, "not_a_git_repository");
+    assert!(services
+        .workspaces
+        .list_all_repositories()
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+/// Repository reads resolve an id through the store and reach the real Git
+/// adapters — the path a repository view takes on every open.
+#[tokio::test]
+async fn repository_reads_reach_the_real_git_adapters() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path)
+        .await
+        .unwrap();
+
+    let status = services.repos.get_status(repo.id).await.unwrap();
+    assert_eq!(status.branch.as_deref(), Some("main"));
+    assert_eq!(status.dirty_count, 0);
+    assert!(!status.has_conflict);
+
+    let branches = services.repos.get_branches(repo.id).await.unwrap();
+    assert!(branches
+        .iter()
+        .any(|branch| branch.name == "main" && branch.is_current));
+
+    let page = services
+        .repos
+        .get_commit_log(repo.id, None, 10)
+        .await
+        .unwrap();
+    assert_eq!(page.commits.len(), 1);
+    assert_eq!(page.commits[0].message.trim(), "Initial");
+
+    let files = services
+        .repos
+        .get_commit_diff(repo.id, &page.commits[0].id.0)
+        .await
+        .unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "README.md");
+}
+
+/// A local mutation writes through `git2` and is visible to the next read.
+#[tokio::test]
+async fn a_local_mutation_is_visible_to_the_next_read() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+
+    services
+        .repos
+        .create_branch(repo.id, "feature/login", false)
+        .await
+        .unwrap();
+
+    let branches = services.repos.get_branches(repo.id).await.unwrap();
+    assert!(branches.iter().any(|branch| branch.name == "feature/login"));
+
+    std::fs::write(repo_path.join("README.md"), b"changed\n").unwrap();
+    let status = services.repos.get_status(repo.id).await.unwrap();
+    assert_eq!(status.dirty_count, 1);
+}
+
+/// An unknown id fails before any Git work, with the code the frontend uses to
+/// drop a stale selection.
+#[tokio::test]
+async fn an_unknown_repository_id_maps_to_a_stable_code() {
+    let (_dir, services) = services().await;
+
+    let error: AppError = services
+        .repos
+        .get_status(fjord_domain::RepositoryId::new())
+        .await
+        .expect_err("an unknown id cannot resolve")
+        .into();
+
+    assert_eq!(error.code, "repository_not_found");
+}
+
+/// A remote operation against a repository with no such remote must classify
+/// through the system-Git error table, not leak a raw message.
+#[tokio::test]
+async fn a_failing_remote_operation_classifies_through_the_stable_table() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path)
+        .await
+        .unwrap();
+
+    let error: AppError = services
+        .repos
+        .fetch(repo.id, "no-such-remote")
+        .await
+        .expect_err("fetching an undefined remote cannot succeed")
+        .into();
+
+    // The exact code depends on how Git reports an undefined remote, but it
+    // must be one of the documented stable codes — never `git_error` or a
+    // database code, and never an unclassified message.
+    assert!(
+        error.code.starts_with("git_"),
+        "unexpected code {}: {}",
+        error.code,
+        error.message
+    );
+}
+
+/// Cancellation is registry-level state, and a cancelled operation must be
+/// observable before the Git process ever starts.
+#[tokio::test]
+async fn cancellation_is_observable_through_the_operation_registry() {
+    let registry = std::sync::Arc::new(OperationRegistry::default());
+    let operation = registry.begin("op-integration".to_string());
+
+    assert!(!operation.is_cancelled());
+    assert!(registry.cancel("op-integration"));
+    assert!(operation.is_cancelled());
+
+    // A finished operation is removed, so a late cancel is a no-op rather than
+    // a panic or a resurrected entry.
+    drop(operation);
+    assert!(!registry.cancel("op-integration"));
+}

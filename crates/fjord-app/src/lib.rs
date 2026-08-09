@@ -13,6 +13,9 @@ mod logging;
 mod operations;
 mod state;
 
+#[cfg(test)]
+mod integration_tests;
+
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 

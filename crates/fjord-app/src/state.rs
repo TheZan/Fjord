@@ -62,10 +62,19 @@ pub struct AppState {
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
 }
 
-pub async fn bootstrap(
-    app_data_dir: &Path,
-    app_handle: tauri::AppHandle,
-) -> Result<AppState, String> {
+/// The services a command handler talks to, built on the real adapters.
+///
+/// Split out of [`bootstrap`] so the wiring can be exercised against a
+/// temporary database and fixture repositories without a Tauri runtime
+/// (docs/tasks.md P5-22). Everything below this line in `bootstrap` is
+/// runtime-bound: the event sink, the askpass broker, and the watchers.
+pub struct Services {
+    pub settings: Arc<SettingsService>,
+    pub workspaces: Arc<WorkspaceService>,
+    pub repos: Arc<RepoService>,
+}
+
+pub async fn compose_services(app_data_dir: &Path) -> Result<Services, String> {
     std::fs::create_dir_all(app_data_dir).map_err(|e| e.to_string())?;
     let db_path = app_data_dir.join("fjord.db");
 
@@ -86,7 +95,32 @@ pub async fn bootstrap(
         workspace_store.clone(),
         git_backend.clone(),
     ));
-    let existing_repos = workspace_service
+    let repo_service = Arc::new(RepoService::new(
+        workspace_store,
+        settings_store.clone(),
+        git_backend,
+        remote_backend,
+        git_environment,
+        ide_launcher,
+    ));
+
+    // Before anything can run a local Git command.
+    repo_service.refresh_git_executable().await;
+
+    Ok(Services {
+        settings: Arc::new(SettingsService::new(settings_store)),
+        workspaces: workspace_service,
+        repos: repo_service,
+    })
+}
+
+pub async fn bootstrap(
+    app_data_dir: &Path,
+    app_handle: tauri::AppHandle,
+) -> Result<AppState, String> {
+    let services = compose_services(app_data_dir).await?;
+    let existing_repos = services
+        .workspaces
         .list_all_repositories()
         .await
         .map_err(|e| e.to_string())?;
@@ -105,25 +139,15 @@ pub async fn bootstrap(
     }
 
     let state = AppState {
-        settings: Arc::new(SettingsService::new(settings_store.clone())),
-        workspaces: workspace_service,
-        repos: Arc::new(RepoService::new(
-            workspace_store,
-            settings_store,
-            git_backend,
-            remote_backend,
-            git_environment,
-            ide_launcher,
-        )),
+        settings: services.settings,
+        workspaces: services.workspaces,
+        repos: services.repos,
         operations: Arc::new(OperationRegistry::default()),
         askpass: Arc::new(askpass),
         askpass_executable,
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
     };
-
-    // Before anything can run a local Git command.
-    state.repos.refresh_git_executable().await;
 
     for repo in existing_repos {
         state.watch_repository_status(repo);

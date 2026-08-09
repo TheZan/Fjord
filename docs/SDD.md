@@ -225,7 +225,8 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
   - ✅ `fjord-db`: store tests against a real SQLite database.
   - ✅ Frontend: unit tests for the pure algorithmic parts (`fileTree`, `graphLayout`) under `vitest`.
   - ✅ Frontend component/hook tests: React Testing Library under jsdom, including `useRepositories` tests with the IPC boundary mocked at `infrastructure/` (`P4-09`).
-  - 🚧 Missing: integration tests of Tauri commands in `fjord-app`, `IdeLauncher` tests on real paths.
+  - ✅ `fjord-app`: the command layer's wiring — `state::compose_services` on real adapters against a temporary database and fixture repositories, asserting the stable `AppError` codes (`P5-22`). Tauri's own IPC serialization is not exercised, because `AppState` holds an `AppHandle` that needs a runtime; handlers are thin adapters and the boundary is covered from the frontend side.
+  - 🚧 Missing: `IdeLauncher` tests on real paths.
   - ✅ All of the above run in CI on every push/PR (`P0-09`, see §5.4).
 
 ## 9. Security
