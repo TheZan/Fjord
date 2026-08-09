@@ -296,10 +296,10 @@ Between `P4-18` and `P5-01`, and again after `P5-19`, a substantial amount of UI
 and frontend-performance work landed without task IDs: the resizable repository
 layout, the branch/tag tree with context menus, the working-changes panel,
 commit-graph search and infinite scroll, the off-thread graph layout worker, list
-virtualization refinements, the palette rework, the repository-change event
-pipeline, and three additional locales. It is shipped and covered by tests, but it
-is not on the board; `P5-24` records it so the board stops under-reporting the
-system.
+virtualization refinements, the repository-change event pipeline, and three
+additional locales. `P5-24` recorded it as `P4-19`–`P4-32`, at subsystem
+granularity with the tests that cover each; the subsystems that turned out to
+have no coverage are filed as `P5-26` rather than counted as done.
 
 Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (performance limits §5.3, i18n locale count §6.2, logging §10, benchmarks §11).
 
