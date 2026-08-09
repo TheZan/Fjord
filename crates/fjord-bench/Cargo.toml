@@ -12,6 +12,9 @@ fjord-services.workspace = true
 async-trait.workspace = true
 git2 = "0.21"
 tokio.workspace = true
+# Reading a previously recorded result for `--compare`. Writing stays
+# hand-rolled and tested: the document shape is ours and small.
+serde_json.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

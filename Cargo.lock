@@ -1115,6 +1115,7 @@ dependencies = [
  "fjord-ports",
  "fjord-services",
  "git2",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

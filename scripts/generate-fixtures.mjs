@@ -10,6 +10,17 @@
 //   node scripts/generate-fixtures.mjs --only wt-huge --files 300000
 //   node scripts/generate-fixtures.mjs --dry-run
 //
+// The win-fs scenario (specs/performance.md §2) is the working-tree fixtures
+// run twice on Windows, once with a cold OS file cache and once warm:
+//
+//   node scripts/generate-fixtures.mjs --only wt-huge,wt-noisy --cache-state cold
+//   node scripts/generate-fixtures.mjs --only wt-huge,wt-noisy --cache-state warm
+//
+// Clearing the cache needs privileges and a different mechanism per platform,
+// so the script does not attempt it: --cache-state is what the operator
+// asserts, and it is recorded with the result. Runs with different cache states
+// are never compared as if one were a regression.
+//
 // Results are written under target/fjord-bench/<name>/ and a JSON record per
 // run under target/fjord-bench/results/.
 
@@ -116,6 +127,7 @@ function parseArgs(argv) {
     files: null,
     commits: null,
     workspaceRepos: null,
+    cacheState: null,
     force: false,
     dryRun: false,
     list: false,
@@ -150,6 +162,14 @@ function parseArgs(argv) {
           throw new Error("--workspace-repos must be a positive integer");
         }
         break;
+      case "--cache-state": {
+        const state = next();
+        if (!["cold", "warm", "unknown"].includes(state)) {
+          throw new Error("--cache-state must be cold, warm, or unknown");
+        }
+        options.cacheState = state;
+        break;
+      }
       case "--force":
         options.force = true;
         break;
@@ -188,7 +208,13 @@ function commandFor(fixture, options) {
   const { flag, value } = sizeOf(fixture, options);
   const args = ["run", "--release", "-p", "fjord-bench", "--", "--fixture", fixture.name];
   if (flag !== null) args.push(flag, String(value));
-  args.push("--json", join(RESULTS_DIR, `${fixture.name}${value === null ? "" : `-${value}`}.json`));
+  // The cache state is part of a result's identity, so it is part of the file
+  // name too: a cold run must not overwrite the warm baseline.
+  const suffix = [value === null ? null : value, options.cacheState]
+    .filter((part) => part !== null)
+    .join("-");
+  args.push("--json", join(RESULTS_DIR, `${fixture.name}${suffix ? `-${suffix}` : ""}.json`));
+  if (options.cacheState) args.push("--cache-state", options.cacheState);
   if (options.force) args.push("--force");
   return args;
 }

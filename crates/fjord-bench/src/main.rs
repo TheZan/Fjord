@@ -31,7 +31,7 @@ mod manifest;
 mod report;
 
 use manifest::{Fixture, Preparation};
-use report::{BudgetResult, Destination, Report};
+use report::{BudgetResult, CacheState, Destination, Report};
 
 #[derive(Debug)]
 struct Args {
@@ -51,6 +51,8 @@ struct Args {
     budget_status_ms: Option<f64>,
     budget_refs_ms: Option<f64>,
     budget_diff_ms: Option<f64>,
+    cache_state: CacheState,
+    compare: Option<PathBuf>,
 }
 
 impl Default for Args {
@@ -72,6 +74,8 @@ impl Default for Args {
             budget_status_ms: None,
             budget_refs_ms: None,
             budget_diff_ms: None,
+            cache_state: CacheState::Unknown,
+            compare: None,
         }
     }
 }
@@ -132,6 +136,10 @@ fn parse_args() -> Result<Args, String> {
                     next_value(&mut iter, "--budget-diff-ms")?,
                     "--budget-diff-ms",
                 )?)
+            }
+            "--compare" => args.compare = Some(PathBuf::from(next_value(&mut iter, "--compare")?)),
+            "--cache-state" => {
+                args.cache_state = CacheState::parse(&next_value(&mut iter, "--cache-state")?)?
             }
             "--scenario" => args.scenario = Some(next_value(&mut iter, "--scenario")?),
             "--json" => {
@@ -194,7 +202,8 @@ fn usage() -> String {
            --repo PATH --commits N --files N [--workspace-repos N] [--log-limit N]\n\n\
          Reporting:\n  \
            --scenario NAME       scenario label recorded in the result\n  \
-           --json PATH|-         write a machine-readable record\n\n\
+           --json PATH|-         write a machine-readable record\n  \
+           --cache-state STATE   cold | warm | unknown (operator-asserted)\n\n\
          Budgets (fail the run when exceeded):\n  \
            --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N  --budget-diff-ms N\n  \
            --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
@@ -435,7 +444,17 @@ fn check_budget(name: &str, actual_ms: f64, budget_ms: Option<f64>) -> Option<Bu
 /// Emits the machine-readable record, then fails if any budget was exceeded.
 /// The order matters: a regression must be visible in the recorded result, not
 /// only in a non-zero exit code.
-fn finish(report: &Report, destination: Option<&Destination>) -> Result<(), String> {
+fn finish(
+    report: &Report,
+    destination: Option<&Destination>,
+    compare: Option<&Path>,
+) -> Result<(), String> {
+    // Compared before emitting, so a refusal names the reason rather than
+    // leaving the operator to spot it in two files.
+    if let Some(path) = compare {
+        let baseline = report::read_recorded(path)?;
+        report.compare_against(&baseline)?;
+    }
     if let Some(destination) = destination {
         report.emit(destination)?;
     }
@@ -478,7 +497,9 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         plan.fixture.kind,
         &plan.fixture.hash(),
     );
-    record.fixture_generated(generated);
+    record
+        .fixture_generated(generated)
+        .cache_state(args.cache_state);
 
     println!("fixture={}", plan.name);
     println!("root={}", root.display());
@@ -495,7 +516,7 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         }
     }
 
-    finish(&record, args.json.as_ref())
+    finish(&record, args.json.as_ref(), args.compare.as_deref())
 }
 
 /// One file's complete diff. This is the payload `P6-16` will window: the
@@ -804,7 +825,7 @@ async fn main() -> Result<(), String> {
         record.budget(budget);
     }
 
-    finish(&record, args.json.as_ref())
+    finish(&record, args.json.as_ref(), args.compare.as_deref())
 }
 
 async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
@@ -950,5 +971,5 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         record.budget(budget);
     }
 
-    finish(&record, args.json.as_ref())
+    finish(&record, args.json.as_ref(), args.compare.as_deref())
 }

@@ -182,6 +182,14 @@ byte-comparable enough for stable timings. Generation is expensive (the existing
 execution, and the harness must record which OS produced a result so numbers are
 never compared across platforms by accident.
 
+✅ Every record carries the OS, architecture, CPU, profile, and **cache state**,
+and `--compare PATH` refuses to diff two runs that differ in scenario, fixture,
+platform, profile, or cache state — a refusal, not a warning, because a
+comparison nobody can trust is worse than none: it will be quoted. Clearing the
+OS file cache needs privileges and a different mechanism per platform, so
+`--cache-state cold|warm` is what the operator asserts and `unknown` is the
+default. A run that *might* have been warm is never recorded as cold.
+
 Two fixture properties are part of the *identity*, not incidental details, and
 both require Git on `PATH` during generation:
 

@@ -52,12 +52,49 @@ pub struct BudgetResult {
     pub ok: bool,
 }
 
+/// Whether the OS file cache was cold when the run started.
+///
+/// The harness cannot clear the cache itself — doing so needs privileges and a
+/// different mechanism on every platform — so this is what the operator asserts,
+/// and `Unknown` is the honest default. A run that *might* have been warm is
+/// never recorded as cold: on a filesystem-heavy fixture the difference is the
+/// measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CacheState {
+    Cold,
+    Warm,
+    #[default]
+    Unknown,
+}
+
+impl CacheState {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "cold" => Ok(Self::Cold),
+            "warm" => Ok(Self::Warm),
+            "unknown" => Ok(Self::Unknown),
+            other => Err(format!(
+                "unknown cache state '{other}'; expected cold, warm, or unknown"
+            )),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Cold => "cold",
+            Self::Warm => "warm",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Report {
     scenario: String,
     fixture_kind: String,
     fixture_hash: String,
     fixture_generated: bool,
+    cache_state: CacheState,
     metrics: Vec<Metric>,
     budgets: Vec<BudgetResult>,
 }
@@ -69,6 +106,7 @@ impl Report {
             fixture_kind: fixture_kind.to_string(),
             fixture_hash: fixture_hash.to_string(),
             fixture_generated: false,
+            cache_state: CacheState::default(),
             metrics: Vec::new(),
             budgets: Vec::new(),
         }
@@ -76,6 +114,11 @@ impl Report {
 
     pub fn fixture_generated(&mut self, generated: bool) -> &mut Self {
         self.fixture_generated = generated;
+        self
+    }
+
+    pub fn cache_state(&mut self, state: CacheState) -> &mut Self {
+        self.cache_state = state;
         self
     }
 
@@ -123,7 +166,12 @@ impl Report {
             json_string(&self.fixture_hash),
             self.fixture_generated
         );
-        let _ = write!(out, ",\"environment\":{}", environment.to_json());
+        let _ = write!(
+            out,
+            ",\"environment\":{},\"cacheState\":{}",
+            environment.to_json(),
+            json_string(self.cache_state.as_str())
+        );
 
         out.push_str(",\"metrics\":{");
         for (index, metric) in self.metrics.iter().enumerate() {
@@ -160,6 +208,36 @@ impl Report {
         out
     }
 
+    /// Prints per-metric deltas against a recorded baseline, refusing when the
+    /// two runs are not comparable.
+    pub fn compare_against(&self, baseline: &Recorded) -> Result<(), String> {
+        self.comparability()
+            .require_comparable(&baseline.comparability)?;
+
+        println!("--- compared with the recorded baseline ---");
+        for metric in self.metrics.iter().filter(|metric| metric.unit == "ms") {
+            let Some(previous) = baseline
+                .metrics
+                .iter()
+                .find(|candidate| candidate.name == metric.name)
+            else {
+                println!("{}: no baseline", metric.name);
+                continue;
+            };
+            let delta = metric.value - previous.value;
+            let percent = if previous.value > 0.0 {
+                delta / previous.value * 100.0
+            } else {
+                0.0
+            };
+            println!(
+                "{}: {:.3} ms vs {:.3} ms ({:+.1}%)",
+                metric.name, metric.value, previous.value, percent
+            );
+        }
+        Ok(())
+    }
+
     pub fn emit(&self, destination: &Destination) -> Result<(), String> {
         let document = self.to_json();
         match destination {
@@ -182,6 +260,138 @@ impl Report {
 
 fn write_document(path: &Path, document: &str) -> Result<(), String> {
     fs::write(path, format!("{document}\n")).map_err(|e| e.to_string())
+}
+
+/// The identity two results must share before their durations mean anything
+/// side by side (specs/performance.md §1: "results from different platforms are
+/// never compared; the harness refuses to").
+///
+/// This is the whole reason the environment travels with each record. Without
+/// it, a Windows cold-cache run and a Linux warm-cache run look like a 4×
+/// regression rather than two different measurements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comparability {
+    pub scenario: String,
+    pub fixture_hash: String,
+    pub os: String,
+    pub arch: String,
+    pub profile: &'static str,
+    pub cache_state: CacheState,
+}
+
+impl Report {
+    pub fn comparability(&self) -> Comparability {
+        let environment = Environment::detect();
+        Comparability {
+            scenario: self.scenario.clone(),
+            fixture_hash: self.fixture_hash.clone(),
+            os: environment.os,
+            arch: environment.arch,
+            profile: environment.profile,
+            cache_state: self.cache_state,
+        }
+    }
+}
+
+/// A previously recorded run, read back for `--compare`.
+pub struct Recorded {
+    pub comparability: Comparability,
+    pub metrics: Vec<Metric>,
+}
+
+/// Reads a record written by an earlier run.
+///
+/// Only reading needs a JSON parser: the document shape is ours, and writing it
+/// by hand is covered by tests. A stored record from a newer schema is rejected
+/// rather than partially understood.
+pub fn read_recorded(path: &Path) -> Result<Recorded, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("{} is not a benchmark record: {error}", path.display()))?;
+
+    let version = value["schemaVersion"].as_u64().unwrap_or_default();
+    if version != u64::from(SCHEMA_VERSION) {
+        return Err(format!(
+            "{} uses record schema {version}, this build writes {SCHEMA_VERSION}; \
+             re-run the baseline rather than comparing across schemas",
+            path.display()
+        ));
+    }
+
+    let string = |value: &serde_json::Value| value.as_str().unwrap_or_default().to_string();
+    let profile = match value["environment"]["profile"].as_str() {
+        Some("release") => "release",
+        Some("debug") => "debug",
+        other => return Err(format!("unknown profile in {}: {other:?}", path.display())),
+    };
+
+    let metrics = value["metrics"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|(name, metric)| Metric {
+                    name: name.clone(),
+                    value: metric["value"].as_f64().unwrap_or(f64::NAN),
+                    unit: if metric["unit"].as_str() == Some("count") {
+                        "count"
+                    } else {
+                        "ms"
+                    },
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(Recorded {
+        comparability: Comparability {
+            scenario: string(&value["scenario"]),
+            fixture_hash: string(&value["fixture"]["hash"]),
+            os: string(&value["environment"]["os"]),
+            arch: string(&value["environment"]["arch"]),
+            profile,
+            cache_state: CacheState::parse(value["cacheState"].as_str().unwrap_or("unknown"))?,
+        },
+        metrics,
+    })
+}
+
+impl Comparability {
+    /// Every reason these two results cannot be compared. Empty means they can.
+    pub fn mismatches(&self, other: &Self) -> Vec<String> {
+        let mut reasons = Vec::new();
+        let mut check = |field: &str, left: &str, right: &str| {
+            if left != right {
+                reasons.push(format!("{field}: {left} vs {right}"));
+            }
+        };
+        check("scenario", &self.scenario, &other.scenario);
+        check("fixture", &self.fixture_hash, &other.fixture_hash);
+        check("os", &self.os, &other.os);
+        check("arch", &self.arch, &other.arch);
+        check("profile", self.profile, other.profile);
+        check(
+            "cache state",
+            self.cache_state.as_str(),
+            other.cache_state.as_str(),
+        );
+        reasons
+    }
+
+    /// Refuses rather than warns. A comparison nobody can trust is worse than
+    /// no comparison, because it will be quoted.
+    pub fn require_comparable(&self, other: &Self) -> Result<(), String> {
+        let reasons = self.mismatches(other);
+        if reasons.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "these results are not comparable ({}). Compare runs of the same \
+             scenario, fixture, platform, profile, and cache state.",
+            reasons.join("; ")
+        ))
+    }
 }
 
 /// Where a measurement came from. Two results are only comparable when these
@@ -381,6 +591,52 @@ mod tests {
         let written = std::fs::read_to_string(&path).unwrap();
         assert!(written.ends_with('\n'), "records append cleanly");
         assert!(written.contains("\"scenario\":\"log-first-page\""));
+    }
+
+    #[test]
+    fn an_unknown_cache_state_is_the_default_and_is_recorded() {
+        assert!(sample().to_json().contains("\"cacheState\":\"unknown\""));
+
+        let mut cold = sample();
+        cold.cache_state(CacheState::Cold);
+        assert!(cold.to_json().contains("\"cacheState\":\"cold\""));
+
+        assert!(CacheState::parse("sometimes").is_err());
+    }
+
+    /// The point of recording the environment: a Windows cold-cache run and a
+    /// Linux warm-cache run are two measurements, not a regression.
+    #[test]
+    fn results_from_different_conditions_are_refused() {
+        let warm = sample().comparability();
+        let mut cold_report = sample();
+        cold_report.cache_state(CacheState::Cold);
+        let cold = cold_report.comparability();
+
+        let error = warm
+            .require_comparable(&cold)
+            .expect_err("a cold and a warm run are not comparable");
+        assert!(error.contains("cache state"), "unexpected error: {error}");
+
+        let other_platform = Comparability {
+            os: "linux".into(),
+            ..warm.clone()
+        };
+        assert!(warm.require_comparable(&other_platform).is_err());
+
+        let other_fixture = Comparability {
+            fixture_hash: "different".into(),
+            ..warm.clone()
+        };
+        assert!(warm.require_comparable(&other_fixture).is_err());
+    }
+
+    #[test]
+    fn identical_conditions_compare() {
+        let one = sample().comparability();
+        let two = sample().comparability();
+        assert_eq!(one.mismatches(&two), Vec::<String>::new());
+        assert!(one.require_comparable(&two).is_ok());
     }
 
     #[test]
