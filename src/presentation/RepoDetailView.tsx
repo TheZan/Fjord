@@ -247,7 +247,7 @@ export function RepoDetailView({
         }
         center={
           <div className="h-full min-h-0 pl-2">
-          {diffTarget ? (
+          {diffTarget && (
             <FileDiffView
               repoId={repo.id}
               path={diffTarget.path}
@@ -256,25 +256,27 @@ export function RepoDetailView({
                 workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
               }
             />
-          ) : (
-            <div className="h-full min-h-0">
-              <PerformanceBoundary id="commit-graph">
-                <CommitGraph
-                  repoId={repo.id}
-                  currentBranch={status?.branch ?? null}
-                  scrollToBranch={branchScrollRequest}
-                  selectedCommitId={selectedCommit?.id ?? null}
-                  onSelectCommit={handleSelectCommit}
-                  onRevealCommit={handleRevealCommit}
-                  onCheckout={onCheckout}
-                  onCommitContextAction={handleCommitContextAction}
-                  workingFileCount={workingFileCount}
-                  workingSelected={workingSelected}
-                  onSelectWorking={handleSelectWorking}
-                />
-              </PerformanceBoundary>
-            </div>
           )}
+          {/* Kept mounted (just hidden) rather than unmounted while a diff is
+              open — unmounting reset the virtualizer's scroll position, so
+              closing the diff always snapped the graph back to the top. */}
+          <div className={`h-full min-h-0 ${diffTarget ? "hidden" : ""}`}>
+            <PerformanceBoundary id="commit-graph">
+              <CommitGraph
+                repoId={repo.id}
+                currentBranch={status?.branch ?? null}
+                scrollToBranch={branchScrollRequest}
+                selectedCommitId={selectedCommit?.id ?? null}
+                onSelectCommit={handleSelectCommit}
+                onRevealCommit={handleRevealCommit}
+                onCheckout={onCheckout}
+                onCommitContextAction={handleCommitContextAction}
+                workingFileCount={workingFileCount}
+                workingSelected={workingSelected}
+                onSelectWorking={handleSelectWorking}
+              />
+            </PerformanceBoundary>
+          </div>
           </div>
         }
       />
