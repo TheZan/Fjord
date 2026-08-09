@@ -1,8 +1,9 @@
 # CI on all three supported platforms (docs/tasks.md P0-09, SDD §5.4).
 #
 # Jobs:
-#   - frontend: type-check + Vite build, vitest, and the i18n catalog drift
-#     check (scripts/check-i18n.ts) — platform-independent, runs once.
+#   - frontend: type-check + Vite build, vitest, the i18n catalog drift check
+#     (scripts/check-i18n.ts), and the IPC contract drift check
+#     (scripts/check-ipc-docs.ts) — platform-independent, runs once.
 #   - backend-lint: fmt and clippy (warnings are errors), once on Linux.
 #   - backend-test: the full cargo test suite on Windows / macOS / Linux.
 #   - askpass-sidecar-test: focused protocol/sidecar tests.
@@ -31,6 +32,7 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npm run check-i18n
+      - run: npm run check-ipc-docs
 
   backend-lint:
     runs-on: ubuntu-latest

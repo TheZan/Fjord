@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "check-i18n": "node scripts/check-i18n.ts",
+    "check-ipc-docs": "node scripts/check-ipc-docs.ts",
     "prepare:askpass": "node scripts/prepare-askpass-sidecar.mjs",
     "tauri:build": "cargo build --release -p fjord-askpass && npm run prepare:askpass && tauri build --config src-tauri/tauri.sidecar.conf.json",
     "tauri": "tauri"

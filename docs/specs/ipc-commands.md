@@ -12,7 +12,7 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 
 ## Shipped commands
 
-The authoritative list is the `invoke_handler` registration in `crates/fjord-app/src/lib.rs`; the typed wrappers live in `src/infrastructure/tauriClient.ts`. Keeping this table in sync with both is a release requirement (`P5-23`).
+The authoritative list is the `invoke_handler` registration in `crates/fjord-app/src/lib.rs`; the typed wrappers live in `src/infrastructure/tauriClient.ts`. `scripts/check-ipc-docs.ts` (`npm run check-ipc-docs`, run in CI) fails when the three disagree — a command registered but undocumented, documented as shipped but not registered, or registered but unreachable from the typed client (`P5-23`). Commands under [Planned additions](#planned-additions) are excluded, so designing ahead does not break the check.
 
 ### Settings and environment
 
