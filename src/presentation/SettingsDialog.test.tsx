@@ -86,4 +86,41 @@ describe("SettingsDialog Git section", () => {
     await waitFor(() => expect(testGitConnection).toHaveBeenCalledWith("repo-1"));
     expect(await screen.findByText(/HTTPS.*12 ms/)).toBeInTheDocument();
   });
+
+  // P5-20: a configured path that cannot run is its own state. Reporting it as
+  // "Git found" with an empty environment, or as a bare error with no path in
+  // it, both leave the user unable to tell what to fix.
+  it("names the invalid configured executable instead of reporting an environment", async () => {
+    getSettings.mockResolvedValue({
+      locale: "en",
+      theme: "system",
+      defaultIde: null,
+      autoFetch: false,
+      gitExecutablePath: "C:/nowhere/git.exe",
+    });
+    getGitEnvironment.mockResolvedValue({
+      executablePath: null,
+      version: null,
+      executableSource: null,
+      configuredPathValid: false,
+      credentialHelpers: [],
+      sshCommand: null,
+      sshAgentAvailable: false,
+      proxyConfigured: false,
+    });
+
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Git" }));
+
+    expect(await screen.findByText("settings.git.invalidPath")).toBeInTheDocument();
+    expect(screen.getByText("settings.git.invalidPathDescription")).toBeInTheDocument();
+    expect(screen.getByText("C:/nowhere/git.exe")).toBeInTheDocument();
+    expect(screen.queryByText("settings.git.found")).not.toBeInTheDocument();
+    // The authentication environment belongs to a Git that runs; showing its
+    // empty defaults here would read as "no credential helper configured".
+    expect(screen.queryByText("settings.git.environment")).not.toBeInTheDocument();
+    // Resetting the path stays reachable — it is the way out of this state.
+    expect(screen.getByRole("button", { name: "settings.git.reset" })).toBeInTheDocument();
+  });
 });

@@ -133,10 +133,27 @@ impl PushTarget {
     }
 }
 
+/// The outcome of resolving which `git` binary Fjord may run.
+///
+/// There is deliberately no "fall back to whatever is on `PATH`" variant. A
+/// configured executable that fails validation must not quietly become a
+/// different Git for half the application — see docs/tasks.md P5-20 and
+/// docs/specs/system-git-transport.md §"Executable discovery".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitExecutableResolution {
+    /// A path that was validated by executing it.
+    Resolved(PathBuf),
+    /// No valid executable. Subprocess-backed operations must fail rather than
+    /// run a Git the user did not choose.
+    Unavailable,
+}
+
 #[derive(Debug, Error)]
 pub enum GitError {
     #[error("repository not found at {0}")]
     RepoNotFound(PathBuf),
+    #[error("no valid Git executable is available")]
+    ExecutableNotFound,
     #[error("path is not a git repository: {0}")]
     NotAGitRepository(PathBuf),
     #[error("merge conflict in {paths:?}")]
@@ -309,6 +326,9 @@ pub trait GitBackend: Send + Sync {
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
     /// Points the backend's own Git subprocess calls at a resolved executable,
     /// so a path chosen in Settings applies to local operations too and not
-    /// only to remote transport. `None` restores the `PATH` lookup.
-    fn set_git_executable(&self, _path: Option<PathBuf>) {}
+    /// only to remote transport. [`GitExecutableResolution::Unavailable`] makes
+    /// those calls fail with [`GitError::ExecutableNotFound`], the same
+    /// condition remote transport reports, instead of silently running a
+    /// different Git.
+    fn set_git_executable(&self, _resolution: GitExecutableResolution) {}
 }

@@ -58,7 +58,7 @@ impl LocalGitBackend {
         args: &[&str],
     ) -> Result<(), GitError> {
         let status = commands
-            .command()
+            .command()?
             .args(args)
             .current_dir(&repo.0)
             .stdin(Stdio::null())

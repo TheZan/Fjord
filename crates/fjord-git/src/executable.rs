@@ -5,17 +5,41 @@
 //! they read the same resolved path from here — otherwise a user who points
 //! Fjord at a specific Git would keep cherry-picking, resetting, and tagging
 //! with whatever `PATH` happens to hold, possibly a different version.
+//!
+//! When resolution fails there is no fallback. `Unavailable` makes local
+//! subprocess commands fail with the same condition remote transport reports,
+//! so one bad setting cannot leave half the application on a different Git
+//! (docs/tasks.md P5-20).
 
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, RwLock};
 
+use fjord_ports::{GitError, GitExecutableResolution};
+
+/// The executable state local commands run against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum State {
+    /// Nothing has been resolved yet: run `git` from `PATH`. This is the
+    /// initial state so tests and `fjord-bench` work without any wiring; the
+    /// application replaces it during bootstrap.
+    PathDefault,
+    Resolved(PathBuf),
+    Unavailable,
+}
+
 /// Shared, cheaply cloneable handle to the executable local Git commands use.
-/// Empty until the application applies the resolved path, which keeps tests and
-/// benchmarks on the `PATH` default without any wiring.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct GitCommandFactory {
-    executable: Arc<RwLock<Option<PathBuf>>>,
+    state: Arc<RwLock<State>>,
+}
+
+impl Default for GitCommandFactory {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(RwLock::new(State::PathDefault)),
+        }
+    }
 }
 
 impl GitCommandFactory {
@@ -23,30 +47,42 @@ impl GitCommandFactory {
         Self::default()
     }
 
-    /// Points every later local Git command at `path`. `None` restores the
-    /// `PATH` lookup. Callers pass an already-validated path — this type does
-    /// no discovery of its own.
-    pub fn set_executable(&self, path: Option<PathBuf>) {
-        *self
-            .executable
-            .write()
-            .expect("git executable lock should not be poisoned") = path;
+    /// Applies a resolution produced by executable discovery. Callers pass an
+    /// already-validated path — this type does no discovery of its own.
+    pub fn apply(&self, resolution: GitExecutableResolution) {
+        let next = match resolution {
+            GitExecutableResolution::Resolved(path) => State::Resolved(path),
+            GitExecutableResolution::Unavailable => State::Unavailable,
+        };
+        *self.write() = next;
     }
 
-    pub fn executable(&self) -> PathBuf {
-        self.executable
-            .read()
-            .expect("git executable lock should not be poisoned")
-            .clone()
-            .unwrap_or_else(|| PathBuf::from("git"))
+    pub fn executable(&self) -> Result<PathBuf, GitError> {
+        match &*self.read() {
+            State::PathDefault => Ok(PathBuf::from("git")),
+            State::Resolved(path) => Ok(path.clone()),
+            State::Unavailable => Err(GitError::ExecutableNotFound),
+        }
     }
 
     /// A blocking command with no console window on Windows. Local Git work
     /// runs inside `spawn_blocking`, so it does not use the async runner.
-    pub fn command(&self) -> Command {
-        let mut command = Command::new(self.executable());
+    pub fn command(&self) -> Result<Command, GitError> {
+        let mut command = Command::new(self.executable()?);
         suppress_console_window(&mut command);
-        command
+        Ok(command)
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, State> {
+        self.state
+            .read()
+            .expect("git executable lock should not be poisoned")
+    }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, State> {
+        self.state
+            .write()
+            .expect("git executable lock should not be poisoned")
     }
 }
 
@@ -69,23 +105,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn falls_back_to_path_and_follows_the_configured_executable() {
+    fn defaults_to_path_and_follows_the_configured_executable() {
         let factory = GitCommandFactory::new();
-        assert_eq!(factory.executable(), PathBuf::from("git"));
+        assert_eq!(factory.executable().unwrap(), PathBuf::from("git"));
 
         let configured = PathBuf::from("/opt/custom/bin/git");
-        factory.set_executable(Some(configured.clone()));
-        assert_eq!(factory.executable(), configured);
+        factory.apply(GitExecutableResolution::Resolved(configured.clone()));
+        assert_eq!(factory.executable().unwrap(), configured);
         assert_eq!(
-            factory.command().get_program(),
+            factory.command().unwrap().get_program(),
             configured.as_os_str(),
             "commands must be built from the configured executable"
         );
+    }
 
-        // Clones share one setting: the app configures the factory it handed
-        // to the backend, not a copy that drifts.
+    #[test]
+    fn an_unavailable_executable_fails_instead_of_falling_back_to_path() {
+        let factory = GitCommandFactory::new();
+        factory.apply(GitExecutableResolution::Unavailable);
+
+        assert!(matches!(
+            factory.executable(),
+            Err(GitError::ExecutableNotFound)
+        ));
+        assert!(matches!(
+            factory.command(),
+            Err(GitError::ExecutableNotFound)
+        ));
+    }
+
+    #[test]
+    fn clones_share_one_setting() {
+        // The app configures the factory it handed to the backend, not a copy
+        // that drifts.
+        let factory = GitCommandFactory::new();
         let clone = factory.clone();
-        clone.set_executable(None);
-        assert_eq!(factory.executable(), PathBuf::from("git"));
+        clone.apply(GitExecutableResolution::Unavailable);
+
+        assert!(matches!(
+            factory.executable(),
+            Err(GitError::ExecutableNotFound)
+        ));
     }
 }

@@ -19,7 +19,7 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
     WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, PushTarget, RepoPath};
+use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
 use git2::{ErrorCode, IndexAddOption, Oid, Sort, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
@@ -239,8 +239,8 @@ impl GitBackend for LocalGitBackend {
         mutations::open_merge_tool(&self.commands, repo).await
     }
 
-    fn set_git_executable(&self, path: Option<PathBuf>) {
-        self.commands.set_executable(path);
+    fn set_git_executable(&self, resolution: GitExecutableResolution) {
+        self.commands.apply(resolution);
     }
 }
 

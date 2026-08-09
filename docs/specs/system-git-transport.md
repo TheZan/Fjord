@@ -58,14 +58,22 @@ Discovery checks, in order:
 Every candidate is verified by executing it directly with `--version`; success
 requires exit code 0 and recognizable `git version` output. An invalid configured
 path is reported to diagnostics and does not silently become a different stored
-value. If no candidate is valid, remote commands fail with
-`git_executable_not_found`; local Git features remain available.
+value: `inspect` returns `configured_path_valid: false` with no resolved
+executable rather than falling back to `PATH`, and choosing such a path in
+Settings is refused instead of persisted.
 
 The resolved executable is the only `git` Fjord runs. Local operations that shell
 out (cherry-pick, revert, reset, branch, tag, mergetool, commit line statistics)
 take it from the same shared provider the remote transport resolves, so one
-setting cannot leave half the application on a different Git. `gix` and `git2`
-are libraries and are unaffected.
+setting cannot leave half the application on a different Git.
+
+**There is no fallback.** When resolution fails — no candidate at all, or a
+configured path that does not run — both transports report the same condition:
+remote commands fail with `git_executable_not_found`, and local subprocess
+commands fail with `GitError::ExecutableNotFound`, which maps to that same code.
+`gix` and `git2` are libraries, so status, refs, history, diffs, staging, and
+commits keep working; a broken executable setting degrades the application
+instead of bricking it, and it does so visibly.
 
 Fjord never installs Git or changes global Git configuration automatically.
 

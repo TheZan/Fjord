@@ -99,16 +99,29 @@ impl GitEnvironmentProvider for SystemGitEnvironmentProvider {
         &self,
         configured_path: Option<&Path>,
     ) -> Result<GitEnvironmentInfo, GitEnvironmentError> {
-        let executable =
-            self.resolver
-                .discover(configured_path)
-                .await
-                .map_err(|error| match error {
-                    GitExecutableError::InvalidConfiguredPath(_) => {
-                        GitEnvironmentError::InvalidConfiguredPath
-                    }
-                    GitExecutableError::NotFound => GitEnvironmentError::GitExecutableNotFound,
-                })?;
+        // An invalid *configured* path is a state to report, not an inspection
+        // failure: Settings has to be able to render "the path you chose does
+        // not work" next to the rest of the environment. Discovery deliberately
+        // does not fall back to `PATH` here — reporting a different Git than the
+        // one that will actually run is the confusion P5-20 removes.
+        let executable = match self.resolver.discover(configured_path).await {
+            Ok(executable) => executable,
+            Err(GitExecutableError::InvalidConfiguredPath(_)) => {
+                return Ok(GitEnvironmentInfo {
+                    executable_path: None,
+                    version: None,
+                    executable_source: None,
+                    configured_path_valid: false,
+                    credential_helpers: Vec::new(),
+                    ssh_command: None,
+                    ssh_agent_available: false,
+                    proxy_configured: false,
+                })
+            }
+            Err(GitExecutableError::NotFound) => {
+                return Err(GitEnvironmentError::GitExecutableNotFound)
+            }
+        };
         let cwd = std::env::current_dir()
             .map_err(|error| GitEnvironmentError::InspectionFailed(error.to_string()))?;
 

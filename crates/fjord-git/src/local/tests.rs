@@ -128,7 +128,9 @@ async fn local_git_commands_use_the_configured_executable() {
         .await
         .expect("the default factory resolves Git from PATH");
 
-    commands.set_executable(Some(PathBuf::from("fjord-not-a-real-git")));
+    commands.apply(GitExecutableResolution::Resolved(PathBuf::from(
+        "fjord-not-a-real-git",
+    )));
     let error = backend
         .create_tag(&repo_path, "v2", &head)
         .await
@@ -138,7 +140,7 @@ async fn local_git_commands_use_the_configured_executable() {
         "unexpected error: {error:?}"
     );
 
-    commands.set_executable(None);
+    commands.apply(GitExecutableResolution::Resolved(PathBuf::from("git")));
     backend.create_tag(&repo_path, "v3", &head).await.unwrap();
 }
 
@@ -963,4 +965,68 @@ async fn open_merge_tool_requires_conflicts() {
     let result = backend.open_merge_tool(&repo_path).await;
 
     assert!(matches!(result, Err(GitError::NoConflicts)));
+}
+
+/// P5-20. With no usable executable, subprocess-backed local operations must
+/// report the same condition remote transport does instead of quietly running
+/// whatever `git` happens to be on `PATH`.
+#[tokio::test]
+async fn subprocess_operations_fail_when_no_git_executable_is_available() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let head = backend.commit(&repo_path, "Initial").await.unwrap();
+
+    backend.set_git_executable(GitExecutableResolution::Unavailable);
+
+    // A mutation that shells out.
+    let reset = backend.reset(&repo_path, &head, "soft").await;
+    assert!(
+        matches!(reset, Err(GitError::ExecutableNotFound)),
+        "unexpected reset result: {reset:?}"
+    );
+
+    // A conflict-resolution hand-off that shells out.
+    let cherry_pick = backend.cherry_pick(&repo_path, &head).await;
+    assert!(
+        matches!(cherry_pick, Err(GitError::ExecutableNotFound)),
+        "unexpected cherry-pick result: {cherry_pick:?}"
+    );
+
+    // And a read path that shells out for line statistics.
+    let diff = backend.diff(&repo_path, &head).await;
+    assert!(
+        matches!(diff, Err(GitError::ExecutableNotFound)),
+        "unexpected diff result: {diff:?}"
+    );
+}
+
+/// The library-backed paths must stay usable so a broken executable setting
+/// degrades the app rather than bricking it — `gix` and `git2` need no binary.
+#[tokio::test]
+async fn library_reads_survive_an_unavailable_executable() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial").await.unwrap();
+
+    backend.set_git_executable(GitExecutableResolution::Unavailable);
+
+    backend.status(&repo_path).await.unwrap();
+    assert!(!backend.branches(&repo_path).await.unwrap().is_empty());
+    assert!(!backend
+        .log(&repo_path, None, 10)
+        .await
+        .unwrap()
+        .commits
+        .is_empty());
+    backend.working_changes(&repo_path).await.unwrap();
 }

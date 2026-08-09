@@ -291,7 +291,7 @@ pub(super) async fn open_merge_tool(
         }
 
         commands
-            .command()
+            .command()?
             .args(["mergetool", "--no-prompt"])
             .current_dir(&repo.0)
             .spawn()

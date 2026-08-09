@@ -92,6 +92,8 @@
       "found": "Git gefunden",
       "notFound": "Git nicht gefunden",
       "notFoundDescription": "Fjord verwendet System-Git für Remote-Vorgänge und Authentifizierung.",
+      "invalidPath": "Konfiguriertes Git ist nicht verfügbar",
+      "invalidPathDescription": "Die in den Einstellungen gewählte Git-Anwendung konnte nicht ausgeführt werden. Lokale und entfernte Git-Operationen sind nicht verfügbar, bis Sie einen funktionierenden Pfad wählen oder ihn zurücksetzen.",
       "version": "Version {{version}}",
       "source": { "settings": "ausgewählter Pfad", "path": "PATH", "standard-location": "Standardpfad" },
       "choose": "Git auswählen",

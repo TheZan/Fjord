@@ -81,6 +81,11 @@ export function SettingsDialog({
   const [connectionResult, setConnectionResult] = useState<GitConnectionTestResult | null>(null);
   const [connectionRepoId, setConnectionRepoId] = useState(repositories[0]?.id ?? "");
 
+  // Inspection succeeds and reports the state rather than failing, so the panel
+  // can say "the path you chose does not work" instead of showing a generic
+  // error with no path in it (docs/tasks.md P5-20).
+  const configuredPathInvalid = gitEnvironment?.configuredPathValid === false;
+
   useEffect(() => {
     let mounted = true;
     getSettings()
@@ -346,15 +351,36 @@ export function SettingsDialog({
                 <SettingsGroup title={t("settings.git.executable")}>
                   <div
                     className="rounded-md border p-3"
-                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                    style={{
+                      borderWidth: "0.5px",
+                      borderColor: configuredPathInvalid ? "var(--rust)" : "var(--hairline)",
+                      background: configuredPathInvalid ? "var(--rust-tint)" : undefined,
+                    }}
                   >
-                    <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
-                      {gitEnvironment ? t("settings.git.found") : t("settings.git.notFound")}
+                    <div
+                      className="text-[13px] font-medium"
+                      style={{ color: configuredPathInvalid ? "var(--rust-ink)" : "var(--ink)" }}
+                    >
+                      {configuredPathInvalid
+                        ? t("settings.git.invalidPath")
+                        : gitEnvironment
+                          ? t("settings.git.found")
+                          : t("settings.git.notFound")}
                     </div>
                     <Muted className="mt-1 block break-all text-[11px]">
-                      {gitEnvironment?.executablePath ?? t("settings.git.notFoundDescription")}
+                      {configuredPathInvalid
+                        ? (currentSettings.gitExecutablePath ?? "")
+                        : (gitEnvironment?.executablePath ?? t("settings.git.notFoundDescription"))}
                     </Muted>
-                    {gitEnvironment?.version && (
+                    {/* An invalid configured path is not a partial failure: local
+                        and remote Git operations are both unavailable until it is
+                        fixed or reset (docs/tasks.md P5-20). */}
+                    {configuredPathInvalid && (
+                      <p className="mt-1.5 text-[11px]" style={{ color: "var(--rust-ink)" }}>
+                        {t("settings.git.invalidPathDescription")}
+                      </p>
+                    )}
+                    {!configuredPathInvalid && gitEnvironment?.version && (
                       <Muted className="mt-1 block text-[11px]">
                         {t("settings.git.version", { version: gitEnvironment.version })} · {t(`settings.git.source.${gitEnvironment.executableSource ?? "path"}`)}
                       </Muted>
@@ -375,7 +401,7 @@ export function SettingsDialog({
                   </div>
                 </SettingsGroup>
 
-                {gitEnvironment && (
+                {gitEnvironment && !configuredPathInvalid && (
                   <SettingsGroup title={t("settings.git.environment")}>
                     <div className="grid gap-2 text-[12px]">
                       <GitStatusRow

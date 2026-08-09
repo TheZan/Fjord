@@ -7,9 +7,9 @@ use fjord_domain::{
     WorkspaceId,
 };
 use fjord_ports::{
-    GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitOperationContext,
-    GitRemoteBackend, GitRemoteError, IdeLauncher, LaunchError, RepoPath, SettingsStore,
-    StoreError, WorkspaceStore,
+    GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitExecutableResolution,
+    GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher, LaunchError, RepoPath,
+    SettingsStore, StoreError, WorkspaceStore,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -36,6 +36,16 @@ pub enum RepoError {
 /// The remote a branch is published to when the caller does not name one.
 /// Only ever used for the explicit publish action, never for a plain push.
 const DEFAULT_PUBLISH_REMOTE: &str = "origin";
+
+/// What the local backend should run, given an inspection result. An invalid
+/// configured path yields `Unavailable`, matching what remote transport does
+/// with the same setting.
+fn resolution_of(info: &GitEnvironmentInfo) -> GitExecutableResolution {
+    match (&info.executable_path, info.configured_path_valid) {
+        (Some(path), true) => GitExecutableResolution::Resolved(path.clone()),
+        _ => GitExecutableResolution::Unavailable,
+    }
+}
 
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
 /// this is the layer that resolves "which repo is this" (via
@@ -109,10 +119,16 @@ impl RepoService {
         path: PathBuf,
     ) -> Result<GitEnvironmentInfo, RepoError> {
         let info = self.environment.inspect(Some(&path)).await?;
+        if !info.configured_path_valid {
+            // Never store a path that does not run. The old code persisted
+            // whatever `inspect` accepted, which could not happen before only
+            // because inspection failed outright.
+            return Err(GitEnvironmentError::InvalidConfiguredPath.into());
+        }
         let mut settings = self.settings.get_settings().await?;
         settings.git_executable_path = Some(path);
         self.settings.update_settings(&settings).await?;
-        self.git.set_git_executable(info.executable_path.clone());
+        self.git.set_git_executable(resolution_of(&info));
         Ok(info)
     }
 
@@ -121,13 +137,18 @@ impl RepoService {
         settings.git_executable_path = None;
         self.settings.update_settings(&settings).await?;
         let info = self.environment.inspect(None).await?;
-        self.git.set_git_executable(info.executable_path.clone());
+        self.git.set_git_executable(resolution_of(&info));
         Ok(info)
     }
 
     /// Applies the stored executable setting to the local backend. Called once
     /// at startup so local and remote operations run the same Git from the
     /// first command, not only after the user visits Settings.
+    ///
+    /// A configured path that fails validation makes local subprocess commands
+    /// *unavailable* rather than falling back to `PATH`: remote transport
+    /// already fails in that situation, and half an application on a different
+    /// Git than the user chose is worse than a clear failure (P5-20).
     pub async fn refresh_git_executable(&self) {
         let configured = match self.settings.get_settings().await {
             Ok(settings) => settings.git_executable_path,
@@ -137,10 +158,18 @@ impl RepoService {
             }
         };
         match self.environment.inspect(configured.as_deref()).await {
-            Ok(info) => self.git.set_git_executable(info.executable_path),
+            Ok(info) => {
+                if !info.configured_path_valid {
+                    tracing::warn!(
+                        "the configured Git executable is invalid; local Git commands are unavailable"
+                    );
+                }
+                self.git.set_git_executable(resolution_of(&info));
+            }
             Err(error) => {
                 tracing::warn!(%error, "could not resolve a Git executable for local operations");
-                self.git.set_git_executable(None);
+                self.git
+                    .set_git_executable(GitExecutableResolution::Unavailable);
             }
         }
     }
@@ -1489,7 +1518,7 @@ mod tests {
     async fn the_resolved_git_executable_reaches_the_local_backend() {
         #[derive(Default)]
         struct RecordingGit {
-            executable: Mutex<Option<Option<PathBuf>>>,
+            executable: Mutex<Option<GitExecutableResolution>>,
         }
 
         #[async_trait]
@@ -1581,8 +1610,8 @@ mod tests {
             async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
                 Ok(())
             }
-            fn set_git_executable(&self, path: Option<PathBuf>) {
-                *self.executable.lock().unwrap() = Some(path);
+            fn set_git_executable(&self, resolution: GitExecutableResolution) {
+                *self.executable.lock().unwrap() = Some(resolution);
             }
         }
 
@@ -1604,7 +1633,7 @@ mod tests {
         service.refresh_git_executable().await;
         assert_eq!(
             *git.executable.lock().unwrap(),
-            Some(Some(PathBuf::from("git"))),
+            Some(GitExecutableResolution::Resolved(PathBuf::from("git"))),
             "startup must apply the resolved executable"
         );
 
@@ -1614,9 +1643,198 @@ mod tests {
             .unwrap();
         assert_eq!(
             *git.executable.lock().unwrap(),
-            Some(Some(PathBuf::from("git"))),
+            Some(GitExecutableResolution::Resolved(PathBuf::from("git"))),
             "the backend follows what diagnostics resolved, not the raw input"
         );
+    }
+
+    /// An environment whose configured path does not validate. Inspection
+    /// succeeds — the state has to be renderable in Settings — but reports the
+    /// path as invalid and resolves no executable.
+    struct InvalidConfiguredEnvironment;
+
+    #[async_trait]
+    impl GitEnvironmentProvider for InvalidConfiguredEnvironment {
+        async fn inspect(
+            &self,
+            _configured_path: Option<&Path>,
+        ) -> Result<GitEnvironmentInfo, GitEnvironmentError> {
+            Ok(GitEnvironmentInfo {
+                executable_path: None,
+                version: None,
+                executable_source: None,
+                configured_path_valid: false,
+                credential_helpers: vec![],
+                ssh_command: None,
+                ssh_agent_available: false,
+                proxy_configured: false,
+            })
+        }
+
+        async fn test_connection(
+            &self,
+            _repo: &RepoPath,
+            _remote: &str,
+            _context: GitOperationContext,
+        ) -> Result<GitConnectionTestResult, GitRemoteError> {
+            Err(GitRemoteError::GitExecutableNotFound)
+        }
+    }
+
+    /// P5-20. The old behavior applied `None` here, which the local backend read
+    /// as "look up `git` on PATH" — so a bad setting left local operations on a
+    /// different Git than remote transport, which failed outright. Both sides
+    /// must now reach the same conclusion.
+    #[tokio::test]
+    async fn an_invalid_configured_executable_never_falls_back_to_path() {
+        #[derive(Default)]
+        struct RecordingGit {
+            executable: Mutex<Option<GitExecutableResolution>>,
+        }
+
+        #[async_trait]
+        impl GitBackend for RecordingGit {
+            async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
+                Err(GitError::NotImplemented("status"))
+            }
+            async fn branches(&self, _repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn tags(&self, _repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
+                Ok(vec![])
+            }
+            async fn log(
+                &self,
+                _repo: &RepoPath,
+                _from: Option<LogCursor>,
+                _limit: u32,
+            ) -> Result<CommitPage, GitError> {
+                Err(GitError::NotImplemented("log"))
+            }
+            async fn search_commits(
+                &self,
+                _repo: &RepoPath,
+                _query: &str,
+                _limit: u32,
+            ) -> Result<Vec<CommitSummary>, GitError> {
+                Ok(vec![])
+            }
+            async fn diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+            ) -> Result<Vec<FileDiff>, GitError> {
+                Err(GitError::NotImplemented("diff"))
+            }
+            async fn file_diff(
+                &self,
+                _repo: &RepoPath,
+                _commit_id: &str,
+                _path: &str,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("file_diff"))
+            }
+            async fn working_changes(&self, _repo: &RepoPath) -> Result<WorkingChanges, GitError> {
+                Err(GitError::NotImplemented("working_changes"))
+            }
+            async fn working_file_diff(
+                &self,
+                _repo: &RepoPath,
+                _path: &str,
+                _staged: bool,
+            ) -> Result<FileDiffDetail, GitError> {
+                Err(GitError::NotImplemented("working_file_diff"))
+            }
+            async fn checkout(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn create_branch(
+                &self,
+                _repo: &RepoPath,
+                _name: &str,
+                _checkout: bool,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
+                Ok(vec![])
+            }
+            async fn stash_push(
+                &self,
+                _repo: &RepoPath,
+                _message: Option<&str>,
+            ) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn unstage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
+                Ok(())
+            }
+            async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+                Ok(String::new())
+            }
+            async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
+                Ok(())
+            }
+            fn set_git_executable(&self, resolution: GitExecutableResolution) {
+                *self.executable.lock().unwrap() = Some(resolution);
+            }
+        }
+
+        let git = Arc::new(RecordingGit::default());
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo_entry() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings {
+                    git_executable_path: Some(PathBuf::from("/nowhere/git")),
+                    ..Settings::default()
+                },
+            }),
+            git.clone(),
+            Arc::new(FakeRemoteGit::default()),
+            Arc::new(InvalidConfiguredEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        service.refresh_git_executable().await;
+        assert_eq!(
+            *git.executable.lock().unwrap(),
+            Some(GitExecutableResolution::Unavailable),
+            "an invalid configured path must not leave local commands on PATH git"
+        );
+
+        // Local and remote must classify the same setting the same way.
+        let local_code = app_code(&GitError::ExecutableNotFound);
+        let remote_code = GitRemoteError::GitExecutableNotFound.code();
+        assert_eq!(local_code, remote_code);
+
+        // And choosing that path in Settings must be refused, not stored.
+        let error = service
+            .set_git_executable_path(PathBuf::from("/nowhere/git"))
+            .await
+            .expect_err("an invalid path must not be persisted");
+        assert!(matches!(
+            error,
+            RepoError::Environment(GitEnvironmentError::InvalidConfiguredPath)
+        ));
+    }
+
+    /// Mirrors the mapping in `fjord-app`'s error boundary. Kept here so the
+    /// services crate can assert the shared classification without depending on
+    /// the Tauri layer.
+    fn app_code(error: &GitError) -> &'static str {
+        match error {
+            GitError::ExecutableNotFound => "git_executable_not_found",
+            _ => "git_error",
+        }
     }
 
     /// A branch tracking `company/trunk` must not be pushed to `origin/develop`

@@ -90,6 +90,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
     let code = match &err {
         GitError::RepoNotFound(_) => "repository_not_found",
         GitError::NotAGitRepository(_) => "not_a_git_repository",
+        // The same code remote transport reports, so the frontend cannot end up
+        // treating "no usable Git" as two unrelated failures (P5-20).
+        GitError::ExecutableNotFound => "git_executable_not_found",
         GitError::Conflict { .. } => "merge_conflict",
         GitError::AuthenticationFailed => "auth_failed",
         GitError::NoUpstream => "no_upstream",

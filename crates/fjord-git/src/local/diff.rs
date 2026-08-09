@@ -75,7 +75,7 @@ impl LocalGitBackend {
         old_tree: Option<&gix::Tree<'_>>,
         new_tree: &gix::Tree<'_>,
     ) -> Result<HashMap<String, (u32, u32)>, GitError> {
-        let mut command = commands.command();
+        let mut command = commands.command()?;
         command.current_dir(&repo.0).stdin(Stdio::null());
 
         if let Some(old_tree) = old_tree {

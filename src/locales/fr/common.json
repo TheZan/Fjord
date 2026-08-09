@@ -92,6 +92,8 @@
       "found": "Git trouvé",
       "notFound": "Git introuvable",
       "notFoundDescription": "Fjord utilise Git système pour les opérations distantes et l’authentification.",
+      "invalidPath": "Le Git configuré est indisponible",
+      "invalidPathDescription": "Impossible d'exécuter le Git sélectionné dans les Réglages. Les opérations Git locales et distantes sont indisponibles tant que vous n'avez pas choisi un chemin valide ou réinitialisé.",
       "version": "Version {{version}}",
       "source": { "settings": "chemin sélectionné", "path": "PATH", "standard-location": "emplacement standard" },
       "choose": "Choisir Git",
