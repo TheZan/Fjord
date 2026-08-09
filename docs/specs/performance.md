@@ -154,11 +154,19 @@ and are content-addressed by their parameters so a regenerated fixture is
 byte-comparable enough for stable timings. Generation is expensive (the existing
 24×2500-commit fixture takes ~212 s); therefore:
 
-- every fixture writes a manifest file (`.fjord-bench-manifest.json`) with its
-  parameters and a schema version, and generation is skipped when the manifest
-  matches — `--force` regenerates;
-- CI caches fixture directories keyed by the manifest hash;
-- the heaviest fixtures run in the scheduled workflow, not on every PR.
+- ✅ every fixture writes `.fjord-bench-manifest.json` with its parameters and a
+  schema version, and generation is skipped only when the manifest matches
+  exactly. Changed parameters regenerate; `--force` regenerates unconditionally.
+  Reuse used to be decided by "does a `.git` directory exist", which silently
+  benchmarked a 200-commit fixture for a 50 000-commit run and reported the
+  requested parameters — a wrong number stated confidently;
+- ✅ the manifest is written *last*, so an interrupted generation regenerates
+  rather than claiming to be complete, and a directory that is neither empty nor
+  ours is refused rather than deleted, whatever `--force` says;
+- ✅ every run reports the fixture hash, so a measurement can always be traced to
+  the fixture that produced it;
+- 🚧 CI caches fixture directories keyed by the manifest hash;
+- 🚧 the heaviest fixtures run in the scheduled workflow, not on every PR.
 
 | Fixture | Parameters | Exercises |
 |---|---|---|
