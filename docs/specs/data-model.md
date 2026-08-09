@@ -49,6 +49,43 @@ CREATE TABLE repo_status_cache (
 );
 ```
 
+Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql` and
+`0003_git_executable_path.sql` add `settings.auto_fetch` and
+`settings.git_executable_path`.
+
+## Planned additions
+
+Designed but not migrated yet. Each is forward-only and owned by a spec.
+
+```sql
+-- Phase 7 (P7-01). One row, versioned, droppable: losing it costs layout
+-- preferences, never data. See specs/ui-shell.md §5.
+CREATE TABLE ui_state (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    version         INTEGER NOT NULL,
+    payload         TEXT NOT NULL,     -- JSON object, unknown keys ignored on read
+    updated_at      TEXT NOT NULL
+);
+
+-- Phase 6 (P6-13). A cache in the same sense as repo_status_cache: always
+-- safe to drop, never a source of truth, never an input to a mutation
+-- decision. See specs/performance.md §6.
+CREATE TABLE repo_snapshot (
+    repo_id         TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+    schema_version  INTEGER NOT NULL,
+    payload         TEXT NOT NULL,     -- serialized RepositorySnapshot
+    captured_at     TEXT NOT NULL
+);
+
+-- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
+-- See specs/workspace-workflows.md §5.
+ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
+```
+
+A snapshot row is revalidated on first use after a restart, because generations
+([`performance.md`](performance.md) §5) are in-memory and reset to zero — a
+persisted snapshot can never be trusted on the strength of a stale generation.
+
 ## Conventions
 
 - **IDs**: UUIDv4 as `TEXT`, generated application-side — never auto-increment integers, so IDs are stable across export/import and don't leak row-count information.

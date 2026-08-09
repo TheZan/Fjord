@@ -81,9 +81,15 @@ select a different Git binary, or run a read-only connection test.
 - [x] Workspaces: multi-repo grouping, live status, bulk operations, dashboard
 - [x] Command palette, global search
 - [x] Cross-platform packaging pipeline and update channel
+- [x] Remote transport through the user's installed Git (credential helpers, GCM, SSH agent)
 - [ ] First public release
+- [ ] Performance foundation: measurable SLOs, torture fixtures, long-lived repository runtime
+- [ ] Shell rework: keyboard-first navigation, persisted layout, less chrome
+- [ ] Daily-driver essentials: hunk staging, amend, safe force push, richer diff
+- [ ] Safety & recovery: operation states, informative preflights, reflog-based recovery
+- [ ] Workspace workflows: worktrees, rebase, remotes, workspace health
 
-Detailed task-level status lives in [`docs/tasks.md`](docs/tasks.md); architecture and current-state notes in [`docs/SDD.md`](docs/SDD.md).
+Phase goals and dependencies live in [`docs/SDD.md`](docs/SDD.md) §15; detailed task-level status in [`docs/tasks.md`](docs/tasks.md); per-subsystem contracts in [`docs/specs/`](docs/specs/).
 
 ## Contributing
 

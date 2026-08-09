@@ -1,6 +1,6 @@
 # Fjord — Software Design Document
 
-Status: v0.3 (reworked 2026-08 to match the implemented system; supersedes draft v0.2)
+Status: v0.4 (2026-08 roadmap audit — adds §15 and the Phase 6–11 specs; supersedes v0.3)
 Owner: msochnev
 
 This document covers the *why* — vision, architecture, and the decisions behind them — and, since v0.3, the honest *current state*. For the task-level breakdown and progress, see:
@@ -16,8 +16,10 @@ Status markers used throughout this document:
 - 🚧 — planned / designed but not implemented yet.
 
 **Implementation snapshot (2026-08):** Phases 0–4 are implemented. Phase 5
-replaces libgit2 network transport with the installed system Git; see §5.2 and
-[`tasks.md`](tasks.md).
+replaces libgit2 network transport with the installed system Git (implementation
+complete; manual sign-off and a small residual list remain — see §5.2 and
+[`tasks.md`](tasks.md)). Phases 6–11 are designed, not implemented; their
+contracts live in [`specs/`](specs/) and their goals in §15.
 
 ## 1. Vision
 
@@ -32,7 +34,7 @@ Design language: minimalist, premium, in the spirit of Linear / Raycast / Arc Br
 - **G3 — Internationalization (i18n)**: ship with English and Russian, switchable at runtime, and structured so a third locale is a content-only addition (no code changes). ✅
 - **G4 — Theming**: light / dark / system, defaulting to system, switchable at runtime without restart. ✅
 - **G5 — Clean Architecture**: strict dependency direction, framework-agnostic domain/use-case core, swappable infrastructure (git engine, database, IPC transport). ✅
-- **G6 — Performance at scale**: stays fast on large monorepos (tens of thousands of commits, large working trees) and on workspaces containing dozens of repositories. ✅ backend caching/concurrency, frontend virtualization, and release-profile benchmark budgets are in place (§5.3, §11)
+- **G6 — Performance at scale**: stays fast on large monorepos (tens of thousands of commits, large working trees) and on workspaces containing dozens of repositories. ⚠️ backend caching/concurrency, frontend virtualization, and release-profile benchmark budgets are in place (§5.3, §11), but the claim is only verified up to 50k commits / 24 repositories and only for isolated backend calls — measurable end-to-end SLOs, torture fixtures, and a long-lived repository runtime are Phase 6 ([`specs/performance.md`](specs/performance.md))
 - **G7 — Cross-platform parity**: first-class, equally fast experience on Windows, macOS, and Linux. ✅ CI verifies all three targets (§5.4)
 
 ## 3. Non-goals (for v1)
@@ -134,6 +136,21 @@ Approach, item by item:
 - ✅ **Frontend list virtualization** via `@tanstack/react-virtual` for lists that scale with repo/commit count (`P4-08`). The commit graph, all-repositories list, and dashboard repo-card grid only mount visible rows plus overscan; SVG graph edges are drawn only for virtualized commit rows within/near the viewport.
 - ✅ **Global search** fans out across repositories through the same bounded worker pool as bulk operations, preserving deterministic result order before the global limit cut (`P4-13`); `fjord-bench --workspace-repos N` reports `global_search_ms`.
 
+Known limits of this strategy, and what Phase 6 does about them
+([`specs/performance.md`](specs/performance.md)):
+
+- 🚧 **No long-lived repository state.** Every read re-opens the repository; five
+  reads for one view mean five opens. Phase 6 introduces `RepositoryRuntime`.
+- ⚠️ **Invalidation is per-event, not per-generation.** `RepoChangeSet` classifies
+  a filesystem burst well, but nothing durable answers "is my cached value still
+  valid?". Phase 6 adds per-domain generations.
+- 🚧 **No end-to-end latency measurement.** Every recorded number is an isolated
+  backend call; user-perceived latency (action → paint) is unmeasured.
+- ⚠️ **Unbounded diff transport.** `get_file_diff` returns a whole file's hunks in
+  one payload; rendering is virtualized, the payload is not.
+- ⚠️ **Startup blocks on IPC.** `src/main.tsx` awaits settings and i18n before the
+  first render.
+
 Measured numbers and budgets: see §11.
 
 ### 5.4 Cross-platform strategy (Windows / macOS / Linux)
@@ -163,7 +180,7 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 
 ### 6.2 Internationalization
 
-- ✅ Library: `react-i18next`. Catalogs: one JSON file per locale per namespace under `src/locales/`. Currently two namespaces (`common`, `workspace`) — the spec's finer split (`repo`, `settings`) can be introduced when catalogs grow.
+- ✅ Library: `react-i18next`. Catalogs: one JSON file per locale per namespace under `src/locales/`. Two namespaces (`common`, `workspace`) — the spec's finer split (`repo`, `settings`) can be introduced when catalogs grow. Five locales ship today: `en`, `ru`, `de`, `es`, `fr`.
 - ✅ **Adding a locale is a content-only change**: drop a new `locales/<code>/*.json` set and register it in the locale registry. No component code changes.
 - ✅ **Fallback chain**: selected locale → English → raw key. Never a blank label.
 - ✅ **Locale detection**: OS locale on first launch if supported, else English; user override persisted through `SettingsStore`, applied instantly without restart.
@@ -233,6 +250,11 @@ Implemented in `fjord-app/src/logging.rs` (`P4-14`):
 
 ## 11. Non-functional requirements and benchmarks
 
+The full SLO catalogue, measurement methodology, fixture set, and gating policy
+live in [`specs/performance.md`](specs/performance.md) (Phase 6). The budgets
+below are the subset that is measured and enforced today; they remain valid and
+are absorbed as the small-scale anchors of the SLO table.
+
 Performance budgets (targets, measured on **release** builds; enforced by the scheduled/manual release benchmark workflow from `P4-18`):
 
 | Scenario | Budget |
@@ -261,9 +283,24 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 2 — Workspace layer (CRUD, status cache, dashboard, list-detail, bulk ops, IDE launcher, benchmark) | ✅ done |
 | Phase 3 — Polish and release | ✅ done through release readiness: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`), contributor docs and public release checklist (`P3-05`) |
 | Phase 4 — Hardening & tech debt (2026-08 audit) | ✅ done |
-| Phase 5 — System Git transport and authentication | ✅ implementation complete; manual provider/OS compatibility sign-off tracked in [`manual-git-compatibility.md`](manual-git-compatibility.md) |
+| Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
+| Phase 6 — Performance foundation | 🚧 designed ([`specs/performance.md`](specs/performance.md)) |
+| Phase 7 — UI/UX shell | 🚧 designed ([`specs/ui-shell.md`](specs/ui-shell.md)) |
+| Phase 8 — Daily-driver essentials | 🚧 designed ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
+| Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
+| Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
+| Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
 
-Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (data fetching §6.1, type generation §6.1, virtualization §5.3, CSP §9, logging §10, CI §5.4).
+Between `P4-18` and `P5-01`, and again after `P5-19`, a substantial amount of UI
+and frontend-performance work landed without task IDs: the resizable repository
+layout, the branch/tag tree with context menus, the working-changes panel,
+commit-graph search and infinite scroll, the off-thread graph layout worker, list
+virtualization refinements, the palette rework, the repository-change event
+pipeline, and three additional locales. It is shipped and covered by tests, but it
+is not on the board; `P5-24` records it so the board stops under-reporting the
+system.
+
+Known divergences between this document and the code are marked ⚠️/🚧 inline in their sections (performance limits §5.3, i18n locale count §6.2, logging §10, benchmarks §11).
 
 ## 13. Risks and open questions
 
@@ -272,13 +309,54 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 | `gix` mutation support matures slower than expected | `GitBackend` isolates local engines; network transport remains system Git regardless of local engine choices. |
 | Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks run weekly/on demand (`P4-18`) |
 | Generated TS domain types drift from Rust domain | `cargo test --workspace` includes the `fjord-domain` export drift check (`P4-11`) |
-| Large-monorepo performance is partly a claim | Release-profile benchmarks now cover 50k single-repo history and a 60k-total-commit workspace (`P4-18`); expand toward 100k–200k fixtures when CI runtime budget allows |
+| Large-monorepo performance is partly a claim | Release-profile benchmarks cover 50k single-repo history and a 60k-total-commit workspace (`P4-18`). Phase 6 turns the claim into SLOs measured against 300k-file / 1M-commit / 100-repository fixtures ([`specs/performance.md`](specs/performance.md)); until those run, the claim stays qualified in §2 |
+| `RepositoryRuntime` caches serve stale data | Per-domain generations with compare-and-swap cache writes, contract tests per mutation, and the rule that no destructive action runs against an unvalidated snapshot ([`specs/performance.md`](specs/performance.md) §5–6) |
+| Partial staging corrupts uncommitted work | Patches are applied by `git apply`, never by a hand-written index writer, and every selection is verified against a freshly recomputed diff digest (`patch_stale`) before it is applied ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §1) |
+| Recovery is presented as more than it is | The Recovery Center is explicitly reflog-based and states what it cannot recover; recoverability labels in destructive preflights are contractual and asserted in tests ([`specs/repository-safety.md`](specs/repository-safety.md) §3, §5) |
+| Roadmap scope creep toward forge/IDE features | §15's admission rule: a feature ships only if it removes a reason to leave Fjord or strengthens speed, safety, or multi-repository workflow |
 | SVG commit graph DOM cost on deep histories | Commit rows are virtualized (`P4-08`); re-evaluate a canvas renderer only if profiling still shows SVG edge cost inside the visible window |
 | Custom title bar vs. native OS conventions | Default to native decorations per-platform; only override where there's a clear UX win |
 
 ## 14. Documentation map
 
-- [`SDD.md`](SDD.md) (this document) — architecture, decisions, current state.
+- [`SDD.md`](SDD.md) (this document) — architecture, decisions, current state, roadmap phases (§15).
 - [`tasks.md`](tasks.md) — task board with statuses. **Replaces `plan.md`** (removed in v0.3; task IDs referenced from code and commits are unchanged).
-- [`specs/`](specs/) — per-subsystem contracts: [`git-backend.md`](specs/git-backend.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
+- [`specs/`](specs/) — per-subsystem contracts:
+  - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
+  - Designed: [`performance.md`](specs/performance.md) (Phase 6), [`ui-shell.md`](specs/ui-shell.md) (Phase 7), [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
+- [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
+
+## 15. Roadmap (Phases 5–11)
+
+Each phase has one goal, one owning spec, and a dependency reason for its
+position. Tasks live in [`tasks.md`](tasks.md).
+
+| Phase | Goal | Spec | Depends on |
+|---|---|---|---|
+| 5.x — Final stabilization | Close the residual System-Git transport and authentication work; no new product capability. | [`specs/system-git-transport.md`](specs/system-git-transport.md) | — |
+| 6 — Performance foundation | Fjord has a *measurable* performance architecture: SLOs, torture fixtures, end-to-end telemetry, a long-lived repository runtime, generation-scoped invalidation, snapshot-first switching, bounded transport. | [`specs/performance.md`](specs/performance.md) | 5.x |
+| 7 — UI/UX shell | Dense, quiet, keyboard-first shell: content over chrome, one utility area, persisted UI state, a real shortcut model. | [`specs/ui-shell.md`](specs/ui-shell.md) | 6 (snapshot-first switching and persisted state share a bootstrap path) |
+| 8 — Daily-driver essentials | Ordinary Git work never requires another GUI or a terminal: hunk/line staging, amend, safe force push, a comparable diff. | [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) | 6 (diff windowing), 7 (diff mode persistence, overflow menu) |
+| 9 — Safety & recovery | Fjord is at its best when the user is about to lose work: operation states, continue/skip/abort, informative preflights, safe checkout, reflog recovery. | [`specs/repository-safety.md`](specs/repository-safety.md) | 8 (discard needs the preflight contract; the contract needs discard to be worth it) |
+| 10 — Advanced workflows & workspace | Turn the workspace into the competitive advantage: worktrees, rebase, remotes, workspace health, expected branch, filters. | [`specs/workspace-workflows.md`](specs/workspace-workflows.md) | 9 (rebase and worktree removal depend on operation state and preflights) |
+| 11 — Extreme performance & release hardening | Prove the performance architecture in the *shipped artifact*, and make release quality a gate rather than a checklist. | [`specs/release-hardening.md`](specs/release-hardening.md) | 6–10 |
+
+**Admission rule for any new roadmap item.** A feature is added only if it
+answers one of two questions: *which reason to leave Fjord does it remove?*, or
+*how does it strengthen speed, safety, or multi-repository workflow?* "GitKraken
+has it" is not an answer.
+
+**Deliberately out of scope** (revisit only as an explicit proposal, never as a
+drive-by addition): GitHub/GitLab pull- and merge-request UI, issues, CI/CD
+dashboards, a plugin system, an embedded code editor, a full merge editor, an AI
+chat sidebar, and forge-specific functionality generally. Fjord is a Git client,
+not a forge client and not an IDE. Narrow AI assistance (explain diff, explain
+conflict, summarize commit) is permissible in principle and is not a priority.
+
+**Performance work order**, applied to every task in Phases 6 and 11: measure →
+locate the bottleneck → change the architecture → measure again → and only then
+optimize allocations and data structures. The stack (Rust, Tauri, React/TypeScript,
+`gix`, `git2`, system Git, SQLite, TanStack Query, TanStack Virtual) is the
+baseline architecture; replacing any component requires benchmark or profiling
+evidence that it is the bottleneck.
