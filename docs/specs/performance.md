@@ -172,8 +172,8 @@ byte-comparable enough for stable timings. Generation is expensive (the existing
 |---|---|---|
 | `wt-huge` | 150k / 300k tracked files, shallow history | SLO-6, watcher cost, index reads |
 | `wt-noisy` | 50k tracked + 200k ignored + 20k untracked files | status filtering, watcher filtering, ignore handling |
-| `hist-deep` | 500k and 1M commits, 5k files | SLO-8, commit-graph traversal, cursor paging |
-| `refs-many` | 5k branches, 5k tags, 20 remotes | refs read path, branch tree render, palette/search |
+| `hist-deep` | 500k and 1M commits, 50 files, **with a commit-graph** | SLO-8, commit-graph traversal, cursor paging |
+| `refs-many` | 5k branches, 5k tags, 20 remotes, **packed** | SLO-16 refs read path, branch tree render, palette/search |
 | `diff-giant` | one 50 MB text file, one 500k-line file, one binary blob | SLO-9, SLO-10, diff transport |
 | `ws-100` | 100 repositories × 2k commits | SLO-3, SLO-13, SLO-14, bulk operations, watcher fan-out |
 | `win-fs` | `wt-huge` + `wt-noisy` executed on Windows with a warm and a cold OS file cache | Windows `ReadDirectoryChangesW`, path canonicalization, NTFS metadata cost |
@@ -181,6 +181,20 @@ byte-comparable enough for stable timings. Generation is expensive (the existing
 `win-fs` is a scenario, not a separate generator: the Windows-specific cost is in
 execution, and the harness must record which OS produced a result so numbers are
 never compared across platforms by accident.
+
+Two fixture properties are part of the *identity*, not incidental details, and
+both require Git on `PATH` during generation:
+
+- `hist-deep` carries a **commit-graph**. Every million-commit repository in the
+  wild has one, because `git gc` and `git maintenance` write it. Measuring
+  traversal without it would produce a pessimistic number for a situation users
+  are not in, and would send us optimizing a cost that does not exist.
+- `refs-many` has its refs **packed**. Ten thousand loose ref files is a state
+  that occurs briefly after a large fetch, not the state a repository sits in.
+
+A fixture that quietly differed on either would be indistinguishable in the
+manifest and different in every measurement, so a missing `git` fails generation
+rather than degrading it.
 
 ### 3. End-to-end interaction telemetry
 

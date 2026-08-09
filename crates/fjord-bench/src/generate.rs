@@ -96,11 +96,87 @@ impl RepoBuilder {
         Ok(oid)
     }
 
+    pub fn head(&self) -> Option<Oid> {
+        self.parent
+    }
+
+    /// Creates a direct reference. Used for the thousands of branches and tags
+    /// `refs-many` needs, which are cheap: a ref is a file holding an id.
+    pub fn reference(&self, name: &str, target: Oid) -> Result<(), String> {
+        self.repo
+            .reference(name, target, true, "fjord-bench")
+            .map(|_| ())
+            .map_err(message)
+    }
+
+    /// Registers a remote and its fetch refspec without contacting anything.
+    /// The URL is unreachable on purpose: these fixtures must never touch the
+    /// network, and a fixture that could would eventually be run somewhere it
+    /// resolves.
+    pub fn add_remote(&self, name: &str) -> Result<(), String> {
+        self.repo
+            .remote(name, &format!("https://fjord.invalid/{name}.git"))
+            .map(|_| ())
+            .map_err(message)
+    }
+
     /// Persists the index so the generated repository reports a clean working
     /// tree. Skipping this leaves every tracked file looking modified.
     pub fn finish(mut self) -> Result<(), String> {
         self.index.write().map_err(message)
     }
+}
+
+/// Writes Git's commit-graph file.
+///
+/// A million-commit repository in the wild always has one — `git gc` and
+/// `git maintenance` write it — so measuring history traversal without it would
+/// produce a pessimistic number for a situation users are not in, and would
+/// send us optimizing a cost that does not exist. It is part of the fixture's
+/// identity, not an optional extra, so a missing `git` fails the generation
+/// rather than silently producing a different fixture.
+pub fn write_commit_graph(root: &Path) -> Result<(), String> {
+    git(root, &["commit-graph", "write", "--reachable"])
+}
+
+/// Packs refs into `.git/packed-refs`.
+///
+/// A repository carrying thousands of refs has them packed: Git packs on `gc`,
+/// and a clone receives them packed to begin with. Ten thousand loose ref files
+/// is a state that occurs briefly after a large fetch, not the state a user's
+/// repository sits in, so measuring against it would measure the wrong steady
+/// state. Packed-ness is part of the fixture's identity.
+pub fn pack_refs(root: &Path) -> Result<(), String> {
+    git(root, &["pack-refs", "--all"])
+}
+
+/// Runs a Git subcommand inside a generated fixture.
+///
+/// Fixtures that need Git say so by failing when it is missing, rather than
+/// quietly producing a differently-shaped fixture — which would be
+/// indistinguishable in the manifest and different in every measurement.
+fn git(root: &Path, args: &[&str]) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|error| {
+            format!(
+                "could not run `git {}` in {}: {error}. This fixture requires Git on PATH.",
+                args.join(" "),
+                root.display()
+            )
+        })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "`git {}` failed with {:?}: {}",
+        args.join(" "),
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
 }
 
 /// Relative path of generated file `index`, bucketed so no directory holds more

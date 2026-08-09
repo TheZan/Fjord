@@ -49,6 +49,7 @@ struct Args {
     json: Option<Destination>,
     fixture: Option<String>,
     budget_status_ms: Option<f64>,
+    budget_refs_ms: Option<f64>,
 }
 
 impl Default for Args {
@@ -68,6 +69,7 @@ impl Default for Args {
             json: None,
             fixture: None,
             budget_status_ms: None,
+            budget_refs_ms: None,
         }
     }
 }
@@ -115,6 +117,12 @@ fn parse_args() -> Result<Args, String> {
                 args.budget_status_ms = Some(parse_f64(
                     next_value(&mut iter, "--budget-status-ms")?,
                     "--budget-status-ms",
+                )?)
+            }
+            "--budget-refs-ms" => {
+                args.budget_refs_ms = Some(parse_f64(
+                    next_value(&mut iter, "--budget-refs-ms")?,
+                    "--budget-refs-ms",
                 )?)
             }
             "--scenario" => args.scenario = Some(next_value(&mut iter, "--scenario")?),
@@ -180,7 +188,7 @@ fn usage() -> String {
            --scenario NAME       scenario label recorded in the result\n  \
            --json PATH|-         write a machine-readable record\n\n\
          Budgets (fail the run when exceeded):\n  \
-           --budget-status-ms N  --budget-log-ms N\n  \
+           --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N\n  \
            --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
          Other:\n  \
            --force               regenerate the fixture even if it matches\n  \
@@ -448,6 +456,7 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         name,
         fixtures::Overrides {
             files: (args.files != Args::default().files).then_some(args.files),
+            commits: (args.commits != Args::default().commits).then_some(args.commits),
         },
     )?;
 
@@ -468,9 +477,79 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
 
     match plan.scenario {
         fixtures::Scenario::Status => measure_status(&root, &args, &mut record).await?,
+        fixtures::Scenario::LogFirstPage => measure_log(&root, &args, &mut record).await?,
+        fixtures::Scenario::RefsRead => measure_refs(&root, &args, &mut record).await?,
     }
 
     finish(&record, args.json.as_ref())
+}
+
+/// The read a repository view waits on: the first page of history (SLO-8).
+async fn measure_log(root: &Path, args: &Args, record: &mut Report) -> Result<(), String> {
+    let backend = LocalGitBackend::new();
+    let repo = RepoPath::new(root.to_path_buf());
+    let limit = if args.log_limit == Args::default().log_limit {
+        // The page size the UI actually requests.
+        30
+    } else {
+        args.log_limit
+    };
+
+    backend
+        .log(&repo, None, limit)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let start = Instant::now();
+    let page = backend
+        .log(&repo, None, limit)
+        .await
+        .map_err(|e| e.to_string())?;
+    let log_ms = ms(start.elapsed());
+
+    println!("log_commits={}", page.commits.len());
+    println!("log_ms={log_ms:.3}");
+
+    record
+        .count("log_commits", page.commits.len() as u64)
+        .ms("log", log_ms);
+    if let Some(budget) = check_budget("log", log_ms, args.budget_log_ms) {
+        record.budget(budget);
+    }
+    Ok(())
+}
+
+/// Branches and tags, as the repository tree loads them (SLO-16). Timed
+/// together because the tree needs both before it can render.
+async fn measure_refs(root: &Path, args: &Args, record: &mut Report) -> Result<(), String> {
+    let backend = LocalGitBackend::new();
+    let repo = RepoPath::new(root.to_path_buf());
+
+    backend.branches(&repo).await.map_err(|e| e.to_string())?;
+
+    let start = Instant::now();
+    let branches = backend.branches(&repo).await.map_err(|e| e.to_string())?;
+    let tags = backend.tags(&repo).await.map_err(|e| e.to_string())?;
+    let refs_ms = ms(start.elapsed());
+
+    let remote_branches = branches.iter().filter(|branch| branch.is_remote).count();
+    println!(
+        "branches={} remote_branches={} tags={}",
+        branches.len(),
+        remote_branches,
+        tags.len()
+    );
+    println!("refs_ms={refs_ms:.3}");
+
+    record
+        .count("branches", branches.len() as u64)
+        .count("remote_branches", remote_branches as u64)
+        .count("tags", tags.len() as u64)
+        .ms("refs", refs_ms);
+    if let Some(budget) = check_budget("refs", refs_ms, args.budget_refs_ms) {
+        record.budget(budget);
+    }
+    Ok(())
 }
 
 /// Named fixtures live under a per-name directory so two fixtures never share a

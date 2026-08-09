@@ -48,10 +48,46 @@ const FIXTURES = [
     variants: [50_000],
     approxFiles: (files) => files + 220_000,
   },
+  {
+    name: "hist-deep",
+    slo: "SLO-8",
+    summary:
+      "Deep history over a narrow tree, with the commit-graph a repository this size always has.",
+    sizeFlag: "--commits",
+    commits: 500_000,
+    variants: [500_000, 1_000_000],
+    approxFiles: () => 50,
+    needsGit: true,
+  },
+  {
+    name: "refs-many",
+    slo: "SLO-16",
+    summary: "5k branches, 5k tags, 20 remotes, packed the way a real repository keeps them.",
+    sizeFlag: "--commits",
+    commits: 2_000,
+    variants: [2_000],
+    approxFiles: () => 20,
+    needsGit: true,
+  },
 ];
 
+/** The size a fixture is generated at, and the flag that overrides it. */
+function sizeOf(fixture, options) {
+  const flag = fixture.sizeFlag ?? "--files";
+  const fallback = flag === "--commits" ? fixture.commits : fixture.files;
+  const override = flag === "--commits" ? options.commits : options.files;
+  return { flag, value: override ?? fallback };
+}
+
 function parseArgs(argv) {
-  const options = { only: null, files: null, force: false, dryRun: false, list: false };
+  const options = {
+    only: null,
+    files: null,
+    commits: null,
+    force: false,
+    dryRun: false,
+    list: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = () => {
@@ -68,6 +104,12 @@ function parseArgs(argv) {
         options.files = Number.parseInt(next(), 10);
         if (!Number.isFinite(options.files) || options.files <= 0) {
           throw new Error("--files must be a positive integer");
+        }
+        break;
+      case "--commits":
+        options.commits = Number.parseInt(next(), 10);
+        if (!Number.isFinite(options.commits) || options.commits <= 0) {
+          throw new Error("--commits must be a positive integer");
         }
         break;
       case "--force":
@@ -105,7 +147,7 @@ function selected(options) {
 }
 
 function commandFor(fixture, options) {
-  const files = options.files ?? fixture.files;
+  const { flag, value } = sizeOf(fixture, options);
   const args = [
     "run",
     "--release",
@@ -114,26 +156,32 @@ function commandFor(fixture, options) {
     "--",
     "--fixture",
     fixture.name,
-    "--files",
-    String(files),
+    flag,
+    String(value),
     "--json",
-    join(RESULTS_DIR, `${fixture.name}-${files}.json`),
+    join(RESULTS_DIR, `${fixture.name}-${value}.json`),
   ];
   if (options.force) args.push("--force");
   return args;
 }
 
 function describe(fixture, options) {
-  const files = options.files ?? fixture.files;
-  const total = fixture.approxFiles(files);
+  const { flag, value } = sizeOf(fixture, options);
+  const label = flag === "--commits" ? "commits" : "tracked files";
   const variants =
-    fixture.variants.length > 1 ? ` (variants: ${fixture.variants.join(", ")})` : "";
-  return [
+    fixture.variants.length > 1
+      ? ` (variants: ${fixture.variants.map((size) => size.toLocaleString("en-US")).join(", ")})`
+      : "";
+  const lines = [
     `  ${fixture.name}  [${fixture.slo}]`,
     `    ${fixture.summary}`,
-    `    tracked files: ${files.toLocaleString("en-US")}${variants}`,
-    `    files on disk: ~${total.toLocaleString("en-US")}`,
-  ].join("\n");
+    `    ${label}: ${value.toLocaleString("en-US")}${variants}`,
+    `    files on disk: ~${fixture.approxFiles(value).toLocaleString("en-US")}`,
+  ];
+  if (fixture.needsGit) {
+    lines.push("    requires: git on PATH (commit-graph, packed refs)");
+  }
+  return lines.join("\n");
 }
 
 function run(args) {

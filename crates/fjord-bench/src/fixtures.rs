@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use crate::generate::{bench_file_contents, bench_file_path, Progress, RepoBuilder};
+use crate::generate::{self, bench_file_contents, bench_file_path, Progress, RepoBuilder};
 use crate::manifest::{self, Fixture, Preparation};
 
 /// Overrides a caller may apply to a named fixture's defaults, so the two size
@@ -19,6 +19,7 @@ use crate::manifest::{self, Fixture, Preparation};
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Overrides {
     pub files: Option<usize>,
+    pub commits: Option<usize>,
 }
 
 /// What to build, once the name and overrides are resolved.
@@ -31,6 +32,16 @@ pub enum Build {
         ignored: usize,
         untracked: usize,
     },
+    /// A deep history over a narrow tree: the shape that makes commit traversal
+    /// expensive.
+    History { commits: usize, files: usize },
+    /// A modest history carrying thousands of refs.
+    Refs {
+        commits: usize,
+        branches: usize,
+        tags: usize,
+        remotes: usize,
+    },
 }
 
 /// Which measurement a fixture exists to support.
@@ -38,6 +49,10 @@ pub enum Build {
 pub enum Scenario {
     /// `status` against the generated working tree (SLO-6, SLO-7).
     Status,
+    /// The first page of history, the read a repository view waits on (SLO-8).
+    LogFirstPage,
+    /// Branches and tags together, as the repository tree loads them (SLO-16).
+    RefsRead,
 }
 
 #[derive(Debug, Clone)]
@@ -48,7 +63,7 @@ pub struct Plan {
     pub build: Build,
 }
 
-pub const NAMES: &[&str] = &["wt-huge", "wt-noisy"];
+pub const NAMES: &[&str] = &["wt-huge", "wt-noisy", "hist-deep", "refs-many"];
 
 /// Resolves a fixture name and any overrides into a concrete plan.
 pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
@@ -90,6 +105,47 @@ pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
                 },
             })
         }
+        // SLO-8. The default is the smaller variant; `--commits 1000000`
+        // selects the larger one. Few files, so the cost is history traversal
+        // rather than tree width — the opposite shape to `wt-huge`.
+        "hist-deep" => {
+            let commits = overrides.commits.unwrap_or(500_000);
+            let files = overrides.files.unwrap_or(50);
+            Ok(Plan {
+                name: "hist-deep",
+                scenario: Scenario::LogFirstPage,
+                fixture: Fixture::new("history")
+                    .with("commits", commits)
+                    .with("files", files)
+                    // Part of the identity: a fixture with a commit-graph and
+                    // one without are different measurements.
+                    .with("commit_graph", true),
+                build: Build::History { commits, files },
+            })
+        }
+        // SLO-16. Refs are cheap to create and expensive to enumerate, which is
+        // exactly why a repository with thousands of them is worth measuring.
+        "refs-many" => {
+            let commits = overrides.commits.unwrap_or(2_000);
+            Ok(Plan {
+                name: "refs-many",
+                scenario: Scenario::RefsRead,
+                fixture: Fixture::new("refs")
+                    .with("commits", commits)
+                    .with("branches", 5_000)
+                    .with("tags", 5_000)
+                    .with("remotes", 20)
+                    // Loose and packed refs are different measurements, so
+                    // which one this is belongs in the identity.
+                    .with("packed", true),
+                build: Build::Refs {
+                    commits,
+                    branches: 5_000,
+                    tags: 5_000,
+                    remotes: 20,
+                },
+            })
+        }
         other => Err(format!(
             "unknown fixture '{other}'; available: {}",
             NAMES.join(", ")
@@ -112,10 +168,115 @@ pub fn materialize(path: &Path, plan: &Plan, force: bool) -> Result<bool, String
             ignored,
             untracked,
         } => build_working_tree(path, tracked, ignored, untracked)?,
+        Build::History { commits, files } => build_history(path, commits, files)?,
+        Build::Refs {
+            commits,
+            branches,
+            tags,
+            remotes,
+        } => build_refs(path, commits, branches, tags, remotes)?,
     }
 
     manifest::write(path, &plan.fixture)?;
     Ok(true)
+}
+
+/// A narrow tree with a deep history, plus the commit-graph a repository this
+/// size always has in practice.
+fn build_history(path: &Path, commits: usize, files: usize) -> Result<(), String> {
+    let mut builder = seed_repository(path, files)?;
+
+    let mut progress = Progress::new("commits", commits);
+    for index in 1..commits {
+        let file = bench_file_path("src", index % files);
+        builder.write_file(&file, &bench_file_contents(index % files, index))?;
+        builder.stage(&file)?;
+        builder.commit(&format!("synthetic commit {index}"))?;
+        progress.tick(index + 1);
+    }
+    progress.finish();
+    builder.finish()?;
+
+    eprintln!("  writing commit-graph");
+    generate::write_commit_graph(path)
+}
+
+/// A modest history carrying thousands of branches, tags, and remote-tracking
+/// refs. Refs are spread across the history rather than stacked on `HEAD`, so
+/// enumerating them touches many distinct commits the way a real repository
+/// does.
+fn build_refs(
+    path: &Path,
+    commits: usize,
+    branches: usize,
+    tags: usize,
+    remotes: usize,
+) -> Result<(), String> {
+    let mut builder = seed_repository(path, 20)?;
+
+    let mut history = Vec::with_capacity(commits);
+    history.push(builder.head().expect("the seed commit exists"));
+    let mut progress = Progress::new("commits", commits);
+    for index in 1..commits {
+        let file = bench_file_path("src", index % 20);
+        builder.write_file(&file, &bench_file_contents(index % 20, index))?;
+        builder.stage(&file)?;
+        history.push(builder.commit(&format!("synthetic commit {index}"))?);
+        progress.tick(index + 1);
+    }
+    progress.finish();
+
+    let target = |index: usize| history[index % history.len()];
+
+    let mut progress = Progress::new("branches", branches);
+    for index in 0..branches {
+        builder.reference(
+            &format!("refs/heads/feature/branch-{index:05}"),
+            target(index),
+        )?;
+        progress.tick(index + 1);
+    }
+    progress.finish();
+
+    let mut progress = Progress::new("tags", tags);
+    for index in 0..tags {
+        builder.reference(&format!("refs/tags/v0.{index}"), target(index * 7))?;
+        progress.tick(index + 1);
+    }
+    progress.finish();
+
+    for remote in 0..remotes {
+        let name = format!("remote-{remote:02}");
+        builder.add_remote(&name)?;
+        // A handful of tracking refs each, so remote branches are enumerated
+        // alongside local ones rather than being a config-only entry.
+        for index in 0..(branches / remotes.max(1)).min(250) {
+            builder.reference(
+                &format!("refs/remotes/{name}/topic-{index:04}"),
+                target(index * 3 + remote),
+            )?;
+        }
+    }
+    eprintln!("  remotes: {remotes} done");
+    builder.finish()?;
+
+    eprintln!("  packing refs");
+    generate::pack_refs(path)
+}
+
+/// Initializes a repository with `files` tracked files and one commit — the
+/// starting point every non-working-tree fixture builds on.
+fn seed_repository(path: &Path, files: usize) -> Result<RepoBuilder, String> {
+    let mut builder = RepoBuilder::init(path)?;
+    manifest::exclude_from_git(path)?;
+
+    for index in 0..files {
+        let file = bench_file_path("src", index);
+        builder.write_file(&file, &bench_file_contents(index, 0))?;
+        builder.stage(&file)?;
+    }
+    builder.commit("seed synthetic repository")?;
+    Ok(builder)
 }
 
 /// A wide working tree: `tracked` committed files, `ignored` files excluded by
@@ -224,6 +385,7 @@ mod tests {
             "wt-huge",
             Overrides {
                 files: Some(300_000),
+                commits: None,
             },
         )
         .unwrap();
@@ -265,6 +427,98 @@ mod tests {
         assert_eq!(
             untracked, 3,
             "ignored files must not appear; untracked ones must"
+        );
+    }
+
+    #[test]
+    fn history_and_refs_fixtures_carry_their_parameters() {
+        let deep = plan("hist-deep", Overrides::default()).unwrap();
+        assert_eq!(
+            deep.build,
+            Build::History {
+                commits: 500_000,
+                files: 50
+            }
+        );
+        assert_eq!(deep.scenario, Scenario::LogFirstPage);
+
+        let million = plan(
+            "hist-deep",
+            Overrides {
+                commits: Some(1_000_000),
+                files: None,
+            },
+        )
+        .unwrap();
+        assert_ne!(
+            deep.fixture.hash(),
+            million.fixture.hash(),
+            "the 1M variant must not be served from the 500k directory"
+        );
+
+        let refs = plan("refs-many", Overrides::default()).unwrap();
+        assert!(matches!(
+            refs.build,
+            Build::Refs {
+                branches: 5_000,
+                tags: 5_000,
+                remotes: 20,
+                ..
+            }
+        ));
+        assert_eq!(refs.scenario, Scenario::RefsRead);
+    }
+
+    /// Built small: the shape is what matters, and the shape is that the
+    /// history is a chain of the requested length over a clean tree.
+    #[test]
+    fn a_history_fixture_has_the_requested_depth() {
+        let dir = TempDir::new().unwrap();
+        build_history(dir.path(), 25, 4).unwrap();
+
+        let repo = Repository::open(dir.path()).unwrap();
+        let mut walk = repo.revwalk().unwrap();
+        walk.push_head().unwrap();
+        assert_eq!(walk.count(), 25);
+        assert_eq!(repo.statuses(None).unwrap().len(), 0);
+        assert!(
+            dir.path().join(".git/objects/info/commit-graph").exists(),
+            "a deep-history fixture must carry the commit-graph a real one would"
+        );
+    }
+
+    /// Refs must land on distinct commits rather than all on HEAD, or
+    /// enumerating them would touch one object and measure nothing.
+    #[test]
+    fn a_refs_fixture_spreads_refs_across_history() {
+        let dir = TempDir::new().unwrap();
+        build_refs(dir.path(), 40, 30, 20, 3).unwrap();
+
+        let repo = Repository::open(dir.path()).unwrap();
+        let branches = repo
+            .references_glob("refs/heads/feature/*")
+            .unwrap()
+            .count();
+        let tags = repo.references_glob("refs/tags/*").unwrap().count();
+        let remote_refs = repo.references_glob("refs/remotes/*/*").unwrap().count();
+        assert_eq!(branches, 30);
+        assert_eq!(tags, 20);
+        assert!(remote_refs > 0, "remotes must have tracking refs");
+        assert_eq!(repo.remotes().unwrap().len(), 3);
+        assert!(
+            dir.path().join(".git/packed-refs").exists(),
+            "a repository with thousands of refs has them packed; measuring \
+             loose refs would measure a state users are not in"
+        );
+
+        let distinct = repo
+            .references_glob("refs/heads/feature/*")
+            .unwrap()
+            .filter_map(|reference| reference.ok()?.target())
+            .collect::<std::collections::HashSet<_>>();
+        assert!(
+            distinct.len() > 1,
+            "refs stacked on one commit would measure nothing"
         );
     }
 
