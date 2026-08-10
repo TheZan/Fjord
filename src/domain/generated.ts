@@ -81,6 +81,8 @@ export type FileDiffDetail = { path: string, changeType: FileChangeType,
  */
 isBinary: boolean, hunks: Array<DiffHunk>, };
 
+export type FileDiffWindow = { path: string, changeType: FileChangeType, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number, truncated: boolean, nextOffset: number | null, };
+
 export type Theme = "light" | "dark" | "system";
 
 export type GitExecutableSource = "settings" | "path" | "standard-location";

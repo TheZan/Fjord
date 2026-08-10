@@ -59,14 +59,14 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 |---|---|
 | Whole-file stage/unstage | ✅ `stage_files` / `unstage_files`, empty list = all. `git2`-backed. |
 | Working changes listing | ✅ `WorkingChanges { staged, unstaged }`, `WorkingFile { path, changeType, conflicted }`; a partially-staged file legitimately appears in both lists. |
-| Working file diff | ✅ `working_file_diff(path, staged)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns `FileDiffDetail { path, changeType, isBinary, hunks }` with `DiffHunk { old_start, old_lines, new_start, new_lines, lines }` and `DiffLine { kind, old_lineno, new_lineno, content }`. |
+| Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
 | Discard | 🚧 Absent at any granularity. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
-| Diff transport | ⚠️ Whole-file payload; windowing is P6-15. |
+| Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). |
 | Upstream management | ⚠️ Read-only: `current_push_target` resolves it; nothing sets or changes it. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). |
 
@@ -206,7 +206,7 @@ among existing remotes.
 
 | Feature | Design |
 |---|---|
-| Unified / split | One renderer, two row-builders over the same `FileDiffDetail`. Split mode pairs deletion/addition rows and pads the shorter side. Mode is persisted (`repo.diffMode`, [`ui-shell.md`](ui-shell.md) §5) and toggled from the diff header. |
+| Unified / split | One renderer, two row-builders over merged `FileDiffWindow` data. Split mode pairs deletion/addition rows and pads the shorter side. Mode is persisted (`repo.diffMode`, [`ui-shell.md`](ui-shell.md) §5) and toggled from the diff header. |
 | Syntax highlighting | Tokenization runs in a Web Worker (the pattern `graphLayout.worker.ts` already establishes), per visible window only, keyed by file extension. A file whose language is unknown or whose window exceeds the token budget renders unhighlighted rather than late. Highlighting never delays first paint of the diff: rows render plain and upgrade in place. |
 | Whitespace | Header toggle: *show* (default), *ignore trailing*, *ignore all*. Implemented backend-side as `git diff` whitespace flags on the diff computation, so the hunk structure the user stages matches what they see. A whitespace-ignoring mode disables hunk staging for the affected hunks (`patch_unsupported`), because the displayed hunk is not the real patch. |
 | Word diff | Intra-line diff computed frontend-side over paired add/delete lines within a hunk, in the worker, above a similarity threshold; below it, the pair renders as a plain replace. Purely presentational — it never changes what a patch selection stages. |

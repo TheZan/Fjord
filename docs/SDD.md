@@ -148,10 +148,10 @@ Known limits of this strategy, and what Phase 6 does about them
   interaction traces now correlate input, IPC, backend handler spans, React
   commit, and paint (`P6-08`/`P6-09`), but the scripted SLO scenarios have not
   yet produced publishable action-to-paint baselines.
-- ⚠️ **Unbounded diff transport.** `get_file_diff` returns a whole file's hunks in
-  one payload; rendering is virtualized, the payload is not. Measured on the
-  `diff-giant` fixture: a 50 MB file yields 2 694 458 `DiffLine` values in a
-  single response.
+- ✅ **Bounded diff transport.** `get_file_diff` and working-file diff return
+  windows of at most 2,000 lines under a 2 MB response ceiling; the UI fetches
+  1,000-line windows near the virtualized end. Files above 10 MB return metadata
+  without content. Packed `diff-giant` first response P95 is 34.592 ms (`P6-16`).
 - ⚠️ **Startup blocks on IPC.** `src/main.tsx` awaits settings and i18n before the
   first render.
 

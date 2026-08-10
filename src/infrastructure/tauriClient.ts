@@ -20,7 +20,7 @@ import type {
   CommitPage,
   CommitSummary,
   FileDiff,
-  FileDiffDetail,
+  FileDiffWindow,
   GlobalSearchResult,
   RepoStatus,
   StashEntry,
@@ -361,9 +361,17 @@ export function getFileDiff(
   repoId: string,
   commitId: string,
   path: string,
+  offset: number,
+  limit: number,
   signal?: AbortSignal,
-): Promise<FileDiffDetail> {
-  return invokeVersioned("get_file_diff", { repoId, commitId, path }, repoId, "history", signal);
+): Promise<FileDiffWindow> {
+  return invokeVersioned(
+    "get_file_diff",
+    { repoId, commitId, path, offset, limit },
+    repoId,
+    "history",
+    signal,
+  );
 }
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
@@ -378,9 +386,17 @@ export function getWorkingFileDiff(
   repoId: string,
   path: string,
   staged: boolean,
+  offset: number,
+  limit: number,
   signal?: AbortSignal,
-): Promise<FileDiffDetail> {
-  return invokeVersioned("get_working_file_diff", { repoId, path, staged }, repoId, "working", signal);
+): Promise<FileDiffWindow> {
+  return invokeVersioned(
+    "get_working_file_diff",
+    { repoId, path, staged, offset, limit },
+    repoId,
+    "working",
+    signal,
+  );
 }
 
 export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {

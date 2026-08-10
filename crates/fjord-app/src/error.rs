@@ -78,6 +78,9 @@ impl From<RepoError> for AppError {
             error @ RepoError::SnapshotChangedDuringCapture => {
                 Self::new("snapshot_changed_during_capture", error.to_string())
             }
+            error @ RepoError::DiffWindowTooLarge { .. } => {
+                Self::new("diff_window_too_large", error.to_string())
+            }
         }
     }
 }

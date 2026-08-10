@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffWindow, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, RepoStatus,
     RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
     StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
@@ -20,6 +20,11 @@ const BULK_WORKER_LIMIT: usize = 6;
 const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const SNAPSHOT_CAPTURE_ATTEMPTS: usize = 3;
+pub const DIFF_WINDOW_DEFAULT_LINES: u32 = 1_000;
+pub const DIFF_WINDOW_MAX_LINES: u32 = 2_000;
+pub const DIFF_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
+pub const DIFF_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
+const DIFF_RESPONSE_ENVELOPE_RESERVE_BYTES: usize = 4 * 1024;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -35,6 +40,11 @@ pub enum RepoError {
     Launch(#[from] LaunchError),
     #[error("repository changed while its snapshot was being captured")]
     SnapshotChangedDuringCapture,
+    #[error("serialized diff window is {actual_bytes} bytes; maximum is {max_bytes} bytes")]
+    DiffWindowTooLarge {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
 }
 
 /// The remote a branch is published to when the caller does not name one.
@@ -49,6 +59,30 @@ fn resolution_of(info: &GitEnvironmentInfo) -> GitExecutableResolution {
         (Some(path), true) => GitExecutableResolution::Resolved(path.clone()),
         _ => GitExecutableResolution::Unavailable,
     }
+}
+
+fn normalized_diff_limit(limit: u32) -> u32 {
+    if limit == 0 {
+        DIFF_WINDOW_DEFAULT_LINES
+    } else {
+        limit.min(DIFF_WINDOW_MAX_LINES)
+    }
+}
+
+fn ensure_diff_response_ceiling(window: FileDiffWindow) -> Result<FileDiffWindow, RepoError> {
+    let actual_bytes = serde_json::to_vec(&window)
+        .map_err(|error| GitError::Gix(error.to_string()))?
+        .len();
+    // Commands wrap this value in a small GenerationEnvelope. Keep room for
+    // that wrapper so the complete IPC response, not merely its data field,
+    // stays under the advertised ceiling.
+    if actual_bytes > DIFF_RESPONSE_MAX_BYTES - DIFF_RESPONSE_ENVELOPE_RESERVE_BYTES {
+        return Err(RepoError::DiffWindowTooLarge {
+            actual_bytes,
+            max_bytes: DIFF_RESPONSE_MAX_BYTES,
+        });
+    }
+    Ok(window)
 }
 
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
@@ -378,12 +412,22 @@ impl RepoService {
         repo_id: RepositoryId,
         commit_id: &str,
         path: &str,
-    ) -> Result<FileDiffDetail, RepoError> {
+        offset: u32,
+        limit: u32,
+    ) -> Result<FileDiffWindow, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
+        let window = self
             .git
-            .file_diff(&RepoPath::new(repo.path), commit_id, path)
-            .await?)
+            .file_diff_window(
+                &RepoPath::new(repo.path),
+                commit_id,
+                path,
+                offset,
+                normalized_diff_limit(limit),
+                DIFF_FILE_MAX_BYTES,
+            )
+            .await?;
+        ensure_diff_response_ceiling(window)
     }
 
     pub async fn checkout_branch(
@@ -432,12 +476,22 @@ impl RepoService {
         repo_id: RepositoryId,
         path: &str,
         staged: bool,
-    ) -> Result<FileDiffDetail, RepoError> {
+        offset: u32,
+        limit: u32,
+    ) -> Result<FileDiffWindow, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
+        let window = self
             .git
-            .working_file_diff(&RepoPath::new(repo.path), path, staged)
-            .await?)
+            .working_file_diff_window(
+                &RepoPath::new(repo.path),
+                path,
+                staged,
+                offset,
+                normalized_diff_limit(limit),
+                DIFF_FILE_MAX_BYTES,
+            )
+            .await?;
+        ensure_diff_response_ceiling(window)
     }
 
     pub async fn create_branch(
@@ -962,14 +1016,46 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use fjord_domain::{
-        CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
-        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
-        WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+        CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail,
+        FileDiffWindow, LogCursor, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings,
+        StashEntry, TagInfo, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
     use fjord_ports::PushTarget;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use time::OffsetDateTime;
+
+    #[test]
+    fn serialized_diff_windows_never_cross_the_response_ceiling() {
+        let oversized = FileDiffWindow {
+            path: "large.txt".to_string(),
+            change_type: FileChangeType::Modified,
+            is_binary: false,
+            too_large: false,
+            file_bytes: 0,
+            hunks: vec![fjord_domain::DiffHunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![fjord_domain::DiffLine {
+                    kind: fjord_domain::DiffLineKind::Addition,
+                    old_lineno: None,
+                    new_lineno: Some(1),
+                    content: "x".repeat(DIFF_RESPONSE_MAX_BYTES),
+                }],
+            }],
+            total_hunks: 1,
+            total_lines: 1,
+            truncated: false,
+            next_offset: None,
+        };
+
+        assert!(matches!(
+            ensure_diff_response_ceiling(oversized),
+            Err(RepoError::DiffWindowTooLarge { .. })
+        ));
+    }
 
     struct FakeStore {
         repo: RepositoryEntry,
@@ -1544,7 +1630,7 @@ mod tests {
         let (repo, git, _, service) = service_with_fake_git();
 
         let detail = service
-            .get_file_diff(repo.id, "deadbeef", "src/main.rs")
+            .get_file_diff(repo.id, "deadbeef", "src/main.rs", 0, 1_000)
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
@@ -2084,7 +2170,7 @@ mod tests {
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
         let detail = service
-            .get_working_file_diff(repo.id, "src/main.rs", false)
+            .get_working_file_diff(repo.id, "src/main.rs", false, 0, 1_000)
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");

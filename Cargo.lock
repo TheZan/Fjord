@@ -1192,6 +1192,7 @@ dependencies = [
  "fjord-domain",
  "fjord-fs",
  "fjord-ports",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.19",
  "time",

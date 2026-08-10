@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet, LogCursor,
-    RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet,
+    LogCursor, RepoStatus, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -226,6 +226,20 @@ pub trait GitBackend: Send + Sync {
         commit_id: &str,
         path: &str,
     ) -> Result<FileDiffDetail, GitError>;
+    async fn file_diff_window(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+        path: &str,
+        offset: u32,
+        limit: u32,
+        _max_file_bytes: u64,
+    ) -> Result<FileDiffWindow, GitError> {
+        Ok(self
+            .file_diff(repo, commit_id, path)
+            .await?
+            .into_window(offset, limit))
+    }
 
     /// Uncommitted work, split into staged and unstaged — what the commit
     /// panel lists and what `commit` would actually record.
@@ -238,6 +252,20 @@ pub trait GitBackend: Send + Sync {
         path: &str,
         staged: bool,
     ) -> Result<FileDiffDetail, GitError>;
+    async fn working_file_diff_window(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        staged: bool,
+        offset: u32,
+        limit: u32,
+        _max_file_bytes: u64,
+    ) -> Result<FileDiffWindow, GitError> {
+        Ok(self
+            .working_file_diff(repo, path, staged)
+            .await?
+            .into_window(offset, limit))
+    }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
     /// Returns `(remote, refspec)` when checkout needs a remote branch to be

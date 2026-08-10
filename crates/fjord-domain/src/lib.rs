@@ -341,6 +341,63 @@ pub struct FileDiffDetail {
     pub hunks: Vec<DiffHunk>,
 }
 
+/// A bounded slice of a file diff. `offset` and `next_offset` count diff lines
+/// (hunk headers are metadata and do not consume the window).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct FileDiffWindow {
+    pub path: String,
+    pub change_type: FileChangeType,
+    pub is_binary: bool,
+    pub too_large: bool,
+    #[ts(type = "number")]
+    pub file_bytes: u64,
+    pub hunks: Vec<DiffHunk>,
+    pub total_hunks: u32,
+    pub total_lines: u32,
+    pub truncated: bool,
+    pub next_offset: Option<u32>,
+}
+
+impl FileDiffDetail {
+    pub fn into_window(self, offset: u32, limit: u32) -> FileDiffWindow {
+        let total_hunks = self.hunks.len() as u32;
+        let total_lines = self.hunks.iter().map(|hunk| hunk.lines.len() as u32).sum();
+        let start = offset.min(total_lines);
+        let end = start.saturating_add(limit).min(total_lines);
+        let mut cursor = 0_u32;
+        let mut hunks = Vec::new();
+
+        for mut hunk in self.hunks {
+            let hunk_start = cursor;
+            let hunk_end = cursor.saturating_add(hunk.lines.len() as u32);
+            cursor = hunk_end;
+            if hunk_end <= start || hunk_start >= end {
+                continue;
+            }
+            let local_start = start.saturating_sub(hunk_start) as usize;
+            let local_end = (end - hunk_start).min(hunk.lines.len() as u32) as usize;
+            hunk.lines = hunk.lines[local_start..local_end].to_vec();
+            hunks.push(hunk);
+        }
+
+        let truncated = end < total_lines;
+        FileDiffWindow {
+            path: self.path,
+            change_type: self.change_type,
+            is_binary: self.is_binary,
+            too_large: false,
+            file_bytes: 0,
+            hunks,
+            total_hunks,
+            total_lines,
+            truncated,
+            next_offset: truncated.then_some(end),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]
@@ -530,5 +587,46 @@ mod tests {
         let value = serde_json::to_value(summary).unwrap();
 
         assert_eq!(value["lastSyncedAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn diff_windows_slice_lines_across_hunks_without_losing_totals() {
+        let line = |content: &str| DiffLine {
+            kind: DiffLineKind::Context,
+            old_lineno: None,
+            new_lineno: None,
+            content: content.to_string(),
+        };
+        let detail = FileDiffDetail {
+            path: "large.txt".to_string(),
+            change_type: FileChangeType::Modified,
+            is_binary: false,
+            hunks: vec![
+                DiffHunk {
+                    old_start: 1,
+                    old_lines: 3,
+                    new_start: 1,
+                    new_lines: 3,
+                    lines: vec![line("a"), line("b"), line("c")],
+                },
+                DiffHunk {
+                    old_start: 10,
+                    old_lines: 2,
+                    new_start: 10,
+                    new_lines: 2,
+                    lines: vec![line("d"), line("e")],
+                },
+            ],
+        };
+
+        let window = detail.into_window(2, 2);
+
+        assert_eq!(window.total_hunks, 2);
+        assert_eq!(window.total_lines, 5);
+        assert_eq!(window.hunks.len(), 2);
+        assert_eq!(window.hunks[0].lines[0].content, "c");
+        assert_eq!(window.hunks[1].lines[0].content, "d");
+        assert!(window.truncated);
+        assert_eq!(window.next_offset, Some(4));
     }
 }

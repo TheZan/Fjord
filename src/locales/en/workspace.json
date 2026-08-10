@@ -87,7 +87,9 @@
   "diff": {
     "binary": "Binary file not shown.",
     "empty": "No changes to display.",
-    "back": "Back to graph"
+    "back": "Back to graph",
+    "loadingMore": "Loading more changes…",
+    "tooLarge": "This file is {{size}}, above the 10 MB display limit. Its contents were not loaded."
   },
   "fileView": {
     "path": "List",

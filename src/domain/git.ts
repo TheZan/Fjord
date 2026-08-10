@@ -8,6 +8,7 @@ export type {
   FileChangeType,
   FileDiff,
   FileDiffDetail,
+  FileDiffWindow,
   GlobalSearchResult,
   LogCursor,
   RepoStatus,

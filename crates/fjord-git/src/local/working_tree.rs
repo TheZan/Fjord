@@ -109,6 +109,75 @@ pub(super) async fn working_file_diff(
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
+pub(super) async fn working_file_diff_window(
+    repo: &RepoPath,
+    path: &str,
+    staged: bool,
+    offset: u32,
+    limit: u32,
+    max_file_bytes: u64,
+) -> Result<FileDiffWindow, GitError> {
+    let repo = repo.clone();
+    let path = path.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let mut options = git2::DiffOptions::new();
+            options
+                .pathspec(&path)
+                .include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .show_untracked_content(true);
+            let diff = if staged {
+                let head_tree = LocalGitBackend::current_head_commit(git)?
+                    .map(|commit| commit.tree())
+                    .transpose()
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                git.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut options))
+                    .map_err(LocalGitBackend::map_git2_error)?
+            } else {
+                git.diff_index_to_workdir(None, Some(&mut options))
+                    .map_err(LocalGitBackend::map_git2_error)?
+            };
+            let delta = diff.deltas().next();
+            let change_type = delta
+                .as_ref()
+                .map(|delta| LocalGitBackend::classify_delta(delta.status()))
+                .unwrap_or(FileChangeType::Modified);
+            let file_bytes = delta
+                .as_ref()
+                .map(|delta| delta.old_file().size().max(delta.new_file().size()))
+                .unwrap_or(0);
+            if file_bytes > max_file_bytes {
+                return Ok(FileDiffWindow {
+                    path,
+                    change_type,
+                    is_binary: false,
+                    too_large: true,
+                    file_bytes,
+                    hunks: Vec::new(),
+                    total_hunks: 0,
+                    total_lines: 0,
+                    truncated: false,
+                    next_offset: None,
+                });
+            }
+            let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
+            let mut window = FileDiffDetail {
+                path,
+                change_type,
+                is_binary,
+                hunks,
+            }
+            .into_window(offset, limit);
+            window.file_bytes = file_bytes;
+            Ok(window)
+        })
+    })
+    .await
+    .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
 pub(super) async fn stage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
     let repo = repo.clone();
     let paths = paths.to_vec();

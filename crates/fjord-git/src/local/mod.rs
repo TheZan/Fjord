@@ -17,8 +17,8 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineKind,
-    FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges, WorkingFile,
+    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor, RepoStatus, StashEntry,
+    TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
@@ -132,6 +132,18 @@ impl GitBackend for LocalGitBackend {
         diff::file_diff(repo, commit_id, path).await
     }
 
+    async fn file_diff_window(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+        path: &str,
+        offset: u32,
+        limit: u32,
+        max_file_bytes: u64,
+    ) -> Result<FileDiffWindow, GitError> {
+        diff::file_diff_window(repo, commit_id, path, offset, limit, max_file_bytes).await
+    }
+
     async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
         working_tree::working_changes(repo).await
     }
@@ -143,6 +155,19 @@ impl GitBackend for LocalGitBackend {
         staged: bool,
     ) -> Result<FileDiffDetail, GitError> {
         working_tree::working_file_diff(repo, path, staged).await
+    }
+
+    async fn working_file_diff_window(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        staged: bool,
+        offset: u32,
+        limit: u32,
+        max_file_bytes: u64,
+    ) -> Result<FileDiffWindow, GitError> {
+        working_tree::working_file_diff_window(repo, path, staged, offset, limit, max_file_bytes)
+            .await
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {

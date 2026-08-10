@@ -92,6 +92,7 @@ pub const NAMES: &[&str] = &[
 /// The file `diff-giant` measures against — the large text file, which is the
 /// case a diff view has to survive rather than the one it cannot render at all.
 pub const DIFF_TARGET: &str = "huge/large.txt";
+pub const DIFF_WINDOW_TARGET: &str = "huge/long.txt";
 
 /// Resolves a fixture name and any overrides into a concrete plan.
 pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {

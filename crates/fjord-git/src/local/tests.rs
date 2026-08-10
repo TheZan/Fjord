@@ -588,6 +588,58 @@ async fn file_diff_reports_hunks_for_a_file_changed_in_head() {
 }
 
 #[tokio::test]
+async fn file_diff_window_returns_a_bounded_page_with_a_cursor() {
+    let (_dir, repo_path, head) = repo_with_changed_head().await;
+    let backend = LocalGitBackend::new();
+
+    let window = backend
+        .file_diff_window(&repo_path, &head, "README.md", 0, 1, 10 * 1024 * 1024)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        window
+            .hunks
+            .iter()
+            .map(|hunk| hunk.lines.len())
+            .sum::<usize>(),
+        1
+    );
+    assert!(window.total_lines > 1);
+    assert!(window.truncated);
+    assert_eq!(window.next_offset, Some(1));
+}
+
+#[tokio::test]
+async fn oversized_file_diff_returns_metadata_without_content() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let mut content = "x".repeat(11 * 1024 * 1024);
+    write_file(&repo_path, "large.txt", &content);
+    backend
+        .stage(&repo_path, &[PathBuf::from("large.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Large base").await.unwrap();
+    content.push('y');
+    write_file(&repo_path, "large.txt", &content);
+    backend
+        .stage(&repo_path, &[PathBuf::from("large.txt")])
+        .await
+        .unwrap();
+    let head = backend.commit(&repo_path, "Large change").await.unwrap();
+
+    let window = backend
+        .file_diff_window(&repo_path, &head, "large.txt", 0, 1_000, 10 * 1024 * 1024)
+        .await
+        .unwrap();
+
+    assert!(window.too_large);
+    assert!(window.file_bytes > 10 * 1024 * 1024);
+    assert!(window.hunks.is_empty());
+}
+
+#[tokio::test]
 async fn stage_and_commit_create_head_commit() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();
@@ -786,6 +838,29 @@ async fn working_file_diff_reads_staged_and_unstaged_sides_separately() {
         vec!["worktree"],
         "unstaged side is worktree vs index"
     );
+}
+
+#[tokio::test]
+async fn oversized_working_file_diff_returns_metadata_without_content() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "large.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("large.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial commit").await.unwrap();
+    let content = "x".repeat(11 * 1024 * 1024);
+    write_file(&repo_path, "large.txt", &content);
+
+    let window = backend
+        .working_file_diff_window(&repo_path, "large.txt", false, 0, 1_000, 10 * 1024 * 1024)
+        .await
+        .unwrap();
+
+    assert!(window.too_large);
+    assert!(window.file_bytes > 10 * 1024 * 1024);
+    assert!(window.hunks.is_empty());
 }
 
 #[tokio::test]

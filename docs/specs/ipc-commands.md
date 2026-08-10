@@ -66,9 +66,9 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `search_commit_log` | `{ repo_id, query, limit }` | `GenerationEnvelope<CommitSummary[]>` | Titles across local and remote refs |
 | `get_commit_diff` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Changed-files summary with line counts |
 | `get_commit_files` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Fast tree-only list, painted before line counts finish |
-| `get_file_diff` | `{ repo_id, commit_id, path }` | `GenerationEnvelope<FileDiffDetail>` | Full unified line diff for one file in a commit |
+| `get_file_diff` | `{ repo_id, commit_id, path, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded unified-diff window; maximum 2 MB serialized response and 10 MB source-file display ceiling |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
-| `get_working_file_diff` | `{ repo_id, path, staged }` | `GenerationEnvelope<FileDiffDetail>` | Index-vs-HEAD when staged, worktree-vs-index otherwise |
+| `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise |
 
 ### Repository mutations (local)
 
@@ -131,7 +131,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `get_file_diff` windowing (`offset`, `limit` → `truncated`, `next_offset`) | [`performance.md`](performance.md) §9 | 6 |
 | `get_ui_state` / `update_ui_state` | [`ui-shell.md`](ui-shell.md) §5 | 7 |
 | `stage_patch` / `unstage_patch` / `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |
 | `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |

@@ -85,7 +85,9 @@
   "diff": {
     "binary": "No se muestra el archivo binario.",
     "empty": "No hay cambios para mostrar.",
-    "back": "Volver al grafo"
+    "back": "Volver al grafo",
+    "loadingMore": "Cargando más cambios…",
+    "tooLarge": "Este archivo ocupa {{size}} y supera el límite de visualización de 10 MB. No se cargó su contenido."
   },
   "fileView": {
     "path": "Lista",

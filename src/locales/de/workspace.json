@@ -85,7 +85,9 @@
   "diff": {
     "binary": "Binärdatei wird nicht angezeigt.",
     "empty": "Keine Änderungen zum Anzeigen.",
-    "back": "Zurück zum Graphen"
+    "back": "Zurück zum Graphen",
+    "loadingMore": "Weitere Änderungen werden geladen…",
+    "tooLarge": "Diese Datei ist {{size}} groß und überschreitet das Anzeigelimit von 10 MB. Der Inhalt wurde nicht geladen."
   },
   "fileView": {
     "path": "Liste",

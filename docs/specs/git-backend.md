@@ -19,7 +19,14 @@ pub trait GitBackend: Send + Sync {
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn log(&self, repo: &RepoPath, from: LogCursor, limit: u32) -> Result<CommitPage, GitError>;
     async fn diff(&self, repo: &RepoPath, commit: &CommitId) -> Result<Vec<FileDiff>, GitError>;
-    async fn file_diff(&self, repo: &RepoPath, commit: &CommitId, path: &Path) -> Result<FileDiffDetail, GitError>;
+    async fn file_diff_window(
+        &self,
+        repo: &RepoPath,
+        commit: &CommitId,
+        path: &Path,
+        offset: u32,
+        limit: u32,
+    ) -> Result<FileDiffWindow, GitError>;
 
     async fn checkout(&self, repo: &RepoPath, branch: &BranchName) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;

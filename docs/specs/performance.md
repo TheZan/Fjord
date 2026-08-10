@@ -72,7 +72,7 @@ and on subjective impressions. Three concrete consequences:
 | Graph layout | ✅ Moved off the UI thread (`src/presentation/graphLayout.worker.ts`, `useGraphLayout.ts`). |
 | Frontend timing | ⚠️ `src/presentation/performance.tsx` records React `Profiler` durations as `performance.measure` entries — dev-only, frontend-only, no IPC or backend correlation. |
 | Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
-| Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not. Measured on `diff-giant`: a 50 MB file yields **2 694 458 `DiffLine` values in a single response** — the number `P6-16` exists to bound. |
+| Diff transport | ✅ `get_file_diff` is windowed (1000 frontend / 2000 backend maximum lines), responses are capped at 2 MB, and files above 10 MB return content-free metadata. Packed `diff-giant` first response: P95 **34.592 ms**, 184 bytes, versus 611 ms and 2 694 458 `DiffLine` values before P6-16. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
 | Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`), defaults to 3 warmups + 20 repetitions with P50/P95/max and P95 budgets (`P6-22`), and refuses to compare runs from different platforms, cache states, or sampling settings (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
 | History read | ⚠️ The first 30-commit page on a packed 500k-commit repository measures **3639 ms**; Git answers the same request in 33 ms. `Sort::TOPOLOGICAL` under libgit2 buffers the whole reachable history — see `P6-21`. |
@@ -420,7 +420,7 @@ may run before the first usable paint. Bootstrap already avoids panics
 
 ### 9. Bounded transport for large payloads
 
-`get_file_diff` gains a window: `{ repo_id, path, source, offset, limit }` →
+`get_file_diff` exposes a window: `{ repo_id, path, source, offset, limit }` →
 `{ hunks, total_hunks, total_lines, truncated, next_offset }`. The frontend
 virtualizer requests windows as it scrolls, exactly as the commit log already
 does. A hard per-response ceiling (default 2 MB serialized) applies to every diff

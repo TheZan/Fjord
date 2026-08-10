@@ -3,12 +3,13 @@ use std::path::Path;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, CredentialHelperInfo,
-    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GenerationSet,
-    GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
-    GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, InteractionSpan,
-    InteractionTrace, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry,
-    RepositoryId, RepositorySnapshot, SearchResultKind, Settings, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, Theme, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
+    GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
+    GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, RemoteRef, RepoStatus,
+    RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
+    Settings, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme,
+    WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -56,6 +57,7 @@ fn generated_types() -> String {
     push::<DiffLine>(&mut output, &config);
     push::<DiffHunk>(&mut output, &config);
     push::<FileDiffDetail>(&mut output, &config);
+    push::<FileDiffWindow>(&mut output, &config);
     push::<Theme>(&mut output, &config);
     push::<GitExecutableSource>(&mut output, &config);
     push::<GitExecutable>(&mut output, &config);

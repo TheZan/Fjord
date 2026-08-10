@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
@@ -44,7 +44,11 @@ export function FileDiffView({
   onBack?: () => void;
 }) {
   const { t } = useTranslation("workspace");
-  const { diff, loading, error } = useFileDiff(repoId, path, source);
+  const { diff, loading, loadingMore, hasMore, loadMore, error } = useFileDiff(
+    repoId,
+    path,
+    source,
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
   const rowVirtualizer = useVirtualizer({
@@ -53,6 +57,12 @@ export function FileDiffView({
     estimateSize: (index) => (rows[index].kind === "hunk" ? HUNK_HEADER_HEIGHT : DIFF_LINE_HEIGHT),
     overscan: 20,
   });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const lastVisibleIndex = virtualRows.at(-1)?.index ?? -1;
+
+  useEffect(() => {
+    if (hasMore && !loadingMore && lastVisibleIndex >= rows.length - 100) loadMore();
+  }, [hasMore, lastVisibleIndex, loadMore, loadingMore, rows.length]);
 
   return (
     <div
@@ -103,17 +113,22 @@ export function FileDiffView({
             {t("diff.binary")}
           </p>
         )}
-        {!loading && !error && diff && !diff.isBinary && diff.hunks.length === 0 && (
+        {!loading && !error && diff?.tooLarge && !diff.isBinary && (
+          <p className="p-3 text-xs" style={{ color: "var(--slate)" }}>
+            {t("diff.tooLarge", { size: formatFileBytes(diff.fileBytes) })}
+          </p>
+        )}
+        {!loading && !error && diff && !diff.isBinary && !diff.tooLarge && diff.hunks.length === 0 && (
           <p className="p-3 text-xs" style={{ color: "var(--slate)" }}>
             {t("diff.empty")}
           </p>
         )}
-        {diff && !diff.isBinary && rows.length > 0 && (
+        {diff && !diff.isBinary && !diff.tooLarge && rows.length > 0 && (
           <div
             className="selectable-text relative w-max min-w-full font-mono text-xs"
             style={{ height: rowVirtualizer.getTotalSize() }}
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            {virtualRows.map((virtualRow) => {
               const row = rows[virtualRow.index];
               return (
                 <div
@@ -130,9 +145,19 @@ export function FileDiffView({
             })}
           </div>
         )}
+        {loadingMore && (
+          <p className="p-2 text-center text-xs" style={{ color: "var(--mist)" }}>
+            {t("diff.loadingMore")}
+          </p>
+        )}
       </div>
     </div>
   );
+}
+
+function formatFileBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 type FlatDiffRow =

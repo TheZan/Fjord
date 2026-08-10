@@ -1,5 +1,5 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffWindow, GenerationSet,
     GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId,
     SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
     WorkspaceId,
@@ -155,10 +155,12 @@ pub async fn get_file_diff(
     repo_id: RepositoryId,
     commit_id: String,
     path: String,
-) -> Result<GenerationEnvelope<FileDiffDetail>, AppError> {
+    offset: u32,
+    limit: u32,
+) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let data = state
         .repos
-        .get_file_diff(repo_id, &commit_id, &path)
+        .get_file_diff(repo_id, &commit_id, &path, offset, limit)
         .await?;
     versioned(&state, repo_id, data).await
 }
@@ -202,10 +204,12 @@ pub async fn get_working_file_diff(
     repo_id: RepositoryId,
     path: String,
     staged: bool,
-) -> Result<GenerationEnvelope<FileDiffDetail>, AppError> {
+    offset: u32,
+    limit: u32,
+) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let data = state
         .repos
-        .get_working_file_diff(repo_id, &path, staged)
+        .get_working_file_diff(repo_id, &path, staged, offset, limit)
         .await?;
     versioned(&state, repo_id, data).await
 }

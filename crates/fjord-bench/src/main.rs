@@ -579,9 +579,8 @@ fn report_distribution(record: &mut Report, name: &str, samples: &[f64]) -> Dist
     distribution
 }
 
-/// One file's complete diff. This is the payload `P6-16` will window: the
-/// number recorded here is the cost of *not* windowing it, which is what makes
-/// the case for the change rather than asserting it.
+/// The first bounded window of the 500k-line file plus the metadata-only path
+/// for the file above the 10 MB display ceiling.
 async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Result<(), String> {
     let backend = LocalGitBackend::new();
     let repo = RepoPath::new(root.to_path_buf());
@@ -597,6 +596,7 @@ async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Res
     let mut diff_samples = Vec::with_capacity(args.repetitions);
     let mut files = Vec::new();
     let mut detail = None;
+    let mut oversized = None;
     for iteration in sample_iterations(args) {
         let start = Instant::now();
         files = backend
@@ -608,26 +608,59 @@ async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Res
         let start = Instant::now();
         detail = Some(
             backend
-                .file_diff(&repo, &head, fixtures::DIFF_TARGET)
+                .file_diff_window(
+                    &repo,
+                    &head,
+                    fixtures::DIFF_WINDOW_TARGET,
+                    0,
+                    1_000,
+                    10 * 1024 * 1024,
+                )
                 .await
                 .map_err(|e| e.to_string())?,
         );
         let diff_ms = ms(start.elapsed());
+        oversized = Some(
+            backend
+                .file_diff_window(
+                    &repo,
+                    &head,
+                    fixtures::DIFF_TARGET,
+                    0,
+                    1_000,
+                    10 * 1024 * 1024,
+                )
+                .await
+                .map_err(|e| e.to_string())?,
+        );
         if is_measured_iteration(args, iteration) {
             list_samples.push(list_ms);
             diff_samples.push(diff_ms);
         }
     }
     let detail = detail.expect("at least one repetition");
+    let oversized = oversized.expect("at least one repetition");
 
     let lines: usize = detail.hunks.iter().map(|hunk| hunk.lines.len()).sum();
     println!("changed_files={}", files.len());
     println!("diff_hunks={} diff_lines={lines}", detail.hunks.len());
+    println!("diff_total_lines={}", detail.total_lines);
+    println!(
+        "diff_payload_bytes={}",
+        serde_json::to_vec(&detail).unwrap().len()
+    );
+    println!("oversized_too_large={}", oversized.too_large);
 
     record
         .count("changed_files", files.len() as u64)
         .count("diff_hunks", detail.hunks.len() as u64)
-        .count("diff_lines", lines as u64);
+        .count("diff_lines", lines as u64)
+        .count("diff_total_lines", detail.total_lines as u64)
+        .count(
+            "diff_payload_bytes",
+            serde_json::to_vec(&detail).unwrap().len() as u64,
+        )
+        .count("oversized_too_large", u64::from(oversized.too_large));
     report_distribution(record, "diff_list", &list_samples);
     let diff_distribution = report_distribution(record, "file_diff", &diff_samples);
     if let Some(budget) =
