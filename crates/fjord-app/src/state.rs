@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
-use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId};
+use fjord_domain::{GenerationSet, RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher};
 use fjord_git::{
     GitCommandFactory, LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend,
@@ -29,6 +29,8 @@ struct RepositoryChangedEvent {
     history: bool,
     refs: bool,
     stashes: bool,
+    config: bool,
+    generations: GenerationSet,
     status_summary: Option<RepoStatusSummary>,
 }
 
@@ -36,6 +38,7 @@ impl RepositoryChangedEvent {
     fn new(
         repo_id: RepositoryId,
         changes: RepoChangeSet,
+        generations: GenerationSet,
         status_summary: Option<RepoStatusSummary>,
     ) -> Self {
         Self {
@@ -45,6 +48,8 @@ impl RepositoryChangedEvent {
             history: changes.history,
             refs: changes.refs,
             stashes: changes.stashes,
+            config: changes.config,
+            generations,
             status_summary,
         }
     }
@@ -216,6 +221,7 @@ impl AppState {
             fjord_git::record_repository_changes(&repo_path, changes);
             let workspaces = workspaces.clone();
             let app_handle = app_handle.clone();
+            let repo_path = repo_path.clone();
             tauri::async_runtime::spawn(async move {
                 let status_summary = match workspaces.refresh_repo_status(repo_id).await {
                     Ok(summary) => Some(summary),
@@ -224,9 +230,10 @@ impl AppState {
                         None
                     }
                 };
+                let generations = fjord_git::repository_generations(&repo_path).unwrap_or_default();
                 if let Err(error) = app_handle.emit(
                     REPOSITORY_CHANGED_EVENT,
-                    RepositoryChangedEvent::new(repo_id, changes, status_summary),
+                    RepositoryChangedEvent::new(repo_id, changes, generations, status_summary),
                 ) {
                     tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to emit repository change event");
                 }

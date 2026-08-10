@@ -15,19 +15,19 @@ describe("abortable Tauri queries", () => {
   });
 
   it("rejects an obsolete query when its signal is aborted", async () => {
-    let resolveInvoke!: (value: unknown[]) => void;
+    let resolveInvoke!: (value: unknown) => void;
     tauri.invoke.mockReturnValue(new Promise((resolve) => (resolveInvoke = resolve)));
     const controller = new AbortController();
 
     const result = getBranches("repo-1", controller.signal);
     controller.abort();
-    resolveInvoke([]);
+    resolveInvoke({ data: [], generations: zeroGenerations() });
 
     await expect(result).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("carries the active interaction id on the IPC call", async () => {
-    tauri.invoke.mockResolvedValue([]);
+    tauri.invoke.mockResolvedValue({ data: [], generations: zeroGenerations() });
     setInteractionDiagnosticsEnabled(true);
     const interactionId = beginInteraction(new Event("click"));
 
@@ -39,3 +39,7 @@ describe("abortable Tauri queries", () => {
     });
   });
 });
+
+function zeroGenerations() {
+  return { workingTree: 0, refs: 0, history: 0, stash: 0, config: 0 };
+}

@@ -5,7 +5,7 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { GitAuthPrompt, InteractionTrace } from "@/domain/generated";
+import type { GenerationSet, GitAuthPrompt, InteractionTrace } from "@/domain/generated";
 import { beginIpcRequest, settleIpcRequest } from "@/infrastructure/ipcInteraction";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
@@ -22,6 +22,10 @@ import type {
   WorkingChanges,
 } from "@/domain/git";
 import { writeStartupPreferences } from "@/infrastructure/startupPreferences";
+import {
+  observeRepositoryGenerations,
+  type RepositoryGenerationScope,
+} from "@/infrastructure/repositoryGenerations";
 
 export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
 export const REPOSITORY_CHANGED_EVENT = "fjord-repository-changed";
@@ -34,7 +38,14 @@ export interface RepositoryChangedEvent {
   history: boolean;
   refs: boolean;
   stashes: boolean;
+  config: boolean;
+  generations: GenerationSet;
   statusSummary: RepoStatusSummary | null;
+}
+
+interface GenerationEnvelope<T> {
+  data: T;
+  generations: GenerationSet;
 }
 
 export type OperationKind = "fetch" | "pull" | "push" | "publish" | "bulk-fetch" | "bulk-pull";
@@ -154,6 +165,19 @@ export function getSettings(): Promise<Settings> {
   });
 }
 
+function invokeVersioned<T>(
+  command: string,
+  args: Record<string, unknown>,
+  repoId: string,
+  scope: RepositoryGenerationScope,
+  signal?: AbortSignal,
+): Promise<T> {
+  return invokeAbortable<GenerationEnvelope<T>>(command, args, signal).then((response) => {
+    observeRepositoryGenerations(repoId, response.generations, scope);
+    return response.data;
+  });
+}
+
 export function updateSettings(settings: Settings): Promise<Settings> {
   return invoke<Settings>("update_settings", { settings }).then((updated) => {
     writeStartupPreferences(updated);
@@ -214,7 +238,7 @@ export function removeRepository(id: string): Promise<void> {
 }
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
-  return invokeAbortable("get_branches", { repoId }, signal);
+  return invokeVersioned("get_branches", { repoId }, repoId, "refs", signal);
 }
 
 export function listenGitAuthPrompts(
@@ -263,11 +287,11 @@ export function listenRepositoryChanges(
 }
 
 export function getTags(repoId: string, signal?: AbortSignal): Promise<TagInfo[]> {
-  return invokeAbortable("get_tags", { repoId }, signal);
+  return invokeVersioned("get_tags", { repoId }, repoId, "refs", signal);
 }
 
 export function getRepoStatus(repoId: string, signal?: AbortSignal): Promise<RepoStatus> {
-  return invokeAbortable("get_repo_status", { repoId }, signal);
+  return invokeVersioned("get_repo_status", { repoId }, repoId, "status", signal);
 }
 
 export function getCommitLog(
@@ -276,7 +300,7 @@ export function getCommitLog(
   limit: number,
   signal?: AbortSignal,
 ): Promise<CommitPage> {
-  return invokeAbortable("get_commit_log", { repoId, cursor, limit }, signal);
+  return invokeVersioned("get_commit_log", { repoId, cursor, limit }, repoId, "history", signal);
 }
 
 export function searchCommitLog(
@@ -285,7 +309,7 @@ export function searchCommitLog(
   limit: number,
   signal?: AbortSignal,
 ): Promise<CommitSummary[]> {
-  return invokeAbortable("search_commit_log", { repoId, query, limit }, signal);
+  return invokeVersioned("search_commit_log", { repoId, query, limit }, repoId, "history", signal);
 }
 
 export function globalSearch(
@@ -297,7 +321,7 @@ export function globalSearch(
 }
 
 export function getCommitDiff(repoId: string, commitId: string, signal?: AbortSignal): Promise<FileDiff[]> {
-  return invokeAbortable("get_commit_diff", { repoId, commitId }, signal);
+  return invokeVersioned("get_commit_diff", { repoId, commitId }, repoId, "history", signal);
 }
 
 export function getCommitFiles(
@@ -305,7 +329,7 @@ export function getCommitFiles(
   commitId: string,
   signal?: AbortSignal,
 ): Promise<FileDiff[]> {
-  return invokeAbortable("get_commit_files", { repoId, commitId }, signal);
+  return invokeVersioned("get_commit_files", { repoId, commitId }, repoId, "history", signal);
 }
 
 export function getFileDiff(
@@ -314,7 +338,7 @@ export function getFileDiff(
   path: string,
   signal?: AbortSignal,
 ): Promise<FileDiffDetail> {
-  return invokeAbortable("get_file_diff", { repoId, commitId, path }, signal);
+  return invokeVersioned("get_file_diff", { repoId, commitId, path }, repoId, "history", signal);
 }
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
@@ -322,7 +346,7 @@ export function checkoutBranch(repoId: string, branch: string): Promise<void> {
 }
 
 export function getWorkingChanges(repoId: string, signal?: AbortSignal): Promise<WorkingChanges> {
-  return invokeAbortable("get_working_changes", { repoId }, signal);
+  return invokeVersioned("get_working_changes", { repoId }, repoId, "working", signal);
 }
 
 export function getWorkingFileDiff(
@@ -331,7 +355,7 @@ export function getWorkingFileDiff(
   staged: boolean,
   signal?: AbortSignal,
 ): Promise<FileDiffDetail> {
-  return invokeAbortable("get_working_file_diff", { repoId, path, staged }, signal);
+  return invokeVersioned("get_working_file_diff", { repoId, path, staged }, repoId, "working", signal);
 }
 
 export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {
@@ -375,7 +399,7 @@ export function resetToCommit(repoId: string, commitId: string, mode: "soft" | "
 }
 
 export function getStashes(repoId: string, signal?: AbortSignal): Promise<StashEntry[]> {
-  return invokeAbortable("get_stashes", { repoId }, signal);
+  return invokeVersioned("get_stashes", { repoId }, repoId, "stashes", signal);
 }
 
 export function stashPush(repoId: string, message: string | null = null): Promise<void> {

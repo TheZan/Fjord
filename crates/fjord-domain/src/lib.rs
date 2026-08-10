@@ -71,6 +71,23 @@ pub struct RepositoryEntry {
     pub sort_order: i32,
 }
 
+/// Monotonic in-memory versions of independently observable repository data.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct GenerationSet {
+    #[ts(type = "number")]
+    pub working_tree: u64,
+    #[ts(type = "number")]
+    pub refs: u64,
+    #[ts(type = "number")]
+    pub history: u64,
+    #[ts(type = "number")]
+    pub stash: u64,
+    #[ts(type = "number")]
+    pub config: u64,
+}
+
 /// Live status for a single repository, as returned by `GitBackend::status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

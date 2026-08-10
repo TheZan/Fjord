@@ -77,6 +77,10 @@ pub(crate) fn repository_generations(repo: &RepoPath) -> Result<crate::Generatio
 
 #[async_trait]
 impl GitBackend for LocalGitBackend {
+    fn generations(&self, repo: &RepoPath) -> Result<crate::GenerationSet, GitError> {
+        runtime::generations(repo)
+    }
+
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {
         status::status(repo).await
     }

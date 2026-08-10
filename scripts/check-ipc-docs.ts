@@ -47,6 +47,7 @@ function registeredCommands(): Set<string> {
  *
  *   invoke("cancel_operation", …)                      — first argument
  *   invokeAbortable("get_branches", …)                 — first argument
+ *   invokeVersioned("get_branches", …)                 — first argument
  *   invokeOperation("publish", "publish_branch", …)    — second, after the kind
  */
 function invokedCommands(): Set<string> {
@@ -55,6 +56,7 @@ function invokedCommands(): Set<string> {
   const patterns = [
     /\binvoke(?:<[^>]*>)?\(\s*"(\w+)"/g,
     /\binvokeAbortable(?:<[^>]*>)?\(\s*"(\w+)"/g,
+    /\binvokeVersioned(?:<[^>]*>)?\(\s*"(\w+)"/g,
     /\binvokeOperation(?:<[^>]*>)?\(\s*"[^"]*"\s*,\s*"(\w+)"/g,
   ];
   for (const pattern of patterns) {

@@ -3,12 +3,12 @@ use std::path::Path;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, CredentialHelperInfo,
-    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GitAuthPrompt,
-    GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo,
-    GitExecutable, GitExecutableSource, GlobalSearchResult, InteractionSpan, InteractionTrace,
-    LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId,
-    SearchResultKind, Settings, StashEntry, TagInfo, Theme, WorkingChanges, WorkingFile, Workspace,
-    WorkspaceId,
+    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, GenerationSet,
+    GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
+    GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, InteractionSpan,
+    InteractionTrace, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry,
+    RepositoryId, SearchResultKind, Settings, StashEntry, TagInfo, Theme, WorkingChanges,
+    WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -31,6 +31,7 @@ fn generated_types() -> String {
     push::<RepositoryId>(&mut output, &config);
     push::<Workspace>(&mut output, &config);
     push::<RepositoryEntry>(&mut output, &config);
+    push::<GenerationSet>(&mut output, &config);
     push::<RepoStatus>(&mut output, &config);
     push::<RepoStatusSummary>(&mut output, &config);
     push::<BulkRepoResult>(&mut output, &config);

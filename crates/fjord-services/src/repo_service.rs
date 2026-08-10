@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, RepoStatus,
     RepositoryEntry, RepositoryId, SearchResultKind, StashEntry, TagInfo, WorkingChanges,
     WorkspaceId,
@@ -89,6 +89,11 @@ impl RepoService {
             .await
             .ok()
             .map(|repo| repo.name)
+    }
+
+    pub async fn get_generations(&self, repo_id: RepositoryId) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.generations(&RepoPath::new(repo.path))?)
     }
 
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {

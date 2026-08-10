@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-    StashEntry, TagInfo, WorkingChanges,
+    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet, LogCursor,
+    RepoStatus, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -191,6 +191,10 @@ pub enum GitError {
 /// care which engine served a given call.
 #[async_trait]
 pub trait GitBackend: Send + Sync {
+    fn generations(&self, _repo: &RepoPath) -> Result<GenerationSet, GitError> {
+        Ok(GenerationSet::default())
+    }
+
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;

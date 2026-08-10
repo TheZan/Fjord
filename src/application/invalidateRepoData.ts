@@ -1,7 +1,8 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { queryKeys } from "@/application/queryKeys";
+import type { RepositoryGenerationScope } from "@/infrastructure/repositoryGenerations";
 
-export type RepoDataScope = "status" | "working" | "history" | "refs" | "stashes";
+export type RepoDataScope = RepositoryGenerationScope;
 
 export async function invalidateRepoData(
   queryClient: QueryClient,

@@ -2,15 +2,7 @@
 
 use std::sync::Mutex;
 
-/// Monotonic versions of independently observable repository state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct GenerationSet {
-    pub working_tree: u64,
-    pub refs: u64,
-    pub history: u64,
-    pub stash: u64,
-    pub config: u64,
-}
+pub use fjord_domain::GenerationSet;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GenerationMask {
@@ -57,32 +49,30 @@ impl GenerationMask {
     }
 }
 
-impl GenerationSet {
-    pub(crate) fn bump(&mut self, mask: GenerationMask) {
-        if mask.working_tree {
-            self.working_tree = self.working_tree.saturating_add(1);
-        }
-        if mask.refs {
-            self.refs = self.refs.saturating_add(1);
-        }
-        if mask.history {
-            self.history = self.history.saturating_add(1);
-        }
-        if mask.stash {
-            self.stash = self.stash.saturating_add(1);
-        }
-        if mask.config {
-            self.config = self.config.saturating_add(1);
-        }
+fn bump_set(generations: &mut GenerationSet, mask: GenerationMask) {
+    if mask.working_tree {
+        generations.working_tree = generations.working_tree.saturating_add(1);
     }
+    if mask.refs {
+        generations.refs = generations.refs.saturating_add(1);
+    }
+    if mask.history {
+        generations.history = generations.history.saturating_add(1);
+    }
+    if mask.stash {
+        generations.stash = generations.stash.saturating_add(1);
+    }
+    if mask.config {
+        generations.config = generations.config.saturating_add(1);
+    }
+}
 
-    fn matches(self, other: Self, mask: GenerationMask) -> bool {
-        (!mask.working_tree || self.working_tree == other.working_tree)
-            && (!mask.refs || self.refs == other.refs)
-            && (!mask.history || self.history == other.history)
-            && (!mask.stash || self.stash == other.stash)
-            && (!mask.config || self.config == other.config)
-    }
+fn matches(current: GenerationSet, other: GenerationSet, mask: GenerationMask) -> bool {
+    (!mask.working_tree || current.working_tree == other.working_tree)
+        && (!mask.refs || current.refs == other.refs)
+        && (!mask.history || current.history == other.history)
+        && (!mask.stash || current.stash == other.stash)
+        && (!mask.config || current.config == other.config)
 }
 
 /// Generation clock used by a repository runtime. Cache publication executes
@@ -101,10 +91,13 @@ impl GenerationClock {
     }
 
     pub(crate) fn bump(&self, mask: GenerationMask) {
-        self.current
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .bump(mask);
+        bump_set(
+            &mut self
+                .current
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            mask,
+        );
     }
 
     /// Publishes a computed cache value only while its dependency generations
@@ -119,7 +112,7 @@ impl GenerationClock {
             .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        current.matches(expected, dependencies).then(publish)
+        matches(*current, expected, dependencies).then(publish)
     }
 }
 
@@ -246,7 +239,7 @@ mod tests {
         for (mutation, expected) in cases {
             assert_eq!(mutation_mask(mutation), expected, "{mutation:?}");
             let mut generations = GenerationSet::default();
-            generations.bump(mutation_mask(mutation));
+            bump_set(&mut generations, mutation_mask(mutation));
             assert_eq!(
                 generations,
                 GenerationSet {

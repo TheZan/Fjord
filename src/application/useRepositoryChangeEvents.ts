@@ -7,15 +7,13 @@ import {
   listenRepositoryChanges,
   type RepositoryChangedEvent,
 } from "@/infrastructure/tauriClient";
+import {
+  changedRepositoryScopes,
+  observeRepositoryGenerations,
+} from "@/infrastructure/repositoryGenerations";
 
 export function repositoryChangeScopes(event: RepositoryChangedEvent): RepoDataScope[] {
-  const scopes: RepoDataScope[] = [];
-  if (event.status) scopes.push("status");
-  if (event.working) scopes.push("working");
-  if (event.history) scopes.push("history");
-  if (event.refs) scopes.push("refs");
-  if (event.stashes) scopes.push("stashes");
-  return scopes;
+  return changedRepositoryScopes(event.repoId, event.generations);
 }
 
 /**
@@ -46,11 +44,10 @@ export function useRepositoryChangeEvents(repositories: RepositoryEntry[]) {
           queryKeys.workspaces.status(repo.workspaceId),
           (current) => replaceStatusSummary(current, statusSummary),
         );
+        observeRepositoryGenerations(repo.id, event.generations, "status");
       }
 
-      const requested = repositoryChangeScopes(event).filter(
-        (scope) => scope !== "status" || !statusSummary,
-      );
+      const requested = repositoryChangeScopes(event);
       if (requested.length > 0) {
         void invalidateRepoData(queryClient, repo.id, repo.workspaceId, requested);
       }

@@ -59,7 +59,7 @@ describe("interaction ids", () => {
   });
 
   it("closes on the first paint that satisfies the interaction predicate", async () => {
-    let resolveInvoke!: (value: unknown[]) => void;
+    let resolveInvoke!: (value: unknown) => void;
     tauri.invoke.mockReturnValue(new Promise((resolve) => (resolveInvoke = resolve)));
     let paint: FrameRequestCallback = () => undefined;
     let paintScheduled = false;
@@ -74,7 +74,10 @@ describe("interaction ids", () => {
     const interactionId = beginInteraction(new Event("click"));
     completeInteractionWhen(() => ready, "query_data_visible");
     const request = getBranches("repo-1");
-    resolveInvoke([]);
+    resolveInvoke({
+      data: [],
+      generations: { workingTree: 0, refs: 0, history: 0, stash: 0, config: 0 },
+    });
     await request;
     await new Promise((resolve) => setTimeout(resolve, 0));
 

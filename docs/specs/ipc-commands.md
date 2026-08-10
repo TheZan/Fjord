@@ -49,19 +49,23 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 
 ### Repository reads
 
+Every repository read returns `GenerationEnvelope<T> { data, generations }`.
+`generations` is the runtime's `GenerationSet` stamp used for query validity;
+the typed frontend client unwraps `data` before exposing it to application hooks.
+
 | Command | Input | Output | Notes |
 |---|---|---|---|
-| `get_repo_status` | `{ repo_id }` | `RepoStatus` | Live single-repo status |
-| `get_branches` | `{ repo_id }` | `BranchInfo[]` | |
-| `get_tags` | `{ repo_id }` | `TagInfo[]` | |
-| `get_stashes` | `{ repo_id }` | `StashEntry[]` | |
-| `get_commit_log` | `{ repo_id, cursor?, limit }` | `CommitPage` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
-| `search_commit_log` | `{ repo_id, query, limit }` | `CommitSummary[]` | Titles across local and remote refs |
-| `get_commit_diff` | `{ repo_id, commit_id }` | `FileDiff[]` | Changed-files summary with line counts |
-| `get_commit_files` | `{ repo_id, commit_id }` | `FileDiff[]` | Fast tree-only list, painted before line counts finish |
-| `get_file_diff` | `{ repo_id, commit_id, path }` | `FileDiffDetail` | Full unified line diff for one file in a commit |
-| `get_working_changes` | `{ repo_id }` | `WorkingChanges` | Staged/unstaged split; a partially staged file appears in both |
-| `get_working_file_diff` | `{ repo_id, path, staged }` | `FileDiffDetail` | Index-vs-HEAD when staged, worktree-vs-index otherwise |
+| `get_repo_status` | `{ repo_id }` | `GenerationEnvelope<RepoStatus>` | Live single-repo status |
+| `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
+| `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
+| `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | |
+| `get_commit_log` | `{ repo_id, cursor?, limit }` | `GenerationEnvelope<CommitPage>` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
+| `search_commit_log` | `{ repo_id, query, limit }` | `GenerationEnvelope<CommitSummary[]>` | Titles across local and remote refs |
+| `get_commit_diff` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Changed-files summary with line counts |
+| `get_commit_files` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Fast tree-only list, painted before line counts finish |
+| `get_file_diff` | `{ repo_id, commit_id, path }` | `GenerationEnvelope<FileDiffDetail>` | Full unified line diff for one file in a commit |
+| `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
+| `get_working_file_diff` | `{ repo_id, path, staged }` | `GenerationEnvelope<FileDiffDetail>` | Index-vs-HEAD when staged, worktree-vs-index otherwise |
 
 ### Repository mutations (local)
 
@@ -116,7 +120,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 |---|---|---|
 | `fjord-operation-progress` | `OperationProgressEvent` | [`operation-events.md`](operation-events.md) |
 | `fjord-auth-prompt` | `GitAuthPrompt` | [`operation-events.md`](operation-events.md), [`system-git-transport.md`](system-git-transport.md) |
-| `fjord-repository-changed` | `{ repoId, status, working, history, refs, stashes, statusSummary }` | Emitted by the per-repository watcher; drives targeted query invalidation |
+| `fjord-repository-changed` | `{ repoId, status, working, history, refs, stashes, config, generations, statusSummary }` | Emitted by the per-repository watcher; generation comparison drives targeted query invalidation |
 
 ## Planned additions
 

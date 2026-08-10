@@ -1,8 +1,9 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
     GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId, StashEntry,
     TagInfo, WorkingChanges, WorkspaceId,
 };
+use serde::Serialize;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,28 +21,49 @@ use crate::state::AppState;
 
 const BULK_WORKER_LIMIT: usize = 6;
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationEnvelope<T> {
+    data: T,
+    generations: GenerationSet,
+}
+
+async fn versioned<T>(
+    state: &AppState,
+    repo_id: RepositoryId,
+    data: T,
+) -> Result<GenerationEnvelope<T>, AppError> {
+    Ok(GenerationEnvelope {
+        data,
+        generations: state.repos.get_generations(repo_id).await?,
+    })
+}
+
 #[tauri::command]
 pub async fn get_branches(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-) -> Result<Vec<BranchInfo>, AppError> {
-    Ok(state.repos.get_branches(repo_id).await?)
+) -> Result<GenerationEnvelope<Vec<BranchInfo>>, AppError> {
+    let data = state.repos.get_branches(repo_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
 pub async fn get_tags(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-) -> Result<Vec<TagInfo>, AppError> {
-    Ok(state.repos.get_tags(repo_id).await?)
+) -> Result<GenerationEnvelope<Vec<TagInfo>>, AppError> {
+    let data = state.repos.get_tags(repo_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
 pub async fn get_repo_status(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-) -> Result<RepoStatus, AppError> {
-    Ok(state.repos.get_status(repo_id).await?)
+) -> Result<GenerationEnvelope<RepoStatus>, AppError> {
+    let data = state.repos.get_status(repo_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -50,8 +72,9 @@ pub async fn get_commit_log(
     repo_id: RepositoryId,
     cursor: Option<LogCursor>,
     limit: u32,
-) -> Result<CommitPage, AppError> {
-    Ok(state.repos.get_commit_log(repo_id, cursor, limit).await?)
+) -> Result<GenerationEnvelope<CommitPage>, AppError> {
+    let data = state.repos.get_commit_log(repo_id, cursor, limit).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -60,11 +83,12 @@ pub async fn search_commit_log(
     repo_id: RepositoryId,
     query: String,
     limit: u32,
-) -> Result<Vec<CommitSummary>, AppError> {
-    Ok(state
+) -> Result<GenerationEnvelope<Vec<CommitSummary>>, AppError> {
+    let data = state
         .repos
         .search_commit_log(repo_id, &query, limit)
-        .await?)
+        .await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -85,8 +109,9 @@ pub async fn get_commit_diff(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     commit_id: String,
-) -> Result<Vec<FileDiff>, AppError> {
-    Ok(state.repos.get_commit_diff(repo_id, &commit_id).await?)
+) -> Result<GenerationEnvelope<Vec<FileDiff>>, AppError> {
+    let data = state.repos.get_commit_diff(repo_id, &commit_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -94,8 +119,9 @@ pub async fn get_commit_files(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     commit_id: String,
-) -> Result<Vec<FileDiff>, AppError> {
-    Ok(state.repos.get_commit_files(repo_id, &commit_id).await?)
+) -> Result<GenerationEnvelope<Vec<FileDiff>>, AppError> {
+    let data = state.repos.get_commit_files(repo_id, &commit_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -104,11 +130,12 @@ pub async fn get_file_diff(
     repo_id: RepositoryId,
     commit_id: String,
     path: String,
-) -> Result<FileDiffDetail, AppError> {
-    Ok(state
+) -> Result<GenerationEnvelope<FileDiffDetail>, AppError> {
+    let data = state
         .repos
         .get_file_diff(repo_id, &commit_id, &path)
-        .await?)
+        .await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -139,8 +166,9 @@ pub async fn checkout_branch(
 pub async fn get_working_changes(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-) -> Result<WorkingChanges, AppError> {
-    Ok(state.repos.get_working_changes(repo_id).await?)
+) -> Result<GenerationEnvelope<WorkingChanges>, AppError> {
+    let data = state.repos.get_working_changes(repo_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -149,11 +177,12 @@ pub async fn get_working_file_diff(
     repo_id: RepositoryId,
     path: String,
     staged: bool,
-) -> Result<FileDiffDetail, AppError> {
-    Ok(state
+) -> Result<GenerationEnvelope<FileDiffDetail>, AppError> {
+    let data = state
         .repos
         .get_working_file_diff(repo_id, &path, staged)
-        .await?)
+        .await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]
@@ -277,8 +306,9 @@ pub async fn reset_to_commit(
 pub async fn get_stashes(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-) -> Result<Vec<StashEntry>, AppError> {
-    Ok(state.repos.get_stashes(repo_id).await?)
+) -> Result<GenerationEnvelope<Vec<StashEntry>>, AppError> {
+    let data = state.repos.get_stashes(repo_id).await?;
+    versioned(&state, repo_id, data).await
 }
 
 #[tauri::command]

@@ -11,6 +11,10 @@ import {
 import type { RepositoryEntry } from "@/domain/workspace";
 import * as tauriClient from "@/infrastructure/tauriClient";
 import type { RepositoryChangedEvent } from "@/infrastructure/tauriClient";
+import {
+  forgetRepositoryGenerations,
+  observeRepositoryGenerations,
+} from "@/infrastructure/repositoryGenerations";
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   listenRepositoryChanges: vi.fn(),
@@ -44,6 +48,10 @@ function createQueryClient() {
 
 describe("repositoryChangeScopes", () => {
   it("maps only affected repository data", () => {
+    forgetRepositoryGenerations();
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "status");
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "history");
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "refs");
     expect(
       repositoryChangeScopes({
         repoId: "repo-1",
@@ -52,6 +60,8 @@ describe("repositoryChangeScopes", () => {
         history: true,
         refs: true,
         stashes: false,
+        config: false,
+        generations: { ...zeroGenerations(), refs: 1, history: 1 },
         statusSummary: null,
       }),
     ).toEqual(["status", "history", "refs"]);
@@ -60,6 +70,8 @@ describe("repositoryChangeScopes", () => {
 
 describe("useRepositoryChangeEvents", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    forgetRepositoryGenerations();
     repositoryChangeHandler = undefined;
     stopListening = vi.fn();
     vi.mocked(tauriClient.listenRepositoryChanges).mockImplementation(async (handler) => {
@@ -72,6 +84,9 @@ describe("useRepositoryChangeEvents", () => {
     const queryClient = createQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     queryClient.setQueryData(queryKeys.workspaces.status(repo.workspaceId), []);
+    observeRepositoryGenerations(repo.id, zeroGenerations(), "status");
+    observeRepositoryGenerations(repo.id, zeroGenerations(), "history");
+    observeRepositoryGenerations(repo.id, zeroGenerations(), "refs");
 
     const { rerender } = renderHook(
       ({ repositories }) => useRepositoryChangeEvents(repositories),
@@ -92,6 +107,8 @@ describe("useRepositoryChangeEvents", () => {
       history: true,
       refs: true,
       stashes: false,
+      config: false,
+      generations: { ...zeroGenerations(), refs: 1, history: 1 },
       statusSummary: {
         repoId: repo.id,
         status: {
@@ -123,4 +140,43 @@ describe("useRepositoryChangeEvents", () => {
       hasConflict: false,
     });
   });
+
+  it("does not refetch refs or history when only the working tree generation advances", async () => {
+    const queryClient = createQueryClient();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    for (const scope of ["status", "working", "history", "refs", "stashes"] as const) {
+      observeRepositoryGenerations(repo.id, zeroGenerations(), scope);
+    }
+
+    renderHook(() => useRepositoryChangeEvents([repo]), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => expect(repositoryChangeHandler).toBeDefined());
+
+    repositoryChangeHandler?.({
+      repoId: repo.id,
+      status: true,
+      working: true,
+      history: false,
+      refs: false,
+      stashes: false,
+      config: false,
+      generations: { ...zeroGenerations(), workingTree: 1 },
+      statusSummary: null,
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: queryKeys.repos.workingChanges(repo.id),
+      });
+    });
+    const invalidatedKeys = invalidateQueries.mock.calls.map(([filters]) => filters?.queryKey);
+    expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.branches(repo.id));
+    expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.tags(repo.id));
+    expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.commits(repo.id));
+  });
 });
+
+function zeroGenerations() {
+  return { workingTree: 0, refs: 0, history: 0, stash: 0, config: 0 };
+}

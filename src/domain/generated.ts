@@ -15,6 +15,8 @@ export type RepositoryEntry = { id: RepositoryId, workspaceId: WorkspaceId, name
  */
 path: string, sortOrder: number, };
 
+export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };
+
 export type RepoStatus = { branch: string | null, ahead: number, behind: number, dirtyCount: number, hasConflict: boolean, };
 
 export type RepoStatusSummary = { repoId: RepositoryId, status: RepoStatus, lastSyncedAt: string | null, };
