@@ -75,6 +75,9 @@ impl From<RepoError> for AppError {
             RepoError::Remote(inner) => remote_error_to_app_error(inner),
             RepoError::Environment(inner) => environment_error_to_app_error(inner),
             RepoError::Launch(inner) => launch_error_to_app_error(inner),
+            error @ RepoError::SnapshotChangedDuringCapture => {
+                Self::new("snapshot_changed_during_capture", error.to_string())
+            }
         }
     }
 }

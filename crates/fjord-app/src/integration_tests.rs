@@ -241,6 +241,84 @@ async fn a_local_mutation_is_visible_to_the_next_read() {
     assert_eq!(status.dirty_count, 1);
 }
 
+/// A persisted generation stamp cannot prove that nothing happened while
+/// Fjord was stopped. Revalidation therefore compares against live Git state,
+/// including commits made by a completely separate `git` process.
+#[tokio::test]
+async fn snapshot_revalidation_detects_an_out_of_band_git_commit() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+
+    let captured = services
+        .repos
+        .capture_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+    assert!(captured.validated);
+    assert_eq!(captured.snapshot.first_history_page.commits.len(), 1);
+    assert!(
+        !services
+            .repos
+            .load_repository_snapshot(repo.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .validated
+    );
+
+    std::fs::write(repo_path.join("CHANGELOG.md"), b"out of band\n").unwrap();
+    for arguments in [
+        vec!["add", "CHANGELOG.md"],
+        vec![
+            "-c",
+            "user.name=Fjord Test",
+            "-c",
+            "user.email=test@fjord.invalid",
+            "commit",
+            "-m",
+            "External commit",
+        ],
+    ] {
+        let output = std::process::Command::new("git")
+            .args(arguments)
+            .current_dir(&repo_path)
+            .output()
+            .expect("system Git should be available to the integration test");
+        assert!(
+            output.status.success(),
+            "git failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let revalidated = services
+        .repos
+        .revalidate_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+    assert!(revalidated.changed);
+    assert!(revalidated.snapshot.validated);
+    assert_eq!(
+        revalidated
+            .snapshot
+            .snapshot
+            .first_history_page
+            .commits
+            .len(),
+        2
+    );
+}
+
 /// An unknown id fails before any Git work, with the code the frontend uses to
 /// drop a stale selection.
 #[tokio::test]

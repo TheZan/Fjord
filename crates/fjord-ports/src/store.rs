@@ -3,7 +3,8 @@
 
 use async_trait::async_trait;
 use fjord_domain::{
-    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, Settings, Workspace, WorkspaceId,
+    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot, Settings,
+    StoredRepositorySnapshot, Workspace, WorkspaceId,
 };
 use thiserror::Error;
 
@@ -51,6 +52,23 @@ pub trait WorkspaceStore: Send + Sync {
         status: &RepoStatus,
     ) -> Result<RepoStatusSummary, StoreError>;
     async fn invalidate_repo_status(&self, repo_id: RepositoryId) -> Result<(), StoreError>;
+    async fn load_repository_snapshot(
+        &self,
+        _repo_id: RepositoryId,
+        _schema_version: u32,
+    ) -> Result<Option<StoredRepositorySnapshot>, StoreError> {
+        Ok(None)
+    }
+    async fn upsert_repository_snapshot(
+        &self,
+        _repo_id: RepositoryId,
+        _schema_version: u32,
+        _snapshot: &RepositorySnapshot,
+    ) -> Result<StoredRepositorySnapshot, StoreError> {
+        Err(StoreError::Database(
+            "repository snapshots are not supported by this store".to_string(),
+        ))
+    }
 }
 
 #[async_trait]

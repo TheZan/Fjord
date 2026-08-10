@@ -5,7 +5,13 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { GenerationSet, GitAuthPrompt, InteractionTrace } from "@/domain/generated";
+import type {
+  GenerationSet,
+  GitAuthPrompt,
+  InteractionTrace,
+  SnapshotRevalidation,
+  StoredRepositorySnapshot,
+} from "@/domain/generated";
 import { beginIpcRequest, settleIpcRequest } from "@/infrastructure/ipcInteraction";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
@@ -223,6 +229,18 @@ export function getWorkspaceStatus(workspaceId: string): Promise<RepoStatusSumma
 
 export function refreshRepoStatus(repoId: string): Promise<RepoStatusSummary> {
   return invoke("refresh_repo_status", { repoId });
+}
+
+export function getRepositorySnapshot(repoId: string): Promise<StoredRepositorySnapshot | null> {
+  return invoke("get_repository_snapshot", { repoId });
+}
+
+export function captureRepositorySnapshot(repoId: string): Promise<StoredRepositorySnapshot> {
+  return invoke("capture_repository_snapshot", { repoId });
+}
+
+export function revalidateRepositorySnapshot(repoId: string): Promise<SnapshotRevalidation> {
+  return invoke("revalidate_repository_snapshot", { repoId });
 }
 
 export function addRepository(workspaceId: string, path: string): Promise<RepositoryEntry> {

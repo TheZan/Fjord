@@ -45,6 +45,9 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `remove_repository` | `{ id }` | — | Removes tracking only, never touches disk |
 | `get_workspace_status` | `{ workspace_id }` | `RepoStatusSummary[]` | Reads from `repo_status_cache`; triggers a background refresh, does not block on it |
 | `refresh_repo_status` | `{ repo_id }` | `RepoStatusSummary` | Forces a live `GitBackend::status`, updates the cache |
+| `get_repository_snapshot` | `{ repo_id }` | `StoredRepositorySnapshot?` | Loads the persisted projection as unvalidated; callers must start live revalidation |
+| `capture_repository_snapshot` | `{ repo_id }` | `StoredRepositorySnapshot` | Captures a generation-consistent live projection and persists it |
+| `revalidate_repository_snapshot` | `{ repo_id }` | `SnapshotRevalidation` | Replaces the stored projection with live Git state and reports whether it changed |
 | `global_search` | `{ workspace_id?, query, limit }` | `GlobalSearchResult[]` | Fans out across repositories through the bounded pool; unreadable repos are skipped |
 
 ### Repository reads

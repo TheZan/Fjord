@@ -88,6 +88,41 @@ pub struct GenerationSet {
     pub config: u64,
 }
 
+/// A durable, read-only projection used to paint a repository before the
+/// first live Git refresh after startup completes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepositorySnapshot {
+    pub status: RepoStatus,
+    pub branches: Vec<BranchInfo>,
+    pub tags: Vec<TagInfo>,
+    pub first_history_page: CommitPage,
+    pub working_changes: WorkingChanges,
+    pub generations: GenerationSet,
+}
+
+/// A loaded row is marked unvalidated until live Git state has been compared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct StoredRepositorySnapshot {
+    pub repo_id: RepositoryId,
+    pub snapshot: RepositorySnapshot,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub captured_at: OffsetDateTime,
+    pub validated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SnapshotRevalidation {
+    pub snapshot: StoredRepositorySnapshot,
+    pub changed: bool,
+}
+
 /// Live status for a single repository, as returned by `GitBackend::status`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

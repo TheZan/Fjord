@@ -11,6 +11,7 @@ use fjord_git::{
 use fjord_ports::GitAskpassConfig;
 use fjord_services::{RepoService, SettingsService, WorkspaceError, WorkspaceService};
 use serde::Serialize;
+use tauri::async_runtime::JoinHandle;
 use tauri::{Emitter, Manager};
 
 use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
@@ -67,6 +68,7 @@ pub struct AppState {
     askpass_executable: Option<PathBuf>,
     app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
+    snapshot_tasks: Arc<Mutex<HashMap<RepositoryId, JoinHandle<()>>>>,
     startup_activated: tokio::sync::Mutex<bool>,
 }
 
@@ -153,6 +155,7 @@ pub async fn bootstrap(
         askpass_executable,
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
+        snapshot_tasks: Arc::new(Mutex::new(HashMap::new())),
         startup_activated: tokio::sync::Mutex::new(false),
     };
 
@@ -211,7 +214,9 @@ impl AppState {
         }
 
         let workspaces = self.workspaces.clone();
+        let repos = self.repos.clone();
         let app_handle = self.app_handle.clone();
+        let snapshot_tasks = self.snapshot_tasks.clone();
         let repo_path = fjord_ports::RepoPath::new(repo.path.clone());
         // Recursive working-tree watch with generated-directory filtering
         // and debouncing inside fjord-fs (docs/tasks.md P4-15) — edits below
@@ -219,6 +224,24 @@ impl AppState {
         // churn and event storms are absorbed before they reach us.
         let watcher = RepoEventWatcher::watch_repository(&repo.path, move |changes| {
             fjord_git::record_repository_changes(&repo_path, changes);
+            let repos_for_snapshot = repos.clone();
+            let mut tasks = snapshot_tasks.lock().unwrap();
+            if let Some(previous) = tasks.remove(&repo_id) {
+                previous.abort();
+            }
+            tasks.insert(
+                repo_id,
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    if let Err(error) = repos_for_snapshot
+                        .capture_repository_snapshot(repo_id)
+                        .await
+                    {
+                        tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to capture repository snapshot after generation quiescence");
+                    }
+                }),
+            );
+            drop(tasks);
             let workspaces = workspaces.clone();
             let app_handle = app_handle.clone();
             let repo_path = repo_path.clone();
@@ -252,6 +275,9 @@ impl AppState {
 
     pub fn unwatch_repository_status(&self, repo_id: RepositoryId) {
         self.status_watchers.lock().unwrap().remove(&repo_id);
+        if let Some(task) = self.snapshot_tasks.lock().unwrap().remove(&repo_id) {
+            task.abort();
+        }
     }
 }
 

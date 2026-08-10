@@ -3,8 +3,8 @@ use std::sync::Arc;
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, RepoStatus,
-    RepositoryEntry, RepositoryId, SearchResultKind, StashEntry, TagInfo, WorkingChanges,
-    WorkspaceId,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitExecutableResolution,
@@ -18,6 +18,8 @@ use tokio::task::JoinSet;
 
 const BULK_WORKER_LIMIT: usize = 6;
 const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+const SNAPSHOT_CAPTURE_ATTEMPTS: usize = 3;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -31,6 +33,8 @@ pub enum RepoError {
     Environment(#[from] GitEnvironmentError),
     #[error(transparent)]
     Launch(#[from] LaunchError),
+    #[error("repository changed while its snapshot was being captured")]
+    SnapshotChangedDuringCapture,
 }
 
 /// The remote a branch is published to when the caller does not name one.
@@ -94,6 +98,69 @@ impl RepoService {
     pub async fn get_generations(&self, repo_id: RepositoryId) -> Result<GenerationSet, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.generations(&RepoPath::new(repo.path))?)
+    }
+
+    pub async fn load_repository_snapshot(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<Option<StoredRepositorySnapshot>, RepoError> {
+        Ok(self
+            .workspaces
+            .load_repository_snapshot(repo_id, SNAPSHOT_SCHEMA_VERSION)
+            .await?)
+    }
+
+    /// Captures a coherent read projection. A mutation between any of the Git
+    /// reads invalidates the attempt, so a stored snapshot never combines two
+    /// repository generations.
+    pub async fn capture_repository_snapshot(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<StoredRepositorySnapshot, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let path = RepoPath::new(repo.path);
+
+        for _ in 0..SNAPSHOT_CAPTURE_ATTEMPTS {
+            let before = self.git.generations(&path)?;
+            let (status, branches, tags, first_history_page, working_changes) = tokio::try_join!(
+                self.git.status(&path),
+                self.git.branches(&path),
+                self.git.tags(&path),
+                self.git.log(&path, None, 30),
+                self.git.working_changes(&path),
+            )?;
+            let after = self.git.generations(&path)?;
+
+            if before == after {
+                let snapshot = RepositorySnapshot {
+                    status,
+                    branches,
+                    tags,
+                    first_history_page,
+                    working_changes,
+                    generations: after,
+                };
+                return Ok(self
+                    .workspaces
+                    .upsert_repository_snapshot(repo_id, SNAPSHOT_SCHEMA_VERSION, &snapshot)
+                    .await?);
+            }
+        }
+
+        Err(RepoError::SnapshotChangedDuringCapture)
+    }
+
+    pub async fn revalidate_repository_snapshot(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<SnapshotRevalidation, RepoError> {
+        let previous = self.load_repository_snapshot(repo_id).await?;
+        let snapshot = self.capture_repository_snapshot(repo_id).await?;
+        let changed = previous
+            .as_ref()
+            .is_none_or(|stored| stored.snapshot != snapshot.snapshot);
+
+        Ok(SnapshotRevalidation { snapshot, changed })
     }
 
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {

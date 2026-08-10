@@ -1127,6 +1127,7 @@ dependencies = [
  "async-trait",
  "fjord-domain",
  "fjord-ports",
+ "serde_json",
  "sqlx",
  "thiserror 2.0.19",
  "time",

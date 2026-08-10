@@ -17,6 +17,12 @@ path: string, sortOrder: number, };
 
 export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };
 
+export type RepositorySnapshot = { status: RepoStatus, branches: Array<BranchInfo>, tags: Array<TagInfo>, firstHistoryPage: CommitPage, workingChanges: WorkingChanges, generations: GenerationSet, };
+
+export type StoredRepositorySnapshot = { repoId: RepositoryId, snapshot: RepositorySnapshot, capturedAt: string, validated: boolean, };
+
+export type SnapshotRevalidation = { snapshot: StoredRepositorySnapshot, changed: boolean, };
+
 export type RepoStatus = { branch: string | null, ahead: number, behind: number, dirtyCount: number, hasConflict: boolean, };
 
 export type RepoStatusSummary = { repoId: RepositoryId, status: RepoStatus, lastSyncedAt: string | null, };

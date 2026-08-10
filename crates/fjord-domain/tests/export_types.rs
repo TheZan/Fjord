@@ -7,8 +7,8 @@ use fjord_domain::{
     GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, InteractionSpan,
     InteractionTrace, LogCursor, RemoteRef, RepoStatus, RepoStatusSummary, RepositoryEntry,
-    RepositoryId, SearchResultKind, Settings, StashEntry, TagInfo, Theme, WorkingChanges,
-    WorkingFile, Workspace, WorkspaceId,
+    RepositoryId, RepositorySnapshot, SearchResultKind, Settings, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, Theme, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -32,6 +32,9 @@ fn generated_types() -> String {
     push::<Workspace>(&mut output, &config);
     push::<RepositoryEntry>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
+    push::<RepositorySnapshot>(&mut output, &config);
+    push::<StoredRepositorySnapshot>(&mut output, &config);
+    push::<SnapshotRevalidation>(&mut output, &config);
     push::<RepoStatus>(&mut output, &config);
     push::<RepoStatusSummary>(&mut output, &config);
     push::<BulkRepoResult>(&mut output, &config);

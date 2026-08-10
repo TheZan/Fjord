@@ -12,6 +12,7 @@ import type { CommitSummary } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
+  captureRepositorySnapshot,
   checkoutBranch,
   cherryPick,
   commitRepo,
@@ -30,6 +31,7 @@ import {
   runPublishBranch,
   runPushRepo,
   renameBranch,
+  revalidateRepositorySnapshot,
   resetToCommit,
   revertCommit,
   stageFiles,
@@ -85,6 +87,13 @@ export function RepoDetailContainer({
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
+
+  useEffect(() => {
+    void revalidateRepositorySnapshot(repo.id).catch(() => undefined);
+    return () => {
+      void captureRepositorySnapshot(repo.id).catch(() => undefined);
+    };
+  }, [repo.id]);
 
   async function runRepoAction(
     action: string,

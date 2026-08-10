@@ -1,7 +1,8 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffDetail, GenerationSet,
-    GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId, StashEntry,
-    TagInfo, WorkingChanges, WorkspaceId,
+    GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
+    WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -64,6 +65,30 @@ pub async fn get_repo_status(
 ) -> Result<GenerationEnvelope<RepoStatus>, AppError> {
     let data = state.repos.get_status(repo_id).await?;
     versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_repository_snapshot(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<Option<StoredRepositorySnapshot>, AppError> {
+    Ok(state.repos.load_repository_snapshot(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn capture_repository_snapshot(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<StoredRepositorySnapshot, AppError> {
+    Ok(state.repos.capture_repository_snapshot(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn revalidate_repository_snapshot(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<SnapshotRevalidation, AppError> {
+    Ok(state.repos.revalidate_repository_snapshot(repo_id).await?)
 }
 
 #[tauri::command]
