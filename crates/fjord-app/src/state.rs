@@ -9,7 +9,7 @@ use fjord_git::{
     GitCommandFactory, LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend,
 };
 use fjord_ports::GitAskpassConfig;
-use fjord_services::{RepoService, SettingsService, WorkspaceService};
+use fjord_services::{RepoService, SettingsService, WorkspaceError, WorkspaceService};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
@@ -62,6 +62,7 @@ pub struct AppState {
     askpass_executable: Option<PathBuf>,
     app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
+    startup_activated: tokio::sync::Mutex<bool>,
 }
 
 /// The services a command handler talks to, built on the real adapters.
@@ -106,9 +107,6 @@ pub async fn compose_services(app_data_dir: &Path) -> Result<Services, String> {
         ide_launcher,
     ));
 
-    // Before anything can run a local Git command.
-    repo_service.refresh_git_executable().await;
-
     Ok(Services {
         settings: Arc::new(SettingsService::new(settings_store)),
         workspaces: workspace_service,
@@ -127,12 +125,6 @@ pub async fn bootstrap(
         .await
         .map_err(|error| error.to_string())?
         .performance_diagnostics;
-    let existing_repos = services
-        .workspaces
-        .list_all_repositories()
-        .await
-        .map_err(|e| e.to_string())?;
-
     let prompt_app = app_handle.clone();
     let askpass = AskpassBroker::start(move |prompt| {
         if let Err(error) = prompt_app.emit(AUTH_PROMPT_EVENT, prompt) {
@@ -156,16 +148,31 @@ pub async fn bootstrap(
         askpass_executable,
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
+        startup_activated: tokio::sync::Mutex::new(false),
     };
-
-    for repo in existing_repos {
-        state.watch_repository_status(repo);
-    }
 
     Ok(state)
 }
 
 impl AppState {
+    /// Starts every startup operation that may touch Git or install a watcher.
+    /// The frontend invokes this only after its first paint; the mutex makes
+    /// React StrictMode retries and duplicate IPC calls harmless.
+    pub async fn activate_after_first_paint(&self) -> Result<(), WorkspaceError> {
+        let mut activated = self.startup_activated.lock().await;
+        if *activated {
+            return Ok(());
+        }
+
+        self.repos.refresh_git_executable().await;
+        let repositories = self.workspaces.list_all_repositories().await?;
+        for repository in repositories {
+            self.watch_repository_status(repository);
+        }
+        *activated = true;
+        Ok(())
+    }
+
     /// Whether Git can prompt through Fjord at all. `false` means the bundled
     /// sidecar is missing — a packaging problem that otherwise only shows up as
     /// an authentication failure on the first repository that needs a prompt.

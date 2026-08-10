@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+/* While the persisted locale is reconciled with SQLite, paint a structural
+   shell but never potentially stale localized text. React is already mounted
+   underneath it; removing the attribute reveals the same tree in-place. */
+html[data-lang-pending="true"] #root > * {
+  visibility: hidden;
+}
+
+html[data-lang-pending="true"] #root::before {
+  content: "";
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background:
+    linear-gradient(var(--sidebar-bg), var(--sidebar-bg)) 0 0 / 16rem 100% no-repeat,
+    linear-gradient(var(--paper), var(--paper)) 18rem 1.5rem / calc(100% - 20rem) 4rem no-repeat,
+    var(--page-bg);
+}
+
 /* Token set per docs/specs/theming.md — same values validated in the
    dashboard prototype. Light values on :root, dark overrides under both
    the media query (no-JS / first-paint fallback) and [data-theme], which

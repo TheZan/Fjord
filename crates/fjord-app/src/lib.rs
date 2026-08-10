@@ -126,5 +126,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::answer_git_auth_prompt,
             commands::cancel_git_auth_prompt,
             commands::get_interaction_traces,
+            commands::activate_after_first_paint,
         ])
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
+import { useStartup } from "@/application/StartupProvider";
 import { useBranches } from "@/application/useBranches";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
@@ -14,7 +15,6 @@ import type { BulkRepoResult } from "@/domain/workspace";
 import {
   bulkOpenInIde,
   cancelOperation,
-  getSettings,
   invokeErrorCode,
   runBulkFetch,
   runBulkPull,
@@ -51,6 +51,7 @@ import type { View } from "@/presentation/view";
 export function App() {
   useInteractionCommit();
   const queryClient = useQueryClient();
+  const { settings: startupSettings } = useStartup();
   const { t: tw } = useTranslation("workspace");
   const {
     workspaces,
@@ -142,16 +143,8 @@ export function App() {
   );
 
   useEffect(() => {
-    let mounted = true;
-    void getSettings()
-      .then((settings) => {
-        if (mounted) setAutoFetch(settings.autoFetch);
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    if (startupSettings) setAutoFetch(startupSettings.autoFetch);
+  }, [startupSettings]);
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {

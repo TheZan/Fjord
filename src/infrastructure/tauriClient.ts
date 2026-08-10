@@ -21,6 +21,7 @@ import type {
   TagInfo,
   WorkingChanges,
 } from "@/domain/git";
+import { writeStartupPreferences } from "@/infrastructure/startupPreferences";
 
 export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
 export const REPOSITORY_CHANGED_EVENT = "fjord-repository-changed";
@@ -147,11 +148,21 @@ export function cancelOperation(operationId: string): Promise<boolean> {
 }
 
 export function getSettings(): Promise<Settings> {
-  return invoke("get_settings");
+  return invoke<Settings>("get_settings").then((settings) => {
+    writeStartupPreferences(settings);
+    return settings;
+  });
 }
 
 export function updateSettings(settings: Settings): Promise<Settings> {
-  return invoke("update_settings", { settings });
+  return invoke<Settings>("update_settings", { settings }).then((updated) => {
+    writeStartupPreferences(updated);
+    return updated;
+  });
+}
+
+export function activateAfterFirstPaint(): Promise<void> {
+  return invoke("activate_after_first_paint");
 }
 
 export function getInteractionTraces(): Promise<InteractionTrace[]> {

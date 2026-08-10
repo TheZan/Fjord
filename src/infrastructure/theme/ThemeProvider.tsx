@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useStartup } from "@/application/StartupProvider";
 import type { Theme } from "@/domain/settings";
 import { getSettings, updateSettings } from "@/infrastructure/tauriClient";
 
@@ -39,22 +40,26 @@ function applyToDocument(effective: EffectiveTheme) {
   document.documentElement.dataset.theme = effective;
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  // Default to "system" while settings are still loading, so there's no
-  // flash of an arbitrary theme before the first paint settles.
-  const [choice, setChoiceState] = useState<Theme>("system");
-  const [effective, setEffective] = useState<EffectiveTheme>(() => resolve("system"));
+export function ThemeProvider({
+  children,
+  initialChoice = "system",
+}: {
+  children: ReactNode;
+  initialChoice?: Theme;
+}) {
+  const { settings } = useStartup();
+  const [choice, setChoiceState] = useState<Theme>(initialChoice);
+  const [effective, setEffective] = useState<EffectiveTheme>(() => resolve(initialChoice));
 
   useEffect(() => {
     applyToDocument(effective);
   }, [effective]);
 
   useEffect(() => {
-    getSettings().then((settings) => {
-      setChoiceState(settings.theme);
-      setEffective(resolve(settings.theme));
-    });
-  }, []);
+    if (!settings) return;
+    setChoiceState(settings.theme);
+    setEffective(resolve(settings.theme));
+  }, [settings]);
 
   useEffect(() => {
     if (choice !== "system") return;

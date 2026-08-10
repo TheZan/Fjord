@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { userErrorMessage } from "@/application/errorMessage";
+import { useStartup } from "@/application/StartupProvider";
 import { queryKeys } from "@/application/queryKeys";
 import { pickFolder } from "@/infrastructure/dialog";
 import {
@@ -53,6 +54,7 @@ export interface UseRepositoriesResult {
 }
 
 export function useRepositories(): UseRepositoriesResult {
+  const { activated } = useStartup();
   const queryClient = useQueryClient();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -61,6 +63,7 @@ export function useRepositories(): UseRepositoriesResult {
   const workspacesQuery = useQuery({
     queryKey: queryKeys.workspaces.list(),
     queryFn: async () => sortWorkspaces(await listWorkspaces()),
+    enabled: activated,
   });
 
   const workspaces = workspacesQuery.data ?? [];
@@ -69,6 +72,7 @@ export function useRepositories(): UseRepositoriesResult {
     queries: workspaces.map((workspace) => ({
       queryKey: queryKeys.workspaces.repositories(workspace.id),
       queryFn: () => listRepositories(workspace.id),
+      enabled: activated,
     })),
   });
 
@@ -76,6 +80,7 @@ export function useRepositories(): UseRepositoriesResult {
     queries: workspaces.map((workspace) => ({
       queryKey: queryKeys.workspaces.status(workspace.id),
       queryFn: () => getWorkspaceStatus(workspace.id),
+      enabled: activated,
     })),
   });
 
@@ -351,6 +356,7 @@ export function useRepositories(): UseRepositoriesResult {
     repositoriesByWorkspace,
     statusByRepo,
     loading:
+      !activated ||
       workspacesQuery.isLoading ||
       repositoryQueries.some((query) => query.isLoading) ||
       statusQueries.some((query) => query.isLoading),

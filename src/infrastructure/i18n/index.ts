@@ -20,11 +20,11 @@ export const i18n = i18next.use(initReactI18next);
 
 let initialized = false;
 
-export async function initI18n(initialLocale: string): Promise<void> {
+export function initI18n(initialLocale: string): void {
   if (initialized) return;
   initialized = true;
 
-  await i18n.init({
+  void i18n.init({
     resources: {
       en: { common: enCommon, workspace: enWorkspace },
       ru: { common: ruCommon, workspace: ruWorkspace },
@@ -39,6 +39,9 @@ export async function initI18n(initialLocale: string): Promise<void> {
     // chain) — a missing key is loud, never a blank label.
     fallbackLng: DEFAULT_LOCALE,
     interpolation: { escapeValue: false },
+    // All catalogs are local. This makes resource installation synchronous,
+    // so createRoot.render never waits on a promise during startup.
+    initAsync: false,
   });
 }
 

@@ -5,11 +5,11 @@ import { I18nextProvider } from "react-i18next";
 
 import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import { App } from "@/presentation/App";
+import { resolveTheme, StartupProvider } from "@/application/StartupProvider";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { ThemeProvider } from "@/infrastructure/theme/ThemeProvider";
 import { i18n, initI18n } from "@/infrastructure/i18n";
-import { getSettings } from "@/infrastructure/tauriClient";
-import { DEFAULT_LOCALE } from "@/locales/registry";
+import { readStartupPreferences } from "@/infrastructure/startupPreferences";
 import {
   InteractionPerformanceBoundary,
   installInteractionCapture,
@@ -44,30 +44,31 @@ function installDesktopWebviewBehavior() {
   });
 }
 
-async function bootstrap() {
+function bootstrap() {
   installDesktopWebviewBehavior();
-  // Resolve the initial locale before the first render so there's no
-  // flash of the wrong language (docs/specs/i18n.md — locale detection).
-  const initialSettings = await getSettings().catch(() => null);
-  const locale = initialSettings?.locale ?? DEFAULT_LOCALE;
-  setInteractionDiagnosticsEnabled(initialSettings?.performanceDiagnostics ?? false);
+  const initialPreferences = readStartupPreferences();
+  document.documentElement.dataset.langPending = "true";
+  document.documentElement.dataset.theme = resolveTheme(initialPreferences.theme);
+  setInteractionDiagnosticsEnabled(initialPreferences.performanceDiagnostics);
   installInteractionCapture();
-
-  await initI18n(locale);
+  initI18n(initialPreferences.locale);
+  performance.mark("fjord:startup:shell_render");
 
   createRoot(document.getElementById("root") as HTMLElement).render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <I18nextProvider i18n={i18n}>
-          <ThemeProvider>
-            <ErrorBoundary>
-              <InteractionPerformanceBoundary>
-                <App />
-              </InteractionPerformanceBoundary>
-            </ErrorBoundary>
-          </ThemeProvider>
-        </I18nextProvider>
-      </QueryClientProvider>
+      <StartupProvider initialPreferences={initialPreferences}>
+        <QueryClientProvider client={queryClient}>
+          <I18nextProvider i18n={i18n}>
+            <ThemeProvider initialChoice={initialPreferences.theme}>
+              <ErrorBoundary>
+                <InteractionPerformanceBoundary>
+                  <App />
+                </InteractionPerformanceBoundary>
+              </ErrorBoundary>
+            </ThemeProvider>
+          </I18nextProvider>
+        </QueryClientProvider>
+      </StartupProvider>
     </StrictMode>,
   );
 }

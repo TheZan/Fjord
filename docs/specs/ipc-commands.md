@@ -24,6 +24,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 |---|---|---|---|
 | `get_settings` | — | `Settings` | Locale, theme, default IDE, auto-fetch, performance diagnostics, Git executable path |
 | `update_settings` | `Settings` | `Settings` | Full replace; persisted immediately |
+| `activate_after_first_paint` | — | — | Idempotently resolves Git and registers repository watchers after the frontend's first paint |
 | `get_git_environment` | — | `GitEnvironmentInfo` | Read-only inspection: executable, version, credential helpers, SSH/proxy presence |
 | `select_git_executable` | `{ path }` | `GitEnvironmentInfo` | Validates before persisting; applies to local and remote Git alike |
 | `reset_git_executable` | — | `GitEnvironmentInfo` | Clears the override, falls back to discovery |
