@@ -13,12 +13,12 @@ Host:
 - Cache state: `unknown` — no run asserted a cold or warm OS file cache, so
   none of these are cold-start numbers.
 
-**These are single runs, not baselines.** The methodology in
-[`../specs/performance.md`](../specs/performance.md) §1 calls for a P95 over ≥20
-repetitions after 3 warmups; the harness currently does one warmup and one
-measurement (`P6-22`). `wt-huge` `status` measured 299, 325, and 568 ms across
-three single runs — a 1.9× spread. Treat everything below as a first
-orientation, not a budget.
+**These are historical single runs, not baselines.** At this checkpoint the
+harness still did one warmup and one measurement. `P6-22` subsequently added
+the methodology required by [`../specs/performance.md`](../specs/performance.md)
+§1; the first 3-warmup/20-repetition results are recorded in
+[`p6-22-distributions.md`](p6-22-distributions.md). Treat the numbers below as
+the orientation that motivated that work, not as budgets.
 
 ## Results, all fixtures packed
 

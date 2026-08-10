@@ -74,7 +74,7 @@ and on subjective impressions. Three concrete consequences:
 | Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
 | Diff transport | ⚠️ `get_file_diff` returns every hunk and every line of a file in one IPC payload. Rendering is virtualized; the payload is not. Measured on `diff-giant`: a 50 MB file yields **2 694 458 `DiffLine` values in a single response** — the number `P6-16` exists to bound. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
-| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`) and refuses to compare runs from different platforms or cache states (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
+| Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`), defaults to 3 warmups + 20 repetitions with P50/P95/max and P95 budgets (`P6-22`), and refuses to compare runs from different platforms, cache states, or sampling settings (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
 | History read | ⚠️ The first 30-commit page on a packed 500k-commit repository measures **3639 ms**; Git answers the same request in 33 ms. `Sort::TOPOLOGICAL` under libgit2 buffers the whole reachable history — see `P6-21`. |
 | Idle cost | 🚧 Never measured. One `RepoEventWatcher` thread per repository, created for every tracked repository at bootstrap (`crates/fjord-app/src/state.rs`). |
 
@@ -104,7 +104,7 @@ be joined. No SLO may exist without one — a budget nobody can run is a wish.
 | SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | `workspace-render` | `ws-100` | provisional; anchored by a measured 0.1 ms cached dashboard read at 24 repos |
 | SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | `repo-switch-warm` | `ws-100` | provisional |
 | SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | `repo-switch-cold` | `ws-100` | provisional |
-| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | **measured 299–568 ms at 150k tracked files** across three runs; the spread is why `P6-22` exists. Unconfirmed at 300k |
+| SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | **P50/P95/max 291.109/300.701/305.045 ms at 150k tracked files** after 3 warmups + 20 repetitions. Stable, but unconfirmed at 300k; see [`../benchmarks/p6-22-distributions.md`](../benchmarks/p6-22-distributions.md) |
 | SLO-7 | `status`, ≤5k files, warm runtime | 40 ms | `status-small-tree` | `wt-noisy` | measured: 3.5 ms at 200 files ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
 | SLO-8 | First commit page (30 commits) on a 1M-commit repository | 200 ms | `log-first-page` | `hist-deep` | **measured 7.111 ms at 1M commits** after `P6-21` (packed, with a commit-graph); page 10 measured 3.592 ms. The pre-fix 500k result was 3639 ms. See [`../benchmarks/p6-21-history.md`](../benchmarks/p6-21-history.md) |
 | SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | `diff-first-viewport` | `diff-giant` | provisional |
@@ -145,6 +145,9 @@ Rules that apply to every class:
 - P95 over ≥20 repetitions is the comparison statistic. Single-shot timings are
   recorded but never gated: the existing checkpoints are single-shot, which is
   why they are anchors rather than budgets.
+- `fjord-bench` defaults to `--warmups 3 --repetitions 20`; text and JSON report
+  P50/P95/max, the compatibility `value` is P95, and budget comparisons use P95.
+  A budget flag with fewer than 20 repetitions is rejected.
 - A measurement that cannot meet its scenario's preconditions (a cold OS file
   cache, most often) is labeled, never silently reported as if it had.
 
@@ -440,8 +443,9 @@ Two stages:
 
    ✅ The record format exists: `fjord-bench --scenario NAME --json PATH|-`
    emits a versioned document with the scenario, the fixture kind/hash/generated
-   flag, the environment (OS, architecture, CPU model, profile), every metric
-   with its unit, and every budget with both sides of the comparison. The record
+   flag, the environment (OS, architecture, CPU model, profile), sampling
+   settings, every duration's P50/P95/max, every metric with its unit, and every
+   budget with both sides of the comparison. The record
    is written **before** a budget failure fails the run — a regression has to be
    visible in the recorded result, not only in an exit code.
 2. **Gating (P6-19).** Once a scenario has three consecutive stable baselines, its

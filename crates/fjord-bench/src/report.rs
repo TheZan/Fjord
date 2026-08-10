@@ -17,7 +17,7 @@ use std::path::Path;
 
 /// Bumped when the document's shape changes, so a consumer can reject records
 /// it does not understand instead of silently misreading them.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Where a report should be written. `--json -` means stdout, which is what a
 /// workflow step captures.
@@ -42,6 +42,36 @@ pub struct Metric {
     pub name: String,
     pub value: f64,
     pub unit: &'static str,
+    pub distribution: Option<Distribution>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Distribution {
+    pub samples: usize,
+    pub p50: f64,
+    pub p95: f64,
+    pub max: f64,
+}
+
+impl Distribution {
+    pub fn from_samples(samples: &[f64]) -> Self {
+        assert!(
+            !samples.is_empty(),
+            "a distribution needs at least one sample"
+        );
+        let mut sorted = samples.to_vec();
+        sorted.sort_by(f64::total_cmp);
+        let percentile = |percent: f64| {
+            let rank = (percent * sorted.len() as f64).ceil() as usize;
+            sorted[rank.saturating_sub(1).min(sorted.len() - 1)]
+        };
+        Self {
+            samples: sorted.len(),
+            p50: percentile(0.50),
+            p95: percentile(0.95),
+            max: *sorted.last().expect("non-empty samples"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +127,8 @@ pub struct Report {
     cache_state: CacheState,
     metrics: Vec<Metric>,
     budgets: Vec<BudgetResult>,
+    warmups: usize,
+    repetitions: usize,
 }
 
 impl Report {
@@ -109,6 +141,8 @@ impl Report {
             cache_state: CacheState::default(),
             metrics: Vec::new(),
             budgets: Vec::new(),
+            warmups: 0,
+            repetitions: 1,
         }
     }
 
@@ -122,14 +156,35 @@ impl Report {
         self
     }
 
+    pub fn sampling(&mut self, warmups: usize, repetitions: usize) -> &mut Self {
+        self.warmups = warmups;
+        self.repetitions = repetitions;
+        self
+    }
+
     /// A duration in milliseconds — the unit every budget is expressed in.
     pub fn ms(&mut self, name: &str, value: f64) -> &mut Self {
         self.metrics.push(Metric {
             name: name.to_string(),
             value,
             unit: "ms",
+            distribution: None,
         });
         self
+    }
+
+    /// Records the methodology distribution. `value` deliberately aliases
+    /// P95 so existing comparison consumers and every budget use the ratified
+    /// statistic rather than quietly falling back to one run.
+    pub fn ms_distribution(&mut self, name: &str, samples: &[f64]) -> Distribution {
+        let distribution = Distribution::from_samples(samples);
+        self.metrics.push(Metric {
+            name: name.to_string(),
+            value: distribution.p95,
+            unit: "ms",
+            distribution: Some(distribution.clone()),
+        });
+        distribution
     }
 
     /// A cardinality (commits returned, repositories, search hits). Recorded so
@@ -140,6 +195,7 @@ impl Report {
             name: name.to_string(),
             value: value as f64,
             unit: "count",
+            distribution: None,
         });
         self
     }
@@ -172,6 +228,11 @@ impl Report {
             environment.to_json(),
             json_string(self.cache_state.as_str())
         );
+        let _ = write!(
+            out,
+            ",\"sampling\":{{\"warmups\":{},\"repetitions\":{}}}",
+            self.warmups, self.repetitions
+        );
 
         out.push_str(",\"metrics\":{");
         for (index, metric) in self.metrics.iter().enumerate() {
@@ -180,11 +241,22 @@ impl Report {
             }
             let _ = write!(
                 out,
-                "{}:{{\"value\":{},\"unit\":{}}}",
+                "{}:{{\"value\":{},\"unit\":{}",
                 json_string(&metric.name),
                 json_number(metric.value),
                 json_string(metric.unit)
             );
+            if let Some(distribution) = &metric.distribution {
+                let _ = write!(
+                    out,
+                    ",\"samples\":{},\"p50\":{},\"p95\":{},\"max\":{}",
+                    distribution.samples,
+                    json_number(distribution.p50),
+                    json_number(distribution.p95),
+                    json_number(distribution.max)
+                );
+            }
+            out.push('}');
         }
         out.push('}');
 
@@ -277,6 +349,8 @@ pub struct Comparability {
     pub arch: String,
     pub profile: &'static str,
     pub cache_state: CacheState,
+    pub warmups: usize,
+    pub repetitions: usize,
 }
 
 impl Report {
@@ -289,6 +363,8 @@ impl Report {
             arch: environment.arch,
             profile: environment.profile,
             cache_state: self.cache_state,
+            warmups: self.warmups,
+            repetitions: self.repetitions,
         }
     }
 }
@@ -339,6 +415,7 @@ pub fn read_recorded(path: &Path) -> Result<Recorded, String> {
                     } else {
                         "ms"
                     },
+                    distribution: None,
                 })
                 .collect()
         })
@@ -352,6 +429,10 @@ pub fn read_recorded(path: &Path) -> Result<Recorded, String> {
             arch: string(&value["environment"]["arch"]),
             profile,
             cache_state: CacheState::parse(value["cacheState"].as_str().unwrap_or("unknown"))?,
+            warmups: value["sampling"]["warmups"].as_u64().unwrap_or_default() as usize,
+            repetitions: value["sampling"]["repetitions"]
+                .as_u64()
+                .unwrap_or_default() as usize,
         },
         metrics,
     })
@@ -376,6 +457,16 @@ impl Comparability {
             self.cache_state.as_str(),
             other.cache_state.as_str(),
         );
+        check(
+            "warmups",
+            &self.warmups.to_string(),
+            &other.warmups.to_string(),
+        );
+        check(
+            "repetitions",
+            &self.repetitions.to_string(),
+            &other.repetitions.to_string(),
+        );
         reasons
     }
 
@@ -388,7 +479,7 @@ impl Comparability {
         }
         Err(format!(
             "these results are not comparable ({}). Compare runs of the same \
-             scenario, fixture, platform, profile, and cache state.",
+             scenario, fixture, platform, profile, cache state, and sampling settings.",
             reasons.join("; ")
         ))
     }
@@ -526,7 +617,7 @@ mod tests {
         let json = sample().to_json();
 
         assert!(json.starts_with('{') && json.ends_with('}'));
-        assert!(json.contains("\"schemaVersion\":1"));
+        assert!(json.contains("\"schemaVersion\":2"));
         assert!(json.contains("\"scenario\":\"log-first-page\""));
         assert!(json.contains("\"hash\":\"054061d688589db6\""));
         assert!(json.contains("\"generated\":true"));
@@ -546,6 +637,23 @@ mod tests {
 
         assert!(json.contains("\"log\":{\"value\":9.746,\"unit\":\"ms\"}"));
         assert!(json.contains("\"log_commits\":{\"value\":200.000,\"unit\":\"count\"}"));
+    }
+
+    #[test]
+    fn distributions_use_nearest_rank_and_serialize_every_statistic() {
+        let samples = (1..=20).map(f64::from).collect::<Vec<_>>();
+        let mut report = Report::new("status", "working-tree", "abc");
+        report.sampling(3, 20);
+        let distribution = report.ms_distribution("status", &samples);
+
+        assert_eq!(distribution.p50, 10.0);
+        assert_eq!(distribution.p95, 19.0);
+        assert_eq!(distribution.max, 20.0);
+        let json = report.to_json();
+        assert!(json.contains("\"sampling\":{\"warmups\":3,\"repetitions\":20}"));
+        assert!(json.contains(
+            "\"status\":{\"value\":19.000,\"unit\":\"ms\",\"samples\":20,\"p50\":10.000,\"p95\":19.000,\"max\":20.000}"
+        ));
     }
 
     #[test]

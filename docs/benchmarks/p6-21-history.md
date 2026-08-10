@@ -9,9 +9,9 @@ Host:
 - Rust profile: `release`
 - Cache state: warm (operator asserted)
 
-These remain single-run checkpoints until `P6-22` implements the specified
-warmup/repetition distribution. They are directly comparable architecture
-checks, not P95 baselines.
+These are retained as the single-run architecture checkpoint. `P6-22` was
+implemented immediately afterward; its 3-warmup/20-repetition 500k result is in
+[`p6-22-distributions.md`](p6-22-distributions.md).
 
 ## Result
 

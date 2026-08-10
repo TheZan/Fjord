@@ -31,7 +31,7 @@ mod manifest;
 mod report;
 
 use manifest::{Fixture, Preparation};
-use report::{BudgetResult, CacheState, Destination, Report};
+use report::{BudgetResult, CacheState, Destination, Distribution, Report};
 
 #[derive(Debug)]
 struct Args {
@@ -53,6 +53,8 @@ struct Args {
     budget_diff_ms: Option<f64>,
     cache_state: CacheState,
     compare: Option<PathBuf>,
+    warmups: usize,
+    repetitions: usize,
 }
 
 impl Default for Args {
@@ -76,6 +78,8 @@ impl Default for Args {
             budget_diff_ms: None,
             cache_state: CacheState::Unknown,
             compare: None,
+            warmups: 3,
+            repetitions: 20,
         }
     }
 }
@@ -138,6 +142,13 @@ fn parse_args() -> Result<Args, String> {
                 )?)
             }
             "--compare" => args.compare = Some(PathBuf::from(next_value(&mut iter, "--compare")?)),
+            "--warmups" => {
+                args.warmups = parse_usize(next_value(&mut iter, "--warmups")?, "--warmups")?
+            }
+            "--repetitions" => {
+                args.repetitions =
+                    parse_usize(next_value(&mut iter, "--repetitions")?, "--repetitions")?
+            }
             "--cache-state" => {
                 args.cache_state = CacheState::parse(&next_value(&mut iter, "--cache-state")?)?
             }
@@ -160,6 +171,25 @@ fn parse_args() -> Result<Args, String> {
     }
     if args.workspace_repos == 0 {
         return Err("--workspace-repos must be at least 1".to_string());
+    }
+    if args.repetitions == 0 {
+        return Err("--repetitions must be at least 1".to_string());
+    }
+    let has_budget = [
+        args.budget_log_ms,
+        args.budget_live_refresh_ms,
+        args.budget_cached_dashboard_ms,
+        args.budget_status_ms,
+        args.budget_refs_ms,
+        args.budget_diff_ms,
+    ]
+    .iter()
+    .any(Option::is_some);
+    if has_budget && args.repetitions < 20 {
+        return Err(
+            "budget checks require --repetitions 20 or greater; shorter runs are exploratory"
+                .to_string(),
+        );
     }
 
     Ok(args)
@@ -204,6 +234,8 @@ fn usage() -> String {
            --scenario NAME       scenario label recorded in the result\n  \
            --json PATH|-         write a machine-readable record\n  \
            --cache-state STATE   cold | warm | unknown (operator-asserted)\n\n\
+           --warmups N           discarded warmup runs (default: 3)\n  \
+           --repetitions N       measured runs for P50/P95/max (default: 20)\n\n\
          Budgets (fail the run when exceeded):\n  \
            --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N  --budget-diff-ms N\n  \
            --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
@@ -441,6 +473,14 @@ fn check_budget(name: &str, actual_ms: f64, budget_ms: Option<f64>) -> Option<Bu
     })
 }
 
+fn check_distribution_budget(
+    name: &str,
+    distribution: &Distribution,
+    budget_ms: Option<f64>,
+) -> Option<BudgetResult> {
+    check_budget(name, distribution.p95, budget_ms)
+}
+
 /// Emits the machine-readable record, then fails if any budget was exceeded.
 /// The order matters: a regression must be visible in the recorded result, not
 /// only in a non-zero exit code.
@@ -499,7 +539,8 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
     );
     record
         .fixture_generated(generated)
-        .cache_state(args.cache_state);
+        .cache_state(args.cache_state)
+        .sampling(args.warmups, args.repetitions);
 
     println!("fixture={}", plan.name);
     println!("root={}", root.display());
@@ -519,6 +560,25 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
     finish(&record, args.json.as_ref(), args.compare.as_deref())
 }
 
+fn is_measured_iteration(args: &Args, iteration: usize) -> bool {
+    iteration >= args.warmups
+}
+
+fn sample_iterations(args: &Args) -> std::ops::Range<usize> {
+    0..args.warmups.saturating_add(args.repetitions)
+}
+
+fn report_distribution(record: &mut Report, name: &str, samples: &[f64]) -> Distribution {
+    let distribution = record.ms_distribution(name, samples);
+    // Keep the old key as the P95 alias for scripts that consume key=value,
+    // and make every statistic explicit alongside it.
+    println!("{name}_ms={:.3}", distribution.p95);
+    println!("{name}_p50_ms={:.3}", distribution.p50);
+    println!("{name}_p95_ms={:.3}", distribution.p95);
+    println!("{name}_max_ms={:.3}", distribution.max);
+    distribution
+}
+
 /// One file's complete diff. This is the payload `P6-16` will window: the
 /// number recorded here is the cost of *not* windowing it, which is what makes
 /// the case for the change rather than asserting it.
@@ -533,33 +593,46 @@ async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Res
         .id()
         .to_string();
 
-    let start = Instant::now();
-    let files = backend
-        .diff(&repo, &head)
-        .await
-        .map_err(|e| e.to_string())?;
-    let list_ms = ms(start.elapsed());
+    let mut list_samples = Vec::with_capacity(args.repetitions);
+    let mut diff_samples = Vec::with_capacity(args.repetitions);
+    let mut files = Vec::new();
+    let mut detail = None;
+    for iteration in sample_iterations(args) {
+        let start = Instant::now();
+        files = backend
+            .diff(&repo, &head)
+            .await
+            .map_err(|e| e.to_string())?;
+        let list_ms = ms(start.elapsed());
 
-    let start = Instant::now();
-    let detail = backend
-        .file_diff(&repo, &head, fixtures::DIFF_TARGET)
-        .await
-        .map_err(|e| e.to_string())?;
-    let diff_ms = ms(start.elapsed());
+        let start = Instant::now();
+        detail = Some(
+            backend
+                .file_diff(&repo, &head, fixtures::DIFF_TARGET)
+                .await
+                .map_err(|e| e.to_string())?,
+        );
+        let diff_ms = ms(start.elapsed());
+        if is_measured_iteration(args, iteration) {
+            list_samples.push(list_ms);
+            diff_samples.push(diff_ms);
+        }
+    }
+    let detail = detail.expect("at least one repetition");
 
     let lines: usize = detail.hunks.iter().map(|hunk| hunk.lines.len()).sum();
     println!("changed_files={}", files.len());
     println!("diff_hunks={} diff_lines={lines}", detail.hunks.len());
-    println!("diff_list_ms={list_ms:.3}");
-    println!("file_diff_ms={diff_ms:.3}");
 
     record
         .count("changed_files", files.len() as u64)
         .count("diff_hunks", detail.hunks.len() as u64)
-        .count("diff_lines", lines as u64)
-        .ms("diff_list", list_ms)
-        .ms("file_diff", diff_ms);
-    if let Some(budget) = check_budget("file_diff", diff_ms, args.budget_diff_ms) {
+        .count("diff_lines", lines as u64);
+    report_distribution(record, "diff_list", &list_samples);
+    let diff_distribution = report_distribution(record, "file_diff", &diff_samples);
+    if let Some(budget) =
+        check_distribution_budget("file_diff", &diff_distribution, args.budget_diff_ms)
+    {
         record.budget(budget);
     }
     Ok(())
@@ -597,41 +670,52 @@ async fn measure_workspace_dashboard(
         registered.push(entry);
     }
 
-    let start = Instant::now();
-    for repo in &registered {
-        let status = backend
-            .status(&RepoPath::new(repo.path.clone()))
-            .await
-            .map_err(|e| e.to_string())?;
-        store
-            .upsert_repo_status(repo.id, &status)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    let live_refresh_ms = ms(start.elapsed());
+    let mut live_samples = Vec::with_capacity(args.repetitions);
+    let mut cached_samples = Vec::with_capacity(args.repetitions);
+    let mut dashboard = Vec::new();
+    for iteration in sample_iterations(args) {
+        let start = Instant::now();
+        for repo in &registered {
+            let status = backend
+                .status(&RepoPath::new(repo.path.clone()))
+                .await
+                .map_err(|e| e.to_string())?;
+            store
+                .upsert_repo_status(repo.id, &status)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let live_refresh_ms = ms(start.elapsed());
 
-    let start = Instant::now();
-    let dashboard = store
-        .list_workspace_status(workspace.id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let cached_dashboard_ms = ms(start.elapsed());
+        let start = Instant::now();
+        dashboard = store
+            .list_workspace_status(workspace.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let cached_dashboard_ms = ms(start.elapsed());
+        if is_measured_iteration(args, iteration) {
+            live_samples.push(live_refresh_ms);
+            cached_samples.push(cached_dashboard_ms);
+        }
+    }
 
     println!("workspace_repos={repos}");
     println!("dashboard_rows={}", dashboard.len());
-    println!("live_refresh_ms={live_refresh_ms:.3}");
-    println!("cached_dashboard_ms={cached_dashboard_ms:.3}");
 
     record
         .count("workspace_repos", repos as u64)
-        .count("dashboard_rows", dashboard.len() as u64)
-        .ms("live_refresh", live_refresh_ms)
-        .ms("cached_dashboard", cached_dashboard_ms);
+        .count("dashboard_rows", dashboard.len() as u64);
+    let live_distribution = report_distribution(record, "live_refresh", &live_samples);
+    let cached_distribution = report_distribution(record, "cached_dashboard", &cached_samples);
     for budget in [
-        check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms),
-        check_budget(
+        check_distribution_budget(
+            "live_refresh",
+            &live_distribution,
+            args.budget_live_refresh_ms,
+        ),
+        check_distribution_budget(
             "cached_dashboard",
-            cached_dashboard_ms,
+            &cached_distribution,
             args.budget_cached_dashboard_ms,
         ),
     ]
@@ -654,44 +738,51 @@ async fn measure_log(root: &Path, args: &Args, record: &mut Report) -> Result<()
         args.log_limit
     };
 
-    backend
-        .log(&repo, None, limit)
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut log_samples = Vec::with_capacity(args.repetitions);
+    let mut page_10_samples = Vec::with_capacity(args.repetitions);
+    let mut first_page = None;
+    let mut page_10 = None;
+    for iteration in sample_iterations(args) {
+        let start = Instant::now();
+        let current_first = backend
+            .log(&repo, None, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        let log_ms = ms(start.elapsed());
 
-    let start = Instant::now();
-    let first_page = backend
-        .log(&repo, None, limit)
-        .await
-        .map_err(|e| e.to_string())?;
-    let log_ms = ms(start.elapsed());
-
-    let mut cursor = first_page.next_cursor.clone();
-    for _ in 2..10 {
-        let page = backend
+        let mut cursor = current_first.next_cursor.clone();
+        for _ in 2..10 {
+            let page = backend
+                .log(&repo, cursor, limit)
+                .await
+                .map_err(|e| e.to_string())?;
+            cursor = page.next_cursor;
+        }
+        let page_10_start = Instant::now();
+        let current_page_10 = backend
             .log(&repo, cursor, limit)
             .await
             .map_err(|e| e.to_string())?;
-        cursor = page.next_cursor;
+        let page_10_ms = ms(page_10_start.elapsed());
+        if is_measured_iteration(args, iteration) {
+            log_samples.push(log_ms);
+            page_10_samples.push(page_10_ms);
+        }
+        first_page = Some(current_first);
+        page_10 = Some(current_page_10);
     }
-    let page_10_start = Instant::now();
-    let page_10 = backend
-        .log(&repo, cursor, limit)
-        .await
-        .map_err(|e| e.to_string())?;
-    let page_10_ms = ms(page_10_start.elapsed());
+    let first_page = first_page.expect("at least one repetition");
+    let page_10 = page_10.expect("at least one repetition");
 
     println!("log_commits={}", first_page.commits.len());
-    println!("log_ms={log_ms:.3}");
     println!("log_page_10_commits={}", page_10.commits.len());
-    println!("log_page_10_ms={page_10_ms:.3}");
 
     record
         .count("log_commits", first_page.commits.len() as u64)
-        .ms("log", log_ms)
-        .count("log_page_10_commits", page_10.commits.len() as u64)
-        .ms("log_page_10", page_10_ms);
-    if let Some(budget) = check_budget("log", log_ms, args.budget_log_ms) {
+        .count("log_page_10_commits", page_10.commits.len() as u64);
+    let log_distribution = report_distribution(record, "log", &log_samples);
+    report_distribution(record, "log_page_10", &page_10_samples);
+    if let Some(budget) = check_distribution_budget("log", &log_distribution, args.budget_log_ms) {
         record.budget(budget);
     }
     Ok(())
@@ -703,12 +794,18 @@ async fn measure_refs(root: &Path, args: &Args, record: &mut Report) -> Result<(
     let backend = LocalGitBackend::new();
     let repo = RepoPath::new(root.to_path_buf());
 
-    backend.branches(&repo).await.map_err(|e| e.to_string())?;
-
-    let start = Instant::now();
-    let branches = backend.branches(&repo).await.map_err(|e| e.to_string())?;
-    let tags = backend.tags(&repo).await.map_err(|e| e.to_string())?;
-    let refs_ms = ms(start.elapsed());
+    let mut samples = Vec::with_capacity(args.repetitions);
+    let mut branches = Vec::new();
+    let mut tags = Vec::new();
+    for iteration in sample_iterations(args) {
+        let start = Instant::now();
+        branches = backend.branches(&repo).await.map_err(|e| e.to_string())?;
+        tags = backend.tags(&repo).await.map_err(|e| e.to_string())?;
+        let refs_ms = ms(start.elapsed());
+        if is_measured_iteration(args, iteration) {
+            samples.push(refs_ms);
+        }
+    }
 
     let remote_branches = branches.iter().filter(|branch| branch.is_remote).count();
     println!(
@@ -717,14 +814,13 @@ async fn measure_refs(root: &Path, args: &Args, record: &mut Report) -> Result<(
         remote_branches,
         tags.len()
     );
-    println!("refs_ms={refs_ms:.3}");
 
     record
         .count("branches", branches.len() as u64)
         .count("remote_branches", remote_branches as u64)
-        .count("tags", tags.len() as u64)
-        .ms("refs", refs_ms);
-    if let Some(budget) = check_budget("refs", refs_ms, args.budget_refs_ms) {
+        .count("tags", tags.len() as u64);
+    let distribution = report_distribution(record, "refs", &samples);
+    if let Some(budget) = check_distribution_budget("refs", &distribution, args.budget_refs_ms) {
         record.budget(budget);
     }
     Ok(())
@@ -744,25 +840,29 @@ async fn measure_status(root: &Path, args: &Args, record: &mut Report) -> Result
     let backend = LocalGitBackend::new();
     let repo = RepoPath::new(root.to_path_buf());
 
-    // One untimed call first: the first `status` on a cold fixture pays for the
-    // OS reading the tree, which is a filesystem measurement, not Fjord's.
-    backend.status(&repo).await.map_err(|e| e.to_string())?;
-
-    let start = Instant::now();
-    let status = backend.status(&repo).await.map_err(|e| e.to_string())?;
-    let status_ms = ms(start.elapsed());
+    let mut samples = Vec::with_capacity(args.repetitions);
+    let mut status = None;
+    for iteration in sample_iterations(args) {
+        let start = Instant::now();
+        let current = backend.status(&repo).await.map_err(|e| e.to_string())?;
+        let status_ms = ms(start.elapsed());
+        if is_measured_iteration(args, iteration) {
+            samples.push(status_ms);
+        }
+        status = Some(current);
+    }
+    let status = status.expect("at least one repetition");
 
     println!(
         "branch={}",
         status.branch.unwrap_or_else(|| "(detached)".into())
     );
     println!("dirty_count={}", status.dirty_count);
-    println!("status_ms={status_ms:.3}");
 
-    record
-        .count("dirty_count", u64::from(status.dirty_count))
-        .ms("status", status_ms);
-    if let Some(budget) = check_budget("status", status_ms, args.budget_status_ms) {
+    record.count("dirty_count", u64::from(status.dirty_count));
+    let distribution = report_distribution(record, "status", &samples);
+    if let Some(budget) = check_distribution_budget("status", &distribution, args.budget_status_ms)
+    {
         record.budget(budget);
     }
     Ok(())
@@ -789,23 +889,38 @@ async fn main() -> Result<(), String> {
         generate_repo(&args.repo, args.commits, args.files)?;
     }
 
-    let open_start = Instant::now();
-    Repository::open(&args.repo).map_err(|e| e.message().to_string())?;
-    let open_elapsed = open_start.elapsed();
-
     let backend = LocalGitBackend::new();
     let repo = RepoPath::new(args.repo.clone());
+    let mut open_samples = Vec::with_capacity(args.repetitions);
+    let mut status_samples = Vec::with_capacity(args.repetitions);
+    let mut log_samples = Vec::with_capacity(args.repetitions);
+    let mut status = None;
+    let mut log = None;
+    for iteration in sample_iterations(&args) {
+        let start = Instant::now();
+        Repository::open(&args.repo).map_err(|e| e.message().to_string())?;
+        let open_ms = ms(start.elapsed());
 
-    let status_start = Instant::now();
-    let status = backend.status(&repo).await.map_err(|e| e.to_string())?;
-    let status_elapsed = status_start.elapsed();
+        let start = Instant::now();
+        status = Some(backend.status(&repo).await.map_err(|e| e.to_string())?);
+        let status_ms = ms(start.elapsed());
 
-    let log_start = Instant::now();
-    let log = backend
-        .log(&repo, None, args.log_limit)
-        .await
-        .map_err(|e| e.to_string())?;
-    let log_elapsed = log_start.elapsed();
+        let start = Instant::now();
+        log = Some(
+            backend
+                .log(&repo, None, args.log_limit)
+                .await
+                .map_err(|e| e.to_string())?,
+        );
+        let log_ms = ms(start.elapsed());
+        if is_measured_iteration(&args, iteration) {
+            open_samples.push(open_ms);
+            status_samples.push(status_ms);
+            log_samples.push(log_ms);
+        }
+    }
+    let status = status.expect("at least one repetition");
+    let log = log.expect("at least one repetition");
 
     println!("repo={}", args.repo.display());
     println!("generated={should_generate}");
@@ -819,13 +934,6 @@ async fn main() -> Result<(), String> {
     println!("dirty_count={}", status.dirty_count);
     println!("has_conflict={}", status.has_conflict);
     println!("log_commits={}", log.commits.len());
-    let open_ms = ms(open_elapsed);
-    let status_ms = ms(status_elapsed);
-    let log_ms = ms(log_elapsed);
-    println!("open_ms={open_ms:.3}");
-    println!("status_ms={status_ms:.3}");
-    println!("log_ms={log_ms:.3}");
-
     let mut record = Report::new(
         args.scenario.as_deref().unwrap_or("single-repo"),
         fixture.kind,
@@ -833,14 +941,16 @@ async fn main() -> Result<(), String> {
     );
     record
         .fixture_generated(should_generate)
+        .cache_state(args.cache_state)
+        .sampling(args.warmups, args.repetitions)
         .count("commits", args.commits as u64)
         .count("files", args.files as u64)
         .count("log_commits", log.commits.len() as u64)
-        .count("dirty_count", u64::from(status.dirty_count))
-        .ms("open", open_ms)
-        .ms("status", status_ms)
-        .ms("log", log_ms);
-    if let Some(budget) = check_budget("log", log_ms, args.budget_log_ms) {
+        .count("dirty_count", u64::from(status.dirty_count));
+    report_distribution(&mut record, "open", &open_samples);
+    report_distribution(&mut record, "status", &status_samples);
+    let log_distribution = report_distribution(&mut record, "log", &log_samples);
+    if let Some(budget) = check_distribution_budget("log", &log_distribution, args.budget_log_ms) {
         record.budget(budget);
     }
 
@@ -885,26 +995,6 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     }
     let generation_elapsed = generation_start.elapsed();
 
-    let live_refresh_start = Instant::now();
-    for repo in &repositories {
-        let status = backend
-            .status(&RepoPath::new(repo.path.clone()))
-            .await
-            .map_err(|e| e.to_string())?;
-        store
-            .upsert_repo_status(repo.id, &status)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    let live_refresh_elapsed = live_refresh_start.elapsed();
-
-    let cached_dashboard_start = Instant::now();
-    let dashboard = store
-        .list_workspace_status(workspace.id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let cached_dashboard_elapsed = cached_dashboard_start.elapsed();
-
     // Global search across every repo in the workspace (P4-13): a commit
     // query is the worst case — it forces a bounded `log` scan per repo.
     let remote_backend = Arc::new(SystemGitRemoteBackend::new());
@@ -916,12 +1006,44 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         Arc::new(SystemGitEnvironmentProvider::new()),
         Arc::new(NoopIdeLauncher),
     );
-    let search_start = Instant::now();
-    let search_hits = repo_service
-        .global_search(Some(workspace.id), "synthetic commit 1", 30)
-        .await
-        .map_err(|e| e.to_string())?;
-    let search_elapsed = search_start.elapsed();
+    let mut live_samples = Vec::with_capacity(args.repetitions);
+    let mut cached_samples = Vec::with_capacity(args.repetitions);
+    let mut search_samples = Vec::with_capacity(args.repetitions);
+    let mut dashboard = Vec::new();
+    let mut search_hits = Vec::new();
+    for iteration in sample_iterations(&args) {
+        let start = Instant::now();
+        for repo in &repositories {
+            let status = backend
+                .status(&RepoPath::new(repo.path.clone()))
+                .await
+                .map_err(|e| e.to_string())?;
+            store
+                .upsert_repo_status(repo.id, &status)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let live_ms = ms(start.elapsed());
+
+        let start = Instant::now();
+        dashboard = store
+            .list_workspace_status(workspace.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let cached_ms = ms(start.elapsed());
+
+        let start = Instant::now();
+        search_hits = repo_service
+            .global_search(Some(workspace.id), "synthetic commit 1", 30)
+            .await
+            .map_err(|e| e.to_string())?;
+        let search_ms = ms(start.elapsed());
+        if is_measured_iteration(&args, iteration) {
+            live_samples.push(live_ms);
+            cached_samples.push(cached_ms);
+            search_samples.push(search_ms);
+        }
+    }
 
     let need_attention = dashboard
         .iter()
@@ -947,14 +1069,8 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     println!("need_attention={need_attention}");
     println!("behind_origin={behind_origin}");
     let generation_ms = ms(generation_elapsed);
-    let live_refresh_ms = ms(live_refresh_elapsed);
-    let cached_dashboard_ms = ms(cached_dashboard_elapsed);
-    let search_ms = ms(search_elapsed);
     println!("generation_ms={generation_ms:.3}");
-    println!("live_refresh_ms={live_refresh_ms:.3}");
-    println!("cached_dashboard_ms={cached_dashboard_ms:.3}");
     println!("global_search_hits={}", search_hits.len());
-    println!("global_search_ms={search_ms:.3}");
 
     let mut record = Report::new(
         args.scenario.as_deref().unwrap_or("workspace"),
@@ -963,6 +1079,8 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     );
     record
         .fixture_generated(generated)
+        .cache_state(args.cache_state)
+        .sampling(args.warmups, args.repetitions)
         .count("workspace_repos", args.workspace_repos as u64)
         .count("commits_per_repo", args.commits as u64)
         .count("dashboard_rows", dashboard.len() as u64)
@@ -972,15 +1090,19 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         // Generation is not a product metric — it is recorded so a run that
         // spent an hour building a fixture is distinguishable from one that
         // reused it.
-        .ms("generation", generation_ms)
-        .ms("live_refresh", live_refresh_ms)
-        .ms("cached_dashboard", cached_dashboard_ms)
-        .ms("global_search", search_ms);
+        .ms("generation", generation_ms);
+    let live_distribution = report_distribution(&mut record, "live_refresh", &live_samples);
+    let cached_distribution = report_distribution(&mut record, "cached_dashboard", &cached_samples);
+    report_distribution(&mut record, "global_search", &search_samples);
     for budget in [
-        check_budget("live_refresh", live_refresh_ms, args.budget_live_refresh_ms),
-        check_budget(
+        check_distribution_budget(
+            "live_refresh",
+            &live_distribution,
+            args.budget_live_refresh_ms,
+        ),
+        check_distribution_budget(
             "cached_dashboard",
-            cached_dashboard_ms,
+            &cached_distribution,
             args.budget_cached_dashboard_ms,
         ),
     ]
@@ -991,4 +1113,23 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     }
 
     finish(&record, args.json.as_ref(), args.compare.as_deref())
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+
+    #[test]
+    fn budgets_compare_with_p95_not_the_maximum_or_a_single_sample() {
+        let mut samples = (1..=19).map(f64::from).collect::<Vec<_>>();
+        samples.push(100.0);
+        let distribution = Distribution::from_samples(&samples);
+
+        let result = check_distribution_budget("status", &distribution, Some(20.0)).unwrap();
+
+        assert_eq!(distribution.p95, 19.0);
+        assert_eq!(distribution.max, 100.0);
+        assert_eq!(result.actual_ms, distribution.p95);
+        assert!(result.ok, "the one max outlier is not the P95 gate");
+    }
 }
