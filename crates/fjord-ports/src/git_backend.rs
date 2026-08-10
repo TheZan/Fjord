@@ -148,7 +148,7 @@ pub enum GitExecutableResolution {
     Unavailable,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum GitError {
     #[error("repository not found at {0}")]
     RepoNotFound(PathBuf),

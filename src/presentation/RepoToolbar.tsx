@@ -44,7 +44,7 @@ export function RepoToolbar({
   onAction,
   onCancelOperation,
   onCreateBranch,
-  onOpenSearch,
+  utilities,
   onOpenInspector,
 }: {
   repo: RepositoryEntry;
@@ -56,7 +56,7 @@ export function RepoToolbar({
   onAction: (action: RepoAction) => void;
   onCancelOperation: () => void;
   onCreateBranch: (name: string) => void;
-  onOpenSearch: () => void;
+  utilities: ReactNode;
   onOpenInspector?: () => void;
 }) {
   const { t } = useTranslation("workspace");
@@ -179,7 +179,6 @@ export function RepoToolbar({
         </ToolGroup>
 
         <ToolGroup last>
-          <IconToolButton label={t("toolbar.search")} icon={<IconSearch />} onClick={onOpenSearch} />
           <IconToolButton
             label={t("repoActions.openIde")}
             icon={<IconIde />}
@@ -237,6 +236,7 @@ export function RepoToolbar({
             ]}
           />
         </ToolGroup>
+        {utilities}
       </header>
 
       {operationProgress ? (
@@ -433,15 +433,6 @@ function IconIde() {
       <path d="M15 3h6v6" />
       <path d="M10 14 21 3" />
       <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
-    </Svg>
-  );
-}
-
-function IconSearch() {
-  return (
-    <Svg>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
     </Svg>
   );
 }

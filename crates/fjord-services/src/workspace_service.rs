@@ -112,6 +112,27 @@ impl WorkspaceService {
         refresh_repo_status_once(self.store.as_ref(), self.git.as_ref(), repo_id).await
     }
 
+    /// Performs a live status read while preserving the cache-first dashboard
+    /// contract. The returned value is `Some` only when the semantic status
+    /// changed (timestamps alone never generate repository-change events).
+    pub async fn reconcile_repo_status(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<Option<RepoStatusSummary>, WorkspaceError> {
+        let repo = self.store.get_repository(repo_id).await?;
+        let previous = self
+            .store
+            .list_workspace_status(repo.workspace_id)
+            .await?
+            .into_iter()
+            .find(|summary| summary.repo_id == repo_id)
+            .map(|summary| summary.status);
+        let status = self.git.status(&RepoPath::new(repo.path)).await?;
+        let changed = previous.as_ref() != Some(&status);
+        let summary = self.store.upsert_repo_status(repo_id, &status).await?;
+        Ok(changed.then_some(summary))
+    }
+
     pub async fn invalidate_repo_status(
         &self,
         repo_id: RepositoryId,

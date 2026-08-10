@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { Input, Muted } from "@/presentation/ui";
@@ -20,6 +20,7 @@ export function AllReposView({
   onFilterChange,
   onSelect,
   onWarm,
+  utilities,
 }: {
   rows: { workspace: Workspace; repo: RepositoryEntry }[];
   statusByRepo: Record<string, RepoStatusSummary>;
@@ -28,6 +29,7 @@ export function AllReposView({
   onFilterChange: (value: string) => void;
   onSelect: (workspaceId: string, repoId: string) => void;
   onWarm?: (workspaceId: string, repoId: string) => void;
+  utilities: ReactNode;
 }) {
   const { t } = useTranslation("workspace");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -53,6 +55,7 @@ export function AllReposView({
           placeholder={t("allRepositories.filterPlaceholder")}
           className="w-64"
         />
+        {utilities}
       </header>
 
       {rows.length === 0 ? (

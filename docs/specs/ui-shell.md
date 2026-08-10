@@ -58,7 +58,7 @@ color-vision-deficient users and in high-contrast environments.
   arbitrary panel rearrangement is not offered.
 - Removing the command palette. It is refocused, not replaced.
 
-## Current state
+## Historical baseline (before Phase 7)
 
 | Element | State |
 |---|---|
@@ -73,15 +73,28 @@ color-vision-deficient users and in high-contrast environments.
 | Accessibility | Icon buttons carry `title`/`aria-label` ✅. Status tones (`--amber`, `--rust`) carry meaning without a redundant text or shape cue in metric tiles and cards. |
 | i18n | 5 locales shipped (`en`, `ru`, `de`, `es`, `fr`), 309 English keys, CI drift check ✅. |
 
+## Current state
+
+| Element | State |
+|---|---|
+| Sidebar | ✅ Resizable navigation/workspace tree with no working-shell branding or Settings entry; width, expansion, and selection persist through the versioned UI-state store. |
+| Global utilities | ✅ Reusable `ShellUtilities` owns exactly Search and Settings and is composed into the active screen header. The shortcut/palette and Settings dialog owners are unchanged. There is no dedicated utility row. |
+| RepoToolbar | ✅ Identity/state left; Fetch/Pull/Push/Branch center; IDE and overflow next; one separated `ShellUtilities` slot last. Stash/Pop/Terminal/Merge tool/compact Inspector live in overflow. No duplicate Search. |
+| Overview header | ✅ Four workspace actions (Fetch all, Pull all, Add repository, overflow), followed by the separated two-control utility slot; one compact filterable summary line replaces metric cards. |
+| All repositories header | ✅ Title/count, text filter, then the same two-control utility slot. |
+| Borders | ✅ `Surface`/`ScreenSurface` enforce one visual ownership level with hairline separators instead of nested bordered cards. |
+| Layout persistence | ✅ SQLite-backed versioned UI state owns sidebar/tree/inspector widths, collapsed workspaces, selection, diff/file modes, and Overview filters. |
+| Palette and shortcuts | ✅ Actions palette (`Ctrl/Cmd+K`), repository switcher (`Ctrl/Cmd+P`), scoped repository search (`Ctrl/Cmd+F`), Settings (`Ctrl/Cmd+,`), help, refresh, workspace selection, and Escape share one registry/listener. |
+| Accessibility and i18n | ✅ Screen axe scans and overlay focus tests pass; status uses text/glyph plus color; all shell strings are synchronized across five locales. |
+
 ## Proposed design
 
 ### 1. Information architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Sidebar (resizable)          │  Utility bar:            [⌕] [⚙]      │
-│                              ├───────────────────────────────────────┤
-│  Overview                    │                                       │
+│ Sidebar (resizable)          │  Screen header       actions │ [⌕][⚙]│
+│  Overview                    ├───────────────────────────────────────┤
 │  All repositories            │   Screen content                      │
 │                              │   (Overview | All repos | Repository) │
 │  WORKSPACES               +  │                                       │
@@ -95,22 +108,24 @@ color-vision-deficient users and in high-contrast environments.
 - The sidebar starts at navigation. The Fjord mark and wordmark move to
   onboarding, the About panel, and the OS-level app icon/window title — the
   places where identity is actually needed.
-- The **utility bar** is a fixed-height strip at the top-right of the content
-  area, present on every main screen, containing exactly Search and Settings.
-  It is not part of the sidebar and not part of any Git toolbar. Repository
-  screens render it in the same position, so Settings never moves.
-- Screen content owns everything below the utility bar.
+- **`ShellUtilities`** owns exactly Search and Settings. Each main screen places
+  that shared component at the trailing edge of its existing header, after a
+  hairline separator. It is not part of the sidebar and Search is not duplicated
+  by the repository toolbar.
+- The semantic owner, ARIA labels, callbacks, and shortcuts remain global while
+  the screen owns composition. This keeps the utilities in a stable top-right
+  area without spending a dedicated 44 px row on two icons.
 
-Why the top-right and not the sidebar bottom: the sidebar is the navigation tree
-and grows with workspaces; anchoring utilities to it makes their position depend
-on content length. A fixed strip is position-stable at every window size, which is
-what makes it learnable.
+Why the header and not the sidebar bottom: the sidebar is the navigation tree and
+grows with workspaces; anchoring utilities to it makes their position depend on
+content length. The trailing header slot stays visible on every main screen and
+preserves content-over-chrome.
 
 ### 2. RepoToolbar hierarchy
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ ← repo-name                    Fetch  Pull  Push  Branch      ⌕ IDE ⋯ │
+│ ← repo-name                    Fetch  Pull  Push  Branch   IDE ⋯ │ ⌕ ⚙│
 │   ⎇ main  ↑2 ↓1 ●3                                                    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -119,7 +134,7 @@ what makes it learnable.
 |---|---|---|
 | Left | Back, repository name, branch, ahead/behind/dirty state | Identity and state only — never an action that mutates the repository. |
 | Center | Fetch, Pull, Push, Branch | Primary weight. Capped at five items; adding a sixth requires demoting one. |
-| Right | Search, Open in IDE, overflow `⋯` | Utilities and everything rare. |
+| Right | Open in IDE, overflow `⋯`, then `ShellUtilities` (Search, Settings) after a separator | Repository tools remain distinct from application utilities. |
 
 The overflow menu holds: Stash, Stash pop, Open terminal, Open merge tool,
 Inspector toggle (compact layouts), and later additions from Phases 8–10.
@@ -249,11 +264,13 @@ Implementation contract:
 
 ## Alternatives considered
 
-**Utility bar position: top-right strip vs. sidebar footer vs. per-screen
-headers.** A sidebar footer is out of the way but competes with the workspace
-list for the same scroll container and is easy to miss on a tall window.
-Per-screen headers were the status quo and produced exactly the inconsistency
-this spec removes. The fixed strip is chosen for position stability.
+**Utility placement: dedicated strip vs. sidebar footer vs. shared component in
+screen headers.** A sidebar footer competes with the workspace list and makes
+Settings look navigation-scoped. The first Phase 7 implementation chose a fixed
+44 px strip for position stability, but repository screens then showed the same
+Search action twice and every screen paid the vertical cost. `P7-FIX-04` keeps one
+semantic `ShellUtilities` owner and composes it into each header. This retains a
+stable top-right location while eliminating the duplicate and wasted row.
 
 **Settings: dialog vs. dedicated screen.** The current dialog
 (`SettingsDialog.tsx`, 570 lines) already carries Git diagnostics and will grow
@@ -280,7 +297,7 @@ owner.
 
 ## Performance considerations
 
-- The utility bar and toolbar are static structure; they must not subscribe to
+- `ShellUtilities` and the toolbar are static structure; they must not subscribe to
   repository queries. Counters in the left zone read the already-subscribed status
   query, not a new one.
 - Persisted UI state is read once at startup, from the same bootstrap round trip
@@ -308,7 +325,7 @@ owner.
 | Level | Coverage |
 |---|---|
 | Unit | Shortcut registry: scope resolution, duplicate detection, layout-independent matching, input-field suppression. UI-state patch merge and version rejection. |
-| Frontend/component | Sidebar renders without branding and starts at navigation; utility bar present on all three screens; toolbar zones render the specified actions and overflow contains the rest; summary line omits zero segments; disabled actions expose a reason. |
+| Frontend/component | Sidebar renders without branding and starts at navigation; the shared utility slot is present in all three headers with exactly one Search and one Settings; toolbar zones render the specified actions without duplicate Search and overflow contains the rest; summary line omits zero segments; disabled actions expose a reason. |
 | Integration | `get_ui_state`/`update_ui_state` round-trip through the store; a removed workspace in a restored selection falls back cleanly. |
 | E2E | Restart restores sidebar width, pane widths, collapsed workspaces, and the last selected repository. `Ctrl/Cmd+K` and `Ctrl/Cmd+P` open their respective surfaces and contain the expected item kinds. |
 | Accessibility | Automated axe pass on each screen; a manual check that dirty/ahead/behind/conflict remain distinguishable in a grayscale screenshot. |
@@ -319,15 +336,16 @@ owner.
 1. No Fjord logo or wordmark appears anywhere in the working shell; both remain in
    onboarding and About, and the app title remains in the OS window title.
 2. The sidebar's first interactive element is a navigation item.
-3. Search and Settings are reachable from the same screen position on the
-   Overview, All repositories, and Repository screens; Settings is not present in
-   the sidebar.
+3. Exactly one Search and one Settings control appear in the trailing utility
+   slot of the Overview, All repositories, and Repository headers; Settings is
+   not present in the sidebar, and their registered shortcuts remain available.
 4. The repository toolbar center zone contains at most five actions, all of which
    are Fetch, Pull, Push, Branch, or a documented successor; Stash, Stash pop,
    Terminal, and Merge tool are reachable only from the overflow menu, except when
    an operation-state banner promotes one.
-5. The Overview header contains at most four controls, one of which is an
-   overflow menu.
+5. The Overview header contains at most four workspace controls, one of which is
+   an overflow menu, plus the two globally-owned utility controls after a visual
+   separator.
 6. The Overview summary line renders as a single text line, omits zero-valued
    segments, and its "needs attention" and "behind" segments filter the repository
    list.

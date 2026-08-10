@@ -43,7 +43,7 @@ import {
   useInteractionCommit,
 } from "@/presentation/performance";
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
-import { MainShell } from "@/presentation/MainShell";
+import { MainShell, ShellUtilities } from "@/presentation/MainShell";
 import { ResizableSidebar } from "@/presentation/ResizableSidebar";
 import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
 import { Sidebar } from "@/presentation/Sidebar";
@@ -465,12 +465,7 @@ export function App() {
         />
       </ResizableSidebar>
 
-      <MainShell
-        searchLabel={tw("toolbar.search")}
-        settingsLabel={tw("settings.title")}
-        onOpenSearch={openPalette}
-        onOpenSettings={() => setSettingsOpen(true)}
-      >
+      <MainShell>
         {(error || bulkActionNotice) && (
           <div
             role={error ? "alert" : "status"}
@@ -503,7 +498,14 @@ export function App() {
               setSelectedRepoId(null);
               setRepoDetailCommand(null);
             }}
-            onOpenSearch={openPalette}
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            }
           />
         ) : view === "overview" ? (
           <OverviewView
@@ -526,6 +528,14 @@ export function App() {
             }
             onWarmRepo={queueRepositoryWarm}
             onRemoveRepo={(repoId) => void removeRepository(repoId)}
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            }
           />
         ) : (
           <AllReposView
@@ -536,6 +546,14 @@ export function App() {
             onFilterChange={setRepoFilter}
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
             onWarm={(_workspaceId, repoId) => queueRepositoryWarm(repoId)}
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            }
           />
         )}
         </ErrorBoundary>

@@ -6,12 +6,43 @@ use fjord_domain::{RepositoryEntry, RepositoryId, WorkspaceId};
 pub(crate) const DEFAULT_MAX_HOT: usize = 3;
 pub(crate) const DEFAULT_MAX_WARM: usize = 32;
 pub(crate) const DEFAULT_HOT_IDLE: Duration = Duration::from_secs(5 * 60);
+pub(crate) const COLD_RECONCILIATION_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) const MAX_COLD_RECONCILIATION_CONCURRENCY: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RepositoryTier {
     Hot,
     Warm,
     Cold,
+}
+
+#[derive(Default)]
+pub(crate) struct ColdReconciliationCursor {
+    next: usize,
+}
+
+impl ColdReconciliationCursor {
+    /// Returns at most one cold repository per scheduler tick. Keeping this
+    /// selection synchronous and singular makes the idle-work bound explicit;
+    /// active repositories are promoted out of this queue by the tier policy.
+    pub(crate) fn next(
+        &mut self,
+        repositories: &[RepositoryEntry],
+        tiers: &HashMap<RepositoryId, RepositoryTier>,
+    ) -> Option<RepositoryEntry> {
+        debug_assert_eq!(MAX_COLD_RECONCILIATION_CONCURRENCY, 1);
+        let cold = repositories
+            .iter()
+            .filter(|repository| tiers.get(&repository.id) == Some(&RepositoryTier::Cold))
+            .collect::<Vec<_>>();
+        if cold.is_empty() {
+            self.next = 0;
+            return None;
+        }
+        let repository = cold[self.next % cold.len()].clone();
+        self.next = (self.next + 1) % cold.len();
+        Some(repository)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -208,6 +239,38 @@ mod tests {
         );
         assert_eq!(count(&tiers, RepositoryTier::Warm), 32);
         assert_eq!(count(&tiers, RepositoryTier::Cold), 12);
+    }
+
+    #[test]
+    fn cold_reconciliation_is_round_robin_bounded_and_skips_active_work() {
+        let workspace = WorkspaceId(Uuid::from_u128(500));
+        let repositories = (0..35)
+            .map(|index| repository(workspace, index))
+            .collect::<Vec<_>>();
+        let active = repositories[34].id;
+        let now = Instant::now();
+        let mut policy = RepositoryTierPolicy::new(TierConfig {
+            max_hot: 1,
+            max_warm: 32,
+            hot_idle: Duration::from_secs(60),
+        });
+        policy.activate(Some(workspace), Some(active), now);
+        let tiers = policy.tiers(&repositories, now);
+        let cold_ids = tiers
+            .iter()
+            .filter_map(|(id, tier)| (*tier == RepositoryTier::Cold).then_some(*id))
+            .collect::<HashSet<_>>();
+        let mut cursor = ColdReconciliationCursor::default();
+
+        let first = cursor.next(&repositories, &tiers).unwrap();
+        let second = cursor.next(&repositories, &tiers).unwrap();
+
+        assert_ne!(first.id, second.id);
+        assert!(cold_ids.contains(&first.id));
+        assert!(cold_ids.contains(&second.id));
+        assert_ne!(first.id, active);
+        assert_ne!(second.id, active);
+        assert_eq!(MAX_COLD_RECONCILIATION_CONCURRENCY, 1);
     }
 
     fn count(tiers: &HashMap<RepositoryId, RepositoryTier>, tier: RepositoryTier) -> usize {

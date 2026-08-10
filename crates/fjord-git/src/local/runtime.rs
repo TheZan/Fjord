@@ -62,15 +62,20 @@ impl RepositoryRuntime {
 
 struct Entry {
     runtime: Option<Arc<RepositoryRuntime>>,
-    failed_until: Option<Instant>,
+    failed: Option<CachedFailure>,
     generations: Arc<GenerationClock>,
+}
+
+struct CachedFailure {
+    until: Instant,
+    error: GitError,
 }
 
 impl Entry {
     fn cold() -> Self {
         Self {
             runtime: None,
-            failed_until: None,
+            failed: None,
             generations: Arc::new(GenerationClock::default()),
         }
     }
@@ -116,13 +121,14 @@ impl RepositoryRuntimeRegistry {
         {
             return Ok(runtime.clone());
         }
-        if state
+        if let Some(error) = state
             .entries
             .get(&key)
-            .and_then(|entry| entry.failed_until)
-            .is_some_and(|until| until > Instant::now())
+            .and_then(|entry| entry.failed.as_ref())
+            .filter(|failure| failure.until > Instant::now())
+            .map(|failure| failure.error.clone())
         {
-            return Err(GitError::NotAGitRepository(repo.0.clone()));
+            return Err(error);
         }
         let generations = state
             .entries
@@ -140,7 +146,7 @@ impl RepositoryRuntimeRegistry {
                     .as_ref()
                     .is_none_or(|resident| resident.contains(&key));
                 let entry = state.entries.get_mut(&key).expect("entry was inserted");
-                entry.failed_until = None;
+                entry.failed = None;
                 if retain {
                     entry.runtime = Some(runtime.clone());
                 }
@@ -149,7 +155,10 @@ impl RepositoryRuntimeRegistry {
             Err(error) => {
                 let entry = state.entries.get_mut(&key).expect("entry was inserted");
                 entry.runtime = None;
-                entry.failed_until = Some(Instant::now() + self.negative_ttl);
+                entry.failed = Some(CachedFailure {
+                    until: Instant::now() + self.negative_ttl,
+                    error: error.clone(),
+                });
                 Err(error)
             }
         }
@@ -314,6 +323,53 @@ mod tests {
     }
 
     #[test]
+    fn negative_cache_preserves_not_a_repository_error() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let missing = RepoPath::new(directory.path().join("missing"));
+        let registry = RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL);
+
+        let first = registry.resolve(&missing).err().unwrap();
+        let second = registry.resolve(&missing).err().unwrap();
+
+        assert!(matches!(first, GitError::NotAGitRepository(_)));
+        assert!(matches!(second, GitError::NotAGitRepository(_)));
+        assert_eq!(first.to_string(), second.to_string());
+    }
+
+    #[test]
+    fn negative_cache_preserves_normalized_open_error_semantics() {
+        let cases = [
+            GitError::RepositoryOwnership("dubious ownership".to_string()),
+            GitError::Gix("permission denied".to_string()),
+        ];
+
+        for expected in cases {
+            let directory = tempfile::TempDir::new().unwrap();
+            let repo = RepoPath::new(directory.path().join("repository"));
+            let registry = RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL);
+            let key = canonical_key(&repo.0);
+            registry.state.lock().unwrap().entries.insert(
+                key,
+                Entry {
+                    runtime: None,
+                    failed: Some(CachedFailure {
+                        until: Instant::now() + NEGATIVE_CACHE_TTL,
+                        error: expected.clone(),
+                    }),
+                    generations: Arc::new(GenerationClock::default()),
+                },
+            );
+
+            let cached = registry.resolve(&repo).err().unwrap();
+            assert_eq!(cached.to_string(), expected.to_string());
+            assert_eq!(
+                std::mem::discriminant(&cached),
+                std::mem::discriminant(&expected)
+            );
+        }
+    }
+
+    #[test]
     fn canonical_path_aliases_resolve_to_one_runtime() {
         let directory = tempfile::TempDir::new().unwrap();
         git2::Repository::init(directory.path()).unwrap();
@@ -425,5 +481,69 @@ mod tests {
                 ..GenerationSet::default()
             }
         );
+    }
+
+    /// Focused diagnostic for P7-PERF-01. It is ignored because timings are
+    /// machine-specific; run with `cargo test --release -p fjord-git
+    /// cold_concurrent_open_profile -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "manual runtime-registry contention profile"]
+    fn cold_concurrent_open_profile() {
+        let root = tempfile::TempDir::new().unwrap();
+        let repositories = (0..32)
+            .map(|index| {
+                let path = root.path().join(format!("repository-{index}"));
+                git2::Repository::init(&path).unwrap();
+                RepoPath::new(path)
+            })
+            .collect::<Vec<_>>();
+
+        for count in [1, 8, 32] {
+            let selected = &repositories[..count];
+            let mut sequential = Vec::new();
+            let mut concurrent = Vec::new();
+            for iteration in 0..7 {
+                if iteration % 2 == 0 {
+                    sequential.push(measure_cold_opens(selected, false));
+                    concurrent.push(measure_cold_opens(selected, true));
+                } else {
+                    concurrent.push(measure_cold_opens(selected, true));
+                    sequential.push(measure_cold_opens(selected, false));
+                }
+            }
+            sequential.sort();
+            concurrent.sort();
+            let sequential = sequential[sequential.len() / 2];
+            let concurrent = concurrent[concurrent.len() / 2];
+            eprintln!(
+                "runtime_open count={count} sequential_median_ms={:.3} concurrent_median_ms={:.3}",
+                sequential.as_secs_f64() * 1_000.0,
+                concurrent.as_secs_f64() * 1_000.0,
+            );
+        }
+    }
+
+    fn measure_cold_opens(repositories: &[RepoPath], concurrent: bool) -> Duration {
+        let registry = RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL);
+        let started = Instant::now();
+        if concurrent {
+            std::thread::scope(|scope| {
+                for repository in repositories {
+                    let registry = &registry;
+                    scope.spawn(move || {
+                        registry
+                            .resolve(repository)
+                            .expect("fixture repository opens");
+                    });
+                }
+            });
+        } else {
+            for repository in repositories {
+                registry
+                    .resolve(repository)
+                    .expect("fixture repository opens");
+            }
+        }
+        started.elapsed()
     }
 }

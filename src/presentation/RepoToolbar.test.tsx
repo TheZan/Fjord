@@ -41,7 +41,7 @@ function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}
     onAction: vi.fn(),
     onCancelOperation: vi.fn(),
     onCreateBranch: vi.fn(),
-    onOpenSearch: vi.fn(),
+    utilities: <button type="button">shell search</button>,
     onOpenInspector: vi.fn(),
     ...overrides,
   };
@@ -66,9 +66,8 @@ describe("RepoToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
     expect(screen.getByRole("menuitem", { name: "toolbar.terminal" })).toBeEnabled();
     fireEvent.click(screen.getByRole("menuitem", { name: "toolbar.terminal" }));
-    fireEvent.click(screen.getByRole("button", { name: "toolbar.search" }));
+    fireEvent.click(screen.getByRole("button", { name: "shell search" }));
     expect(toolbarProps.onAction).toHaveBeenCalledWith("terminal");
-    expect(toolbarProps.onOpenSearch).toHaveBeenCalledOnce();
   });
 
   it("enforces stash availability and dispatches enabled actions", () => {
@@ -98,12 +97,14 @@ describe("RepoToolbar", () => {
   it("keeps primary and utility actions visible while rare actions live in overflow", () => {
     render(<RepoToolbar {...props()} />);
 
+    expect(screen.getByRole("button", { name: "shell search" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "toolbar.search" })).not.toBeInTheDocument();
+
     for (const name of ["repoActions.fetch", "repoActions.pull", "repoActions.push", "toolbar.branch"]) {
       const button = screen.getByRole("button", { name });
       expect(button).toBeVisible();
       expect(button.querySelector("svg")).toBeInTheDocument();
     }
-    expect(screen.getByRole("button", { name: "toolbar.search" })).toBeVisible();
     expect(screen.getByRole("button", { name: "repoActions.openIde" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "toolbar.stash" })).not.toBeInTheDocument();
 

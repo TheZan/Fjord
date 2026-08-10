@@ -21,7 +21,9 @@ use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
 use crate::ide_launcher::SystemIdeLauncher;
 use crate::interaction_traces::InteractionTraceCollector;
 use crate::operations::OperationRegistry;
-use crate::repository_tiers::{RepositoryTier, RepositoryTierPolicy};
+use crate::repository_tiers::{
+    ColdReconciliationCursor, RepositoryTier, RepositoryTierPolicy, COLD_RECONCILIATION_INTERVAL,
+};
 
 pub const REPOSITORY_CHANGED_EVENT: &str = "fjord-repository-changed";
 
@@ -82,6 +84,8 @@ pub struct AppState {
     snapshot_tasks: Arc<Mutex<HashMap<RepositoryId, JoinHandle<()>>>>,
     repository_tiers: Arc<Mutex<RepositoryTierPolicy>>,
     tier_demotion_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    cold_reconciliation_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    cold_reconciliation_cursor: Arc<Mutex<ColdReconciliationCursor>>,
     startup_activated: tokio::sync::Mutex<bool>,
 }
 
@@ -175,6 +179,8 @@ pub async fn bootstrap(
         snapshot_tasks: Arc::new(Mutex::new(HashMap::new())),
         repository_tiers: Arc::new(Mutex::new(RepositoryTierPolicy::default())),
         tier_demotion_task: Arc::new(Mutex::new(None)),
+        cold_reconciliation_task: Arc::new(Mutex::new(None)),
+        cold_reconciliation_cursor: Arc::new(Mutex::new(ColdReconciliationCursor::default())),
         startup_activated: tokio::sync::Mutex::new(false),
     };
 
@@ -194,6 +200,7 @@ impl AppState {
         self.repos.refresh_git_executable().await;
         let repositories = self.workspaces.list_all_repositories().await?;
         self.sync_repository_tiers(&repositories);
+        self.start_cold_reconciliation();
         *activated = true;
         Ok(())
     }
@@ -293,14 +300,12 @@ impl AppState {
         }
 
         for repository in repositories {
-            let scope = match tiers
-                .get(&repository.id)
-                .copied()
-                .unwrap_or(RepositoryTier::Cold)
-            {
-                RepositoryTier::Hot | RepositoryTier::Warm => RepositoryWatchScope::WorkingTree,
-                RepositoryTier::Cold => RepositoryWatchScope::GitMetadata,
-            };
+            let scope = watch_scope_for_tier(
+                tiers
+                    .get(&repository.id)
+                    .copied()
+                    .unwrap_or(RepositoryTier::Cold),
+            );
             self.watch_repository_status(repository.clone(), scope);
         }
     }
@@ -319,6 +324,70 @@ impl AppState {
                 tracing::warn!(error = %error, "failed to apply idle repository demotion");
             }
         }));
+    }
+
+    fn start_cold_reconciliation(&self) {
+        let mut task = self.cold_reconciliation_task.lock().unwrap();
+        if task.is_some() {
+            return;
+        }
+        let app_handle = self.app_handle.clone();
+        *task = Some(tauri::async_runtime::spawn(async move {
+            let mut interval = tokio::time::interval(COLD_RECONCILIATION_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            // `interval` ticks immediately; startup already schedules cache
+            // refreshes, so defer cold idle work until the first real period.
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let state = app_handle.state::<AppState>();
+                if let Err(error) = state.reconcile_next_cold_repository().await {
+                    tracing::warn!(error = %error, "failed to reconcile cold repository status");
+                }
+            }
+        }));
+    }
+
+    async fn reconcile_next_cold_repository(&self) -> Result<(), WorkspaceError> {
+        let repositories = self.workspaces.list_all_repositories().await?;
+        let tiers = self
+            .repository_tiers
+            .lock()
+            .unwrap()
+            .tiers(&repositories, Instant::now());
+        let repository = self
+            .cold_reconciliation_cursor
+            .lock()
+            .unwrap()
+            .next(&repositories, &tiers);
+        let Some(repository) = repository else {
+            return Ok(());
+        };
+
+        let Some(status_summary) = self.workspaces.reconcile_repo_status(repository.id).await?
+        else {
+            return Ok(());
+        };
+
+        let changes = RepoChangeSet {
+            status: true,
+            working: true,
+            ..RepoChangeSet::default()
+        };
+        let repo_path = fjord_ports::RepoPath::new(repository.path);
+        fjord_git::record_repository_changes(&repo_path, changes);
+        let generations = fjord_git::repository_generations(&repo_path).unwrap_or_default();
+        if let Err(error) = self.app_handle.emit(
+            REPOSITORY_CHANGED_EVENT,
+            RepositoryChangedEvent::new(repository.id, changes, generations, Some(status_summary)),
+        ) {
+            tracing::warn!(repo_id = %repository.id.0, error = %error, "failed to emit cold repository reconciliation event");
+        }
+
+        if let Err(error) = self.repos.capture_repository_snapshot(repository.id).await {
+            tracing::warn!(repo_id = %repository.id.0, error = %error, "failed to capture reconciled cold repository snapshot");
+        }
+        Ok(())
     }
 
     fn watch_repository_status(&self, repo: RepositoryEntry, scope: RepositoryWatchScope) {
@@ -402,6 +471,13 @@ impl AppState {
     }
 }
 
+fn watch_scope_for_tier(tier: RepositoryTier) -> RepositoryWatchScope {
+    match tier {
+        RepositoryTier::Hot | RepositoryTier::Warm => RepositoryWatchScope::WorkingTree,
+        RepositoryTier::Cold => RepositoryWatchScope::GitMetadata,
+    }
+}
+
 fn resolve_askpass_executable(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     let file_name = if cfg!(windows) {
         "fjord-askpass.exe"
@@ -423,4 +499,101 @@ fn resolve_askpass_executable(app_handle: &tauri::AppHandle) -> Option<PathBuf> 
         candidates.push(resource_directory.join(file_name));
     }
     candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repository_tiers::{ColdReconciliationCursor, TierConfig};
+    use git2::{Repository, Signature};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn cold_repository_worktree_edit_is_found_by_bounded_reconciliation() {
+        let root = tempfile::TempDir::new().unwrap();
+        let services = compose_services(&root.path().join("app-data"))
+            .await
+            .unwrap();
+        let workspace = services
+            .workspaces
+            .create_workspace("Large workspace")
+            .await
+            .unwrap();
+        let mut repositories = Vec::new();
+
+        for index in 0..33 {
+            let path = root.path().join(format!("repo-{index}"));
+            initialize_repository(&path);
+            let entry = services
+                .workspaces
+                .add_repository(workspace.id, path)
+                .await
+                .unwrap();
+            repositories.push(entry);
+        }
+
+        let mut policy = RepositoryTierPolicy::new(TierConfig {
+            max_hot: 1,
+            max_warm: 32,
+            hot_idle: Duration::from_secs(60),
+        });
+        policy.activate(Some(workspace.id), None, Instant::now());
+        let tiers = policy.tiers(&repositories, Instant::now());
+        let cold = repositories
+            .iter()
+            .find(|repository| tiers.get(&repository.id) == Some(&RepositoryTier::Cold))
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            watch_scope_for_tier(RepositoryTier::Cold),
+            RepositoryWatchScope::GitMetadata
+        );
+        services
+            .workspaces
+            .refresh_repo_status(cold.id)
+            .await
+            .unwrap();
+        std::fs::write(cold.path.join("tracked.txt"), "externally modified\n").unwrap();
+
+        let scheduled = ColdReconciliationCursor::default()
+            .next(&repositories, &tiers)
+            .unwrap();
+        assert_eq!(
+            scheduled.id, cold.id,
+            "one cold repository is selected per tick"
+        );
+        let changed = services
+            .workspaces
+            .reconcile_repo_status(scheduled.id)
+            .await
+            .unwrap()
+            .expect("external tracked-file edit must change cached status");
+
+        assert_eq!(changed.status.dirty_count, 1);
+        assert!(
+            services
+                .workspaces
+                .reconcile_repo_status(cold.id)
+                .await
+                .unwrap()
+                .is_none(),
+            "unchanged reconciliation must not emit another update"
+        );
+    }
+
+    fn initialize_repository(path: &Path) {
+        std::fs::create_dir_all(path).unwrap();
+        let repository = Repository::init(path).unwrap();
+        std::fs::write(path.join("tracked.txt"), "clean\n").unwrap();
+        let mut index = repository.index().unwrap();
+        index.add_path(Path::new("tracked.txt")).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repository.find_tree(tree_id).unwrap();
+        let signature = Signature::now("Fjord", "fjord@example.com").unwrap();
+        repository
+            .commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
+            .unwrap();
+    }
 }

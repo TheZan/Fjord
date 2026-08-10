@@ -20,6 +20,7 @@ describe("AllReposView", () => {
         filter=""
         onFilterChange={vi.fn()}
         onSelect={vi.fn()}
+        utilities={<div data-testid="shell-utilities" />}
       />,
     );
     expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
@@ -36,6 +37,7 @@ describe("AllReposView", () => {
         filter=""
         onFilterChange={onFilterChange}
         onSelect={vi.fn()}
+        utilities={<div data-testid="shell-utilities" />}
       />,
     );
 

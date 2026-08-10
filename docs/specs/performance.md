@@ -64,7 +64,7 @@ and on subjective impressions. Three concrete consequences:
 | Area | State |
 |---|---|
 | Backend caching | ⚠️ Only `repo_status_cache` (dashboard summary). Every other read is live. |
-| Repository handles | ✅ Canonical-path `RepositoryRuntime` reuses gix/git2 handles for Hot/Warm repositories. Cold reads use ephemeral handles; generation clocks survive eviction. |
+| Repository handles | ✅ Canonical-path `RepositoryRuntime` reuses gix/git2 handles for Hot/Warm repositories. Cold reads use ephemeral handles; generation clocks survive eviction. Negative open-cache entries preserve the original typed `GitError` for their five-second TTL (`P7-FIX-03`). |
 | Invalidation | ✅ Filesystem and mutation changes advance per-domain generation clocks which cross IPC with every repository read. |
 | Frontend caching | ✅ TanStack Query with `staleTime: Infinity` and 30 min `gcTime` (`src/application/repositoryQueryPolicy.ts`); explicit invalidation from watcher events. Lost on reload; not persisted. |
 | Prefetch | ✅ `warmRepositoryData` prefetches status/branches/tags/first commit page/working changes on hover (80 ms debounce) and on selection (`src/presentation/App.tsx`). |
@@ -75,8 +75,8 @@ and on subjective impressions. Three concrete consequences:
 | Diff transport | ✅ `get_file_diff` is windowed (1000 frontend / 2000 backend maximum lines), responses are capped at 2 MB, and files above 10 MB return content-free metadata. Packed `diff-giant` first response: P95 **34.592 ms**, 184 bytes, versus 611 ms and 2 694 458 `DiffLine` values before P6-16. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
 | Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`), defaults to 3 warmups + 20 repetitions with P50/P95/max and P95 budgets (`P6-22`), and refuses to compare runs from different platforms, cache states, or sampling settings (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
-| History read | ⚠️ The first 30-commit page on a packed 500k-commit repository measures **3639 ms**; Git answers the same request in 33 ms. `Sort::TOPOLOGICAL` under libgit2 buffers the whole reachable history — see `P6-21`. |
-| Idle cost | ⚠️ Watchers are tiered: Hot/Warm use recursive working-tree watches, Cold uses `.git`-only watches and no retained Git handles (`P6-17`). The `ws-100` backend floor is 0.389% CPU / 24.000 MiB RSS; full-process confirmation is P11-02. |
+| History read | ✅ `P6-21` replaced libgit2's globally buffered topological walk with a bounded, commit-graph-aware gix walk. **Historical baseline before P6-21:** 3639 ms for the first 30 commits at 500k. **Current:** 7.733 ms at 500k and 7.111 ms at 1M; page 10 is 4.840/3.592 ms. |
+| Idle cost | ⚠️ Watchers are tiered: Hot/Warm use recursive working-tree watches, Cold uses `.git`-only watches and no retained Git handles (`P6-17`). `P7-FIX-02` adds a single-concurrency round-robin status reconciliation (one Cold repository every five seconds), so external worktree edits cannot leave a clean dashboard stale indefinitely. The `ws-100` backend floor before this low-rate reconciliation was 0.389% CPU / 24.000 MiB RSS; full-process confirmation and remeasurement are P11-02. |
 
 ## Proposed design
 
@@ -401,9 +401,16 @@ runs can override them with `FJORD_MAX_HOT_REPOSITORIES` and
 generation clocks and the persisted snapshot. A Cold read uses an ephemeral
 runtime and closes it when the operation ends.
 
-The cold-tier `.git`-only watch is the mechanism that makes `ws-100` viable: a
-recursive working-tree watch over 100 repositories is what SLO-13 and SLO-14 are
-most at risk from, and it buys nothing for a repository the user is not looking at.
+The cold-tier `.git`-only watch keeps `ws-100` viable, but it cannot observe an
+external edit to an ordinary tracked file. A low-priority round-robin reconciler
+therefore performs one live status read every five seconds, selecting only Cold
+repositories and never running more than one reconciliation concurrently. It
+advances the working generation, updates the dashboard summary, emits the normal
+repository-change event, and captures a snapshot only when semantic status
+actually changed. Promotion removes the active repository from the queue before
+the next tick, so interactive work remains Hot and watcher-driven. With 65 Cold
+repositories the worst-case detection interval is bounded at about 325 seconds,
+without restoring 65 recursive working-tree watches.
 
 ### 8. Startup fast path
 
@@ -539,7 +546,7 @@ Every mechanism here is itself on a hot path and is budgeted:
 | Level | Coverage |
 |---|---|
 | Unit (Rust) | Generation bump rules per mutation; compare-and-swap on stale cache writes; tier promotion/demotion; snapshot serialization round-trip and version rejection; diff window arithmetic and ceilings. |
-| Integration (Rust) | Runtime reuse across repeated reads (assert one open, N reads); watcher event → correct generations only; eviction releases handles (rename the working tree afterwards); snapshot revalidation detects an out-of-band change made by a plain `git` command. |
+| Integration (Rust) | Runtime reuse across repeated reads (assert one open, N reads); watcher event → correct generations only; eviction releases handles (rename the working tree afterwards); snapshot revalidation detects an out-of-band change made by a plain `git` command; a >32-repository workspace detects an external tracked-file edit through bounded Cold reconciliation while retaining `.git`-only watch scope. |
 | Frontend/component | Snapshot-first render shows stale marker and clears it on validation; mutating actions disabled while unvalidated; diff windowing requests the next window on scroll and stops at `truncated`. |
 | E2E | Scripted interaction driver measures SLO-1–SLO-5 and SLO-9–SLO-12 against the fixture catalogue and emits traces. |
 | OS-specific / manual | `win-fs` scenario on Windows; idle CPU and memory sampling on all three OSes; handle-release check on Windows. |
@@ -575,8 +582,10 @@ Every mechanism here is itself on a hot path and is budgeted:
     within SLO-10 and never a response above the serialized ceiling; the file above
     the size limit returns `too_large` with counts and no content.
 11. At `ws-100` idle, exactly the hot and warm tiers hold recursive watches; cold
-    repositories hold `.git`-only watches, verified by a runtime assertion in the
-    harness.
+    repositories hold `.git`-only watches and are reconciled one at a time on a
+    bounded round-robin schedule, verified by runtime tests.
 12. The scheduled benchmark workflow publishes a JSON result set and a delta
-    against the previous baseline for every scenario; gated scenarios fail the run
-    when above budget.
+    against the previous baseline for every configured workflow scenario. It
+    currently configures the legacy `log-first-page` and `workspace-render`
+    scenarios; the broader torture catalogue remains on-demand. Gated scenarios
+    fail only after `P6-20` promotes a stable report-only baseline.

@@ -79,6 +79,7 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
     onWarmRepo: vi.fn(),
     onRemoveRepo: vi.fn(),
     importPending: false,
+    utilities: <div data-testid="shell-utilities" />,
     ...overrides,
   };
 }

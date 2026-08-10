@@ -2,6 +2,9 @@ import type { ReactNode } from "react";
 
 interface MainShellProps {
   children: ReactNode;
+}
+
+interface ShellUtilitiesProps {
   searchLabel: string;
   settingsLabel: string;
   onOpenSearch: () => void;
@@ -10,29 +13,35 @@ interface MainShellProps {
 
 export function MainShell({
   children,
-  searchLabel,
-  settingsLabel,
-  onOpenSearch,
-  onOpenSettings,
 }: MainShellProps) {
   return (
     <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div
-        data-shell-utility-bar
-        className="flex h-11 shrink-0 items-center justify-end gap-1 border-b px-6"
-        style={{ borderBottomWidth: "0.5px", borderColor: "var(--hairline)" }}
-      >
-        <UtilityButton label={searchLabel} onClick={onOpenSearch}>
-          <SearchIcon />
-        </UtilityButton>
-        <UtilityButton label={settingsLabel} onClick={onOpenSettings}>
-          <SettingsIcon />
-        </UtilityButton>
-      </div>
       <div data-shell-screen className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">
         {children}
       </div>
     </main>
+  );
+}
+
+export function ShellUtilities({
+  searchLabel,
+  settingsLabel,
+  onOpenSearch,
+  onOpenSettings,
+}: ShellUtilitiesProps) {
+  return (
+    <div
+      data-shell-utilities
+      className="ml-0.5 flex shrink-0 items-center gap-1 border-l pl-1.5"
+      style={{ borderLeftWidth: "0.5px", borderColor: "var(--hairline)" }}
+    >
+      <UtilityButton label={searchLabel} onClick={onOpenSearch}>
+        <SearchIcon />
+      </UtilityButton>
+      <UtilityButton label={settingsLabel} onClick={onOpenSettings}>
+        <SettingsIcon />
+      </UtilityButton>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
@@ -59,13 +59,13 @@ export function RepoDetailContainer({
   autoFetch,
   command,
   onBack,
-  onOpenSearch,
+  utilities,
 }: {
   repo: RepositoryEntry;
   autoFetch: boolean;
   command: RepoDetailCommand | null;
   onBack: () => void;
-  onOpenSearch: () => void;
+  utilities: ReactNode;
 }) {
   useInteractionCommit();
   const { t } = useTranslation("workspace");
@@ -208,12 +208,14 @@ export function RepoDetailContainer({
   }
 
   function executeAction(action: RepoAction) {
-    const networkTask = startNetworkAction(action);
-    if (networkTask) {
-      setActionOperationId(networkTask.operationId);
+    if (isNetworkAction(action)) {
       void runRepoAction(
         action,
-        () => networkTask.promise,
+        async () => {
+          const networkTask = startNetworkAction(action);
+          setActionOperationId(networkTask.operationId);
+          await networkTask.promise;
+        },
         scopesForRepoAction(action),
         // A branch with no upstream is not a failure to report — it is a
         // branch that has never been published. Offer to publish it instead
@@ -234,7 +236,7 @@ export function RepoDetailContainer({
     void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
-  function startNetworkAction(action: RepoAction): OperationTask<void> | null {
+  function startNetworkAction(action: NetworkRepoAction): OperationTask<void> {
     switch (action) {
       case "fetch":
         return runFetchRepo(repo.id);
@@ -242,8 +244,6 @@ export function RepoDetailContainer({
         return runPullRepo(repo.id);
       case "push":
         return runPushRepo(repo.id);
-      default:
-        return null;
     }
   }
 
@@ -254,9 +254,15 @@ export function RepoDetailContainer({
   }
 
   function publishCurrentBranch() {
-    const task = runPublishBranch(repo.id);
-    setActionOperationId(task.operationId);
-    void runRepoAction("publish", () => task.promise, ["status", "refs"]);
+    void runRepoAction(
+      "publish",
+      async () => {
+        const task = runPublishBranch(repo.id);
+        setActionOperationId(task.operationId);
+        await task.promise;
+      },
+      ["status", "refs"],
+    );
   }
 
   function onCreateBranch(name: string) {
@@ -392,7 +398,7 @@ export function RepoDetailContainer({
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}
       onResetToCommit={onResetToCommit}
-      onOpenSearch={onOpenSearch}
+      utilities={utilities}
       onSelectCommit={onSelectCommit}
       onRevealCommit={onRevealCommit}
       onSelectWorking={() => {
@@ -413,6 +419,7 @@ export function RepoDetailContainer({
 }
 
 type ConfirmableAction = "fetch" | "pull" | "push" | "stash-pop";
+type NetworkRepoAction = "fetch" | "pull" | "push";
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }
@@ -420,6 +427,10 @@ type ActionConfirmation =
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
   return action === "fetch" || action === "pull" || action === "push" || action === "stash-pop";
+}
+
+function isNetworkAction(action: RepoAction): action is NetworkRepoAction {
+  return action === "fetch" || action === "pull" || action === "push";
 }
 
 function scopesForRepoAction(action: RepoAction): RepoDataScope[] {

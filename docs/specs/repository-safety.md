@@ -1,6 +1,6 @@
 # Spec: repository operation state, destructive-action safety, and recovery
 
-Referenced by: P9-01–P9-10, SDD §9, §15.
+Referenced by: P8-00, P9-01–P9-10, SDD §9, §15.
 Related: [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md),
 [`working-tree-and-diff.md`](working-tree-and-diff.md),
 [`workspace-workflows.md`](workspace-workflows.md).
@@ -152,7 +152,7 @@ place allowed to promote actions out of the overflow menu. While an operation is
 in progress, actions that Git would refuse anyway (checkout, pull, stash pop) are
 disabled with the reason shown.
 
-### 3. Destructive preflight
+### 3. Destructive preflight (foundation starts at P8-00)
 
 One contract for every destructive action, so the user learns to read one dialog
 shape:
@@ -198,6 +198,13 @@ rather than acting on stale facts.
 
 `blockers` covers cases where Fjord refuses outright — for example, deleting the
 current branch. A blocker disables confirmation and states the reason.
+
+Ownership is intentionally split without splitting the contract: `P8-00`
+implements the model, IPC command, shared dialog, and confirmation-time generation
+revalidation for Phase 8 discard and force-with-lease. `P9-05`/`P9-06` extend the
+same exhaustive action enum and dialog to reset, deletion, stash pop, checkout,
+operation abort, and recovery. Therefore no Phase 8 destructive action waits for a
+future phase, while Phase 9 does not create a competing preflight abstraction.
 
 ### 4. Safe checkout
 

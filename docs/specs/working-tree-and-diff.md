@@ -1,6 +1,6 @@
 # Spec: working tree, partial staging, and diff experience
 
-Referenced by: P8-01–P8-15, SDD §5.2, §15.
+Referenced by: P8-00–P8-15, SDD §5.2, §15.
 Related: [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md),
 [`repository-safety.md`](repository-safety.md), [`performance.md`](performance.md).
 
@@ -39,7 +39,9 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
   performance budgets in [`performance.md`](performance.md).
 - Upstream management and an explicit publish flow reachable from branch context.
 - Every destructive action in this phase routed through the preflight contract in
-  [`repository-safety.md`](repository-safety.md).
+  [`repository-safety.md`](repository-safety.md). `P8-00` implements that safety
+  foundation before patch/discard or force-with-lease work begins; Phase 8 has no
+  dependency on an unimplemented Phase 9 task.
 
 ## Non-goals
 

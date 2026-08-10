@@ -1,6 +1,6 @@
 # Fjord — Software Design Document
 
-Status: v0.4 (2026-08 roadmap audit — adds §15 and the Phase 6–11 specs; supersedes v0.3)
+Status: v0.4.1 (2026-08 Phase 6/7 review-fix audit; supersedes v0.4)
 Owner: msochnev
 
 This document covers the *why* — vision, architecture, and the decisions behind them — and, since v0.3, the honest *current state*. For the task-level breakdown and progress, see:
@@ -18,8 +18,10 @@ Status markers used throughout this document:
 **Implementation snapshot (2026-08):** Phases 0–4 are implemented. Phase 5
 replaces libgit2 network transport with the installed system Git (implementation
 complete; manual sign-off and a small residual list remain — see §5.2 and
-[`tasks.md`](tasks.md)). Phases 6–11 are designed, not implemented; their
-contracts live in [`specs/`](specs/) and their goals in §15.
+[`tasks.md`](tasks.md)). Phase 6 implementation is complete except for `P6-20`
+(promotion of stable report-only baselines to gates), and Phase 7 plus its review
+fixes are complete. Phases 8–11 remain designed; their contracts live in
+[`specs/`](specs/) and their goals in §15.
 
 ## 1. Vision
 
@@ -34,7 +36,7 @@ Design language: minimalist, premium, in the spirit of Linear / Raycast / Arc Br
 - **G3 — Internationalization (i18n)**: ship with English and Russian, switchable at runtime, and structured so a third locale is a content-only addition (no code changes). ✅
 - **G4 — Theming**: light / dark / system, defaulting to system, switchable at runtime without restart. ✅
 - **G5 — Clean Architecture**: strict dependency direction, framework-agnostic domain/use-case core, swappable infrastructure (git engine, database, IPC transport). ✅
-- **G6 — Performance at scale**: stays fast on large monorepos (tens of thousands of commits, large working trees) and on workspaces containing dozens of repositories. ⚠️ backend caching/concurrency, frontend virtualization, and release-profile benchmark budgets are in place (§5.3, §11), but the claim is only verified up to 50k commits / 24 repositories and only for isolated backend calls — measurable end-to-end SLOs, torture fixtures, and a long-lived repository runtime are Phase 6 ([`specs/performance.md`](specs/performance.md))
+- **G6 — Performance at scale**: stays fast on large monorepos and workspaces containing dozens of repositories. ⚠️ Phase 6 implemented SLOs, torture fixtures up to 1M commits / 300k-file definitions / 100 repositories, a long-lived tiered runtime, bounded diff/history transport, generation invalidation, and release measurements. Packaged WebView end-to-end baselines and promotion of stable CI reports to failing gates remain `P11-01`/`P6-20` ([`specs/performance.md`](specs/performance.md)).
 - **G7 — Cross-platform parity**: first-class, equally fast experience on Windows, macOS, and Linux. ✅ CI verifies all three targets (§5.4)
 
 ## 3. Non-goals (for v1)
@@ -128,7 +130,7 @@ Two different performance problems, both real: (1) one huge repo — big working
 
 Approach, item by item:
 
-- ✅ **Incremental status, not full rescans.** `fjord-fs` watches Hot/Warm working trees recursively and Cold repositories through `.git` metadata only. Events under generated directories (`target/`, `node_modules`, ...) and the `.git` object store are filtered out, and bursts are debounced inside the watcher (300 ms quiet window, 5 s max delay) (`P4-15`, `P6-17`). A second debounce layer in `WorkspaceService` coalesces refresh scheduling.
+- ✅ **Incremental status, not full rescans.** `fjord-fs` watches Hot/Warm working trees recursively and Cold repositories through `.git` metadata only. Events under generated directories (`target/`, `node_modules`, ...) and the `.git` object store are filtered out, and bursts are debounced inside the watcher (300 ms quiet window, 5 s max delay) (`P4-15`, `P6-17`). A single-concurrency round-robin status check reconciles one Cold repository every five seconds so ordinary worktree edits cannot remain silently stale (`P7-FIX-02`). A second debounce layer in `WorkspaceService` coalesces watcher refresh scheduling.
 - ✅ **A status/summary cache in SQLite.** The dashboard reads from `repo_status_cache`, refreshed asynchronously per-repo; the read path is a single `LEFT JOIN` (no N+1). The UI always shows "status as of last refresh, refreshing in background" rather than blocking on the slowest repo.
 - ✅ **Bulk operations run concurrently**, bounded by a worker pool (Tokio `Semaphore` + `JoinSet`, currently 6 concurrent) — "Pull all" on 24 repos takes roughly as long as the slowest one, not the sum.
 - ✅ **gix for the hot read paths** (status, diff, log) — avoids libgit2's process-wide locking and is competitive-to-faster on large trees.
@@ -136,7 +138,7 @@ Approach, item by item:
 - ✅ **Frontend list virtualization** via `@tanstack/react-virtual` for lists that scale with repo/commit count (`P4-08`). The commit graph, all-repositories list, and dashboard repo-card grid only mount visible rows plus overscan; SVG graph edges are drawn only for virtualized commit rows within/near the viewport.
 - ✅ **Global search** fans out across repositories through the same bounded worker pool as bulk operations, preserving deterministic result order before the global limit cut (`P4-13`); `fjord-bench --workspace-repos N` reports `global_search_ms`.
 
-Known limits of this strategy, and what Phase 6 does about them
+Phase 6 implementation and remaining limits
 ([`specs/performance.md`](specs/performance.md)):
 
 - ✅ **Tiered long-lived repository state.** Hot/Warm repositories reuse one
@@ -292,8 +294,8 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 3 — Polish and release | ✅ done through release readiness: palette (`P3-01`), global search (`P3-02`), packaging/update pipeline (`P3-03`), onboarding (`P3-04`), contributor docs and public release checklist (`P3-05`) |
 | Phase 4 — Hardening & tech debt (2026-08 audit) | ✅ done |
 | Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
-| Phase 6 — Performance foundation | 🚧 designed ([`specs/performance.md`](specs/performance.md)) |
-| Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
+| Phase 6 — Performance foundation | ⚠️ implementation complete through `P6-22`; only report-to-gate promotion `P6-20` remains ([`specs/performance.md`](specs/performance.md)) |
+| Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
 | Phase 8 — Daily-driver essentials | 🚧 designed ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
 | Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
@@ -317,7 +319,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 | `gix` mutation support matures slower than expected | `GitBackend` isolates local engines; network transport remains system Git regardless of local engine choices. |
 | Platform-specific and locale regressions | CI matrix on all three OSes plus the i18n catalog check run on every push (`P0-09`, `P4-16`); release benchmarks run weekly/on demand (`P4-18`) |
 | Generated TS domain types drift from Rust domain | `cargo test --workspace` includes the `fjord-domain` export drift check (`P4-11`) |
-| Large-monorepo performance is partly a claim | Release-profile benchmarks cover 50k single-repo history and a 60k-total-commit workspace (`P4-18`). Phase 6 turns the claim into SLOs measured against 300k-file / 1M-commit / 100-repository fixtures ([`specs/performance.md`](specs/performance.md)); until those run, the claim stays qualified in §2 |
+| Large-monorepo performance is partly a claim | Phase 6 provides SLOs and measured backend baselines across the torture catalogue, including 1M-commit history and a 100-repository workspace. Packaged WebView action-to-paint and full-process resource baselines remain explicit Phase 11 owners, and `P6-20` has not promoted report-only results to gates ([`specs/performance.md`](specs/performance.md)). |
 | `RepositoryRuntime` caches serve stale data | Per-domain generations with compare-and-swap cache writes, contract tests per mutation, and the rule that no destructive action runs against an unvalidated snapshot ([`specs/performance.md`](specs/performance.md) §5–6) |
 | Partial staging corrupts uncommitted work | Patches are applied by `git apply`, never by a hand-written index writer, and every selection is verified against a freshly recomputed diff digest (`patch_stale`) before it is applied ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §1) |
 | Recovery is presented as more than it is | The Recovery Center is explicitly reflog-based and states what it cannot recover; recoverability labels in destructive preflights are contractual and asserted in tests ([`specs/repository-safety.md`](specs/repository-safety.md) §3, §5) |
@@ -332,7 +334,8 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 - [`specs/`](specs/) — per-subsystem contracts:
   - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
   - Implemented: [`ui-shell.md`](specs/ui-shell.md) (Phase 7).
-  - Designed: [`performance.md`](specs/performance.md) (Phase 6), [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
+  - Implemented except for the explicit `P6-20` gate-promotion task: [`performance.md`](specs/performance.md) (Phase 6).
+  - Designed: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 8 safety foundation + Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
 - [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
 
@@ -346,8 +349,8 @@ position. Tasks live in [`tasks.md`](tasks.md).
 | 5.x — Final stabilization | Close the residual System-Git transport and authentication work; no new product capability. | [`specs/system-git-transport.md`](specs/system-git-transport.md) | — |
 | 6 — Performance foundation | Fjord has a *measurable* performance architecture: SLOs, torture fixtures, end-to-end telemetry, a long-lived repository runtime, generation-scoped invalidation, snapshot-first switching, bounded transport. | [`specs/performance.md`](specs/performance.md) | 5.x |
 | 7 — UI/UX shell | Dense, quiet, keyboard-first shell: content over chrome, one utility area, persisted UI state, a real shortcut model. | [`specs/ui-shell.md`](specs/ui-shell.md) | 6 (snapshot-first switching and persisted state share a bootstrap path) |
-| 8 — Daily-driver essentials | Ordinary Git work never requires another GUI or a terminal: hunk/line staging, amend, safe force push, a comparable diff. | [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) | 6 (diff windowing), 7 (diff mode persistence, overflow menu) |
-| 9 — Safety & recovery | Fjord is at its best when the user is about to lose work: operation states, continue/skip/abort, informative preflights, safe checkout, reflog recovery. | [`specs/repository-safety.md`](specs/repository-safety.md) | 8 (discard needs the preflight contract; the contract needs discard to be worth it) |
+| 8 — Daily-driver essentials | Starts with `P8-00`, the safety foundation required by Phase 8 destructive actions; then ordinary Git work gains hunk/line staging, amend, safe force push, and a comparable diff. | [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md), [`specs/repository-safety.md`](specs/repository-safety.md) §3 | 6 (diff windowing), 7 (diff mode persistence, overflow menu) |
+| 9 — Safety & recovery | Extends the already-available preflight foundation with operation states, continue/skip/abort, safe checkout, remaining destructive actions, and reflog recovery. | [`specs/repository-safety.md`](specs/repository-safety.md) | 8 (uses Phase 8 patch/discard semantics; no Phase 8 task depends on Phase 9) |
 | 10 — Advanced workflows & workspace | Turn the workspace into the competitive advantage: worktrees, rebase, remotes, workspace health, expected branch, filters. | [`specs/workspace-workflows.md`](specs/workspace-workflows.md) | 9 (rebase and worktree removal depend on operation state and preflights) |
 | 11 — Extreme performance & release hardening | Prove the performance architecture in the *shipped artifact*, and make release quality a gate rather than a checklist. | [`specs/release-hardening.md`](specs/release-hardening.md) | 6–10 |
 

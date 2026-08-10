@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
@@ -28,6 +28,7 @@ interface OverviewProps {
   onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
   importPending: boolean;
+  utilities: ReactNode;
 }
 
 const CARD_ROW_HEIGHT = 112;
@@ -50,6 +51,7 @@ export function OverviewView({
   onWarmRepo,
   onRemoveRepo,
   importPending,
+  utilities,
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
   const [activeFilters, setActiveFilters] = useState<Set<OverviewFilter>>(() => new Set());
@@ -123,6 +125,7 @@ export function OverviewView({
             },
           ]}
         />
+        {utilities}
       </header>
 
       {bulkProgress ? <BulkProgressStrip progress={bulkProgress} onCancel={onCancelBulk} /> : null}

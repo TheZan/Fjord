@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
@@ -62,7 +62,7 @@ export function RepoDetailView({
   onCherryPick,
   onRevertCommit,
   onResetToCommit,
-  onOpenSearch,
+  utilities,
   onSelectCommit,
   onRevealCommit,
   onSelectWorking,
@@ -108,7 +108,7 @@ export function RepoDetailView({
   onCherryPick: (commitId: string) => void;
   onRevertCommit: (commitId: string) => void;
   onResetToCommit: (commitId: string, mode: "soft" | "mixed" | "hard") => void;
-  onOpenSearch: () => void;
+  utilities: ReactNode;
   onSelectCommit: (commit: CommitSummary) => void;
   onRevealCommit: (commit: CommitSummary) => void;
   onSelectWorking: () => void;
@@ -204,7 +204,7 @@ export function RepoDetailView({
         onAction={onAction}
         onCancelOperation={onCancelOperation}
         onCreateBranch={onCreateBranch}
-        onOpenSearch={onOpenSearch}
+        utilities={utilities}
         onOpenInspector={
           compactLayout && (workingSelected || selectedCommit)
             ? () => setInspectorDrawerOpen(true)
