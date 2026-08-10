@@ -1,10 +1,8 @@
-use tauri::State;
-
-use crate::state::AppState;
+use crate::interaction_traces::TracedState;
 
 #[tauri::command]
 pub async fn answer_git_auth_prompt(
-    state: State<'_, AppState>,
+    state: TracedState<'_>,
     operation_id: String,
     prompt_id: String,
     value: String,
@@ -14,7 +12,7 @@ pub async fn answer_git_auth_prompt(
 
 #[tauri::command]
 pub async fn cancel_git_auth_prompt(
-    state: State<'_, AppState>,
+    state: TracedState<'_>,
     operation_id: String,
     prompt_id: String,
 ) -> Result<bool, String> {

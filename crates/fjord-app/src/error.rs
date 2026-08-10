@@ -25,6 +25,13 @@ impl AppError {
     pub fn operation_cancelled() -> Self {
         Self::new("operation_cancelled", "operation cancelled".to_string())
     }
+
+    pub fn performance_diagnostics_disabled() -> Self {
+        Self::new(
+            "performance_diagnostics_disabled",
+            "performance diagnostics are disabled".to_string(),
+        )
+    }
 }
 
 impl From<StoreError> for AppError {

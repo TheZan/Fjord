@@ -32,6 +32,7 @@ import {
   type RepoDetailCommandPayload,
 } from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
+import { setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
@@ -420,7 +421,10 @@ export function App() {
         <SettingsDialog
           repositories={allRepositories}
           onClose={() => setSettingsOpen(false)}
-          onSettingsChange={(settings) => setAutoFetch(settings.autoFetch)}
+          onSettingsChange={(settings) => {
+            setAutoFetch(settings.autoFetch);
+            setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
+          }}
         />
       )}
 

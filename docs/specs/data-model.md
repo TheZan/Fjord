@@ -16,6 +16,9 @@ CREATE TABLE settings (
     locale          TEXT NOT NULL DEFAULT 'en',   -- BCP-47-ish code, e.g. 'en', 'ru'
     theme           TEXT NOT NULL DEFAULT 'system', -- 'light' | 'dark' | 'system'
     default_ide     TEXT,                          -- IDE identifier, see ipc-commands.md
+    auto_fetch      INTEGER NOT NULL DEFAULT 0,
+    performance_diagnostics INTEGER NOT NULL DEFAULT 0,
+    git_executable_path TEXT,
     updated_at      TEXT NOT NULL
 );
 

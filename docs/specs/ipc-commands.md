@@ -10,6 +10,10 @@ This is the actual contract between the React frontend and the Rust backend. Eve
 
 `verb_noun`, snake_case, matching the Rust side exactly (no camelCase translation layer) — `invoke('verb_noun', ...)` on the frontend calls `#[tauri::command] fn verb_noun(...)` on the backend, one-to-one, always.
 
+Every command also accepts an optional camelCase `interactionId`. The typed
+client adds it while a diagnostics interaction is active; it is telemetry
+metadata, not part of the use-case input, and use-case handlers never inspect it.
+
 ## Shipped commands
 
 The authoritative list is the `invoke_handler` registration in `crates/fjord-app/src/lib.rs`; the typed wrappers live in `src/infrastructure/tauriClient.ts`. `scripts/check-ipc-docs.ts` (`npm run check-ipc-docs`, run in CI) fails when the three disagree — a command registered but undocumented, documented as shipped but not registered, or registered but unreachable from the typed client (`P5-23`). Commands under [Planned additions](#planned-additions) are excluded, so designing ahead does not break the check.
@@ -18,7 +22,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 
 | Command | Input | Output | Notes |
 |---|---|---|---|
-| `get_settings` | — | `Settings` | Locale, theme, default IDE, auto-fetch, Git executable path |
+| `get_settings` | — | `Settings` | Locale, theme, default IDE, auto-fetch, performance diagnostics, Git executable path |
 | `update_settings` | `Settings` | `Settings` | Full replace; persisted immediately |
 | `get_git_environment` | — | `GitEnvironmentInfo` | Read-only inspection: executable, version, credential helpers, SSH/proxy presence |
 | `select_git_executable` | `{ path }` | `GitEnvironmentInfo` | Validates before persisting; applies to local and remote Git alike |
@@ -99,6 +103,12 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `open_terminal` | `{ repo_id }` | — | |
 | `bulk_open_in_ide` | `{ workspace_id, ide? }` | `BulkRepoResult[]` | |
 
+### Performance diagnostics
+
+| Command | Input | Output | Notes |
+|---|---|---|---|
+| `get_interaction_traces` | — | `InteractionTrace[]` | Drains the bounded in-memory buffer; returns `performance_diagnostics_disabled` unless the settings flag is enabled |
+
 ### Events
 
 | Event | Payload | Spec |
@@ -113,7 +123,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `get_interaction_traces` | [`performance.md`](performance.md) §3 | 6 |
 | `get_file_diff` windowing (`offset`, `limit` → `truncated`, `next_offset`) | [`performance.md`](performance.md) §9 | 6 |
 | `get_ui_state` / `update_ui_state` | [`ui-shell.md`](ui-shell.md) §5 | 7 |
 | `stage_patch` / `unstage_patch` / `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |

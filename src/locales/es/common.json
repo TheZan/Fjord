@@ -87,6 +87,11 @@
       "confirmDescription": "Fjord podrá obtener cambios de origin sin confirmar cada consulta. Push, pull, la eliminación de ramas y otras acciones seguirán requiriendo confirmación.",
       "confirmButton": "Activar"
     },
+    "performanceDiagnostics": {
+      "label": "Diagnóstico",
+      "title": "Registrar trazas de rendimiento",
+      "description": "Conserva en memoria los tiempos de las interacciones recientes. Las trazas solo contienen identificadores y duraciones, y se borran al desactivarlas."
+    },
     "git": {
       "executable": "Git del sistema",
       "found": "Git encontrado",

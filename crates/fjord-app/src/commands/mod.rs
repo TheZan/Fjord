@@ -4,6 +4,7 @@
 //! adapter over a service call (SDD §5.1) — no logic lives here.
 
 mod auth;
+mod diagnostics;
 mod repo;
 mod settings;
 mod workspace;
@@ -13,6 +14,7 @@ mod workspace;
 // to find alongside each function — a named `pub use` only re-exports the
 // function itself and silently breaks the macro lookup.
 pub use auth::*;
+pub use diagnostics::*;
 pub use repo::*;
 pub use settings::*;
 pub use workspace::*;

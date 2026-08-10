@@ -6,9 +6,13 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 import { getBranches } from "@/infrastructure/tauriClient";
+import { beginInteraction, setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 
 describe("abortable Tauri queries", () => {
-  beforeEach(() => tauri.invoke.mockReset());
+  beforeEach(() => {
+    tauri.invoke.mockReset();
+    setInteractionDiagnosticsEnabled(false);
+  });
 
   it("rejects an obsolete query when its signal is aborted", async () => {
     let resolveInvoke!: (value: unknown[]) => void;
@@ -20,5 +24,18 @@ describe("abortable Tauri queries", () => {
     resolveInvoke([]);
 
     await expect(result).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("carries the active interaction id on the IPC call", async () => {
+    tauri.invoke.mockResolvedValue([]);
+    setInteractionDiagnosticsEnabled(true);
+    const interactionId = beginInteraction(new Event("click"));
+
+    await getBranches("repo-1");
+
+    expect(tauri.invoke).toHaveBeenCalledWith("get_branches", {
+      repoId: "repo-1",
+      interactionId,
+    });
   });
 });

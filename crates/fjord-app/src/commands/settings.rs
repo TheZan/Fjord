@@ -1,22 +1,24 @@
 use std::path::PathBuf;
 
-use fjord_domain::{GitEnvironmentInfo, Settings};
-use tauri::State;
-
 use crate::error::AppError;
-use crate::state::AppState;
+use crate::interaction_traces::TracedState;
+use fjord_domain::{GitEnvironmentInfo, Settings};
 
 #[tauri::command]
-pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, AppError> {
+pub async fn get_settings(state: TracedState<'_>) -> Result<Settings, AppError> {
     Ok(state.settings.get_settings().await?)
 }
 
 #[tauri::command]
 pub async fn update_settings(
-    state: State<'_, AppState>,
+    state: TracedState<'_>,
     settings: Settings,
 ) -> Result<Settings, AppError> {
-    Ok(state.settings.update_settings(settings).await?)
+    let updated = state.settings.update_settings(settings).await?;
+    state
+        .interaction_traces
+        .set_enabled(updated.performance_diagnostics);
+    Ok(updated)
 }
 
 /// Sidecar resolution is a Tauri-resource concern, so `fjord-services` cannot
@@ -30,16 +32,14 @@ fn with_askpass_availability(available: bool, mut info: GitEnvironmentInfo) -> G
 }
 
 #[tauri::command]
-pub async fn get_git_environment(
-    state: State<'_, AppState>,
-) -> Result<GitEnvironmentInfo, AppError> {
+pub async fn get_git_environment(state: TracedState<'_>) -> Result<GitEnvironmentInfo, AppError> {
     let info = state.repos.get_git_environment().await?;
     Ok(with_askpass_availability(state.askpass_available(), info))
 }
 
 #[tauri::command]
 pub async fn select_git_executable(
-    state: State<'_, AppState>,
+    state: TracedState<'_>,
     path: PathBuf,
 ) -> Result<GitEnvironmentInfo, AppError> {
     let info = state.repos.set_git_executable_path(path).await?;
@@ -47,9 +47,7 @@ pub async fn select_git_executable(
 }
 
 #[tauri::command]
-pub async fn reset_git_executable(
-    state: State<'_, AppState>,
-) -> Result<GitEnvironmentInfo, AppError> {
+pub async fn reset_git_executable(state: TracedState<'_>) -> Result<GitEnvironmentInfo, AppError> {
     let info = state.repos.reset_git_executable_path().await?;
     Ok(with_askpass_availability(state.askpass_available(), info))
 }

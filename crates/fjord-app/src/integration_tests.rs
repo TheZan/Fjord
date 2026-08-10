@@ -75,6 +75,7 @@ async fn settings_round_trip_through_the_real_store() {
             theme: Theme::Dark,
             default_ide: Some("code".into()),
             auto_fetch: true,
+            performance_diagnostics: true,
             git_executable_path: None,
         })
         .await
@@ -84,6 +85,7 @@ async fn settings_round_trip_through_the_real_store() {
     let reloaded = services.settings.get_settings().await.unwrap();
     assert_eq!(reloaded.theme, Theme::Dark);
     assert!(reloaded.auto_fetch);
+    assert!(reloaded.performance_diagnostics);
     assert_eq!(reloaded.default_ide.as_deref(), Some("code"));
 }
 

@@ -87,6 +87,11 @@
       "confirmDescription": "Fjord darf Änderungen aus origin abrufen, ohne jede Prüfung einzeln zu bestätigen. Push, Pull, das Löschen von Branches und andere Aktionen müssen weiterhin bestätigt werden.",
       "confirmButton": "Aktivieren"
     },
+    "performanceDiagnostics": {
+      "label": "Diagnose",
+      "title": "Leistungstraces aufzeichnen",
+      "description": "Speichert die letzten Interaktionszeiten im Arbeitsspeicher. Traces enthalten nur Kennungen und Dauern und werden beim Deaktivieren gelöscht."
+    },
     "git": {
       "executable": "System-Git",
       "found": "Git gefunden",

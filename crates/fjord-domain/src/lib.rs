@@ -4,6 +4,7 @@
 //! `docs/SDD.md` §5.1. It exists so `fjord-services` has something to
 //! operate on without depending on infrastructure.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -399,6 +400,7 @@ pub struct Settings {
     pub theme: Theme,
     pub default_ide: Option<String>,
     pub auto_fetch: bool,
+    pub performance_diagnostics: bool,
     #[ts(type = "string | null")]
     pub git_executable_path: Option<PathBuf>,
 }
@@ -410,9 +412,32 @@ impl Default for Settings {
             theme: Theme::System,
             default_ide: None,
             auto_fetch: false,
+            performance_diagnostics: false,
             git_executable_path: None,
         }
     }
+}
+
+/// One duration measured entirely by the Rust clock. The deliberately narrow
+/// shape cannot carry repository paths, names, or file/diff content.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct InteractionSpan {
+    pub phase: String,
+    pub operation: String,
+    #[ts(type = "number")]
+    pub duration_micros: u64,
+    pub counts: BTreeMap<String, u32>,
+}
+
+/// Completed backend spans grouped by the opaque id minted by the WebView.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct InteractionTrace {
+    pub interaction_id: String,
+    pub spans: Vec<InteractionSpan>,
 }
 
 #[cfg(test)]

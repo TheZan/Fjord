@@ -15,6 +15,7 @@ use tauri::{Emitter, Manager};
 
 use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
 use crate::ide_launcher::SystemIdeLauncher;
+use crate::interaction_traces::InteractionTraceCollector;
 use crate::operations::OperationRegistry;
 
 pub const REPOSITORY_CHANGED_EVENT: &str = "fjord-repository-changed";
@@ -57,6 +58,7 @@ pub struct AppState {
     pub repos: Arc<RepoService>,
     pub operations: Arc<OperationRegistry>,
     pub askpass: Arc<AskpassBroker>,
+    pub interaction_traces: Arc<InteractionTraceCollector>,
     askpass_executable: Option<PathBuf>,
     app_handle: tauri::AppHandle,
     status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
@@ -119,6 +121,12 @@ pub async fn bootstrap(
     app_handle: tauri::AppHandle,
 ) -> Result<AppState, String> {
     let services = compose_services(app_data_dir).await?;
+    let performance_diagnostics = services
+        .settings
+        .get_settings()
+        .await
+        .map_err(|error| error.to_string())?
+        .performance_diagnostics;
     let existing_repos = services
         .workspaces
         .list_all_repositories()
@@ -144,6 +152,7 @@ pub async fn bootstrap(
         repos: services.repos,
         operations: Arc::new(OperationRegistry::default()),
         askpass: Arc::new(askpass),
+        interaction_traces: Arc::new(InteractionTraceCollector::new(performance_diagnostics)),
         askpass_executable,
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),

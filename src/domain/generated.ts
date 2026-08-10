@@ -98,9 +98,13 @@ export type GitAuthPromptKind = "username" | "secret" | "confirmation" | "unknow
 
 export type GitAuthPrompt = { operationId: string, promptId: string, prompt: string, kind: GitAuthPromptKind, repositoryName: string | null, operationKind: string | null, };
 
+export type InteractionSpan = { phase: string, operation: string, durationMicros: number, counts: { [key in string]: number }, };
+
+export type InteractionTrace = { interactionId: string, spans: Array<InteractionSpan>, };
+
 export type Settings = { 
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, gitExecutablePath: string | null, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
 

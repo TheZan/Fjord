@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   defaultIde: null,
   autoFetch: false,
+  performanceDiagnostics: false,
   gitExecutablePath: null,
 };
 
@@ -494,6 +495,52 @@ export function SettingsDialog({
 
             {activeSection === "tools" && (
               <div className="flex flex-col gap-5">
+                <SettingsGroup title={t("settings.performanceDiagnostics.label")}>
+                  <div
+                    className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
+                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
+                        {t("settings.performanceDiagnostics.title")}
+                      </div>
+                      <Muted className="mt-0.5 block max-w-md text-[11px] leading-4">
+                        {t("settings.performanceDiagnostics.description")}
+                      </Muted>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={currentSettings.performanceDiagnostics}
+                      aria-label={t("settings.performanceDiagnostics.title")}
+                      disabled={pendingKey === "performanceDiagnostics"}
+                      className="interactive-control relative h-5 w-9 shrink-0 rounded-full disabled:opacity-45"
+                      style={{
+                        background: currentSettings.performanceDiagnostics
+                          ? "var(--fjord)"
+                          : "var(--hairline-strong)",
+                      }}
+                      onClick={() =>
+                        void saveSettings(
+                          { performanceDiagnostics: !currentSettings.performanceDiagnostics },
+                          "performanceDiagnostics",
+                        )
+                      }
+                    >
+                      <span
+                        className="absolute top-0.5 h-4 w-4 rounded-full transition-transform"
+                        style={{
+                          left: "2px",
+                          background: "var(--paper)",
+                          transform: currentSettings.performanceDiagnostics
+                            ? "translateX(16px)"
+                            : "translateX(0)",
+                        }}
+                      />
+                    </button>
+                  </div>
+                </SettingsGroup>
+
                 <SettingsGroup title={t("settings.defaultIde.label")}>
                   <div className="grid grid-cols-3 gap-1.5">
                     {IDE_CHOICES.map((ide) => (

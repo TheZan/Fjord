@@ -10,6 +10,10 @@ import { ThemeProvider } from "@/infrastructure/theme/ThemeProvider";
 import { i18n, initI18n } from "@/infrastructure/i18n";
 import { getSettings } from "@/infrastructure/tauriClient";
 import { DEFAULT_LOCALE } from "@/locales/registry";
+import {
+  installInteractionCapture,
+  setInteractionDiagnosticsEnabled,
+} from "@/presentation/performance";
 import "@/index.css";
 
 const queryClient = new QueryClient();
@@ -43,9 +47,10 @@ async function bootstrap() {
   installDesktopWebviewBehavior();
   // Resolve the initial locale before the first render so there's no
   // flash of the wrong language (docs/specs/i18n.md — locale detection).
-  const locale = await getSettings()
-    .then((settings) => settings.locale)
-    .catch(() => DEFAULT_LOCALE);
+  const initialSettings = await getSettings().catch(() => null);
+  const locale = initialSettings?.locale ?? DEFAULT_LOCALE;
+  setInteractionDiagnosticsEnabled(initialSettings?.performanceDiagnostics ?? false);
+  installInteractionCapture();
 
   await initI18n(locale);
 

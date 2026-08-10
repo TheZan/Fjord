@@ -34,7 +34,7 @@ fn theme_from_str(s: &str) -> Theme {
 impl SettingsStore for SqliteSettingsStore {
     async fn get_settings(&self) -> Result<Settings, StoreError> {
         let row =
-            sqlx::query("SELECT locale, theme, default_ide, auto_fetch, git_executable_path FROM settings WHERE id = 1")
+            sqlx::query("SELECT locale, theme, default_ide, auto_fetch, performance_diagnostics, git_executable_path FROM settings WHERE id = 1")
                 .fetch_one(&self.pool)
                 .await
                 .map_err(|e| StoreError::Database(e.to_string()))?;
@@ -44,6 +44,7 @@ impl SettingsStore for SqliteSettingsStore {
             theme: theme_from_str(&row.get::<String, _>("theme")),
             default_ide: row.get::<Option<String>, _>("default_ide"),
             auto_fetch: row.get::<bool, _>("auto_fetch"),
+            performance_diagnostics: row.get::<bool, _>("performance_diagnostics"),
             git_executable_path: row
                 .get::<Option<String>, _>("git_executable_path")
                 .map(Into::into),
@@ -52,12 +53,13 @@ impl SettingsStore for SqliteSettingsStore {
 
     async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError> {
         sqlx::query(
-            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, auto_fetch = ?, git_executable_path = ?, updated_at = ? WHERE id = 1",
+            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, auto_fetch = ?, performance_diagnostics = ?, git_executable_path = ?, updated_at = ? WHERE id = 1",
         )
         .bind(&settings.locale)
         .bind(theme_to_str(settings.theme))
         .bind(&settings.default_ide)
         .bind(settings.auto_fetch)
+        .bind(settings.performance_diagnostics)
         .bind(
             settings
                 .git_executable_path
@@ -91,6 +93,7 @@ mod tests {
         assert_eq!(settings.theme, Theme::System);
         assert_eq!(settings.locale, "en");
         assert!(!settings.auto_fetch);
+        assert!(!settings.performance_diagnostics);
     }
 
     #[tokio::test]
@@ -100,6 +103,7 @@ mod tests {
         settings.theme = Theme::Dark;
         settings.locale = "ru".to_string();
         settings.auto_fetch = true;
+        settings.performance_diagnostics = true;
         settings.git_executable_path = Some("C:/Program Files/Git/cmd/git.exe".into());
         store.update_settings(&settings).await.unwrap();
 
@@ -107,6 +111,7 @@ mod tests {
         assert_eq!(fetched.theme, Theme::Dark);
         assert_eq!(fetched.locale, "ru");
         assert!(fetched.auto_fetch);
+        assert!(fetched.performance_diagnostics);
         assert_eq!(fetched.git_executable_path, settings.git_executable_path);
     }
 }

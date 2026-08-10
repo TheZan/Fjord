@@ -9,6 +9,7 @@ mod askpass;
 mod commands;
 mod error;
 mod ide_launcher;
+mod interaction_traces;
 mod logging;
 mod operations;
 mod state;
@@ -124,5 +125,6 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::test_git_connection,
             commands::answer_git_auth_prompt,
             commands::cancel_git_auth_prompt,
+            commands::get_interaction_traces,
         ])
 }

@@ -87,6 +87,11 @@
       "confirmDescription": "Fjord will be allowed to fetch from origin without a separate confirmation for every check. Push, pull, branch deletion, and other actions will still require confirmation.",
       "confirmButton": "Enable"
     },
+    "performanceDiagnostics": {
+      "label": "Diagnostics",
+      "title": "Record performance traces",
+      "description": "Keeps the latest interaction timings in memory. Traces contain identifiers and durations only, and are cleared when disabled."
+    },
     "git": {
       "executable": "System Git",
       "found": "Git found",

@@ -1,16 +1,16 @@
 use std::path::PathBuf;
 
+use crate::error::AppError;
+use crate::interaction_traces::TracedState;
+use crate::interaction_traces::TracedState as State;
+use crate::state::AppState;
 use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
 use fjord_services::WorkspaceError;
-use tauri::State;
-
-use crate::error::AppError;
-use crate::state::AppState;
 
 const IMPORT_REPOSITORY_LIMIT: usize = 200;
 
 #[tauri::command]
-pub async fn list_workspaces(state: State<'_, AppState>) -> Result<Vec<Workspace>, AppError> {
+pub async fn list_workspaces(state: TracedState<'_>) -> Result<Vec<Workspace>, AppError> {
     Ok(state.workspaces.list_workspaces().await?)
 }
 

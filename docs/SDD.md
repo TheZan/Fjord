@@ -204,7 +204,8 @@ infrastructure/   Tauri IPC client, i18n runtime, theme runtime
 Actual schema (see `crates/fjord-db/migrations/0001_init.sql` and [`specs/data-model.md`](specs/data-model.md)):
 
 ```
-settings          { id = 1, locale, theme, default_ide, updated_at }          -- single row
+settings          { id = 1, locale, theme, default_ide, auto_fetch,
+                    performance_diagnostics, git_executable_path, updated_at } -- single row
 workspaces        { id, name, sort_order, created_at }
 repositories      { id, workspace_id → workspaces, name, path, sort_order, created_at,
                     UNIQUE (workspace_id, path) }
@@ -249,6 +250,7 @@ Implemented in `fjord-app/src/logging.rs` (`P4-14`):
 - ✅ `tracing-subscriber` with an env-filter — default `info`, `debug` for `fjord_*` crates in dev builds, overridable via `RUST_LOG`.
 - ✅ A daily-rotating file appender (`tracing-appender`) writing to `<app data dir>/logs/fjord.*.log`; retention of the 5 most recent files. Initialized before state bootstrap so startup failures leave a trace on disk; a logging failure never blocks the app itself.
 - ✅ Log lines never include file *contents* or diff bodies — paths, repo names, and timings only (logs may be attached to public bug reports).
+- ✅ Opt-in interaction diagnostics keep the latest 512 traces in memory and expose a draining IPC command. Trace records are stricter than logs: ids, phase/operation names, durations, and counts only; disabling the setting clears the buffer (`P6-08`).
 - 🚧 A "reveal log folder" affordance in settings.
 
 ## 11. Non-functional requirements and benchmarks

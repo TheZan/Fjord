@@ -6,11 +6,12 @@ use fjord_domain::{
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::error::AppError;
+use crate::interaction_traces::TracedState as State;
 use crate::operations::{
     emit_operation, OperationKind, OperationProgress, OperationRegistry, OperationScope,
     OperationStatus,

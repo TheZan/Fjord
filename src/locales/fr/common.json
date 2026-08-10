@@ -87,6 +87,11 @@
       "confirmDescription": "Fjord pourra récupérer les modifications depuis origin sans confirmation pour chaque vérification. Les push, pull, suppressions de branches et autres actions resteront soumis à confirmation.",
       "confirmButton": "Activer"
     },
+    "performanceDiagnostics": {
+      "label": "Diagnostic",
+      "title": "Enregistrer les traces de performance",
+      "description": "Conserve en mémoire les durées des interactions récentes. Les traces ne contiennent que des identifiants et des durées, puis sont effacées à la désactivation."
+    },
     "git": {
       "executable": "Git système",
       "found": "Git trouvé",
