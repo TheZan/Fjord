@@ -148,7 +148,7 @@
   },
   "repositories": {
     "label": "Dépôts",
-    "openButton": "Ouvrir un dépôt",
+    "addButton": "Ajouter un dépôt",
     "importButton": "Importer un dossier",
     "importingButton": "Importation…",
     "removeButton": "Retirer",

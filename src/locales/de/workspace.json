@@ -148,7 +148,7 @@
   },
   "repositories": {
     "label": "Repositorys",
-    "openButton": "Repository öffnen",
+    "addButton": "Repository hinzufügen",
     "importButton": "Ordner importieren",
     "importingButton": "Wird importiert…",
     "removeButton": "Entfernen",

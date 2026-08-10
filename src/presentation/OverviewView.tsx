@@ -73,7 +73,7 @@ export function OverviewView({
           {bulkPending === "pull" ? t("bulk.pulling") : t("bulk.pull")}
         </Button>
         <Button variant="primary" disabled={!workspace} onClick={onOpenRepository}>
-          {t("repositories.openButton")}
+          {t("repositories.addButton")}
         </Button>
         <OverflowMenu
           label={t("toolbar.moreActions")}

@@ -150,7 +150,7 @@
   },
   "repositories": {
     "label": "Repositories",
-    "openButton": "Open repository",
+    "addButton": "Add repository",
     "importButton": "Import folder",
     "importingButton": "Importing…",
     "removeButton": "Remove",

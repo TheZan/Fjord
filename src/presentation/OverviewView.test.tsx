@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverviewView } from "@/presentation/OverviewView";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
@@ -107,6 +107,22 @@ describe("OverviewView", () => {
     expect(overviewProps.onCancelBulk).toHaveBeenCalledOnce();
   });
 
+  it("limits the header to four controls and keeps secondary actions in overflow", () => {
+    const overviewProps = props();
+    const { container } = render(<OverviewView {...overviewProps} />);
+    const header = container.querySelector("header")!;
+
+    expect(within(header).getAllByRole("button")).toHaveLength(4);
+    expect(within(header).getByRole("button", { name: "bulk.fetch" })).toBeVisible();
+    expect(within(header).getByRole("button", { name: "bulk.pull" })).toBeVisible();
+    expect(within(header).getByRole("button", { name: "repositories.addButton" })).toBeVisible();
+
+    fireEvent.click(within(header).getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: "bulk.openIde" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "repositories.importButton" }));
+    expect(overviewProps.onImport).toHaveBeenCalledOnce();
+  });
+
   it("groups repositories into measured columns and renders only virtual rows", () => {
     const repositories = Array.from({ length: 5 }, (_, index) => repository(index + 1));
     const overviewProps = props({ repositories });
@@ -129,7 +145,7 @@ describe("OverviewView", () => {
     render(<OverviewView {...props({ workspace: null })} />);
 
     expect(screen.getByRole("button", { name: "bulk.fetch" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "repositories.openButton" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "repositories.addButton" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
     expect(screen.getByRole("menuitem", { name: "bulk.openIde" })).toBeDisabled();
     expect(screen.getByText("repositories.empty")).toBeInTheDocument();
