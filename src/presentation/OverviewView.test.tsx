@@ -9,6 +9,8 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, number>) => {
       if (key === "dashboard.repoCountValue") return `${values?.count} repositories`;
+      if (key === "dashboard.needAttentionValue") return `${values?.count} need attention`;
+      if (key === "dashboard.behindOriginValue") return `${values?.count} behind`;
       if (key === "operations.progress") return `${values?.completed}/${values?.total}`;
       return key;
     },
@@ -94,8 +96,8 @@ describe("OverviewView", () => {
     const { container } = render(<OverviewView {...overviewProps} />);
 
     expect(screen.getByText("5 repositories")).toBeInTheDocument();
-    expect(screen.getByText("dashboard.needAttention").parentElement).toHaveTextContent("2");
-    expect(screen.getByText("dashboard.behindOrigin").parentElement).toHaveTextContent("1");
+    expect(screen.getByRole("button", { name: "2 need attention" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 behind" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "bulk.fetch" }));
     expect(overviewProps.onBulk).toHaveBeenCalledWith("fetch");
     fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
@@ -139,6 +141,50 @@ describe("OverviewView", () => {
     expect(overviewProps.onSelectRepo).toHaveBeenCalledWith("repo-1");
     expect(overviewProps.onWarmRepo).toHaveBeenCalledWith("repo-2");
     expect(overviewProps.onRemoveRepo).toHaveBeenCalledWith("repo-3");
+  });
+
+  it("omits zero summary segments and filters repositories from non-zero segments", () => {
+    const repositories = [repository(1), repository(2), repository(3)];
+    const statusByRepo = {
+      "repo-1": {
+        repoId: "repo-1",
+        status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 1, hasConflict: false },
+        lastSyncedAt: null,
+      },
+      "repo-2": {
+        repoId: "repo-2",
+        status: { branch: "main", ahead: 0, behind: 1, dirtyCount: 0, hasConflict: false },
+        lastSyncedAt: null,
+      },
+      "repo-3": {
+        repoId: "repo-3",
+        status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: false },
+        lastSyncedAt: null,
+      },
+    };
+    const { rerender } = render(
+      <OverviewView
+        {...props({ repositories, statusByRepo, metrics: { total: 3, attention: 2, behind: 1 } })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "2 need attention" }));
+    expect(screen.getByTestId("card-repo-1")).toBeInTheDocument();
+    expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("card-repo-3")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "2 need attention" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 behind" }));
+    expect(screen.queryByTestId("card-repo-1")).not.toBeInTheDocument();
+    expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
+
+    rerender(
+      <OverviewView
+        {...props({ repositories, statusByRepo, metrics: { total: 3, attention: 0, behind: 0 } })}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /need attention/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /behind/ })).not.toBeInTheDocument();
   });
 
   it("disables workspace actions when no workspace is selected", () => {

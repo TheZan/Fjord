@@ -31,6 +31,7 @@ interface OverviewProps {
 
 const CARD_ROW_HEIGHT = 112;
 const CARD_GRID_GAP = 12;
+type OverviewFilter = "attention" | "behind";
 
 export function OverviewView({
   workspace,
@@ -50,6 +51,28 @@ export function OverviewView({
   importPending,
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
+  const [activeFilters, setActiveFilters] = useState<Set<OverviewFilter>>(() => new Set());
+  const filteredRepositories = useMemo(() => {
+    const attentionActive = metrics.attention > 0 && activeFilters.has("attention");
+    const behindActive = metrics.behind > 0 && activeFilters.has("behind");
+    if (!attentionActive && !behindActive) return repositories;
+    return repositories.filter((repo) => {
+      const status = statusByRepo[repo.id]?.status;
+      return (
+        (attentionActive && Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind)) ||
+        (behindActive && (status?.behind ?? 0) > 0)
+      );
+    });
+  }, [activeFilters, metrics.attention, metrics.behind, repositories, statusByRepo]);
+
+  function toggleFilter(filter: OverviewFilter) {
+    setActiveFilters((current) => {
+      const next = new Set(current);
+      if (next.has(filter)) next.delete(filter);
+      else next.add(filter);
+      return next;
+    });
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
@@ -58,9 +81,6 @@ export function OverviewView({
           <h2 className="truncate text-[17px] font-medium">
             {workspace?.name ?? t("dashboard.title")}
           </h2>
-          <p className="text-[13px]" style={{ color: "var(--slate)" }}>
-            {t("dashboard.repoCountValue", { count: metrics.total })}
-          </p>
         </div>
 
         <Button
@@ -96,25 +116,20 @@ export function OverviewView({
 
       {bulkProgress ? <BulkProgressStrip progress={bulkProgress} onCancel={onCancelBulk} /> : null}
 
-      <div className="grid grid-cols-3 gap-3">
-        <Metric label={t("dashboard.repoCount")} value={metrics.total} />
-        <Metric
-          label={t("dashboard.needAttention")}
-          value={metrics.attention}
-          tone={metrics.attention > 0 ? "var(--amber)" : undefined}
-        />
-        <Metric
-          label={t("dashboard.behindOrigin")}
-          value={metrics.behind}
-          tone={metrics.behind > 0 ? "var(--amber)" : undefined}
-        />
-      </div>
+      <SummaryLine
+        metrics={metrics}
+        attentionActive={metrics.attention > 0 && activeFilters.has("attention")}
+        behindActive={metrics.behind > 0 && activeFilters.has("behind")}
+        onToggle={toggleFilter}
+      />
 
-      {repositories.length === 0 ? (
-        <Muted className="text-[13px]">{t("repositories.empty")}</Muted>
+      {filteredRepositories.length === 0 ? (
+        <Muted className="text-[13px]">
+          {repositories.length === 0 ? t("repositories.empty") : t("dashboard.noFilterMatches")}
+        </Muted>
       ) : (
         <VirtualRepoGrid
-          repositories={repositories}
+          repositories={filteredRepositories}
           statusByRepo={statusByRepo}
           selectedRepoId={selectedRepoId}
           onSelectRepo={onSelectRepo}
@@ -250,18 +265,61 @@ function VirtualRepoGrid({
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: string }) {
+function SummaryLine({
+  metrics,
+  attentionActive,
+  behindActive,
+  onToggle,
+}: {
+  metrics: { total: number; attention: number; behind: number };
+  attentionActive: boolean;
+  behindActive: boolean;
+  onToggle: (filter: OverviewFilter) => void;
+}) {
+  const { t } = useTranslation("workspace");
   return (
-    <div className="rounded-lg border px-3.5 py-3" style={{ background: "var(--paper)", borderColor: "var(--hairline)" }}>
-      <span
-        className="block text-[10px] font-medium uppercase tracking-[0.08em]"
-        style={{ color: "var(--mist)" }}
-      >
-        {label}
+    <div className="flex min-h-7 items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+      <span className="font-medium tabular-nums" style={{ color: "var(--ink)" }}>
+        {t("dashboard.repoCountValue", { count: metrics.total })}
       </span>
-      <span className="mt-0.5 block text-[22px] font-medium tabular-nums" style={{ color: tone }}>
-        {value}
-      </span>
+      {metrics.attention > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <SummaryFilter active={attentionActive} onClick={() => onToggle("attention")}>
+            {t("dashboard.needAttentionValue", { count: metrics.attention })}
+          </SummaryFilter>
+        </>
+      ) : null}
+      {metrics.behind > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <SummaryFilter active={behindActive} onClick={() => onToggle("behind")}>
+            {t("dashboard.behindOriginValue", { count: metrics.behind })}
+          </SummaryFilter>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function SummaryFilter({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className="interactive-control rounded px-1.5 py-1 font-medium tabular-nums"
+      style={{ color: active ? "var(--amber-ink)" : "var(--slate)", background: active ? "var(--amber-tint)" : undefined }}
+    >
+      {children}
+    </button>
   );
 }
