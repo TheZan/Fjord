@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { RepoCard } from "@/presentation/RepoCard";
 import { Button, Muted } from "@/presentation/ui";
+import { OverflowMenu } from "@/presentation/OverflowMenu";
 import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 interface OverviewProps {
@@ -71,16 +72,26 @@ export function OverviewView({
         <Button disabled={!workspace || bulkPending !== null} onClick={() => onBulk("pull")}>
           {bulkPending === "pull" ? t("bulk.pulling") : t("bulk.pull")}
         </Button>
-        <Button disabled={!workspace || bulkPending !== null} onClick={() => onBulk("open-ide")}>
-          {bulkPending === "open-ide" ? t("bulk.openingIde") : t("bulk.openIde")}
-        </Button>
-        <div className="mx-1 h-5 w-px" style={{ background: "var(--hairline)" }} />
-        <Button disabled={!workspace || importPending} onClick={onImport}>
-          {importPending ? t("repositories.importingButton") : t("repositories.importButton")}
-        </Button>
         <Button variant="primary" disabled={!workspace} onClick={onOpenRepository}>
           {t("repositories.openButton")}
         </Button>
+        <OverflowMenu
+          label={t("toolbar.moreActions")}
+          items={[
+            {
+              id: "open-all-in-ide",
+              label: bulkPending === "open-ide" ? t("bulk.openingIde") : t("bulk.openIde"),
+              disabled: !workspace || bulkPending !== null,
+              onSelect: () => onBulk("open-ide"),
+            },
+            {
+              id: "import",
+              label: importPending ? t("repositories.importingButton") : t("repositories.importButton"),
+              disabled: !workspace || importPending,
+              onSelect: onImport,
+            },
+          ]}
+        />
       </header>
 
       {bulkProgress ? <BulkProgressStrip progress={bulkProgress} onCancel={onCancelBulk} /> : null}

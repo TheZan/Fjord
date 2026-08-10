@@ -98,6 +98,9 @@ describe("OverviewView", () => {
     expect(screen.getByText("dashboard.behindOrigin").parentElement).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "bulk.fetch" }));
     expect(overviewProps.onBulk).toHaveBeenCalledWith("fetch");
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "bulk.openIde" }));
+    expect(overviewProps.onBulk).toHaveBeenCalledWith("open-ide");
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(container.querySelector('[style*="width: 50%"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "operations.cancel" }));
@@ -127,6 +130,8 @@ describe("OverviewView", () => {
 
     expect(screen.getByRole("button", { name: "bulk.fetch" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "repositories.openButton" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: "bulk.openIde" })).toBeDisabled();
     expect(screen.getByText("repositories.empty")).toBeInTheDocument();
   });
 });

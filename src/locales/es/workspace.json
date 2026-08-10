@@ -171,7 +171,8 @@
     "stash": "Stash",
     "pop": "Pop",
     "terminal": "Terminal",
-    "search": "Buscar"
+    "search": "Buscar",
+    "moreActions": "Más acciones"
   },
   "tree": {
     "local": "Local",

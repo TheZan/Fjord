@@ -173,7 +173,8 @@
     "stash": "Stash",
     "pop": "Pop",
     "terminal": "Terminal",
-    "search": "Search"
+    "search": "Search",
+    "moreActions": "More actions"
   },
   "tree": {
     "local": "Local",

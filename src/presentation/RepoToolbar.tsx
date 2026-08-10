@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useStashes } from "@/application/useStashes";
 import { Button, Input } from "@/presentation/ui";
+import { OverflowMenu } from "@/presentation/OverflowMenu";
 import type { RepoStatus } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
@@ -196,13 +197,6 @@ export function RepoToolbar({
 
         <ToolGroup last>
           <ToolButton
-            label={t("toolbar.terminal")}
-            icon={<IconTerminal />}
-            pending={actionPending === "terminal"}
-            disabled={busy}
-            onClick={() => onAction("terminal")}
-          />
-          <ToolButton
             label={t("repoActions.openIde")}
             icon={<IconIde />}
             pending={actionPending === "open-ide"}
@@ -217,6 +211,17 @@ export function RepoToolbar({
               onClick={onOpenInspector}
             />
           ) : null}
+          <OverflowMenu
+            label={t("toolbar.moreActions")}
+            items={[
+              {
+                id: "terminal",
+                label: t("toolbar.terminal"),
+                disabled: busy,
+                onSelect: () => onAction("terminal"),
+              },
+            ]}
+          />
         </ToolGroup>
       </header>
 
@@ -421,16 +426,6 @@ function IconPop() {
       <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7" />
       <path d="M12 15V3" />
       <path d="m8 7 4-4 4 4" />
-    </Svg>
-  );
-}
-
-function IconTerminal() {
-  return (
-    <Svg>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7 9 3 3-3 3" />
-      <path d="M13 15h4" />
     </Svg>
   );
 }

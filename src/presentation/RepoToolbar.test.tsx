@@ -57,8 +57,9 @@ describe("RepoToolbar", () => {
 
     expect(screen.getByRole("button", { name: "repoActions.fetch" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "toolbar.branch" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "toolbar.terminal" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "toolbar.terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: "toolbar.terminal" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "toolbar.terminal" }));
     fireEvent.click(screen.getByRole("button", { name: "toolbar.search" }));
     expect(toolbarProps.onAction).toHaveBeenCalledWith("terminal");
     expect(toolbarProps.onOpenSearch).toHaveBeenCalledOnce();
