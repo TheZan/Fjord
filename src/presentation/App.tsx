@@ -38,6 +38,7 @@ import {
   useInteractionCommit,
 } from "@/presentation/performance";
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
+import { MainShell } from "@/presentation/MainShell";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
@@ -339,7 +340,12 @@ export function App() {
         pending={workspaceActionPending}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+      <MainShell
+        searchLabel={tw("toolbar.search")}
+        settingsLabel={tw("settings.title")}
+        onOpenSearch={openPalette}
+        onOpenSettings={() => setSettingsOpen(true)}
+      >
         {(error || bulkActionNotice) && (
           <div
             role={error ? "alert" : "status"}
@@ -408,7 +414,7 @@ export function App() {
           />
         )}
         </ErrorBoundary>
-      </main>
+      </MainShell>
 
       {paletteOpen && (
         <CommandPalette
