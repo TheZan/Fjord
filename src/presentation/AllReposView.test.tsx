@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import axe from "axe-core";
 import { AllReposView } from "@/presentation/AllReposView";
 
 vi.mock("react-i18next", () => ({
@@ -10,6 +11,20 @@ vi.mock("react-i18next", () => ({
 }));
 
 describe("AllReposView", () => {
+  it("passes an automated accessibility scan", async () => {
+    const { container } = render(
+      <AllReposView
+        rows={[]}
+        statusByRepo={{}}
+        selectedRepoId={null}
+        filter=""
+        onFilterChange={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
+  });
+
   it("renders the empty state and reports filter input changes", () => {
     const onFilterChange = vi.fn();
 

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import axe from "axe-core";
 import { useStashes } from "@/application/useStashes";
 import { RepoToolbar } from "@/presentation/RepoToolbar";
 import type { RepoStatus } from "@/domain/git";
@@ -49,6 +50,11 @@ function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}
 describe("RepoToolbar", () => {
   beforeEach(() => {
     vi.mocked(useStashes).mockReturnValue({ stashes: [], loading: false, error: null });
+  });
+
+  it("passes an automated accessibility scan", async () => {
+    const { container } = render(<RepoToolbar {...props()} />);
+    expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
   });
 
   it("blocks repository mutations until validation but keeps non-mutating tools available", () => {

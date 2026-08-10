@@ -398,16 +398,15 @@ function RepositoryItem({
         color: selected ? "var(--fjord-ink)" : "var(--slate)",
       }}
     >
-      <span className="row-span-2 h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
+      <span aria-hidden="true" className="row-span-2 h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
       <span className={`min-w-0 truncate font-medium ${TYPOGRAPHY.body}`}>{repo.name}</span>
       <span className={`min-w-0 truncate ${TYPOGRAPHY.caption}`} style={{ color: "var(--mist)" }}>
         {status?.branch ?? repo.path}
-        {(dirty > 0 || ahead > 0 || behind > 0) && (
+        {(status?.hasConflict || dirty > 0 || ahead > 0 || behind > 0) && (
           <span className="ml-1.5 inline-flex gap-1 tabular-nums">
+            {status?.hasConflict && <span style={{ color: "var(--rust-ink)" }}>⚠ {t("cardStatus.conflict")}</span>}
             {dirty > 0 && (
-              <span style={{ color: "var(--amber-ink)" }}>
-                {t("cardStatus.changes", { count: dirty })}
-              </span>
+              <span aria-label={t("cardStatus.changes", { count: dirty })} style={{ color: "var(--amber-ink)" }}>●{dirty}</span>
             )}
             {ahead > 0 && <span>↑{ahead}</span>}
             {behind > 0 && <span>↓{behind}</span>}

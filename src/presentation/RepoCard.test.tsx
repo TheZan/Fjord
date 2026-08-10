@@ -45,8 +45,22 @@ describe("RepoCard", () => {
     screen.getByRole("button", { name: "repositories.removeButton" }).click();
 
     expect(screen.getByText("cardStatus.dirty")).toBeInTheDocument();
-    expect(screen.getByText("3 changes")).toBeInTheDocument();
+    expect(screen.getByLabelText("3 changes")).toHaveTextContent("●3");
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rely on color for conflict status", () => {
+    render(
+      <RepoCard
+        repo={repo}
+        status={{ ...dirtyStatus, dirtyCount: 0, hasConflict: true }}
+        selected={false}
+        onSelect={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("⚠")).toBeInTheDocument();
+    expect(screen.getByText("cardStatus.conflict")).toBeInTheDocument();
   });
 });

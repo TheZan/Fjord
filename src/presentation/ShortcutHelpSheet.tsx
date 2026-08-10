@@ -1,6 +1,8 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { ShortcutBinding } from "@/application/shortcutRegistry";
 import { Button } from "@/presentation/ui";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export function ShortcutHelpSheet({
   bindings,
@@ -10,9 +12,13 @@ export function ShortcutHelpSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
+  const dialogRef = useRef<HTMLElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(8, 12, 16, 0.45)" }} onMouseDown={onClose}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="shortcut-help-title"

@@ -228,7 +228,7 @@ export function RepoDetailView({
           className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px]"
           style={{ background: "var(--rust-tint)", color: "var(--rust-ink)" }}
         >
-          <span>{t("repoStatus.conflict")}</span>
+          <span><span aria-hidden="true">⚠</span> {t("repoStatus.conflict")}</span>
           <Button
             size="sm"
             disabled={actionPending !== null || !snapshotValidated}

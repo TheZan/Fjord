@@ -9,6 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import { Button, Input, Select } from "@/presentation/ui";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export interface ContextMenuItem {
   id: string;
@@ -300,9 +301,13 @@ function DialogFrame({
   children: ReactNode;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4" onMouseDown={onClose}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}

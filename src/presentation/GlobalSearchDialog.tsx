@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GlobalSearchResult } from "@/domain/git";
 import { globalSearch } from "@/infrastructure/tauriClient";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export function GlobalSearchDialog({
   onSelect,
@@ -14,6 +15,8 @@ export function GlobalSearchDialog({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GlobalSearchResult[]>([]);
   const [index, setIndex] = useState(0);
+  const dialogRef = useRef<HTMLElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -45,7 +48,7 @@ export function GlobalSearchDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh]" style={{ background: "rgba(8, 12, 16, 0.45)" }} onMouseDown={onClose}>
-      <section role="dialog" aria-modal="true" aria-label={t("globalSearch.title")} className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border" style={{ borderColor: "var(--hairline-strong)", background: "var(--paper)" }} onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t("globalSearch.title")} className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border" style={{ borderColor: "var(--hairline-strong)", background: "var(--paper)" }} onMouseDown={(event) => event.stopPropagation()}>
         <input
           autoFocus
           value={query}
@@ -54,10 +57,7 @@ export function GlobalSearchDialog({
             setIndex(0);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            } else if (event.key === "ArrowDown") {
+            if (event.key === "ArrowDown") {
               event.preventDefault();
               setIndex((current) => Math.min(current + 1, Math.max(results.length - 1, 0)));
             } else if (event.key === "ArrowUp") {

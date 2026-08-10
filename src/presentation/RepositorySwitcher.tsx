@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { paletteScore } from "@/presentation/CommandPalette";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export interface RepositorySwitcherItem {
   id: string;
@@ -24,6 +25,8 @@ export function RepositorySwitcher({
 }) {
   const { t } = useTranslation("workspace");
   const [index, setIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
   const visible = rankRepositorySwitcherItems(items, query).slice(0, 12);
 
   useEffect(() => setIndex(0), [query]);
@@ -41,6 +44,11 @@ export function RepositorySwitcher({
       onMouseDown={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("repositorySwitcher.placeholder")}
+        tabIndex={-1}
         className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border"
         style={{ borderWidth: "0.5px", borderColor: "var(--hairline-strong)", background: "var(--paper)" }}
         onMouseDown={(event) => event.stopPropagation()}
@@ -50,10 +58,7 @@ export function RepositorySwitcher({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            } else if (event.key === "ArrowDown") {
+            if (event.key === "ArrowDown") {
               event.preventDefault();
               setIndex((value) => Math.min(value + 1, Math.max(visible.length - 1, 0)));
             } else if (event.key === "ArrowUp") {

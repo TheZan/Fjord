@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import axe from "axe-core";
 import { OverviewView } from "@/presentation/OverviewView";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
 
@@ -122,6 +123,11 @@ describe("OverviewView", () => {
     expect(container.querySelector('[style*="width: 50%"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "operations.cancel" }));
     expect(overviewProps.onCancelBulk).toHaveBeenCalledOnce();
+  });
+
+  it("passes an automated accessibility scan", async () => {
+    const { container } = render(<OverviewView {...props()} />);
+    expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
   });
 
   it("limits the header to four controls and keeps secondary actions in overflow", () => {

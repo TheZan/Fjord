@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitAuthPrompt } from "@/domain/generated";
 import { Button, Input } from "@/presentation/ui";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export function GitAuthPromptDialog({
   prompt,
@@ -20,7 +21,9 @@ export function GitAuthPromptDialog({
   const [value, setValue] = useState("");
   const [pending, setPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const confirmation = prompt.kind === "confirmation";
+  useDialogFocusTrap(dialogRef, () => void cancel());
 
   useEffect(() => {
     setValue("");
@@ -56,6 +59,8 @@ export function GitAuthPromptDialog({
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}

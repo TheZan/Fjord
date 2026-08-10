@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
 import { pickFile } from "@/infrastructure/dialog";
@@ -16,6 +16,7 @@ import { SUPPORTED_LOCALES } from "@/locales/registry";
 import { ConfirmActionDialog } from "@/presentation/GitContextMenu";
 import { useInteractionCommit } from "@/presentation/performance";
 import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 import type {
   GitConnectionTestResult,
   GitEnvironmentInfo,
@@ -83,6 +84,8 @@ export function SettingsDialog({
   const [gitDiagnostics, setGitDiagnostics] = useState<string | null>(null);
   const [connectionResult, setConnectionResult] = useState<GitConnectionTestResult | null>(null);
   const [connectionRepoId, setConnectionRepoId] = useState(repositories[0]?.id ?? "");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
 
   // Inspection succeeds and reports the state rather than failing, so the panel
   // can say "the path you chose does not work" instead of showing a generic
@@ -236,6 +239,11 @@ export function SettingsDialog({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={tw("settings.title")}
+        tabIndex={-1}
         className="desktop-popover flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",

@@ -233,7 +233,7 @@ const TONE_STYLE: Record<Tone, React.CSSProperties> = {
 export function Pill({ children, tone = "neutral" }: { children: ReactNode; tone?: Tone }) {
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
       style={TONE_STYLE[tone]}
     >
       {children}

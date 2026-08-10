@@ -86,7 +86,7 @@ describe("Sidebar", () => {
     const repoButton = await screen.findByRole("button", { name: /Fjord/ });
 
     expect(repoButton).toHaveTextContent("main");
-    expect(repoButton).toHaveTextContent("3 changes");
+    expect(repoButton).toHaveTextContent("●3");
     fireEvent.pointerEnter(repoButton);
     fireEvent.focus(repoButton);
     fireEvent.click(repoButton);

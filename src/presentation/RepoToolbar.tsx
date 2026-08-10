@@ -279,7 +279,9 @@ function OperationProgressStrip({
 }
 
 function SyncCounters({ status }: { status: RepoStatus }) {
+  const { t } = useTranslation("workspace");
   const parts: string[] = [];
+  if (status.hasConflict) parts.push(`⚠ ${t("cardStatus.conflict")}`);
   if (status.ahead > 0) parts.push(`↑${status.ahead}`);
   if (status.behind > 0) parts.push(`↓${status.behind}`);
   if (status.dirtyCount > 0) parts.push(`●${status.dirtyCount}`);

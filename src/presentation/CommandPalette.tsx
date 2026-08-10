@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export interface PaletteItem {
   id: string;
@@ -22,6 +23,8 @@ export function CommandPalette({
 }) {
   const { t } = useTranslation("workspace");
   const [index, setIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
 
   const scored = items
     .flatMap((item) => {
@@ -50,6 +53,11 @@ export function CommandPalette({
       onMouseDown={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("commandPalette.placeholder")}
+        tabIndex={-1}
         className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",
@@ -63,10 +71,6 @@ export function CommandPalette({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            }
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setIndex((value) => Math.min(value + 1, Math.max(visible.length - 1, 0)));
