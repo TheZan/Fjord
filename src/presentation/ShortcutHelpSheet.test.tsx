@@ -4,7 +4,13 @@ import { createAppShortcutBindings, type AppShortcutActions } from "@/applicatio
 import { ShortcutHelpSheet } from "@/presentation/ShortcutHelpSheet";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, values?: Record<string, unknown>) => `${key}${values?.number ?? ""}` }),
+  useTranslation: () => ({ t: (key: string, values?: Record<string, unknown>) => ({
+    "shortcuts.key.primary": "Ctrl/Cmd",
+    "shortcuts.key.alt": "Alt",
+    "shortcuts.key.shift": "Shift",
+    "shortcuts.key.escape": "Esc",
+    "shortcuts.key.enter": "Enter",
+  }[key] ?? `${key}${values?.number ?? ""}`) }),
 }));
 
 const actions = new Proxy({}, { get: () => vi.fn() }) as AppShortcutActions;

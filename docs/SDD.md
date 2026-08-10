@@ -293,7 +293,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 4 — Hardening & tech debt (2026-08 audit) | ✅ done |
 | Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
 | Phase 6 — Performance foundation | 🚧 designed ([`specs/performance.md`](specs/performance.md)) |
-| Phase 7 — UI/UX shell | 🚧 designed ([`specs/ui-shell.md`](specs/ui-shell.md)) |
+| Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
 | Phase 8 — Daily-driver essentials | 🚧 designed ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
 | Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
@@ -331,7 +331,8 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 - [`tasks.md`](tasks.md) — task board with statuses. **Replaces `plan.md`** (removed in v0.3; task IDs referenced from code and commits are unchanged).
 - [`specs/`](specs/) — per-subsystem contracts:
   - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
-  - Designed: [`performance.md`](specs/performance.md) (Phase 6), [`ui-shell.md`](specs/ui-shell.md) (Phase 7), [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
+  - Implemented: [`ui-shell.md`](specs/ui-shell.md) (Phase 7).
+  - Designed: [`performance.md`](specs/performance.md) (Phase 6), [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
 - [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
 

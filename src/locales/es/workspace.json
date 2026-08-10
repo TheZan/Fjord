@@ -28,11 +28,7 @@
   "commandPalette": {
     "placeholder": "Buscar acciones",
     "empty": "No se encontraron comandos.",
-    "repository": "Repositorio",
     "action": "Acción",
-    "localBranch": "Rama local",
-    "remoteBranch": "Rama remota",
-    "commit": "Commit",
     "activeRepositoryGroup": "Repositorio activo",
     "workspaceGroup": "Espacio de trabajo",
     "globalGroup": "Global",
@@ -65,7 +61,8 @@
     "workspace": "Cambiar al espacio de trabajo {{number}}",
     "search_repository": "Buscar en el repositorio activo",
     "commit": "Confirmar cambios preparados",
-    "refresh_repository": "Actualizar el repositorio activo"
+    "refresh_repository": "Actualizar el repositorio activo",
+    "key": { "primary": "Ctrl/Cmd", "alt": "Alt", "shift": "Mayús", "escape": "Esc", "enter": "Intro" }
   },
   "commitInspector": {
     "empty": "No hay archivos modificados.",

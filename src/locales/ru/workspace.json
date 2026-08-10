@@ -28,21 +28,17 @@
   "commandPalette": {
     "placeholder": "Поиск действий",
     "empty": "Команды не найдены.",
-    "repository": "Репозиторий",
     "action": "Действие",
-    "localBranch": "Локальная ветка",
-    "remoteBranch": "Удалённая ветка",
-    "commit": "Коммит",
     "activeRepositoryGroup": "Активный репозиторий",
-    "workspaceGroup": "Рабочая область",
+    "workspaceGroup": "Рабочее пространство",
     "globalGroup": "Общие",
     "viewDetail": "Переключить представление"
   },
   "repositorySwitcher": {
-    "placeholder": "Перейти к репозиторию или рабочей области",
+    "placeholder": "Перейти к репозиторию или рабочему пространству",
     "empty": "Ничего не найдено.",
     "repository": "Репозиторий",
-    "workspace": "Рабочая область",
+    "workspace": "Рабочее пространство",
     "workspaceDetail": "Репозиториев: {{count}}"
   },
   "globalSearch": {
@@ -59,13 +55,14 @@
     "switcher_open": "Открыть переключатель репозиториев",
     "settings_open": "Открыть настройки",
     "search_global": "Искать во всех репозиториях",
-    "refresh_workspace": "Обновить активную рабочую область",
+    "refresh_workspace": "Обновить активное рабочее пространство",
     "help_open": "Открыть справку по сочетаниям",
     "escape": "Закрыть верхнее окно",
-    "workspace": "Перейти к рабочей области {{number}}",
+    "workspace": "Перейти к рабочему пространству {{number}}",
     "search_repository": "Искать в активном репозитории",
-    "commit": "Закоммитить подготовленные изменения",
-    "refresh_repository": "Обновить активный репозиторий"
+    "commit": "Создать коммит из staged-изменений",
+    "refresh_repository": "Обновить активный репозиторий",
+    "key": { "primary": "Ctrl/Cmd", "alt": "Alt", "shift": "Shift", "escape": "Esc", "enter": "Enter" }
   },
   "commitInspector": {
     "empty": "Нет изменённых файлов.",

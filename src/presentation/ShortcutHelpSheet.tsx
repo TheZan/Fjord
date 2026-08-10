@@ -35,7 +35,13 @@ export function ShortcutHelpSheet({
             <li key={`${binding.scope}:${binding.id}`} className="flex items-center justify-between gap-4 py-1 text-[13px]">
               <span>{shortcutLabel(binding.id, t)}</span>
               <kbd className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: "var(--hairline-strong)", color: "var(--slate)" }}>
-                {formatShortcut(binding)}
+                {formatShortcut(binding, {
+                  primary: t("shortcuts.key.primary"),
+                  alt: t("shortcuts.key.alt"),
+                  shift: t("shortcuts.key.shift"),
+                  escape: t("shortcuts.key.escape"),
+                  enter: t("shortcuts.key.enter"),
+                })}
               </kbd>
             </li>
           ))}
@@ -45,19 +51,27 @@ export function ShortcutHelpSheet({
   );
 }
 
-export function formatShortcut(binding: ShortcutBinding): string {
+interface ShortcutKeyLabels {
+  primary: string;
+  alt: string;
+  shift: string;
+  escape: string;
+  enter: string;
+}
+
+export function formatShortcut(binding: ShortcutBinding, labels: ShortcutKeyLabels): string {
   const parts: string[] = [];
-  if (binding.modifiers.primary) parts.push("Ctrl/Cmd");
-  if (binding.modifiers.alt) parts.push("Alt");
-  if (binding.modifiers.shift) parts.push("Shift");
-  parts.push(displayCode(binding.code));
+  if (binding.modifiers.primary) parts.push(labels.primary);
+  if (binding.modifiers.alt) parts.push(labels.alt);
+  if (binding.modifiers.shift) parts.push(labels.shift);
+  parts.push(displayCode(binding.code, labels));
   return parts.join("+");
 }
 
-function displayCode(code: string): string {
+function displayCode(code: string, labels: ShortcutKeyLabels): string {
   if (code.startsWith("Key")) return code.slice(3);
   if (code.startsWith("Digit")) return code.slice(5);
-  return { Comma: ",", Slash: "/", Escape: "Esc", Enter: "Enter" }[code] ?? code;
+  return { Comma: ",", Slash: "/", Escape: labels.escape, Enter: labels.enter }[code] ?? code;
 }
 
 function shortcutLabel(id: string, t: (key: string, values?: Record<string, unknown>) => string): string {

@@ -28,11 +28,7 @@
   "commandPalette": {
     "placeholder": "Search actions",
     "empty": "No commands found.",
-    "repository": "Repository",
     "action": "Action",
-    "localBranch": "Local branch",
-    "remoteBranch": "Remote branch",
-    "commit": "Commit",
     "activeRepositoryGroup": "Active repository",
     "workspaceGroup": "Workspace",
     "globalGroup": "Global",
@@ -65,7 +61,8 @@
     "workspace": "Switch to workspace {{number}}",
     "search_repository": "Search active repository",
     "commit": "Commit staged changes",
-    "refresh_repository": "Refresh active repository"
+    "refresh_repository": "Refresh active repository",
+    "key": { "primary": "Ctrl/Cmd", "alt": "Alt", "shift": "Shift", "escape": "Esc", "enter": "Enter" }
   },
   "commitInspector": {
     "empty": "No changed files.",
