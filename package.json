@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:benchmark-report": "node --test scripts/report-benchmark-deltas.node-test.mjs",
     "check-i18n": "node scripts/check-i18n.ts",
     "check-ipc-docs": "node scripts/check-ipc-docs.ts",
     "prepare:askpass": "node scripts/prepare-askpass-sidecar.mjs",
