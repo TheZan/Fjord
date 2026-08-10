@@ -201,6 +201,16 @@ untracked files cost about as much as one, and `wt-noisy` measured *faster* than
 sources, so the fixture puts it there and the walker has to look at every file.
 The layout is part of the fixture's identity.
 
+**Every fixture's object store is packed.** The generator writes objects one
+commit at a time and never packs, which left `hist-deep` with roughly 2.5 million
+loose object files and no packfile. No repository in the wild looks like that:
+Git packs during `gc`, and a clone arrives packed. The difference is not a
+constant factor — on NTFS every object read becomes its own file open, and a
+history read that Git itself completes in 33 ms ran for over twelve minutes.
+Packing runs on every materialize, not only on generation, so a fixture built
+before this existed is repaired in place rather than rebuilt over hours; it is
+idempotent, and it happens before any measurement.
+
 Two further fixture properties are part of the *identity*, not incidental
 details, and both require Git on `PATH` during generation:
 

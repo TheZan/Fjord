@@ -139,6 +139,45 @@ pub fn write_commit_graph(root: &Path) -> Result<(), String> {
     git(root, &["commit-graph", "write", "--reachable"])
 }
 
+/// Packs loose objects into a packfile, if any are loose.
+///
+/// The generator creates objects one commit at a time and never packs, so a
+/// 500 000-commit fixture ends up with roughly 2.5 million loose object files
+/// and no packfile. No real repository looks like that: Git packs during `gc`,
+/// and a clone arrives packed. On NTFS the difference is not a constant factor
+/// — every object read becomes its own file open, and a history walk that Git
+/// finishes in milliseconds runs for minutes.
+///
+/// Called on every materialize rather than only on generation, so fixtures
+/// built before this existed are repaired in place instead of being thrown
+/// away and rebuilt over hours. Idempotent: an already-packed store is left
+/// alone.
+pub fn ensure_packed(root: &Path) -> Result<bool, String> {
+    if !has_loose_objects(root) {
+        return Ok(false);
+    }
+
+    eprintln!("  packing loose objects in {} …", root.display());
+    git(root, &["repack", "-a", "-d", "--quiet"])?;
+    // `repack -d` removes packs it replaced; loose objects now duplicated in a
+    // pack are dropped separately.
+    git(root, &["prune-packed", "--quiet"])?;
+    Ok(true)
+}
+
+/// Cheap probe: the object store is fanned out over 256 directories, so a
+/// couple of non-empty ones is enough to know packing is needed. Counting all
+/// of them on a fixture with millions of loose objects is itself slow enough to
+/// matter.
+fn has_loose_objects(root: &Path) -> bool {
+    let objects = root.join(".git").join("objects");
+    ["00", "1a", "7f", "c3"].iter().any(|fanout| {
+        std::fs::read_dir(objects.join(fanout))
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false)
+    })
+}
+
 /// Packs refs into `.git/packed-refs`.
 ///
 /// A repository carrying thousands of refs has them packed: Git packs on `gc`,

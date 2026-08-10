@@ -228,6 +228,11 @@ pub fn plan(name: &str, overrides: Overrides) -> Result<Plan, String> {
 pub fn materialize(path: &Path, plan: &Plan, force: bool) -> Result<bool, String> {
     if manifest::prepare(path, &plan.fixture, force)? == Preparation::Reuse {
         eprintln!("fixture {} reused at {}", plan.name, path.display());
+        // Repairs fixtures built before packing was part of generation, so
+        // hours of generation are not thrown away over a property that can be
+        // fixed in place. Runs before any measurement, so a repaired fixture
+        // is still timed in its final state.
+        ensure_packed_fixture(path, &plan.build)?;
         return Ok(false);
     }
 
@@ -257,8 +262,34 @@ pub fn materialize(path: &Path, plan: &Plan, force: bool) -> Result<bool, String
         } => build_workspace(path, repos, commits, files)?,
     }
 
+    ensure_packed_fixture(path, &plan.build)?;
     manifest::write(path, &plan.fixture)?;
     Ok(true)
+}
+
+/// Packs every repository a fixture contains. A workspace holds one per
+/// directory; everything else is a single repository at the root.
+fn ensure_packed_fixture(path: &Path, build: &Build) -> Result<(), String> {
+    if !matches!(build, Build::Workspace { .. }) {
+        generate::ensure_packed(path)?;
+        return Ok(());
+    }
+
+    let mut entries: Vec<_> = std::fs::read_dir(path)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|candidate| candidate.join(".git").exists())
+        .collect();
+    entries.sort();
+
+    let mut progress = Progress::new("packing repositories", entries.len());
+    for (index, repo) in entries.iter().enumerate() {
+        generate::ensure_packed(repo)?;
+        progress.tick(index + 1);
+    }
+    progress.finish();
+    Ok(())
 }
 
 /// A narrow tree with a deep history, plus the commit-graph a repository this
@@ -804,6 +835,40 @@ mod tests {
             assert_eq!(walk.count(), 5);
             assert_eq!(repo.statuses(None).unwrap().len(), 0);
         }
+    }
+
+    /// Loose objects are a generation artifact, not a property of any real
+    /// repository, and on a large fixture they turn a millisecond read into a
+    /// minutes-long one. Every materialized fixture must be packed.
+    #[test]
+    fn a_materialized_fixture_has_its_objects_packed() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("fixture");
+        let plan = plan(
+            "hist-deep",
+            Overrides {
+                commits: Some(20),
+                files: Some(3),
+                workspace_repos: None,
+            },
+        )
+        .unwrap();
+
+        assert!(materialize(&path, &plan, false).unwrap());
+
+        let packs = std::fs::read_dir(path.join(".git/objects/pack"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "pack"))
+            .count();
+        assert!(packs > 0, "a generated fixture must carry a packfile");
+
+        // And reusing it must not undo that.
+        assert!(!materialize(&path, &plan, false).unwrap());
+        assert!(
+            !generate::ensure_packed(&path).unwrap(),
+            "packing is idempotent"
+        );
     }
 
     #[test]
