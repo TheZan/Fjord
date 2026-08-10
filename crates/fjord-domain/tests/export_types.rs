@@ -7,9 +7,10 @@ use fjord_domain::{
     GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
     GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
     GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, RemoteRef, RepoStatus,
-    RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
-    Settings, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme,
-    WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, SearchResultKind, Settings, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, Theme, UiState, UiStatePatch, WorkingChanges, WorkingFile,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -70,6 +71,10 @@ fn generated_types() -> String {
     push::<InteractionSpan>(&mut output, &config);
     push::<InteractionTrace>(&mut output, &config);
     push::<Settings>(&mut output, &config);
+    push::<RepoUiState>(&mut output, &config);
+    push::<UiState>(&mut output, &config);
+    push::<RepoUiStatePatch>(&mut output, &config);
+    push::<UiStatePatch>(&mut output, &config);
 
     output
 }

@@ -50,36 +50,35 @@ CREATE TABLE repo_status_cache (
     has_conflict    INTEGER NOT NULL DEFAULT 0,   -- 0/1
     last_synced_at  TEXT
 );
+
+-- Cache-only projection of the last repository paint. Implemented by
+-- 0005_repo_snapshot.sql; safe to drop and re-create from live Git state.
+CREATE TABLE repo_snapshot (
+    repo_id         TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+    schema_version  INTEGER NOT NULL,
+    payload         TEXT NOT NULL,
+    captured_at     TEXT NOT NULL
+);
+
+-- Single versioned UI-preference document. Unknown JSON keys are ignored;
+-- an unsupported version falls back to defaults. Implemented by 0006_ui_state.sql.
+CREATE TABLE ui_state (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    version         INTEGER NOT NULL,
+    payload         TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
 ```
 
-Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql` and
-`0003_git_executable_path.sql` add `settings.auto_fetch` and
-`settings.git_executable_path`.
+Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
+`0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
+`0005_repo_snapshot.sql`, and `0006_ui_state.sql`.
 
 ## Planned additions
 
 Designed but not migrated yet. Each is forward-only and owned by a spec.
 
 ```sql
--- Phase 7 (P7-01). One row, versioned, droppable: losing it costs layout
--- preferences, never data. See specs/ui-shell.md §5.
-CREATE TABLE ui_state (
-    id              INTEGER PRIMARY KEY CHECK (id = 1),
-    version         INTEGER NOT NULL,
-    payload         TEXT NOT NULL,     -- JSON object, unknown keys ignored on read
-    updated_at      TEXT NOT NULL
-);
-
--- Phase 6 (P6-13). A cache in the same sense as repo_status_cache: always
--- safe to drop, never a source of truth, never an input to a mutation
--- decision. See specs/performance.md §6.
-CREATE TABLE repo_snapshot (
-    repo_id         TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
-    schema_version  INTEGER NOT NULL,
-    payload         TEXT NOT NULL,     -- serialized RepositorySnapshot
-    captured_at     TEXT NOT NULL
-);
-
 -- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
 -- See specs/workspace-workflows.md §5.
 ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;

@@ -15,4 +15,4 @@ pub use git_backend::{
 pub use git_environment::{GitEnvironmentError, GitEnvironmentProvider};
 pub use git_remote_backend::{GitRemoteBackend, GitRemoteError};
 pub use ide_launcher::{IdeLauncher, LaunchError};
-pub use store::{SettingsStore, StoreError, WorkspaceStore};
+pub use store::{SettingsStore, StoreError, UiStateStore, WorkspaceStore};

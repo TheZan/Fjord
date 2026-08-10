@@ -3,14 +3,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
+use fjord_db::{SqliteSettingsStore, SqliteUiStateStore, SqliteWorkspaceStore};
 use fjord_domain::{GenerationSet, RepoStatusSummary, RepositoryEntry, RepositoryId};
 use fjord_fs::{RepoChangeSet, RepoEventWatcher, RepositoryWatchScope};
 use fjord_git::{
     GitCommandFactory, LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend,
 };
 use fjord_ports::GitAskpassConfig;
-use fjord_services::{RepoService, SettingsService, WorkspaceError, WorkspaceService};
+use fjord_services::{
+    RepoService, SettingsService, UiStateService, WorkspaceError, WorkspaceService,
+};
 use serde::Serialize;
 use tauri::async_runtime::JoinHandle;
 use tauri::{Emitter, Manager};
@@ -68,6 +70,7 @@ impl RepositoryChangedEvent {
 /// `app.manage()`d (SDD §5.1: commands stay thin adapters over services).
 pub struct AppState {
     pub settings: Arc<SettingsService>,
+    pub ui_state: Arc<UiStateService>,
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
     pub operations: Arc<OperationRegistry>,
@@ -90,6 +93,7 @@ pub struct AppState {
 /// runtime-bound: the event sink, the askpass broker, and the watchers.
 pub struct Services {
     pub settings: Arc<SettingsService>,
+    pub ui_state: Arc<UiStateService>,
     pub workspaces: Arc<WorkspaceService>,
     pub repos: Arc<RepoService>,
 }
@@ -103,6 +107,7 @@ pub async fn compose_services(app_data_dir: &Path) -> Result<Services, String> {
         .map_err(|e| e.to_string())?;
 
     let settings_store = Arc::new(SqliteSettingsStore::new(pool.clone()));
+    let ui_state_store = Arc::new(SqliteUiStateStore::new(pool.clone()));
     let workspace_store = Arc::new(SqliteWorkspaceStore::new(pool));
     // One executable for every Git subprocess: the local backend shares this
     // factory, and `refresh_git_executable` below points it at the same path
@@ -126,6 +131,7 @@ pub async fn compose_services(app_data_dir: &Path) -> Result<Services, String> {
 
     Ok(Services {
         settings: Arc::new(SettingsService::new(settings_store)),
+        ui_state: Arc::new(UiStateService::new(ui_state_store)),
         workspaces: workspace_service,
         repos: repo_service,
     })
@@ -157,6 +163,7 @@ pub async fn bootstrap(
 
     let state = AppState {
         settings: services.settings,
+        ui_state: services.ui_state,
         workspaces: services.workspaces,
         repos: services.repos,
         operations: Arc::new(OperationRegistry::default()),

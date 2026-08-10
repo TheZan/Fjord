@@ -9,8 +9,10 @@
 
 mod pool;
 mod settings_store;
+mod ui_state_store;
 mod workspace_store;
 
 pub use pool::{connect, DbError};
 pub use settings_store::SqliteSettingsStore;
+pub use ui_state_store::SqliteUiStateStore;
 pub use workspace_store::SqliteWorkspaceStore;

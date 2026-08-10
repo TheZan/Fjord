@@ -11,6 +11,8 @@ import type {
   InteractionTrace,
   SnapshotRevalidation,
   StoredRepositorySnapshot,
+  UiState,
+  UiStatePatch,
 } from "@/domain/generated";
 import { beginIpcRequest, settleIpcRequest } from "@/infrastructure/ipcInteraction";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
@@ -189,6 +191,14 @@ export function updateSettings(settings: Settings): Promise<Settings> {
     writeStartupPreferences(updated);
     return updated;
   });
+}
+
+export function getUiState(): Promise<UiState> {
+  return invoke("get_ui_state");
+}
+
+export function updateUiState(patch: UiStatePatch): Promise<UiState> {
+  return invoke("update_ui_state", { patch });
 }
 
 export function activateAfterFirstPaint(): Promise<void> {

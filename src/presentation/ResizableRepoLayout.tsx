@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
+import { LEGACY_REPO_LAYOUT_KEY, loadUiState, saveRepoPaneSizes } from "@/infrastructure/uiState";
 
-const STORAGE_KEY = "fjord:repo-layout:v1";
 const COMPACT_BREAKPOINT = 1080;
 const MIN_CENTER_WIDTH = 420;
 const HANDLE_WIDTH = 9;
@@ -49,6 +49,22 @@ export function ResizableRepoLayout({
     const observer = new ResizeObserver(updateWidth);
     observer.observe(container);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void loadUiState()
+      .then((state) => {
+        if (!mounted) return;
+        setSizes({
+          left: validSize(state.repo.treeWidth ?? undefined, PANE_LIMITS.left),
+          right: validSize(state.repo.inspectorWidth ?? undefined, PANE_LIMITS.right),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -226,7 +242,7 @@ function constrainPaneSize(
 
 function readPaneSizes(): PaneSizes {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<PaneSizes> | null;
+    const saved = JSON.parse(localStorage.getItem(LEGACY_REPO_LAYOUT_KEY) ?? "null") as Partial<PaneSizes> | null;
     return {
       left: validSize(saved?.left, PANE_LIMITS.left),
       right: validSize(saved?.right, PANE_LIMITS.right),
@@ -243,11 +259,7 @@ function validSize(value: number | undefined, limits: { min: number; max: number
 }
 
 function writePaneSizes(sizes: PaneSizes) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sizes));
-  } catch {
-    // A read-only webview storage should not make resizing unusable.
-  }
+  void saveRepoPaneSizes(sizes.left, sizes.right).catch(() => undefined);
 }
 
 function CloseIcon() {

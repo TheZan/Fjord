@@ -70,6 +70,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::get_ui_state,
+            commands::update_ui_state,
             commands::get_git_environment,
             commands::select_git_executable,
             commands::reset_git_executable,

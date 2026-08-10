@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use fjord_domain::{
     RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot, Settings,
-    StoredRepositorySnapshot, Workspace, WorkspaceId,
+    StoredRepositorySnapshot, UiState, Workspace, WorkspaceId,
 };
 use thiserror::Error;
 
@@ -75,4 +75,10 @@ pub trait WorkspaceStore: Send + Sync {
 pub trait SettingsStore: Send + Sync {
     async fn get_settings(&self) -> Result<Settings, StoreError>;
     async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError>;
+}
+
+#[async_trait]
+pub trait UiStateStore: Send + Sync {
+    async fn get_ui_state(&self) -> Result<UiState, StoreError>;
+    async fn update_ui_state(&self, state: &UiState) -> Result<UiState, StoreError>;
 }

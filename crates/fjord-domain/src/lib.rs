@@ -527,6 +527,62 @@ impl Default for Settings {
     }
 }
 
+pub const UI_STATE_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepoUiState {
+    pub tree_width: Option<f64>,
+    pub inspector_width: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct UiState {
+    pub version: u32,
+    pub repo: RepoUiState,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            version: UI_STATE_VERSION,
+            repo: RepoUiState::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepoUiStatePatch {
+    pub tree_width: Option<f64>,
+    pub inspector_width: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct UiStatePatch {
+    pub repo: Option<RepoUiStatePatch>,
+}
+
+impl UiState {
+    pub fn apply(&mut self, patch: UiStatePatch) {
+        if let Some(repo) = patch.repo {
+            if let Some(width) = repo.tree_width {
+                self.repo.tree_width = Some(width);
+            }
+            if let Some(width) = repo.inspector_width {
+                self.repo.inspector_width = Some(width);
+            }
+        }
+        self.version = UI_STATE_VERSION;
+    }
+}
+
 /// One duration measured entirely by the Rust clock. The deliberately narrow
 /// shape cannot carry repository paths, names, or file/diff content.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

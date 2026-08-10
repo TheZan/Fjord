@@ -2,6 +2,15 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
 
+const loadUiState = vi.fn();
+const saveRepoPaneSizes = vi.fn();
+
+vi.mock("@/infrastructure/uiState", () => ({
+  LEGACY_REPO_LAYOUT_KEY: "fjord:repo-layout:v1",
+  loadUiState: (...args: unknown[]) => loadUiState(...args),
+  saveRepoPaneSizes: (...args: unknown[]) => saveRepoPaneSizes(...args),
+}));
+
 class ResizeObserverMock {
   observe() {}
   disconnect() {}
@@ -12,6 +21,14 @@ describe("ResizableRepoLayout", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     localStorage.clear();
+    loadUiState.mockResolvedValue({
+      version: 1,
+      repo: { treeWidth: 240, inspectorWidth: 384 },
+    });
+    saveRepoPaneSizes.mockResolvedValue({
+      version: 1,
+      repo: { treeWidth: 252, inspectorWidth: 384 },
+    });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       width: 1400,
       height: 700,
@@ -38,9 +55,7 @@ describe("ResizableRepoLayout", () => {
     fireEvent.keyDown(separator, { key: "ArrowRight" });
 
     expect(separator).toHaveAttribute("aria-valuenow", "252");
-    expect(JSON.parse(localStorage.getItem("fjord:repo-layout:v1") ?? "{}")).toMatchObject({
-      left: 252,
-    });
+    expect(saveRepoPaneSizes).toHaveBeenCalledWith(252, 384);
   });
 
   it("shows the inspector as a dismissible drawer in compact mode", () => {

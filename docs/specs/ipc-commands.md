@@ -24,6 +24,8 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 |---|---|---|---|
 | `get_settings` | — | `Settings` | Locale, theme, default IDE, auto-fetch, performance diagnostics, Git executable path |
 | `update_settings` | `Settings` | `Settings` | Full replace; persisted immediately |
+| `get_ui_state` | — | `UiState` | Loads the versioned, restart-persistent UI preference document; unsupported versions use defaults |
+| `update_ui_state` | `{ patch }` | `UiState` | Merges a partial patch and persists the resulting document immediately |
 | `activate_after_first_paint` | — | — | Idempotently resolves Git and registers repository watchers after the frontend's first paint |
 | `get_git_environment` | — | `GitEnvironmentInfo` | Read-only inspection: executable, version, credential helpers, SSH/proxy presence |
 | `select_git_executable` | `{ path }` | `GitEnvironmentInfo` | Validates before persisting; applies to local and remote Git alike |
@@ -132,7 +134,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `get_ui_state` / `update_ui_state` | [`ui-shell.md`](ui-shell.md) §5 | 7 |
 | `stage_patch` / `unstage_patch` / `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |
 | `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |

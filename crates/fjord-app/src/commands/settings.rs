@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::AppError;
 use crate::interaction_traces::TracedState;
-use fjord_domain::{GitEnvironmentInfo, Settings};
+use fjord_domain::{GitEnvironmentInfo, Settings, UiState, UiStatePatch};
 
 #[tauri::command]
 pub async fn get_settings(state: TracedState<'_>) -> Result<Settings, AppError> {
@@ -19,6 +19,19 @@ pub async fn update_settings(
         .interaction_traces
         .set_enabled(updated.performance_diagnostics);
     Ok(updated)
+}
+
+#[tauri::command]
+pub async fn get_ui_state(state: TracedState<'_>) -> Result<UiState, AppError> {
+    Ok(state.ui_state.get_ui_state().await?)
+}
+
+#[tauri::command]
+pub async fn update_ui_state(
+    state: TracedState<'_>,
+    patch: UiStatePatch,
+) -> Result<UiState, AppError> {
+    Ok(state.ui_state.update_ui_state(patch).await?)
 }
 
 /// Sidecar resolution is a Tauri-resource concern, so `fjord-services` cannot
