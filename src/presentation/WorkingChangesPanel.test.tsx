@@ -131,10 +131,7 @@ describe("WorkingChangesPanel", () => {
     expect(screen.getByRole("button", { name: "working.stageAll" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Commit 1" })).toBeDisabled();
     view.rerender(<WorkingChangesPanel {...panelProps} validated />);
-    fireEvent.keyDown(screen.getByPlaceholderText("working.summaryPlaceholder"), {
-      key: "Enter",
-      ctrlKey: true,
-    });
+    document.dispatchEvent(new CustomEvent("fjord:commit"));
 
     await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Keep me"));
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Keep me");

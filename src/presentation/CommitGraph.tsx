@@ -53,6 +53,7 @@ export function CommitGraph({
   repoId,
   currentBranch,
   scrollToBranch,
+  openSearchRequestId,
   selectedCommitId,
   onSelectCommit,
   onRevealCommit,
@@ -65,6 +66,7 @@ export function CommitGraph({
   repoId: string;
   currentBranch?: string | null;
   scrollToBranch?: BranchGraphScrollRequest | null;
+  openSearchRequestId?: number | null;
   selectedCommitId?: string | null;
   onSelectCommit?: (commit: CommitSummary) => void;
   onRevealCommit?: (commit: CommitSummary) => void;
@@ -125,28 +127,13 @@ export function CommitGraph({
   }, [scrollToBranch]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const wantsFind = isPrimaryShortcut(event, "KeyF");
-      if (wantsFind) {
-        event.preventDefault();
-        setSearchOpen(true);
-        window.requestAnimationFrame(() => {
-          searchInputRef.current?.focus();
-          searchInputRef.current?.select();
-        });
-        return;
-      }
-
-      if (event.key === "Escape" && searchOpen) {
-        event.preventDefault();
-        setSearchOpen(false);
-        setSearchQuery("");
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen]);
+    if (openSearchRequestId == null) return;
+    setSearchOpen(true);
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, [openSearchRequestId]);
 
   useEffect(() => {
     if (!searchOpen) return;

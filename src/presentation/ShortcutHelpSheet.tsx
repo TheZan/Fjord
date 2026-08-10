@@ -1,0 +1,62 @@
+import { useTranslation } from "react-i18next";
+import type { ShortcutBinding } from "@/application/shortcutRegistry";
+import { Button } from "@/presentation/ui";
+
+export function ShortcutHelpSheet({
+  bindings,
+  onClose,
+}: {
+  bindings: ShortcutBinding[];
+  onClose: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(8, 12, 16, 0.45)" }} onMouseDown={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="shortcut-help-title"
+        className="desktop-popover max-h-[80vh] w-full max-w-lg overflow-auto rounded-lg border p-4"
+        style={{ borderColor: "var(--hairline-strong)", background: "var(--paper)" }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="mb-3 flex items-center justify-between gap-3">
+          <h2 id="shortcut-help-title" className="text-base font-semibold">{t("shortcuts.title")}</h2>
+          <Button size="sm" variant="ghost" onClick={onClose}>{t("shortcuts.close")}</Button>
+        </header>
+        <ul className="space-y-1">
+          {bindings.map((binding) => (
+            <li key={`${binding.scope}:${binding.id}`} className="flex items-center justify-between gap-4 py-1 text-[13px]">
+              <span>{shortcutLabel(binding.id, t)}</span>
+              <kbd className="rounded border px-1.5 py-0.5 text-[11px]" style={{ borderColor: "var(--hairline-strong)", color: "var(--slate)" }}>
+                {formatShortcut(binding)}
+              </kbd>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+export function formatShortcut(binding: ShortcutBinding): string {
+  const parts: string[] = [];
+  if (binding.modifiers.primary) parts.push("Ctrl/Cmd");
+  if (binding.modifiers.alt) parts.push("Alt");
+  if (binding.modifiers.shift) parts.push("Shift");
+  parts.push(displayCode(binding.code));
+  return parts.join("+");
+}
+
+function displayCode(code: string): string {
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  return { Comma: ",", Slash: "/", Escape: "Esc", Enter: "Enter" }[code] ?? code;
+}
+
+function shortcutLabel(id: string, t: (key: string, values?: Record<string, unknown>) => string): string {
+  if (id.startsWith("workspace.switch.")) {
+    return t("shortcuts.workspace", { number: id.split(".").at(-1) });
+  }
+  return t(`shortcuts.${id.replaceAll(".", "_")}`);
+}

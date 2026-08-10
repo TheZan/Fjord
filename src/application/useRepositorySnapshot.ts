@@ -18,9 +18,10 @@ export interface RepositorySnapshotState {
   validated: boolean;
   capturedAt: string | null;
   ensureValidated: () => Promise<boolean>;
+  revalidate: () => Promise<boolean>;
 }
 
-type SnapshotViewState = Omit<RepositorySnapshotState, "ensureValidated">;
+type SnapshotViewState = Omit<RepositorySnapshotState, "ensureValidated" | "revalidate">;
 
 const INITIAL_STATE: SnapshotViewState = {
   ready: false,
@@ -121,7 +122,7 @@ export function useRepositorySnapshot(repoId: string): RepositorySnapshotState {
     [state.validated, validate],
   );
 
-  return { ...state, ensureValidated };
+  return { ...state, ensureValidated, revalidate: validate };
 }
 
 function scheduleAfterPaint(callback: () => void): () => void {

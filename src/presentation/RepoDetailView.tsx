@@ -39,6 +39,7 @@ export function RepoDetailView({
   actionConfirmation,
   operationProgress,
   branchScrollRequest,
+  commitSearchRequestId,
   selectedCommit,
   workingSelected,
   changes,
@@ -84,6 +85,7 @@ export function RepoDetailView({
     status: string;
   } | null;
   branchScrollRequest: BranchGraphScrollRequest | null;
+  commitSearchRequestId: number | null;
   selectedCommit: CommitSummary | null;
   workingSelected: boolean;
   changes: WorkingChanges;
@@ -281,6 +283,7 @@ export function RepoDetailView({
                 repoId={repo.id}
                 currentBranch={status?.branch ?? null}
                 scrollToBranch={branchScrollRequest}
+                openSearchRequestId={commitSearchRequestId}
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={handleSelectCommit}
                 onRevealCommit={handleRevealCommit}

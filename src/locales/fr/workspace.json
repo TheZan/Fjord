@@ -45,6 +45,28 @@
     "workspace": "Espace de travail",
     "workspaceDetail": "{{count}} dépôts"
   },
+  "globalSearch": {
+    "title": "Recherche globale",
+    "placeholder": "Rechercher dépôts, branches et commits",
+    "hint": "Saisissez au moins deux caractères.",
+    "empty": "Aucun résultat trouvé.",
+    "kind": { "repository": "Dépôt", "branch": "Branche", "commit": "Commit" }
+  },
+  "shortcuts": {
+    "title": "Raccourcis clavier",
+    "close": "Fermer",
+    "palette_open": "Ouvrir la palette de commandes",
+    "switcher_open": "Ouvrir le sélecteur de dépôts",
+    "settings_open": "Ouvrir les paramètres",
+    "search_global": "Rechercher dans tous les dépôts",
+    "refresh_workspace": "Actualiser l’espace de travail actif",
+    "help_open": "Ouvrir l’aide des raccourcis",
+    "escape": "Fermer la fenêtre supérieure",
+    "workspace": "Passer à l’espace de travail {{number}}",
+    "search_repository": "Rechercher dans le dépôt actif",
+    "commit": "Commiter les changements indexés",
+    "refresh_repository": "Actualiser le dépôt actif"
+  },
   "commitInspector": {
     "empty": "Aucun fichier modifié.",
     "changeType": {

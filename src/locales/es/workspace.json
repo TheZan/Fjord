@@ -45,6 +45,28 @@
     "workspace": "Espacio de trabajo",
     "workspaceDetail": "{{count}} repositorios"
   },
+  "globalSearch": {
+    "title": "Búsqueda global",
+    "placeholder": "Buscar repositorios, ramas y commits",
+    "hint": "Escribe al menos dos caracteres.",
+    "empty": "No se encontraron resultados.",
+    "kind": { "repository": "Repositorio", "branch": "Rama", "commit": "Commit" }
+  },
+  "shortcuts": {
+    "title": "Atajos de teclado",
+    "close": "Cerrar",
+    "palette_open": "Abrir la paleta de comandos",
+    "switcher_open": "Abrir el selector de repositorios",
+    "settings_open": "Abrir ajustes",
+    "search_global": "Buscar en todos los repositorios",
+    "refresh_workspace": "Actualizar el espacio de trabajo activo",
+    "help_open": "Abrir la ayuda de atajos",
+    "escape": "Cerrar la ventana superior",
+    "workspace": "Cambiar al espacio de trabajo {{number}}",
+    "search_repository": "Buscar en el repositorio activo",
+    "commit": "Confirmar cambios preparados",
+    "refresh_repository": "Actualizar el repositorio activo"
+  },
   "commitInspector": {
     "empty": "No hay archivos modificados.",
     "changeType": {

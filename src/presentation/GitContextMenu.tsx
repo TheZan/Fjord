@@ -56,14 +56,6 @@ export function ContextMenu({
   }, [position]);
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  useEffect(() => {
     const frame = window.requestAnimationFrame(() => itemRefs.current[activeIndex]?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [activeIndex]);
@@ -91,6 +83,11 @@ export function ContextMenu({
         }}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+            return;
+          }
           const shortcutItem = items.find(
             (item) => !item.disabled && item.shortcut && matchesMenuShortcut(event, item.shortcut),
           );

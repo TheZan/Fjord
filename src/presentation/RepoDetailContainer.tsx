@@ -48,7 +48,9 @@ import type { RepoAction } from "@/presentation/RepoToolbar";
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
   | { kind: "repoAction"; action: RepoAction }
-  | { kind: "selectCommit"; commit: CommitSummary };
+  | { kind: "selectCommit"; commit: CommitSummary }
+  | { kind: "openCommitSearch" }
+  | { kind: "refresh" };
 
 export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
 
@@ -80,6 +82,7 @@ export function RepoDetailContainer({
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
+  const [commitSearchRequestId, setCommitSearchRequestId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
@@ -143,6 +146,16 @@ export function RepoDetailContainer({
 
     if (command.kind === "repoAction") {
       onAction(command.action);
+      return;
+    }
+
+    if (command.kind === "openCommitSearch") {
+      setCommitSearchRequestId(command.id);
+      return;
+    }
+
+    if (command.kind === "refresh") {
+      void snapshot.revalidate();
       return;
     }
 
@@ -346,6 +359,7 @@ export function RepoDetailContainer({
       }
       operationProgress={toToolbarProgress(activeOperation)}
       branchScrollRequest={branchScrollRequest}
+      commitSearchRequestId={commitSearchRequestId}
       onCancelOperation={() => {
         if (actionOperationId) void cancelOperation(actionOperationId);
       }}

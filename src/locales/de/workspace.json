@@ -45,6 +45,28 @@
     "workspace": "Arbeitsbereich",
     "workspaceDetail": "{{count}} Repositorys"
   },
+  "globalSearch": {
+    "title": "Globale Suche",
+    "placeholder": "Repositorys, Branches und Commits suchen",
+    "hint": "Mindestens zwei Zeichen eingeben.",
+    "empty": "Keine Ergebnisse gefunden.",
+    "kind": { "repository": "Repository", "branch": "Branch", "commit": "Commit" }
+  },
+  "shortcuts": {
+    "title": "Tastenkürzel",
+    "close": "Schließen",
+    "palette_open": "Befehlspalette öffnen",
+    "switcher_open": "Repository-Wechsler öffnen",
+    "settings_open": "Einstellungen öffnen",
+    "search_global": "Alle Repositorys durchsuchen",
+    "refresh_workspace": "Aktiven Arbeitsbereich aktualisieren",
+    "help_open": "Tastenkürzel-Hilfe öffnen",
+    "escape": "Obersten Dialog schließen",
+    "workspace": "Zu Arbeitsbereich {{number}} wechseln",
+    "search_repository": "Aktives Repository durchsuchen",
+    "commit": "Bereitgestellte Änderungen committen",
+    "refresh_repository": "Aktives Repository aktualisieren"
+  },
   "commitInspector": {
     "empty": "Keine geänderten Dateien.",
     "changeType": {

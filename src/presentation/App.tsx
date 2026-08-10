@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { createAppShortcutBindings } from "@/application/appShortcuts";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useStartup } from "@/application/StartupProvider";
 import { useOperationProgress } from "@/application/useOperationProgress";
@@ -11,6 +12,7 @@ import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { useShortcutRegistry } from "@/application/useShortcutRegistry";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
+import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
 import {
   bulkOpenInIde,
@@ -26,6 +28,7 @@ import { loadUiState, saveSelection } from "@/infrastructure/uiState";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
+import { GlobalSearchDialog } from "@/presentation/GlobalSearchDialog";
 import { Onboarding } from "@/presentation/Onboarding";
 import { OverviewView } from "@/presentation/OverviewView";
 import {
@@ -34,6 +37,7 @@ import {
   type RepoDetailCommandPayload,
 } from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
+import { ShortcutHelpSheet } from "@/presentation/ShortcutHelpSheet";
 import {
   setInteractionDiagnosticsEnabled,
   useInteractionCommit,
@@ -93,6 +97,8 @@ export function App() {
   const [autoFetch, setAutoFetch] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switcherQuery, setSwitcherQuery] = useState("");
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [navigationRecency, setNavigationRecency] = useState<Record<string, number>>({});
   const navigationSequenceRef = useRef(0);
   const repositoryWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,27 +119,49 @@ export function App() {
   );
   useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
+  const shortcutBindings = createAppShortcutBindings({
+    workspaceCount: workspaces.length,
+    actions: {
+      openPalette,
+      openRepositorySwitcher: () => {
+        setSwitcherQuery("");
+        setSwitcherOpen(true);
+      },
+      openSettings: () => setSettingsOpen(true),
+      openRepositorySearch: () => sendRepoDetailCommand({ kind: "openCommitSearch" }),
+      openGlobalSearch: () => setGlobalSearchOpen(true),
+      commit: () => document.dispatchEvent(new CustomEvent("fjord:commit")),
+      refreshRepository: () => sendRepoDetailCommand({ kind: "refresh" }),
+      refreshWorkspace: () => {
+        if (!selectedWorkspaceId) return;
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.workspaces.status(selectedWorkspaceId),
+        });
+      },
+      switchWorkspace: (index) => {
+        const workspace = workspaces[index];
+        if (!workspace) return;
+        void selectWorkspace(workspace.id);
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+      openHelp: () => setShortcutHelpOpen(true),
+      closeTopOverlay: () => {
+        if (shortcutHelpOpen) setShortcutHelpOpen(false);
+        else if (globalSearchOpen) setGlobalSearchOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
+        else if (switcherOpen) setSwitcherOpen(false);
+        else if (paletteOpen) closePalette();
+      },
+    },
+  });
   useShortcutRegistry(
-    [
-      {
-        id: "palette.open",
-        code: "KeyK",
-        modifiers: { primary: true },
-        scope: "global",
-        handler: openPalette,
-      },
-      {
-        id: "switcher.open",
-        code: "KeyP",
-        modifiers: { primary: true },
-        scope: "global",
-        handler: () => {
-          setSwitcherQuery("");
-          setSwitcherOpen(true);
-        },
-      },
-    ],
-    paletteOpen || switcherOpen || settingsOpen ? ["dialog"] : selectedRepo ? ["repository"] : [],
+    shortcutBindings,
+    paletteOpen || switcherOpen || settingsOpen || globalSearchOpen || shortcutHelpOpen
+      ? ["dialog"]
+      : selectedRepo
+        ? ["repository"]
+        : [],
   );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
@@ -308,6 +336,15 @@ export function App() {
     startRepositoryWarm(repoId);
     if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
+  }
+
+  async function openSearchResult(result: GlobalSearchResult) {
+    await selectRepository(result.workspaceId, result.repoId);
+    if (result.kind === "branch" && result.branch) {
+      sendRepoDetailCommand({ kind: "checkout", branch: result.branch });
+    } else if (result.kind === "commit" && result.commit) {
+      sendRepoDetailCommand({ kind: "selectCommit", commit: result.commit });
+    }
   }
 
   const paletteItems: PaletteItem[] = [
@@ -519,6 +556,20 @@ export function App() {
           query={switcherQuery}
           onQueryChange={setSwitcherQuery}
           onClose={() => setSwitcherOpen(false)}
+        />
+      )}
+
+      {globalSearchOpen && (
+        <GlobalSearchDialog
+          onSelect={(result) => void openSearchResult(result)}
+          onClose={() => setGlobalSearchOpen(false)}
+        />
+      )}
+
+      {shortcutHelpOpen && (
+        <ShortcutHelpSheet
+          bindings={shortcutBindings}
+          onClose={() => setShortcutHelpOpen(false)}
         />
       )}
 

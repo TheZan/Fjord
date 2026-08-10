@@ -78,6 +78,12 @@ export function WorkingChangesPanel({
     }
   }
 
+  useEffect(() => {
+    const onShortcutCommit = () => void commit();
+    document.addEventListener("fjord:commit", onShortcutCommit);
+    return () => document.removeEventListener("fjord:commit", onShortcutCommit);
+  });
+
   function changeViewMode(mode: FileViewMode) {
     setViewMode(mode);
     void saveRepoModes(null, mode).catch(() => undefined);
@@ -150,18 +156,12 @@ export function WorkingChangesPanel({
         <Input
           value={summary}
           onChange={(event) => setSummary(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void commit();
-          }}
           placeholder={t("working.summaryPlaceholder")}
           className="w-full"
         />
         <Textarea
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void commit();
-          }}
           placeholder={t("working.descriptionPlaceholder")}
           rows={3}
           className="mt-1.5 w-full"
