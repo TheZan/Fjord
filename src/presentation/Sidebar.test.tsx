@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/presentation/Sidebar";
 import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+
+const loadUiState = vi.fn();
+const saveCollapsedWorkspaces = vi.fn();
+
+vi.mock("@/infrastructure/uiState", () => ({
+  loadUiState: (...args: unknown[]) => loadUiState(...args),
+  saveCollapsedWorkspaces: (...args: unknown[]) => saveCollapsedWorkspaces(...args),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -52,6 +60,17 @@ function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
 }
 
 describe("Sidebar", () => {
+  beforeEach(() => {
+    loadUiState.mockResolvedValue({
+      version: 1,
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
+    });
+    saveCollapsedWorkspaces.mockResolvedValue(undefined);
+  });
+
   it("starts with navigation and renders no shell branding", () => {
     const { container } = render(<Sidebar {...props({ selectedWorkspaceId: null })} />);
     const sidebar = container.querySelector("aside")!;
@@ -78,6 +97,7 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "workspaces.collapse" })[0]);
     await waitFor(() => expect(screen.queryByRole("button", { name: /Fjord/ })).not.toBeInTheDocument());
+    expect(saveCollapsedWorkspaces).toHaveBeenCalledWith(["one"]);
   });
 
   it("reorders a dragged workspace by the drop target and ignores a self-drop", () => {

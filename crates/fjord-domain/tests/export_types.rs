@@ -6,11 +6,12 @@ use fjord_domain::{
     DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
     GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
     GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
-    GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, RemoteRef, RepoStatus,
-    RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
-    RepositorySnapshot, SearchResultKind, Settings, SidebarUiState, SidebarUiStatePatch,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiState,
-    UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, OverviewUiState,
+    OverviewUiStatePatch, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState,
+    SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -71,11 +72,18 @@ fn generated_types() -> String {
     push::<InteractionSpan>(&mut output, &config);
     push::<InteractionTrace>(&mut output, &config);
     push::<Settings>(&mut output, &config);
+    push::<UiDiffMode>(&mut output, &config);
+    push::<UiFileViewMode>(&mut output, &config);
+    push::<UiOverviewFilter>(&mut output, &config);
     push::<SidebarUiState>(&mut output, &config);
     push::<RepoUiState>(&mut output, &config);
+    push::<SelectionUiState>(&mut output, &config);
+    push::<OverviewUiState>(&mut output, &config);
     push::<UiState>(&mut output, &config);
     push::<SidebarUiStatePatch>(&mut output, &config);
     push::<RepoUiStatePatch>(&mut output, &config);
+    push::<SelectionUiStatePatch>(&mut output, &config);
+    push::<OverviewUiStatePatch>(&mut output, &config);
     push::<UiStatePatch>(&mut output, &config);
 
     output

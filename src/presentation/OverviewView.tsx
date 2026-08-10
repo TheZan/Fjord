@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
+import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
 import { RepoCard } from "@/presentation/RepoCard";
 import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
@@ -52,6 +53,15 @@ export function OverviewView({
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
   const [activeFilters, setActiveFilters] = useState<Set<OverviewFilter>>(() => new Set());
+  const uiStateRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (uiStateRestoredRef.current) return;
+    uiStateRestoredRef.current = true;
+    void loadUiState()
+      .then((state) => setActiveFilters(new Set(state.overview.filters)))
+      .catch(() => undefined);
+  }, []);
   const filteredRepositories = useMemo(() => {
     const attentionActive = metrics.attention > 0 && activeFilters.has("attention");
     const behindActive = metrics.behind > 0 && activeFilters.has("behind");
@@ -70,6 +80,7 @@ export function OverviewView({
       const next = new Set(current);
       if (next.has(filter)) next.delete(filter);
       else next.add(filter);
+      void saveOverviewFilters([...next]).catch(() => undefined);
       return next;
     });
   }

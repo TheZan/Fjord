@@ -1,4 +1,4 @@
-import type { UiState, UiStatePatch } from "@/domain/generated";
+import type { UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch } from "@/domain/generated";
 import { getUiState, updateUiState } from "@/infrastructure/tauriClient";
 
 export const LEGACY_REPO_LAYOUT_KEY = "fjord:repo-layout:v1";
@@ -24,11 +24,29 @@ export function loadUiState(): Promise<UiState> {
 }
 
 export function saveRepoPaneSizes(treeWidth: number, inspectorWidth: number): Promise<UiState> {
-  return saveUiState({ sidebar: null, repo: { treeWidth, inspectorWidth } });
+  return saveUiState(uiPatch({
+    repo: { treeWidth, inspectorWidth, diffMode: null, fileViewMode: null },
+  }));
 }
 
 export function saveSidebarWidth(width: number): Promise<UiState> {
-  return saveUiState({ sidebar: { width }, repo: null });
+  return saveUiState(uiPatch({ sidebar: { width, collapsedWorkspaces: null } }));
+}
+
+export function saveCollapsedWorkspaces(collapsedWorkspaces: string[]): Promise<UiState> {
+  return saveUiState(uiPatch({ sidebar: { width: null, collapsedWorkspaces } }));
+}
+
+export function saveSelection(workspaceId: string | null, repositoryId: string | null): Promise<UiState> {
+  return saveUiState(uiPatch({ selection: { workspaceId, repositoryId } }));
+}
+
+export function saveRepoModes(diffMode: UiDiffMode | null, fileViewMode: UiFileViewMode | null): Promise<UiState> {
+  return saveUiState(uiPatch({ repo: { treeWidth: null, inspectorWidth: null, diffMode, fileViewMode } }));
+}
+
+export function saveOverviewFilters(filters: UiOverviewFilter[]): Promise<UiState> {
+  return saveUiState(uiPatch({ overview: { filters } }));
 }
 
 function saveUiState(patch: UiStatePatch): Promise<UiState> {
@@ -50,7 +68,9 @@ function migrateLegacyPaneSizes(state: UiState): Promise<UiState> | UiState {
   const inspectorWidth = state.repo.inspectorWidth ?? finiteNumber(legacy.right);
   const migration =
     treeWidth !== state.repo.treeWidth || inspectorWidth !== state.repo.inspectorWidth
-      ? updateUiState({ sidebar: null, repo: { treeWidth, inspectorWidth } })
+      ? updateUiState(uiPatch({
+          repo: { treeWidth, inspectorWidth, diffMode: null, fileViewMode: null },
+        }))
       : Promise.resolve(state);
   return migration.then((updated) => {
     localStorage.removeItem(LEGACY_REPO_LAYOUT_KEY);
@@ -71,5 +91,15 @@ function finiteNumber(value: unknown): number | null {
 }
 
 function defaultUiState(): UiState {
-  return { version: 1, sidebar: { width: null }, repo: { treeWidth: null, inspectorWidth: null } };
+  return {
+    version: 1,
+    sidebar: { width: null, collapsedWorkspaces: [] },
+    repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
+    selection: { workspaceId: null, repositoryId: null },
+    overview: { filters: [] },
+  };
+}
+
+function uiPatch(overrides: Partial<UiStatePatch>): UiStatePatch {
+  return { sidebar: null, repo: null, selection: null, overview: null, ...overrides };
 }

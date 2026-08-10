@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { loadUiState, saveRepoModes } from "@/infrastructure/uiState";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import {
   FileEntryList,
@@ -59,6 +60,12 @@ export function WorkingChangesPanel({
   );
   const collapse = useFileTreeCollapse(directoryPaths);
 
+  useEffect(() => {
+    void loadUiState()
+      .then((state) => setViewMode(state.repo.fileViewMode))
+      .catch(() => undefined);
+  }, []);
+
   const total = changes.staged.length + changes.unstaged.length;
   const canCommit = validated && changes.staged.length > 0 && summary.trim().length > 0 && !busy;
 
@@ -69,6 +76,11 @@ export function WorkingChangesPanel({
       setSummary("");
       setDescription("");
     }
+  }
+
+  function changeViewMode(mode: FileViewMode) {
+    setViewMode(mode);
+    void saveRepoModes(null, mode).catch(() => undefined);
   }
 
   return (
@@ -85,7 +97,7 @@ export function WorkingChangesPanel({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {viewMode === "tree" && <FileTreeControls collapse={collapse} />}
-          <FileViewTabs mode={viewMode} onChange={setViewMode} />
+          <FileViewTabs mode={viewMode} onChange={changeViewMode} />
         </div>
       </div>
 

@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
 import type { WorkingChanges } from "@/domain/git";
+
+const loadUiState = vi.fn();
+const saveRepoModes = vi.fn();
+
+vi.mock("@/infrastructure/uiState", () => ({
+  loadUiState: (...args: unknown[]) => loadUiState(...args),
+  saveRepoModes: (...args: unknown[]) => saveRepoModes(...args),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -47,6 +55,37 @@ function props(overrides: Partial<React.ComponentProps<typeof WorkingChangesPane
 }
 
 describe("WorkingChangesPanel", () => {
+  beforeEach(() => {
+    loadUiState.mockResolvedValue({
+      version: 1,
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
+    });
+    saveRepoModes.mockResolvedValue(undefined);
+  });
+
+  it("restores and persists the file view mode", async () => {
+    loadUiState.mockResolvedValue({
+      version: 1,
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: null, inspectorWidth: null, diffMode: "split", fileViewMode: "tree" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
+    });
+    render(<WorkingChangesPanel {...props()} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "fileView.tree" })).toHaveAttribute(
+        "data-selected",
+        "true",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "fileView.path" }));
+    expect(saveRepoModes).toHaveBeenCalledWith(null, "path");
+  });
+
   it("keeps staged and unstaged actions scoped to the correct files", () => {
     const panelProps = props();
     render(<WorkingChangesPanel {...panelProps} />);

@@ -23,11 +23,17 @@ describe("ResizableRepoLayout", () => {
     localStorage.clear();
     loadUiState.mockResolvedValue({
       version: 1,
-      repo: { treeWidth: 240, inspectorWidth: 384 },
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: 240, inspectorWidth: 384, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
     });
     saveRepoPaneSizes.mockResolvedValue({
       version: 1,
-      repo: { treeWidth: 252, inspectorWidth: 384 },
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: 252, inspectorWidth: 384, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
     });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       width: 1400,

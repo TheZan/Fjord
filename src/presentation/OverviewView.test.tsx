@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverviewView } from "@/presentation/OverviewView";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
 
 const virtualization = vi.hoisted(() => ({ count: 0 }));
+const loadUiState = vi.fn();
+const saveOverviewFilters = vi.fn();
+
+vi.mock("@/infrastructure/uiState", () => ({
+  loadUiState: (...args: unknown[]) => loadUiState(...args),
+  saveOverviewFilters: (...args: unknown[]) => saveOverviewFilters(...args),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -77,6 +84,14 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
 
 describe("OverviewView", () => {
   beforeEach(() => {
+    loadUiState.mockResolvedValue({
+      version: 1,
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
+    });
+    saveOverviewFilters.mockResolvedValue(undefined);
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(700);
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
@@ -169,6 +184,7 @@ describe("OverviewView", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "2 need attention" }));
+    expect(saveOverviewFilters).toHaveBeenCalledWith(["attention"]);
     expect(screen.getByTestId("card-repo-1")).toBeInTheDocument();
     expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
     expect(screen.queryByTestId("card-repo-3")).not.toBeInTheDocument();
@@ -185,6 +201,38 @@ describe("OverviewView", () => {
     );
     expect(screen.queryByRole("button", { name: /need attention/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /behind/ })).not.toBeInTheDocument();
+  });
+
+  it("restores active overview filters", async () => {
+    loadUiState.mockResolvedValue({
+      version: 1,
+      sidebar: { width: null, collapsedWorkspaces: [] },
+      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: ["behind"] },
+    });
+    const repositories = [repository(1), repository(2)];
+    const statusByRepo = {
+      "repo-1": {
+        repoId: "repo-1",
+        status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: false },
+        lastSyncedAt: null,
+      },
+      "repo-2": {
+        repoId: "repo-2",
+        status: { branch: "main", ahead: 0, behind: 1, dirtyCount: 0, hasConflict: false },
+        lastSyncedAt: null,
+      },
+    };
+
+    render(
+      <OverviewView
+        {...props({ repositories, statusByRepo, metrics: { total: 2, attention: 1, behind: 1 } })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByTestId("card-repo-1")).not.toBeInTheDocument());
+    expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
   });
 
   it("disables workspace actions when no workspace is selected", () => {

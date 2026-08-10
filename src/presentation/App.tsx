@@ -8,6 +8,7 @@ import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
+import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
@@ -22,6 +23,7 @@ import {
   type OperationProgressEvent,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
+import { loadUiState, saveSelection } from "@/infrastructure/uiState";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
@@ -90,6 +92,8 @@ export function App() {
   const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
   const [autoFetch, setAutoFetch] = useState(false);
   const repositoryWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uiSelectionRestoredRef = useRef(false);
+  const [uiSelectionRestored, setUiSelectionRestored] = useState(false);
 
   const {
     closePalette,
@@ -144,6 +148,33 @@ export function App() {
           value.toLocaleLowerCase().includes(normalizedFilter),
         ),
   );
+
+  useEffect(() => {
+    if (loading || workspaces.length === 0 || uiSelectionRestoredRef.current) return;
+    uiSelectionRestoredRef.current = true;
+    void loadUiState()
+      .then(async (state) => {
+        const restored = resolveRestoredSelection(
+          state.selection,
+          workspaces,
+          repositoriesByWorkspace,
+        );
+        if (restored.workspaceId && restored.workspaceId !== selectedWorkspaceId) {
+          await selectWorkspace(restored.workspaceId);
+        }
+        setSelectedRepoId(restored.repositoryId);
+      })
+      .catch(() => undefined)
+      .finally(() => setUiSelectionRestored(true));
+  }, [loading, repositoriesByWorkspace, selectWorkspace, selectedWorkspaceId, workspaces]);
+
+  useEffect(() => {
+    if (!uiSelectionRestored) return;
+    const timeout = window.setTimeout(() => {
+      void saveSelection(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [selectedRepoId, selectedWorkspaceId, uiSelectionRestored]);
 
   useEffect(() => {
     if (startupSettings) setAutoFetch(startupSettings.autoFetch);

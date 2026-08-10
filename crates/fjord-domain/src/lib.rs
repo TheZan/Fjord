@@ -534,6 +534,7 @@ pub const UI_STATE_VERSION: u32 = 1;
 #[ts(rename_all = "camelCase")]
 pub struct SidebarUiState {
     pub width: Option<f64>,
+    pub collapsed_workspaces: Vec<WorkspaceId>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -542,6 +543,49 @@ pub struct SidebarUiState {
 pub struct RepoUiState {
     pub tree_width: Option<f64>,
     pub inspector_width: Option<f64>,
+    pub diff_mode: UiDiffMode,
+    pub file_view_mode: UiFileViewMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum UiDiffMode {
+    #[default]
+    Unified,
+    Split,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum UiFileViewMode {
+    #[default]
+    Path,
+    Tree,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum UiOverviewFilter {
+    Attention,
+    Behind,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SelectionUiState {
+    pub workspace_id: Option<WorkspaceId>,
+    pub repository_id: Option<RepositoryId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct OverviewUiState {
+    pub filters: Vec<UiOverviewFilter>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -551,6 +595,8 @@ pub struct UiState {
     pub version: u32,
     pub sidebar: SidebarUiState,
     pub repo: RepoUiState,
+    pub selection: SelectionUiState,
+    pub overview: OverviewUiState,
 }
 
 impl Default for UiState {
@@ -559,6 +605,8 @@ impl Default for UiState {
             version: UI_STATE_VERSION,
             sidebar: SidebarUiState::default(),
             repo: RepoUiState::default(),
+            selection: SelectionUiState::default(),
+            overview: OverviewUiState::default(),
         }
     }
 }
@@ -569,6 +617,8 @@ impl Default for UiState {
 pub struct RepoUiStatePatch {
     pub tree_width: Option<f64>,
     pub inspector_width: Option<f64>,
+    pub diff_mode: Option<UiDiffMode>,
+    pub file_view_mode: Option<UiFileViewMode>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -576,6 +626,22 @@ pub struct RepoUiStatePatch {
 #[ts(rename_all = "camelCase")]
 pub struct SidebarUiStatePatch {
     pub width: Option<f64>,
+    pub collapsed_workspaces: Option<Vec<WorkspaceId>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SelectionUiStatePatch {
+    pub workspace_id: Option<WorkspaceId>,
+    pub repository_id: Option<RepositoryId>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct OverviewUiStatePatch {
+    pub filters: Option<Vec<UiOverviewFilter>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -584,6 +650,8 @@ pub struct SidebarUiStatePatch {
 pub struct UiStatePatch {
     pub sidebar: Option<SidebarUiStatePatch>,
     pub repo: Option<RepoUiStatePatch>,
+    pub selection: Option<SelectionUiStatePatch>,
+    pub overview: Option<OverviewUiStatePatch>,
 }
 
 impl UiState {
@@ -592,6 +660,9 @@ impl UiState {
             if let Some(width) = sidebar.width {
                 self.sidebar.width = Some(width);
             }
+            if let Some(collapsed) = sidebar.collapsed_workspaces {
+                self.sidebar.collapsed_workspaces = collapsed;
+            }
         }
         if let Some(repo) = patch.repo {
             if let Some(width) = repo.tree_width {
@@ -599,6 +670,21 @@ impl UiState {
             }
             if let Some(width) = repo.inspector_width {
                 self.repo.inspector_width = Some(width);
+            }
+            if let Some(mode) = repo.diff_mode {
+                self.repo.diff_mode = mode;
+            }
+            if let Some(mode) = repo.file_view_mode {
+                self.repo.file_view_mode = mode;
+            }
+        }
+        if let Some(selection) = patch.selection {
+            self.selection.workspace_id = selection.workspace_id;
+            self.selection.repository_id = selection.repository_id;
+        }
+        if let Some(overview) = patch.overview {
+            if let Some(filters) = overview.filters {
+                self.overview.filters = filters;
             }
         }
         self.version = UI_STATE_VERSION;

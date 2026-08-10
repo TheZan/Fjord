@@ -118,15 +118,29 @@ export type Settings = {
  */
 locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
 
-export type SidebarUiState = { width: number | null, };
+export type UiDiffMode = "unified" | "split";
 
-export type RepoUiState = { treeWidth: number | null, inspectorWidth: number | null, };
+export type UiFileViewMode = "path" | "tree";
 
-export type UiState = { version: number, sidebar: SidebarUiState, repo: RepoUiState, };
+export type UiOverviewFilter = "attention" | "behind";
 
-export type SidebarUiStatePatch = { width: number | null, };
+export type SidebarUiState = { width: number | null, collapsedWorkspaces: Array<WorkspaceId>, };
 
-export type RepoUiStatePatch = { treeWidth: number | null, inspectorWidth: number | null, };
+export type RepoUiState = { treeWidth: number | null, inspectorWidth: number | null, diffMode: UiDiffMode, fileViewMode: UiFileViewMode, };
 
-export type UiStatePatch = { sidebar: SidebarUiStatePatch | null, repo: RepoUiStatePatch | null, };
+export type SelectionUiState = { workspaceId: WorkspaceId | null, repositoryId: RepositoryId | null, };
+
+export type OverviewUiState = { filters: Array<UiOverviewFilter>, };
+
+export type UiState = { version: number, sidebar: SidebarUiState, repo: RepoUiState, selection: SelectionUiState, overview: OverviewUiState, };
+
+export type SidebarUiStatePatch = { width: number | null, collapsedWorkspaces: Array<WorkspaceId> | null, };
+
+export type RepoUiStatePatch = { treeWidth: number | null, inspectorWidth: number | null, diffMode: UiDiffMode | null, fileViewMode: UiFileViewMode | null, };
+
+export type SelectionUiStatePatch = { workspaceId: WorkspaceId | null, repositoryId: RepositoryId | null, };
+
+export type OverviewUiStatePatch = { filters: Array<UiOverviewFilter> | null, };
+
+export type UiStatePatch = { sidebar: SidebarUiStatePatch | null, repo: RepoUiStatePatch | null, selection: SelectionUiStatePatch | null, overview: OverviewUiStatePatch | null, };
 

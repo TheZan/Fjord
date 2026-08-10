@@ -14,8 +14,10 @@ describe("ResizableSidebar", () => {
   it("restores its persisted width and saves keyboard resize end", async () => {
     loadUiState.mockResolvedValue({
       version: 1,
-      sidebar: { width: 300 },
-      repo: { treeWidth: 240, inspectorWidth: 384 },
+      sidebar: { width: 300, collapsedWorkspaces: [] },
+      repo: { treeWidth: 240, inspectorWidth: 384, diffMode: "unified", fileViewMode: "path" },
+      selection: { workspaceId: null, repositoryId: null },
+      overview: { filters: [] },
     });
     saveSidebarWidth.mockResolvedValue(undefined);
     render(

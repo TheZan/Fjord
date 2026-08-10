@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { loadUiState, saveCollapsedWorkspaces } from "@/infrastructure/uiState";
 import { GroupLabel, Input, TYPOGRAPHY } from "@/presentation/ui";
 import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
@@ -54,6 +55,28 @@ export function Sidebar({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const uiStateRestoredRef = useRef(false);
+
+  useEffect(() => {
+    if (uiStateRestoredRef.current || workspaces.length === 0) return;
+    let mounted = true;
+    void loadUiState()
+      .then((state) => {
+        if (!mounted) return;
+        uiStateRestoredRef.current = true;
+        setExpandedIds(
+          new Set(
+            workspaces
+              .map((workspace) => workspace.id)
+              .filter((id) => !state.sidebar.collapsedWorkspaces.includes(id)),
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [workspaces]);
 
   useEffect(() => {
     if (!selectedWorkspaceId) return;
@@ -93,6 +116,10 @@ export function Sidebar({
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      const collapsed = workspaces
+        .map((workspace) => workspace.id)
+        .filter((workspaceId) => !next.has(workspaceId));
+      void saveCollapsedWorkspaces(collapsed).catch(() => undefined);
       return next;
     });
   }
