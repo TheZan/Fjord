@@ -257,10 +257,10 @@ pub(super) async fn checkout(repo: &RepoPath, branch: &str) -> Result<(), GitErr
     let branch = branch.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let refname = LocalGitBackend::checkout_refname_for_branch(&git, &branch)?;
-
-        LocalGitBackend::checkout_refname(&git, &refname)
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let refname = LocalGitBackend::checkout_refname_for_branch(git, &branch)?;
+            LocalGitBackend::checkout_refname(git, &refname)
+        })
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
@@ -274,16 +274,18 @@ pub(super) async fn remote_checkout_refspec(
     let branch = branch.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let remote_branch = branch.strip_prefix("refs/remotes/").unwrap_or(&branch);
-        let Some((remote, local_name)) = LocalGitBackend::remote_branch_parts(&git, remote_branch)
-        else {
-            return Ok(None);
-        };
-        Ok(Some((
-            remote.to_string(),
-            format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}"),
-        )))
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let remote_branch = branch.strip_prefix("refs/remotes/").unwrap_or(&branch);
+            let Some((remote, local_name)) =
+                LocalGitBackend::remote_branch_parts(git, remote_branch)
+            else {
+                return Ok(None);
+            };
+            Ok(Some((
+                remote.to_string(),
+                format!("+refs/heads/{local_name}:refs/remotes/{remote_branch}"),
+            )))
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -294,9 +296,10 @@ pub(super) async fn checkout_local(repo: &RepoPath, branch: &str) -> Result<(), 
     let branch = branch.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let refname = LocalGitBackend::checkout_refname_for_branch(&git, &branch)?;
-        LocalGitBackend::checkout_refname(&git, &refname)
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let refname = LocalGitBackend::checkout_refname_for_branch(git, &branch)?;
+            LocalGitBackend::checkout_refname(git, &refname)
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -311,21 +314,22 @@ pub(super) async fn create_branch(
     let name = name.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let head = LocalGitBackend::current_head_commit(&git)?.ok_or_else(|| {
-            GitError::Git2("cannot create a branch before the first commit".to_string())
-        })?;
-
-        git.branch(&name, &head, false)
-            .map_err(|err| match err.code() {
-                ErrorCode::Exists => GitError::BranchExists(name.clone()),
-                _ => LocalGitBackend::map_git2_error(err),
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let head = LocalGitBackend::current_head_commit(git)?.ok_or_else(|| {
+                GitError::Git2("cannot create a branch before the first commit".to_string())
             })?;
 
-        if checkout {
-            LocalGitBackend::checkout_refname(&git, &format!("refs/heads/{name}"))?;
-        }
-        Ok(())
+            git.branch(&name, &head, false)
+                .map_err(|err| match err.code() {
+                    ErrorCode::Exists => GitError::BranchExists(name.clone()),
+                    _ => LocalGitBackend::map_git2_error(err),
+                })?;
+
+            if checkout {
+                LocalGitBackend::checkout_refname(git, &format!("refs/heads/{name}"))?;
+            }
+            Ok(())
+        })
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
@@ -426,16 +430,17 @@ pub(super) async fn upstream_remote(repo: &RepoPath) -> Result<String, GitError>
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let head_refname = LocalGitBackend::current_branch_refname(&git)?;
-        git.branch_upstream_remote(&head_refname)
-            .map_err(|error| match error.code() {
-                ErrorCode::NotFound => GitError::NoUpstream,
-                _ => LocalGitBackend::map_git2_error(error),
-            })?
-            .as_str()
-            .map_err(LocalGitBackend::map_git2_error)
-            .map(ToString::to_string)
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let head_refname = LocalGitBackend::current_branch_refname(git)?;
+            git.branch_upstream_remote(&head_refname)
+                .map_err(|error| match error.code() {
+                    ErrorCode::NotFound => GitError::NoUpstream,
+                    _ => LocalGitBackend::map_git2_error(error),
+                })?
+                .as_str()
+                .map_err(LocalGitBackend::map_git2_error)
+                .map(ToString::to_string)
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -445,8 +450,9 @@ pub(super) async fn current_branch_ref(repo: &RepoPath) -> Result<String, GitErr
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        LocalGitBackend::current_branch_refname(&git)
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            LocalGitBackend::current_branch_refname(git)
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -456,25 +462,26 @@ pub(super) async fn current_push_target(repo: &RepoPath) -> Result<PushTarget, G
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let git = LocalGitBackend::open_git2(&repo)?;
-        let local_ref = LocalGitBackend::current_branch_refname(&git)?;
-        let remote = git
-            .branch_upstream_remote(&local_ref)
-            .map_err(upstream_error)?
-            .as_str()
-            .map_err(LocalGitBackend::map_git2_error)?
-            .to_string();
-        let upstream = git
-            .branch_upstream_name(&local_ref)
-            .map_err(upstream_error)?
-            .as_str()
-            .map_err(LocalGitBackend::map_git2_error)?
-            .to_string();
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let local_ref = LocalGitBackend::current_branch_refname(git)?;
+            let remote = git
+                .branch_upstream_remote(&local_ref)
+                .map_err(upstream_error)?
+                .as_str()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .to_string();
+            let upstream = git
+                .branch_upstream_name(&local_ref)
+                .map_err(upstream_error)?
+                .as_str()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .to_string();
 
-        Ok(PushTarget {
-            remote_ref: remote_ref_for_upstream(&git, &remote, &upstream),
-            remote,
-            local_ref,
+            Ok(PushTarget {
+                remote_ref: remote_ref_for_upstream(git, &remote, &upstream),
+                remote,
+                local_ref,
+            })
         })
     })
     .await

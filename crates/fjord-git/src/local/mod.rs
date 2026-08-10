@@ -34,6 +34,7 @@ mod history;
 mod mutations;
 mod refs;
 mod repository;
+mod runtime;
 mod status;
 mod working_tree;
 

@@ -44,8 +44,7 @@ impl LocalGitBackend {
     }
 
     pub(super) fn has_conflicts(repo: &RepoPath) -> Result<bool, GitError> {
-        let git = Self::open_git2(repo)?;
-        Ok(git.index().map_err(Self::map_git2_error)?.has_conflicts())
+        Self::with_runtime_git2(repo, |git| Ok(Self::fresh_index(git)?.has_conflicts()))
     }
 }
 
@@ -68,12 +67,13 @@ pub(super) async fn status(repo: &RepoPath) -> Result<RepoStatus, GitError> {
             .filter(|entry| entry.is_ok())
             .count() as u32;
 
-        let has_conflict = LocalGitBackend::has_conflicts(&repo)?;
-
         // Compare only local refs. Network freshness is owned explicitly by
         // System Git fetch; status never performs hidden network access.
-        let git2 = LocalGitBackend::open_git2(&repo)?;
-        let (ahead, behind) = LocalGitBackend::current_ahead_behind(&git2)?;
+        let (has_conflict, ahead, behind) = LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let has_conflict = LocalGitBackend::fresh_index(git)?.has_conflicts();
+            let (ahead, behind) = LocalGitBackend::current_ahead_behind(git)?;
+            Ok((has_conflict, ahead, behind))
+        })?;
         Ok(RepoStatus {
             branch,
             ahead,

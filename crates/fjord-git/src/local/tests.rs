@@ -71,6 +71,37 @@ async fn status_reports_a_branch_name() {
 }
 
 #[tokio::test]
+async fn primary_reads_share_one_repository_runtime() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    let git = Repository::open(&repo_path.0).unwrap();
+    let mut index = git.index().unwrap();
+    index.add_path(Path::new("README.md")).unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = git.find_tree(tree_id).unwrap();
+    let signature = git.signature().unwrap();
+    git.commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
+        .unwrap();
+    drop(tree);
+    drop(git);
+
+    assert_eq!(runtime::open_attempts(&repo_path), 0);
+    let (status, branches, log, changes) = tokio::join!(
+        backend.status(&repo_path),
+        backend.branches(&repo_path),
+        backend.log(&repo_path, None, 20),
+        backend.working_changes(&repo_path),
+    );
+    status.unwrap();
+    branches.unwrap();
+    log.unwrap();
+    changes.unwrap();
+
+    assert_eq!(runtime::open_attempts(&repo_path), 1);
+}
+
+#[tokio::test]
 async fn status_reports_real_ahead_count_from_local_tracking_refs() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();

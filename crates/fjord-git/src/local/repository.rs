@@ -4,14 +4,14 @@
 use super::*;
 impl LocalGitBackend {
     pub(super) fn open(repo: &RepoPath) -> Result<gix::Repository, GitError> {
-        gix::open(&repo.0).map_err(|e| match e {
-            gix::open::Error::NotARepository { .. } => GitError::NotAGitRepository(repo.0.clone()),
-            other => GitError::Gix(other.to_string()),
-        })
+        Ok(super::runtime::registry().resolve(repo)?.gix())
     }
 
-    pub(super) fn open_git2(repo: &RepoPath) -> Result<git2::Repository, GitError> {
-        git2::Repository::open(&repo.0).map_err(Self::map_git2_error)
+    pub(super) fn with_runtime_git2<T>(
+        repo: &RepoPath,
+        run: impl FnOnce(&mut git2::Repository) -> Result<T, GitError>,
+    ) -> Result<T, GitError> {
+        super::runtime::registry().resolve(repo)?.with_git2(run)
     }
 
     /// Shared guard for operations that only read. Concurrent readers
@@ -52,6 +52,16 @@ impl LocalGitBackend {
 
     pub(super) fn map_gix_error(err: impl std::fmt::Display) -> GitError {
         GitError::Gix(err.to_string())
+    }
+
+    /// A long-lived libgit2 repository may retain its index handle while an
+    /// external Git command or watcher-visible process rewrites the file.
+    /// Force a disk refresh at operation boundaries so runtime reuse never
+    /// turns into stale working-tree or conflict state.
+    pub(super) fn fresh_index(git: &git2::Repository) -> Result<git2::Index, GitError> {
+        let mut index = git.index().map_err(Self::map_git2_error)?;
+        index.read(true).map_err(Self::map_git2_error)?;
+        Ok(index)
     }
 
     /// Runs a local-only Git mutation that does not use transport. Network
