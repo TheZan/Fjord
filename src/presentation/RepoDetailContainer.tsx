@@ -40,6 +40,7 @@ import {
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
+import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
 
@@ -63,6 +64,7 @@ export function RepoDetailContainer({
   onBack: () => void;
   onOpenSearch: () => void;
 }) {
+  useInteractionCommit();
   const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
   const operations = useOperationProgress();

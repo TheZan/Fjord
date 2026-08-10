@@ -257,7 +257,9 @@ Transport and contracts:
 
 - Frontend marks use `performance.measure` with a `detail` payload
   (`src/presentation/performance.tsx` is the seed of this module and gets
-  extended, not replaced).
+  extended, not replaced). ✅ The input, IPC send/return, React commit, and
+  post-commit paint marks are implemented; completion is predicate-driven and
+  frontend trace retention is bounded to 512 interactions (`P6-09`).
 - Backend spans are `tracing` spans carrying `interaction_id`; a bounded ring
   buffer (default 512 traces) holds recent completed traces in memory.
 - One new IPC command, `get_interaction_traces`, drains the ring buffer for the

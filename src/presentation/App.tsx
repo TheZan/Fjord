@@ -32,7 +32,10 @@ import {
   type RepoDetailCommandPayload,
 } from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
-import { setInteractionDiagnosticsEnabled } from "@/presentation/performance";
+import {
+  setInteractionDiagnosticsEnabled,
+  useInteractionCommit,
+} from "@/presentation/performance";
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
@@ -46,6 +49,7 @@ import type { View } from "@/presentation/view";
  * feature stacked onto a single scrolling page.
  */
 export function App() {
+  useInteractionCommit();
   const queryClient = useQueryClient();
   const { t: tw } = useTranslation("workspace");
   const {

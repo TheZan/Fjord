@@ -11,6 +11,7 @@ import { i18n, initI18n } from "@/infrastructure/i18n";
 import { getSettings } from "@/infrastructure/tauriClient";
 import { DEFAULT_LOCALE } from "@/locales/registry";
 import {
+  InteractionPerformanceBoundary,
   installInteractionCapture,
   setInteractionDiagnosticsEnabled,
 } from "@/presentation/performance";
@@ -60,7 +61,9 @@ async function bootstrap() {
         <I18nextProvider i18n={i18n}>
           <ThemeProvider>
             <ErrorBoundary>
-              <App />
+              <InteractionPerformanceBoundary>
+                <App />
+              </InteractionPerformanceBoundary>
             </ErrorBoundary>
           </ThemeProvider>
         </I18nextProvider>

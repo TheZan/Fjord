@@ -6,6 +6,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { GitAuthPrompt, InteractionTrace } from "@/domain/generated";
+import { beginIpcRequest, settleIpcRequest } from "@/infrastructure/ipcInteraction";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
 import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type {
@@ -24,12 +25,6 @@ import type {
 export const OPERATION_PROGRESS_EVENT = "fjord-operation-progress";
 export const REPOSITORY_CHANGED_EVENT = "fjord-repository-changed";
 export const AUTH_PROMPT_EVENT = "fjord-auth-prompt";
-
-let activeInteractionId: string | null = null;
-
-export function setIpcInteraction(interactionId: string | null) {
-  activeInteractionId = interactionId;
-}
 
 export interface RepositoryChangedEvent {
   repoId: string;
@@ -80,8 +75,21 @@ export function invokeErrorCode(error: unknown): string | null {
 }
 
 function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
-  const interactionId = activeInteractionId;
-  return tauriInvoke<T>(command, interactionId ? { ...args, interactionId } : args);
+  const sentAt = performance.now();
+  const interaction = beginIpcRequest(command, sentAt);
+
+  let request: Promise<T>;
+  try {
+    request = tauriInvoke<T>(
+      command,
+      interaction ? { ...args, interactionId: interaction.interactionId } : args,
+    );
+  } catch (error) {
+    if (interaction) settleIpcRequest(interaction, command, performance.now());
+    throw error;
+  }
+  if (!interaction) return request;
+  return request.finally(() => settleIpcRequest(interaction, command, performance.now()));
 }
 
 function invokeAbortable<T>(

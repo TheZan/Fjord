@@ -144,8 +144,10 @@ Known limits of this strategy, and what Phase 6 does about them
 - ⚠️ **Invalidation is per-event, not per-generation.** `RepoChangeSet` classifies
   a filesystem burst well, but nothing durable answers "is my cached value still
   valid?". Phase 6 adds per-domain generations.
-- 🚧 **No end-to-end latency measurement.** Every recorded number is an isolated
-  backend call; user-perceived latency (action → paint) is unmeasured.
+- ⚠️ **End-to-end tracing exists; scenario baselines do not yet.** Opt-in
+  interaction traces now correlate input, IPC, backend handler spans, React
+  commit, and paint (`P6-08`/`P6-09`), but the scripted SLO scenarios have not
+  yet produced publishable action-to-paint baselines.
 - ⚠️ **Unbounded diff transport.** `get_file_diff` returns a whole file's hunks in
   one payload; rendering is virtualized, the payload is not. Measured on the
   `diff-giant` fixture: a 50 MB file yields 2 694 458 `DiffLine` values in a

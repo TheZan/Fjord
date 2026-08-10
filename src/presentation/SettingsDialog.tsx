@@ -14,6 +14,7 @@ import {
 } from "@/infrastructure/tauriClient";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
 import { ConfirmActionDialog } from "@/presentation/GitContextMenu";
+import { useInteractionCommit } from "@/presentation/performance";
 import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
 import type {
   GitConnectionTestResult,
@@ -66,6 +67,7 @@ export function SettingsDialog({
   onClose: () => void;
   onSettingsChange?: (settings: Settings) => void;
 }) {
+  useInteractionCommit();
   const { t, i18n } = useTranslation();
   const { t: tw } = useTranslation("workspace");
   const { choice, setChoice } = useTheme();
