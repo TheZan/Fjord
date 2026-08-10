@@ -26,7 +26,7 @@ impl RepositoryRuntime {
             gix::open::Error::NotARepository { .. } => {
                 GitError::NotAGitRepository(path.to_path_buf())
             }
-            other => GitError::Gix(other.to_string()),
+            other => super::LocalGitBackend::map_gix_error(other),
         })?;
         let git2 = git2::Repository::open(path).map_err(super::LocalGitBackend::map_git2_error)?;
         Ok(Self {

@@ -149,4 +149,15 @@ describe("SettingsDialog Git section", () => {
     expect(await screen.findByText("settings.git.askpass")).toBeInTheDocument();
     expect(screen.getByText("settings.git.askpassMissingDescription")).toBeInTheDocument();
   });
+
+  it("shows the ownership refusal diagnostic and safe-directory command", async () => {
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Git" }));
+
+    expect(await screen.findByText("settings.git.repositoryOwnership")).toBeInTheDocument();
+    expect(screen.getByText("settings.git.repositoryOwnershipDescription")).toBeInTheDocument();
+    expect(screen.getByText(/git config --global --add safe\.directory/)).toBeInTheDocument();
+    expect(screen.getByText("settings.git.repositoryOwnershipWarning")).toBeInTheDocument();
+  });
 });

@@ -441,6 +441,24 @@ export function SettingsDialog({
                   </SettingsGroup>
                 )}
 
+                <SettingsGroup title={t("settings.git.repositoryOwnership")}>
+                  <div
+                    className="rounded-md border p-3 text-[11px] leading-4"
+                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                  >
+                    <p>{t("settings.git.repositoryOwnershipDescription")}</p>
+                    <code
+                      className="mt-2 block overflow-x-auto rounded px-2 py-1.5"
+                      style={{ background: "var(--page-bg)", color: "var(--ink)" }}
+                    >
+                      {"git config --global --add safe.directory \"<repository-path>\""}
+                    </code>
+                    <Muted className="mt-2 block">
+                      {t("settings.git.repositoryOwnershipWarning")}
+                    </Muted>
+                  </div>
+                </SettingsGroup>
+
                 <SettingsGroup title={t("settings.git.connection")}>
                   <div className="flex gap-2">
                     <Select

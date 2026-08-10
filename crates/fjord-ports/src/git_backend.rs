@@ -156,6 +156,8 @@ pub enum GitError {
     ExecutableNotFound,
     #[error("path is not a git repository: {0}")]
     NotAGitRepository(PathBuf),
+    #[error("repository ownership refused: {0}")]
+    RepositoryOwnership(String),
     #[error("merge conflict in {paths:?}")]
     Conflict { paths: Vec<String> },
     #[error("authentication failed")]

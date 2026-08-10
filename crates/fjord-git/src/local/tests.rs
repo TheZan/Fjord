@@ -1249,3 +1249,17 @@ async fn library_reads_survive_an_unavailable_executable() {
         .is_empty());
     backend.working_changes(&repo_path).await.unwrap();
 }
+
+#[test]
+fn libgit2_ownership_refusal_has_a_typed_error() {
+    let error =
+        git2::Error::from_str("repository path 'C:/repos/fjord' is not owned by current user");
+
+    let mapped = LocalGitBackend::map_git2_error(error);
+
+    assert!(matches!(
+        mapped,
+        GitError::RepositoryOwnership(message)
+            if message.contains("C:/repos/fjord")
+    ));
+}

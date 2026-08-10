@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { errorTranslationKey, userErrorMessage } from "@/application/errorMessage";
-import { initI18n } from "@/infrastructure/i18n";
+import { initI18n, setLocale } from "@/infrastructure/i18n";
 
 describe("errorTranslationKey", () => {
   it("maps stable backend codes to localized catalog keys", () => {
@@ -9,6 +9,9 @@ describe("errorTranslationKey", () => {
     );
     expect(errorTranslationKey({ code: "auth_failed", message: "raw git" })).toBe(
       "errors.auth_failed",
+    );
+    expect(errorTranslationKey({ code: "git_repository_ownership", message: "raw path" })).toBe(
+      "errors.git_repository_ownership",
     );
   });
 
@@ -25,5 +28,19 @@ describe("errorTranslationKey", () => {
     expect(userErrorMessage({ code: "repository_already_added", message: "UNIQUE failed" })).toBe(
       "Этот репозиторий уже добавлен в выбранное рабочее пространство.",
     );
+  });
+
+  it("explains an ownership refusal without exposing the backend path", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "git_repository_ownership",
+      message: "repository path '/secret/repo' is not owned by current user",
+    });
+
+    expect(message).toContain("owned by another account");
+    expect(message).toContain("safe.directory");
+    expect(message).not.toContain("/secret/repo");
   });
 });

@@ -41,6 +41,7 @@
     "git_proxy_failed": "Git no pudo conectarse mediante el proxy configurado.",
     "git_remote_error": "La operación remota de Git falló. Abre el diagnóstico.",
     "git_remote_rejected": "El servidor remoto rechazó la actualización.",
+    "git_repository_ownership": "Git rechazó este repositorio porque pertenece a otra cuenta. Comprueba la carpeta y después cambia su propietario o añade el repositorio a la lista safe.directory de Git.",
     "git_repository_not_found": "No se encontró el repositorio Git remoto.",
     "git_ssh_key_unavailable": "No se encontró una clave SSH ni un agente utilizable.",
     "ide_launch_failed": "No se pudo abrir el IDE. Comprueba su instalación y configuración.",
@@ -118,6 +119,9 @@
       "testConnection": "Probar conexión",
       "noRepositories": "Añade un repositorio para probar su conexión origin.",
       "connectionSuccess": "Conectado mediante {{protocol}} en {{duration}} ms.",
+      "repositoryOwnership": "Propiedad del repositorio",
+      "repositoryOwnershipDescription": "Si Git indica que un repositorio pertenece a otra cuenta, comprueba primero quién es el propietario de la carpeta. Corrige el propietario o confía explícitamente en un repositorio conocido con:",
+      "repositoryOwnershipWarning": "Añade una ruta a safe.directory solo después de verificar que confías en el repositorio y en su propietario.",
       "diagnostics": "Diagnóstico sin procesar"
     },
     "defaultIde": {

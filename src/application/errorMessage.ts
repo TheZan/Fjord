@@ -20,6 +20,7 @@ const USER_ERROR_CODES = new Set([
   "git_proxy_failed",
   "git_remote_error",
   "git_remote_rejected",
+  "git_repository_ownership",
   "git_repository_not_found",
   "git_ssh_key_unavailable",
   "ide_launch_failed",

@@ -14,8 +14,8 @@ pub enum WorkspaceError {
     NotAGitRepository(PathBuf),
     #[error("repository is already in this workspace: {0}")]
     RepositoryAlreadyAdded(PathBuf),
-    #[error("git error: {0}")]
-    Git(String),
+    #[error(transparent)]
+    Git(GitError),
 }
 
 impl From<GitError> for WorkspaceError {
@@ -24,7 +24,7 @@ impl From<GitError> for WorkspaceError {
             GitError::NotAGitRepository(path) | GitError::RepoNotFound(path) => {
                 WorkspaceError::NotAGitRepository(path)
             }
-            other => WorkspaceError::Git(other.to_string()),
+            other => WorkspaceError::Git(other),
         }
     }
 }

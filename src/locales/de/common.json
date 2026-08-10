@@ -41,6 +41,7 @@
     "git_proxy_failed": "Git konnte keine Verbindung über den Proxy herstellen.",
     "git_remote_error": "Der Remote-Git-Vorgang ist fehlgeschlagen. Öffne die Diagnose.",
     "git_remote_rejected": "Der Remote-Server hat die Änderung abgelehnt.",
+    "git_repository_ownership": "Git hat dieses Repository abgelehnt, weil es einem anderen Konto gehört. Prüfe den Ordner und ändere dann den Besitzer oder füge das Repository zur safe.directory-Liste von Git hinzu.",
     "git_repository_not_found": "Das Remote-Git-Repository wurde nicht gefunden.",
     "git_ssh_key_unavailable": "Kein verwendbarer SSH-Schlüssel oder Agent gefunden.",
     "ide_launch_failed": "Die IDE konnte nicht geöffnet werden. Prüfe Installation und Einstellungen.",
@@ -118,6 +119,9 @@
       "testConnection": "Verbindung testen",
       "noRepositories": "Füge ein Repository hinzu, um origin zu testen.",
       "connectionSuccess": "Über {{protocol}} in {{duration}} ms verbunden.",
+      "repositoryOwnership": "Repository-Besitz",
+      "repositoryOwnershipDescription": "Wenn Git meldet, dass ein Repository einem anderen Konto gehört, prüfe zuerst den Besitzer des Ordners. Korrigiere den Besitzer oder vertraue einem bekannten Repository ausdrücklich mit:",
+      "repositoryOwnershipWarning": "Füge einen Pfad erst zu safe.directory hinzu, nachdem du dem Repository und seinem Besitzer vertraust.",
       "diagnostics": "Rohdiagnose"
     },
     "defaultIde": {

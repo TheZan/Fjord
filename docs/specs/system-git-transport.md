@@ -116,7 +116,7 @@ The frontend contract remains `fjord-operation-progress`; see
 tree before a final `cancelled` event is emitted and the operation is removed from
 the registry.
 
-## Stable remote failures
+## Stable Git failures
 
 Frontend behavior depends only on these stable codes:
 
@@ -128,6 +128,7 @@ Frontend behavior depends only on these stable codes:
 | `git_auth_failed` | Supplied/stored credentials were rejected. |
 | `git_permission_denied` | Authenticated identity lacks permission. |
 | `git_repository_not_found` | Remote repository does not exist or is hidden. |
+| `git_repository_ownership` | Local repository is owned by another account and Git refuses it. |
 | `git_host_key_verification_failed` | SSH host-key validation failed. |
 | `git_ssh_key_unavailable` | No usable SSH identity/key is available. |
 | `git_certificate_failed` | TLS certificate validation failed. |
@@ -148,6 +149,13 @@ real multi-line Git output, not single-line excerpts.
 
 Original sanitized diagnostics remain available as a bounded tail; a friendly
 classification must not erase them.
+
+The ownership code is local rather than transport-derived. libgit2's
+`repository path '...' is not owned by current user` (and the equivalent
+`detected dubious ownership` wording) maps to the same typed `GitError` whether
+the repository is being added or read. The localized UI never exposes the raw
+path; Settings explains that the user must first verify/fix folder ownership,
+or explicitly trust a known repository through `safe.directory`.
 
 ## Redaction
 

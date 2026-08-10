@@ -56,7 +56,7 @@ impl From<WorkspaceError> for AppError {
             error @ WorkspaceError::RepositoryAlreadyAdded(_) => {
                 Self::new("repository_already_added", error.to_string())
             }
-            error @ WorkspaceError::Git(_) => Self::new("git_error", error.to_string()),
+            WorkspaceError::Git(inner) => git_error_to_app_error(inner),
         }
     }
 }
@@ -103,6 +103,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
     let code = match &err {
         GitError::RepoNotFound(_) => "repository_not_found",
         GitError::NotAGitRepository(_) => "not_a_git_repository",
+        GitError::RepositoryOwnership(_) => "git_repository_ownership",
         // The same code remote transport reports, so the frontend cannot end up
         // treating "no usable Git" as two unrelated failures (P5-20).
         GitError::ExecutableNotFound => "git_executable_not_found",
@@ -150,5 +151,16 @@ mod tests {
         });
         assert_eq!(error.code, "git_auth_failed");
         assert!(error.diagnostics.unwrap().contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn repository_ownership_has_the_same_stable_code_through_both_services() {
+        let repo_error: AppError =
+            RepoError::Git(GitError::RepositoryOwnership("not owned".into())).into();
+        let workspace_error: AppError =
+            WorkspaceError::Git(GitError::RepositoryOwnership("not owned".into())).into();
+
+        assert_eq!(repo_error.code, "git_repository_ownership");
+        assert_eq!(workspace_error.code, "git_repository_ownership");
     }
 }

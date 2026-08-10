@@ -41,6 +41,7 @@
     "git_proxy_failed": "Git could not connect through the configured proxy.",
     "git_remote_error": "The remote Git operation failed. Open diagnostics for details.",
     "git_remote_rejected": "The remote server rejected the update.",
+    "git_repository_ownership": "Git refused this repository because it is owned by another account. Verify the folder, then change its ownership or add it to Git's safe.directory list.",
     "git_repository_not_found": "The remote Git repository was not found.",
     "git_ssh_key_unavailable": "No usable SSH key or agent was found.",
     "ide_launch_failed": "The IDE could not be opened. Check its installation and settings.",
@@ -122,6 +123,9 @@
       "testConnection": "Test connection",
       "noRepositories": "Add a repository to test its origin connection.",
       "connectionSuccess": "Connected via {{protocol}} in {{duration}} ms.",
+      "repositoryOwnership": "Repository ownership",
+      "repositoryOwnershipDescription": "If Git reports that a repository is owned by another account, verify who owns the folder first. Change the folder ownership when it is wrong, or explicitly trust a known repository with:",
+      "repositoryOwnershipWarning": "Only add a path to safe.directory after verifying that you trust the repository and its owner.",
       "diagnostics": "Raw diagnostics"
     },
     "defaultIde": {

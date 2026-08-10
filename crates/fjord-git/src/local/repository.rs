@@ -41,6 +41,9 @@ impl LocalGitBackend {
     }
 
     pub(super) fn map_git2_error(err: git2::Error) -> GitError {
+        if is_repository_ownership_error(err.message()) {
+            return GitError::RepositoryOwnership(err.message().to_string());
+        }
         match err.code() {
             ErrorCode::Auth => GitError::AuthenticationFailed,
             ErrorCode::Conflict | ErrorCode::MergeConflict | ErrorCode::Unmerged => {
@@ -51,7 +54,12 @@ impl LocalGitBackend {
     }
 
     pub(super) fn map_gix_error(err: impl std::fmt::Display) -> GitError {
-        GitError::Gix(err.to_string())
+        let message = err.to_string();
+        if is_repository_ownership_error(&message) {
+            GitError::RepositoryOwnership(message)
+        } else {
+            GitError::Gix(message)
+        }
     }
 
     /// A long-lived libgit2 repository may retain its index handle while an
@@ -131,4 +139,10 @@ impl LocalGitBackend {
         };
         git2::Signature::now(&name, &email).map_err(Self::map_git2_error)
     }
+}
+
+fn is_repository_ownership_error(message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("is not owned by current user")
+        || normalized.contains("detected dubious ownership")
 }

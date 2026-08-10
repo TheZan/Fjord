@@ -41,6 +41,7 @@
     "git_proxy_failed": "Git n’a pas pu se connecter via le proxy configuré.",
     "git_remote_error": "L’opération Git distante a échoué. Ouvrez le diagnostic.",
     "git_remote_rejected": "Le serveur distant a refusé la mise à jour.",
+    "git_repository_ownership": "Git a refusé ce dépôt, car il appartient à un autre compte. Vérifiez le dossier, puis corrigez son propriétaire ou ajoutez le dépôt à la liste safe.directory de Git.",
     "git_repository_not_found": "Le dépôt Git distant est introuvable.",
     "git_ssh_key_unavailable": "Aucune clé SSH ni aucun agent utilisable n’a été trouvé.",
     "ide_launch_failed": "L'IDE n'a pas pu être ouvert. Vérifiez son installation et ses paramètres.",
@@ -118,6 +119,9 @@
       "testConnection": "Tester la connexion",
       "noRepositories": "Ajoutez un dépôt pour tester sa connexion origin.",
       "connectionSuccess": "Connexion via {{protocol}} en {{duration}} ms.",
+      "repositoryOwnership": "Propriété du dépôt",
+      "repositoryOwnershipDescription": "Si Git indique qu’un dépôt appartient à un autre compte, vérifiez d’abord le propriétaire du dossier. Corrigez-le ou approuvez explicitement un dépôt connu avec :",
+      "repositoryOwnershipWarning": "N’ajoutez un chemin à safe.directory qu’après avoir vérifié que vous faites confiance au dépôt et à son propriétaire.",
       "diagnostics": "Diagnostic brut"
     },
     "defaultIde": {
