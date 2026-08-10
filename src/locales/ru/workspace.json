@@ -26,13 +26,24 @@
     "changes": "изменений: {{count}}"
   },
   "commandPalette": {
-    "placeholder": "Поиск команд, репозиториев, веток",
+    "placeholder": "Поиск действий",
     "empty": "Команды не найдены.",
     "repository": "Репозиторий",
     "action": "Действие",
     "localBranch": "Локальная ветка",
     "remoteBranch": "Удалённая ветка",
-    "commit": "Коммит"
+    "commit": "Коммит",
+    "activeRepositoryGroup": "Активный репозиторий",
+    "workspaceGroup": "Рабочая область",
+    "globalGroup": "Общие",
+    "viewDetail": "Переключить представление"
+  },
+  "repositorySwitcher": {
+    "placeholder": "Перейти к репозиторию или рабочей области",
+    "empty": "Ничего не найдено.",
+    "repository": "Репозиторий",
+    "workspace": "Рабочая область",
+    "workspaceDetail": "Репозиториев: {{count}}"
   },
   "commitInspector": {
     "empty": "Нет изменённых файлов.",

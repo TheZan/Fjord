@@ -5,20 +5,17 @@ export interface PaletteItem {
   id: string;
   label: string;
   detail: string;
-  kind: string;
+  group?: string;
   run: () => void | Promise<void>;
 }
 
 export function CommandPalette({
   items,
-  remoteItems = [],
   query,
   onQueryChange,
   onClose,
 }: {
   items: PaletteItem[];
-  /** Backend search hits (commits and the like) — already filtered server-side, so they bypass local scoring. */
-  remoteItems?: PaletteItem[];
   query: string;
   onQueryChange: (value: string) => void;
   onClose: () => void;
@@ -34,7 +31,7 @@ export function CommandPalette({
     .sort((a, b) => a.score - b.score)
     .map((entry) => entry.item);
 
-  const visible = [...scored, ...remoteItems].slice(0, 12);
+  const visible = scored.slice(0, 12);
 
   useEffect(() => {
     setIndex(0);
@@ -101,9 +98,15 @@ export function CommandPalette({
           <ul className="max-h-80 overflow-auto p-1.5">
             {visible.map((item, itemIndex) => {
               const isSelected = itemIndex === index;
+              const previousGroup = visible[itemIndex - 1]?.group;
 
               return (
                 <li key={item.id}>
+                  {item.group && item.group !== previousGroup ? (
+                    <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+                      {item.group}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     onMouseEnter={() => setIndex(itemIndex)}
@@ -121,7 +124,7 @@ export function CommandPalette({
                       </span>
                     </span>
                     <span className="shrink-0 text-[10px]" style={{ color: "var(--mist)" }}>
-                      {item.kind}
+                      {t("commandPalette.action")}
                     </span>
                   </button>
                 </li>

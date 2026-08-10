@@ -7,7 +7,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 function item(id: string, label: string, detail = "", run: PaletteItem["run"] = vi.fn()): PaletteItem {
-  return { id, label, detail, kind: "Action", run };
+  return { id, label, detail, run };
 }
 
 describe("CommandPalette", () => {
@@ -21,15 +21,14 @@ describe("CommandPalette", () => {
     expect(paletteScore(query, label, detail)).toBe(expected);
   });
 
-  it("ranks local matches, excludes misses, and appends backend results", () => {
+  it("ranks matching actions, excludes misses, and shows scope groups", () => {
     render(
       <CommandPalette
         items={[
-          item("late", "Repository opener", "repo"),
-          item("first", "Repo settings"),
+          { ...item("late", "Repository opener", "repo"), group: "Repository" },
+          { ...item("first", "Repo settings"), group: "Global" },
           item("miss", "Fetch all"),
         ]}
-        remoteItems={[item("remote", "Remote commit")]}
         query="repo"
         onQueryChange={vi.fn()}
         onClose={vi.fn()}
@@ -37,10 +36,11 @@ describe("CommandPalette", () => {
     );
 
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "Repository openerrepoAction",
-      "Repo settingsAction",
-      "Remote commitAction",
+      "Repository openerrepocommandPalette.action",
+      "Repo settingscommandPalette.action",
     ]);
+    expect(screen.getByText("Repository")).toBeInTheDocument();
+    expect(screen.getByText("Global")).toBeInTheDocument();
     expect(screen.queryByText("Fetch all")).not.toBeInTheDocument();
   });
 
@@ -67,12 +67,11 @@ describe("CommandPalette", () => {
     expect(screen.getByRole("button", { name: /Second/ })).toHaveAttribute("data-selected", "true");
   });
 
-  it("closes on Escape and caps merged results at twelve", () => {
+  it("closes on Escape and caps results at twelve", () => {
     const onClose = vi.fn();
     render(
       <CommandPalette
-        items={Array.from({ length: 11 }, (_, index) => item(`local-${index}`, `Local ${index}`))}
-        remoteItems={[item("remote-1", "Remote 1"), item("remote-2", "Remote 2")]}
+        items={Array.from({ length: 13 }, (_, index) => item(`local-${index}`, `Local ${index}`))}
         query=""
         onQueryChange={vi.fn()}
         onClose={onClose}
@@ -80,8 +79,8 @@ describe("CommandPalette", () => {
     );
 
     expect(screen.getAllByRole("button")).toHaveLength(12);
-    expect(screen.getByText("Remote 1")).toBeInTheDocument();
-    expect(screen.queryByText("Remote 2")).not.toBeInTheDocument();
+    expect(screen.getByText("Local 11")).toBeInTheDocument();
+    expect(screen.queryByText("Local 12")).not.toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });

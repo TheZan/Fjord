@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useStartup } from "@/application/StartupProvider";
-import { useBranches } from "@/application/useBranches";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
@@ -12,7 +11,6 @@ import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { useShortcutRegistry } from "@/application/useShortcutRegistry";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
-import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
 import {
   bulkOpenInIde,
@@ -43,6 +41,7 @@ import {
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { MainShell } from "@/presentation/MainShell";
 import { ResizableSidebar } from "@/presentation/ResizableSidebar";
+import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
@@ -92,6 +91,10 @@ export function App() {
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
   const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
   const [autoFetch, setAutoFetch] = useState(false);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherQuery, setSwitcherQuery] = useState("");
+  const [navigationRecency, setNavigationRecency] = useState<Record<string, number>>({});
+  const navigationSequenceRef = useRef(0);
   const repositoryWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uiSelectionRestoredRef = useRef(false);
   const [uiSelectionRestored, setUiSelectionRestored] = useState(false);
@@ -101,10 +104,8 @@ export function App() {
     open: paletteOpen,
     openPalette,
     query: paletteQuery,
-    remoteItems: remotePaletteItems,
     setQuery: setPaletteQuery,
-  } = useCommandPaletteState({ onSearchResult: (result) => void openSearchResult(result) });
-  const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
+  } = useCommandPaletteState();
 
   const allRepositories = useMemo(
     () => Object.values(repositoriesByWorkspace).flat(),
@@ -121,8 +122,18 @@ export function App() {
         scope: "global",
         handler: openPalette,
       },
+      {
+        id: "switcher.open",
+        code: "KeyP",
+        modifiers: { primary: true },
+        scope: "global",
+        handler: () => {
+          setSwitcherQuery("");
+          setSwitcherOpen(true);
+        },
+      },
     ],
-    paletteOpen || settingsOpen ? ["dialog"] : selectedRepo ? ["repository"] : [],
+    paletteOpen || switcherOpen || settingsOpen ? ["dialog"] : selectedRepo ? ["repository"] : [],
   );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
@@ -198,6 +209,17 @@ export function App() {
       void setRepositoryActivity(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
     }
   }, [activated, selectedRepoId, selectedWorkspaceId]);
+
+  useEffect(() => {
+    const id = selectedRepoId
+      ? `repo:${selectedRepoId}`
+      : selectedWorkspaceId
+        ? `workspace:${selectedWorkspaceId}`
+        : null;
+    if (!id) return;
+    navigationSequenceRef.current += 1;
+    setNavigationRecency((current) => ({ ...current, [id]: navigationSequenceRef.current }));
+  }, [selectedRepoId, selectedWorkspaceId]);
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
@@ -288,36 +310,13 @@ export function App() {
     setSelectedRepoId(repoId);
   }
 
-  async function openSearchResult(result: GlobalSearchResult) {
-    await selectRepository(result.workspaceId, result.repoId);
-    if (result.kind === "branch" && result.branch) {
-      sendRepoDetailCommand({ kind: "checkout", branch: result.branch });
-    } else if (result.kind === "commit" && result.commit) {
-      sendRepoDetailCommand({ kind: "selectCommit", commit: result.commit });
-    }
-  }
-
   const paletteItems: PaletteItem[] = [
-    {
-      id: "settings:open",
-      label: tw("settings.openCommand"),
-      detail: tw("settings.openCommandDetail"),
-      kind: tw("commandPalette.action"),
-      run: () => setSettingsOpen(true),
-    },
-    ...flatRows.map(({ workspace, repo }) => ({
-      id: `repo:${repo.id}`,
-      label: repo.name,
-      detail: `${workspace.name} · ${repo.path}`,
-      kind: tw("commandPalette.repository"),
-      run: () => selectRepository(workspace.id, repo.id),
-    })),
     ...(selectedRepo
       ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
           id: `action:${action}`,
           label: tw(action === "open-ide" ? "repoActions.openIde" : `repoActions.${action}`),
           detail: selectedRepo.name,
-          kind: tw("commandPalette.action"),
+          group: tw("commandPalette.activeRepositoryGroup"),
           run: () => sendRepoDetailCommand({ kind: "repoAction", action }),
         }))
       : []),
@@ -326,19 +325,61 @@ export function App() {
           id: `bulk:${action}`,
           label: tw(action === "open-ide" ? "bulk.openIde" : `bulk.${action}`),
           detail: selectedWorkspace?.name ?? "",
-          kind: tw("commandPalette.action"),
+          group: tw("commandPalette.workspaceGroup"),
           run: () => onBulk(action),
         }))
       : []),
-    ...paletteBranches.map((branch) => ({
-      id: `branch:${branch.name}`,
-      label: branch.name,
-      detail: selectedRepo?.name ?? "",
-      kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
-      run: () =>
-        selectedRepoId
-          ? sendRepoDetailCommand({ kind: "checkout", branch: branch.name })
-          : undefined,
+    {
+      id: "view:overview",
+      label: tw("nav.overview"),
+      detail: tw("commandPalette.viewDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => {
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+    },
+    {
+      id: "view:all",
+      label: tw("nav.allRepositories"),
+      detail: tw("commandPalette.viewDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => {
+        setSelectedRepoId(null);
+        setView("repositories");
+      },
+    },
+    {
+      id: "settings:open",
+      label: tw("settings.openCommand"),
+      detail: tw("settings.openCommandDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => setSettingsOpen(true),
+    },
+  ];
+
+  const switcherItems: RepositorySwitcherItem[] = [
+    ...workspaces.map((workspace) => ({
+      id: `workspace:${workspace.id}`,
+      label: workspace.name,
+      detail: tw("repositorySwitcher.workspaceDetail", {
+        count: repositoriesByWorkspace[workspace.id]?.length ?? 0,
+      }),
+      kind: "workspace" as const,
+      recency: navigationRecency[`workspace:${workspace.id}`] ?? 0,
+      run: async () => {
+        await selectWorkspace(workspace.id);
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+    })),
+    ...flatRows.map(({ workspace, repo }) => ({
+      id: `repo:${repo.id}`,
+      label: repo.name,
+      detail: `${workspace.name} · ${repo.path}`,
+      kind: "repository" as const,
+      recency: navigationRecency[`repo:${repo.id}`] ?? 0,
+      run: () => selectRepository(workspace.id, repo.id),
     })),
   ];
 
@@ -466,10 +507,18 @@ export function App() {
       {paletteOpen && (
         <CommandPalette
           items={paletteItems}
-          remoteItems={remotePaletteItems}
           query={paletteQuery}
           onQueryChange={setPaletteQuery}
           onClose={closePalette}
+        />
+      )}
+
+      {switcherOpen && (
+        <RepositorySwitcher
+          items={switcherItems}
+          query={switcherQuery}
+          onQueryChange={setSwitcherQuery}
+          onClose={() => setSwitcherOpen(false)}
         />
       )}
 

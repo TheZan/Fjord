@@ -26,13 +26,24 @@
     "changes": "{{count}} changes"
   },
   "commandPalette": {
-    "placeholder": "Search commands, repositories, branches",
+    "placeholder": "Search actions",
     "empty": "No commands found.",
     "repository": "Repository",
     "action": "Action",
     "localBranch": "Local branch",
     "remoteBranch": "Remote branch",
-    "commit": "Commit"
+    "commit": "Commit",
+    "activeRepositoryGroup": "Active repository",
+    "workspaceGroup": "Workspace",
+    "globalGroup": "Global",
+    "viewDetail": "Switch view"
+  },
+  "repositorySwitcher": {
+    "placeholder": "Switch repository or workspace",
+    "empty": "No destinations found.",
+    "repository": "Repository",
+    "workspace": "Workspace",
+    "workspaceDetail": "{{count}} repositories"
   },
   "commitInspector": {
     "empty": "No changed files.",
