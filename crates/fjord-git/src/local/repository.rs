@@ -50,6 +50,10 @@ impl LocalGitBackend {
         }
     }
 
+    pub(super) fn map_gix_error(err: impl std::fmt::Display) -> GitError {
+        GitError::Gix(err.to_string())
+    }
+
     /// Runs a local-only Git mutation that does not use transport. Network
     /// commands must go through `GitRemoteBackend` and its async runner.
     pub(super) fn run_local_git(

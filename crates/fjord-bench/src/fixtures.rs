@@ -295,18 +295,15 @@ fn ensure_packed_fixture(path: &Path, build: &Build) -> Result<(), String> {
 /// A narrow tree with a deep history, plus the commit-graph a repository this
 /// size always has in practice.
 fn build_history(path: &Path, commits: usize, files: usize) -> Result<(), String> {
-    let mut builder = seed_repository(path, files)?;
-
-    let mut progress = Progress::new("commits", commits);
-    for index in 1..commits {
-        let file = bench_file_path("src", index % files);
-        builder.write_file(&file, &bench_file_contents(index % files, index))?;
-        builder.stage(&file)?;
-        builder.commit(&format!("synthetic commit {index}"))?;
-        progress.tick(index + 1);
-    }
-    progress.finish();
+    let builder = seed_repository(path, files)?;
+    let seed = builder.head().expect("the seed commit exists");
     builder.finish()?;
+
+    eprintln!(
+        "  streaming {} commits into a pack",
+        commits.saturating_sub(1)
+    );
+    generate::append_history(path, seed, commits.saturating_sub(1))?;
 
     eprintln!("  writing commit-graph");
     generate::write_commit_graph(path)

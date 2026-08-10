@@ -331,6 +331,58 @@ async fn log_paginates_without_repeating_commits() {
 }
 
 #[tokio::test]
+async fn tenth_log_page_is_served_from_the_bounded_cursor_window() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    for revision in 0..25 {
+        write_file(&repo_path, "README.md", &format!("revision {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        backend
+            .commit(&repo_path, &format!("Revision {revision}"))
+            .await
+            .unwrap();
+    }
+
+    let mut cursor = None;
+    let mut ids = Vec::new();
+    for page_number in 1..=10 {
+        let page = backend.log(&repo_path, cursor, 2).await.unwrap();
+        ids.extend(page.commits.iter().map(|commit| commit.id.0.clone()));
+        cursor = page.next_cursor;
+        if page_number < 10 {
+            assert!(
+                cursor
+                    .as_ref()
+                    .is_some_and(|cursor| cursor.0.starts_with("window:")),
+                "page {} should resume from the prefetched bounded window",
+                page_number + 1
+            );
+        }
+    }
+
+    let mut unique = ids.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(ids.len(), 20);
+    assert_eq!(unique.len(), ids.len());
+    assert!(
+        cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.0 == "offset:20"),
+        "the next bounded window starts only after page ten"
+    );
+
+    let page_11 = backend.log(&repo_path, cursor, 2).await.unwrap();
+    assert!(page_11
+        .commits
+        .iter()
+        .all(|commit| !unique.contains(&commit.id.0)));
+}
+
+#[tokio::test]
 async fn search_commits_matches_titles_across_non_current_branches() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();

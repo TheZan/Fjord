@@ -12,7 +12,7 @@
 //! fixture reporting `dirty_count = 0`.
 
 use std::fs;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use git2::{Oid, Repository, RepositoryInitOptions, Signature};
@@ -139,6 +139,70 @@ pub fn write_commit_graph(root: &Path) -> Result<(), String> {
     git(root, &["commit-graph", "write", "--reachable"])
 }
 
+/// Appends a linear history directly to a pack through `git fast-import`.
+///
+/// History fixtures measure revision traversal, not one million working-tree
+/// mutations. Reusing the seed tree preserves the exact graph depth while
+/// avoiding millions of redundant blob/tree objects, index writes, ref locks,
+/// and loose files. `fast-import` writes a pack as it streams, turning the 1M
+/// variant from a multi-day NTFS workload into a practical fixture.
+pub fn append_history(root: &Path, seed: Oid, additional_commits: usize) -> Result<(), String> {
+    if additional_commits == 0 {
+        return Ok(());
+    }
+
+    let mut child = std::process::Command::new("git")
+        .args(["fast-import", "--quiet"])
+        .current_dir(root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("could not start `git fast-import`: {error}"))?;
+    let stdin = child.stdin.take().ok_or("git fast-import has no stdin")?;
+    let mut input = BufWriter::with_capacity(1024 * 1024, stdin);
+
+    for index in 1..=additional_commits {
+        let message = format!("synthetic commit {index}");
+        let parent = if index == 1 {
+            seed.to_string()
+        } else {
+            format!(":{}", index - 1)
+        };
+        let timestamp = 1_700_000_000_i64 + index as i64;
+        writeln!(input, "commit refs/heads/main").map_err(|e| e.to_string())?;
+        writeln!(input, "mark :{index}").map_err(|e| e.to_string())?;
+        writeln!(
+            input,
+            "author Fjord Bench <bench@example.com> {timestamp} +0000"
+        )
+        .map_err(|e| e.to_string())?;
+        writeln!(
+            input,
+            "committer Fjord Bench <bench@example.com> {timestamp} +0000"
+        )
+        .map_err(|e| e.to_string())?;
+        writeln!(input, "data {}", message.len()).map_err(|e| e.to_string())?;
+        writeln!(input, "{message}").map_err(|e| e.to_string())?;
+        writeln!(input, "from {parent}\n").map_err(|e| e.to_string())?;
+    }
+    writeln!(input, "done").map_err(|e| e.to_string())?;
+    input.flush().map_err(|e| e.to_string())?;
+    drop(input);
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("could not wait for `git fast-import`: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(format!(
+        "`git fast-import` failed with {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    ))
+}
+
 /// Packs loose objects into a packfile, if any are loose.
 ///
 /// The generator creates objects one commit at a time and never packs, so a
@@ -165,17 +229,27 @@ pub fn ensure_packed(root: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Cheap probe: the object store is fanned out over 256 directories, so a
-/// couple of non-empty ones is enough to know packing is needed. Counting all
-/// of them on a fixture with millions of loose objects is itself slow enough to
-/// matter.
+/// Cheap probe: inspect at most one entry in each fanout directory. Sampling a
+/// few hard-coded prefixes missed small repositories whenever their hashes
+/// landed elsewhere, leaving the fixture unpacked. Walking the 256 directory
+/// names is still constant work even when they contain millions of objects.
 fn has_loose_objects(root: &Path) -> bool {
     let objects = root.join(".git").join("objects");
-    ["00", "1a", "7f", "c3"].iter().any(|fanout| {
-        std::fs::read_dir(objects.join(fanout))
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false)
-    })
+    std::fs::read_dir(objects)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && entry.file_name().to_str().is_some_and(|name| {
+                    name.len() == 2 && name.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+        })
+        .any(|entry| {
+            std::fs::read_dir(entry.path())
+                .map(|mut entries| entries.next().is_some())
+                .unwrap_or(false)
+        })
 }
 
 /// Packs refs into `.git/packed-refs`.

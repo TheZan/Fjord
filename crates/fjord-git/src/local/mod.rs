@@ -21,7 +21,7 @@ use fjord_domain::{
 };
 use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
-use git2::{ErrorCode, IndexAddOption, Oid, Sort, StashFlags};
+use git2::{ErrorCode, IndexAddOption, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;

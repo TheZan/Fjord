@@ -660,18 +660,37 @@ async fn measure_log(root: &Path, args: &Args, record: &mut Report) -> Result<()
         .map_err(|e| e.to_string())?;
 
     let start = Instant::now();
-    let page = backend
+    let first_page = backend
         .log(&repo, None, limit)
         .await
         .map_err(|e| e.to_string())?;
     let log_ms = ms(start.elapsed());
 
-    println!("log_commits={}", page.commits.len());
+    let mut cursor = first_page.next_cursor.clone();
+    for _ in 2..10 {
+        let page = backend
+            .log(&repo, cursor, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        cursor = page.next_cursor;
+    }
+    let page_10_start = Instant::now();
+    let page_10 = backend
+        .log(&repo, cursor, limit)
+        .await
+        .map_err(|e| e.to_string())?;
+    let page_10_ms = ms(page_10_start.elapsed());
+
+    println!("log_commits={}", first_page.commits.len());
     println!("log_ms={log_ms:.3}");
+    println!("log_page_10_commits={}", page_10.commits.len());
+    println!("log_page_10_ms={page_10_ms:.3}");
 
     record
-        .count("log_commits", page.commits.len() as u64)
-        .ms("log", log_ms);
+        .count("log_commits", first_page.commits.len() as u64)
+        .ms("log", log_ms)
+        .count("log_page_10_commits", page_10.commits.len() as u64)
+        .ms("log_page_10", page_10_ms);
     if let Some(budget) = check_budget("log", log_ms, args.budget_log_ms) {
         record.budget(budget);
     }
