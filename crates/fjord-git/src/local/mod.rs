@@ -75,6 +75,14 @@ pub(crate) fn repository_generations(repo: &RepoPath) -> Result<crate::Generatio
     runtime::generations(repo)
 }
 
+pub(crate) fn set_resident_repositories(repositories: &[RepoPath]) {
+    runtime::set_resident(repositories);
+}
+
+pub(crate) fn forget_repository(repo: &RepoPath) {
+    runtime::forget(repo);
+}
+
 #[async_trait]
 impl GitBackend for LocalGitBackend {
     fn generations(&self, repo: &RepoPath) -> Result<crate::GenerationSet, GitError> {

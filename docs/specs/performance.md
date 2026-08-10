@@ -64,19 +64,19 @@ and on subjective impressions. Three concrete consequences:
 | Area | State |
 |---|---|
 | Backend caching | ⚠️ Only `repo_status_cache` (dashboard summary). Every other read is live. |
-| Repository handles | 🚧 None. `status`, `branches`, `log`, `diff` each open the repository again; a per-path `RwLock` (`crates/fjord-git/src/locking.rs`) serializes writers only. |
-| Invalidation | ⚠️ `RepoChangeSet { status, working, history, refs, stashes }` is computed per filesystem burst in `crates/fjord-fs/src/watcher.rs` and emitted as `fjord-repository-changed`. It is a *hint per event*, not a durable generation, so nothing can answer "is my cached snapshot still valid?". |
+| Repository handles | ✅ Canonical-path `RepositoryRuntime` reuses gix/git2 handles for Hot/Warm repositories. Cold reads use ephemeral handles; generation clocks survive eviction. |
+| Invalidation | ✅ Filesystem and mutation changes advance per-domain generation clocks which cross IPC with every repository read. |
 | Frontend caching | ✅ TanStack Query with `staleTime: Infinity` and 30 min `gcTime` (`src/application/repositoryQueryPolicy.ts`); explicit invalidation from watcher events. Lost on reload; not persisted. |
 | Prefetch | ✅ `warmRepositoryData` prefetches status/branches/tags/first commit page/working changes on hover (80 ms debounce) and on selection (`src/presentation/App.tsx`). |
 | Virtualization | ✅ Commit graph, all-repositories list, dashboard grid, diff rows (`@tanstack/react-virtual`). |
 | Graph layout | ✅ Moved off the UI thread (`src/presentation/graphLayout.worker.ts`, `useGraphLayout.ts`). |
 | Frontend timing | ⚠️ `src/presentation/performance.tsx` records React `Profiler` durations as `performance.measure` entries — dev-only, frontend-only, no IPC or backend correlation. |
-| Startup | ⚠️ `src/main.tsx` awaits `getSettings()` (IPC) and `initI18n()` before the first `createRoot().render()`. First paint is behind two round trips. |
+| Startup | ✅ The shell renders synchronously; settings, locale, Git initialization, status reads, and watcher registration begin only after first paint (`P6-10`). |
 | Diff transport | ✅ `get_file_diff` is windowed (1000 frontend / 2000 backend maximum lines), responses are capped at 2 MB, and files above 10 MB return content-free metadata. Packed `diff-giant` first response: P95 **34.592 ms**, 184 bytes, versus 611 ms and 2 694 458 `DiffLine` values before P6-16. |
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
 | Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`), defaults to 3 warmups + 20 repetitions with P50/P95/max and P95 budgets (`P6-22`), and refuses to compare runs from different platforms, cache states, or sampling settings (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
 | History read | ⚠️ The first 30-commit page on a packed 500k-commit repository measures **3639 ms**; Git answers the same request in 33 ms. `Sort::TOPOLOGICAL` under libgit2 buffers the whole reachable history — see `P6-21`. |
-| Idle cost | 🚧 Never measured. One `RepoEventWatcher` thread per repository, created for every tracked repository at bootstrap (`crates/fjord-app/src/state.rs`). |
+| Idle cost | ⚠️ Watchers are tiered: Hot/Warm use recursive working-tree watches, Cold uses `.git`-only watches and no retained Git handles (`P6-17`). CPU/RSS confirmation on `ws-100` remains `P6-18`. |
 
 ## Proposed design
 
@@ -392,9 +392,14 @@ Rules that keep this honest:
 | Warm | Repositories in the active workspace | Open handles, status + refs caches | Full recursive watch | In memory + snapshot |
 | Cold | Everything else tracked | No handles | `.git`-only watch (HEAD, refs, index) | Snapshot only |
 
-Promotion is on access; demotion is by an idle timer plus a budget
-(`max_hot = 3`, `max_warm = 32`, both configurable). Eviction drops handles and
-in-memory caches but never the persisted snapshot.
+Promotion follows the frontend's active workspace/repository signal; the active
+repository and two recent visits are Hot. Recent visits demote after five idle
+minutes, and changing workspace immediately recalculates Warm membership.
+Budgets default to `max_hot = 3` and `max_warm = 32`; packaged or diagnostic
+runs can override them with `FJORD_MAX_HOT_REPOSITORIES` and
+`FJORD_MAX_WARM_REPOSITORIES`. Eviction drops gix/git2 handles while retaining
+generation clocks and the persisted snapshot. A Cold read uses an ephemeral
+runtime and closes it when the operation ends.
 
 The cold-tier `.git`-only watch is the mechanism that makes `ws-100` viable: a
 recursive working-tree watch over 100 repositories is what SLO-13 and SLO-14 are

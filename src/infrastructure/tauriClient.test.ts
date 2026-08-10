@@ -5,7 +5,7 @@ const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { getBranches } from "@/infrastructure/tauriClient";
+import { getBranches, setRepositoryActivity } from "@/infrastructure/tauriClient";
 import { beginInteraction, setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 
 describe("abortable Tauri queries", () => {
@@ -36,6 +36,17 @@ describe("abortable Tauri queries", () => {
     expect(tauri.invoke).toHaveBeenCalledWith("get_branches", {
       repoId: "repo-1",
       interactionId,
+    });
+  });
+
+  it("sends repository activity as an explicit nullable navigation state", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+
+    await setRepositoryActivity("workspace-1", "repo-1");
+
+    expect(tauri.invoke).toHaveBeenCalledWith("set_repository_activity", {
+      workspaceId: "workspace-1",
+      repoId: "repo-1",
     });
   });
 });

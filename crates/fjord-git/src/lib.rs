@@ -27,3 +27,14 @@ pub fn repository_generations(
 ) -> Result<GenerationSet, fjord_ports::GitError> {
     local::repository_generations(repo)
 }
+
+/// Retains handles only for the configured hot/warm repositories. Reads of a
+/// cold repository remain valid but use an ephemeral handle.
+pub fn set_resident_repositories(repositories: &[fjord_ports::RepoPath]) {
+    local::set_resident_repositories(repositories);
+}
+
+/// Drops all runtime state for a repository that is no longer tracked.
+pub fn forget_repository(repo: &fjord_ports::RepoPath) {
+    local::forget_repository(repo);
+}

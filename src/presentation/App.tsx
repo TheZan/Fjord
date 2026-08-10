@@ -18,6 +18,7 @@ import {
   invokeErrorCode,
   runBulkFetch,
   runBulkPull,
+  setRepositoryActivity,
   type OperationProgressEvent,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
@@ -51,7 +52,7 @@ import type { View } from "@/presentation/view";
 export function App() {
   useInteractionCommit();
   const queryClient = useQueryClient();
-  const { settings: startupSettings } = useStartup();
+  const { activated, settings: startupSettings } = useStartup();
   const { t: tw } = useTranslation("workspace");
   const {
     workspaces,
@@ -145,6 +146,12 @@ export function App() {
   useEffect(() => {
     if (startupSettings) setAutoFetch(startupSettings.autoFetch);
   }, [startupSettings]);
+
+  useEffect(() => {
+    if (activated) {
+      void setRepositoryActivity(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
+    }
+  }, [activated, selectedRepoId, selectedWorkspaceId]);
 
   useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {

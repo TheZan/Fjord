@@ -35,6 +35,12 @@ pub struct RepoEventWatcher {
     _watcher: RecommendedWatcher,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepositoryWatchScope {
+    WorkingTree,
+    GitMetadata,
+}
+
 /// Observable repository data affected by a filesystem event burst. Keeping
 /// this classification beside the platform watcher lets the UI refresh only
 /// the Git queries that can actually have changed.
@@ -126,11 +132,29 @@ impl RepoEventWatcher {
     /// Watches `repo_root` recursively and calls `on_change` (debounced,
     /// filtered) whenever the repository plausibly changed state. The
     /// debounce thread exits when the watcher is dropped.
-    pub fn watch_repository<F>(repo_root: &Path, mut on_change: F) -> Result<Self, WatchError>
+    pub fn watch_repository<F>(repo_root: &Path, on_change: F) -> Result<Self, WatchError>
+    where
+        F: FnMut(RepoChangeSet) + Send + 'static,
+    {
+        Self::watch_repository_with_scope(repo_root, RepositoryWatchScope::WorkingTree, on_change)
+    }
+
+    /// Installs either the full working-tree watch used by hot/warm
+    /// repositories or the metadata-only watch used by cold repositories.
+    pub fn watch_repository_with_scope<F>(
+        repo_root: &Path,
+        scope: RepositoryWatchScope,
+        mut on_change: F,
+    ) -> Result<Self, WatchError>
     where
         F: FnMut(RepoChangeSet) + Send + 'static,
     {
         let root: PathBuf = repo_root.to_path_buf();
+        let watched_root = match scope {
+            RepositoryWatchScope::WorkingTree => root.clone(),
+            RepositoryWatchScope::GitMetadata => git_metadata_path(&root)?,
+        };
+        let event_root = watched_root.clone();
         let (tx, rx) = mpsc::channel::<RepoChangeSet>();
 
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
@@ -142,7 +166,14 @@ impl RepoEventWatcher {
                 RepoChangeSet::default()
             };
             for path in &event.paths {
-                changes.merge(classify_change(&root, path));
+                let classified_path = match scope {
+                    RepositoryWatchScope::WorkingTree => path.clone(),
+                    RepositoryWatchScope::GitMetadata => {
+                        let relative = path.strip_prefix(&event_root).unwrap_or(path);
+                        root.join(".git").join(relative)
+                    }
+                };
+                changes.merge(classify_change(&root, &classified_path));
             }
             if !changes.is_empty() {
                 let _ = tx.send(changes);
@@ -150,7 +181,7 @@ impl RepoEventWatcher {
         })
         .map_err(|e| WatchError::Start(e.to_string()))?;
         watcher
-            .watch(repo_root, RecursiveMode::Recursive)
+            .watch(&watched_root, RecursiveMode::Recursive)
             .map_err(|e| WatchError::Start(e.to_string()))?;
 
         std::thread::spawn(move || {
@@ -169,6 +200,38 @@ impl RepoEventWatcher {
 
         Ok(Self { _watcher: watcher })
     }
+}
+
+fn git_metadata_path(repo_root: &Path) -> Result<PathBuf, WatchError> {
+    let dot_git = repo_root.join(".git");
+    if dot_git.is_dir() {
+        return Ok(dot_git.canonicalize().unwrap_or(dot_git));
+    }
+    if dot_git.is_file() {
+        let marker = std::fs::read_to_string(&dot_git)
+            .map_err(|error| WatchError::Start(error.to_string()))?;
+        let relative = marker
+            .trim()
+            .strip_prefix("gitdir:")
+            .map(str::trim)
+            .ok_or_else(|| WatchError::Start("invalid .git file".to_string()))?;
+        let path = PathBuf::from(relative);
+        let resolved = if path.is_absolute() {
+            path
+        } else {
+            repo_root.join(path)
+        };
+        return Ok(resolved.canonicalize().unwrap_or(resolved));
+    }
+    if repo_root.join("HEAD").is_file() {
+        return Ok(repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.to_path_buf()));
+    }
+    Err(WatchError::Start(format!(
+        "{} has no Git metadata directory",
+        repo_root.display()
+    )))
 }
 
 /// Maps a path to the smallest observable data set it can affect. Generated
@@ -323,6 +386,54 @@ mod tests {
                 ..RepoChangeSet::default()
             }
         );
+    }
+
+    #[test]
+    fn git_metadata_path_supports_directories_and_worktree_indirection() {
+        let root = TempDir::new().unwrap();
+        let repository = root.path().join("repository");
+        let metadata = repository.join(".git");
+        fs::create_dir_all(&metadata).unwrap();
+        assert_eq!(
+            git_metadata_path(&repository).unwrap(),
+            metadata.canonicalize().unwrap()
+        );
+
+        let worktree = root.path().join("worktree");
+        let shared = root.path().join("shared.git");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(worktree.join(".git"), "gitdir: ../shared.git\n").unwrap();
+        assert_eq!(
+            git_metadata_path(&worktree).unwrap(),
+            shared.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn metadata_only_watch_ignores_worktree_edits() {
+        let dir = TempDir::new().unwrap();
+        let metadata = dir.path().join(".git");
+        fs::create_dir_all(&metadata).unwrap();
+        fs::write(metadata.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = RepoEventWatcher::watch_repository_with_scope(
+            dir.path(),
+            RepositoryWatchScope::GitMetadata,
+            move |changes| {
+                let _ = tx.send(changes);
+            },
+        )
+        .unwrap();
+
+        fs::write(dir.path().join("working.txt"), b"change").unwrap();
+        assert!(rx.recv_timeout(DEBOUNCE_QUIET * 2).is_err());
+
+        fs::write(metadata.join("HEAD"), b"ref: refs/heads/next\n").unwrap();
+        let changes = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("metadata edit should reach a cold watcher");
+        assert!(changes.refs && changes.history);
     }
 
     #[test]

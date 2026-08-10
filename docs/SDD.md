@@ -128,7 +128,7 @@ Two different performance problems, both real: (1) one huge repo — big working
 
 Approach, item by item:
 
-- ✅ **Incremental status, not full rescans.** `fjord-fs` watches each working tree recursively via `notify` and invalidates only the affected repo's cached status. Events under generated directories (`target/`, `node_modules/`, ...) and the `.git` object store are filtered out, and bursts are debounced inside the watcher (300 ms quiet window, 5 s max delay) — a rebase or an `npm install` produces one invalidation, not a storm (`P4-15`). A second debounce layer in `WorkspaceService` coalesces refresh scheduling.
+- ✅ **Incremental status, not full rescans.** `fjord-fs` watches Hot/Warm working trees recursively and Cold repositories through `.git` metadata only. Events under generated directories (`target/`, `node_modules`, ...) and the `.git` object store are filtered out, and bursts are debounced inside the watcher (300 ms quiet window, 5 s max delay) (`P4-15`, `P6-17`). A second debounce layer in `WorkspaceService` coalesces refresh scheduling.
 - ✅ **A status/summary cache in SQLite.** The dashboard reads from `repo_status_cache`, refreshed asynchronously per-repo; the read path is a single `LEFT JOIN` (no N+1). The UI always shows "status as of last refresh, refreshing in background" rather than blocking on the slowest repo.
 - ✅ **Bulk operations run concurrently**, bounded by a worker pool (Tokio `Semaphore` + `JoinSet`, currently 6 concurrent) — "Pull all" on 24 repos takes roughly as long as the slowest one, not the sum.
 - ✅ **gix for the hot read paths** (status, diff, log) — avoids libgit2's process-wide locking and is competitive-to-faster on large trees.
@@ -139,11 +139,12 @@ Approach, item by item:
 Known limits of this strategy, and what Phase 6 does about them
 ([`specs/performance.md`](specs/performance.md)):
 
-- 🚧 **No long-lived repository state.** Every read re-opens the repository; five
-  reads for one view mean five opens. Phase 6 introduces `RepositoryRuntime`.
-- ⚠️ **Invalidation is per-event, not per-generation.** `RepoChangeSet` classifies
-  a filesystem burst well, but nothing durable answers "is my cached value still
-  valid?". Phase 6 adds per-domain generations.
+- ✅ **Tiered long-lived repository state.** Hot/Warm repositories reuse one
+  `RepositoryRuntime`; Cold repositories retain no Git handles and use
+  metadata-only watches. Eviction preserves generation clocks (`P6-11`, `P6-17`).
+- ✅ **Generation-scoped invalidation.** Reads and filesystem events share
+  monotonic per-domain generations, so cached values can be validated precisely
+  (`P6-12`, `P6-13`).
 - ⚠️ **End-to-end tracing exists; scenario baselines do not yet.** Opt-in
   interaction traces now correlate input, IPC, backend handler spans, React
   commit, and paint (`P6-08`/`P6-09`), but the scripted SLO scenarios have not
@@ -152,8 +153,8 @@ Known limits of this strategy, and what Phase 6 does about them
   windows of at most 2,000 lines under a 2 MB response ceiling; the UI fetches
   1,000-line windows near the virtualized end. Files above 10 MB return metadata
   without content. Packed `diff-giant` first response P95 is 34.592 ms (`P6-16`).
-- ⚠️ **Startup blocks on IPC.** `src/main.tsx` awaits settings and i18n before the
-  first render.
+- ✅ **Startup shell precedes IPC.** Locale/settings resolution and all Git or
+  watcher work start after the first usable paint (`P6-10`).
 
 Measured numbers and budgets: see §11.
 

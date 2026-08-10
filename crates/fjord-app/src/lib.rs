@@ -12,6 +12,7 @@ mod ide_launcher;
 mod interaction_traces;
 mod logging;
 mod operations;
+mod repository_tiers;
 mod state;
 
 #[cfg(test)]
@@ -80,6 +81,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::list_repositories,
             commands::get_workspace_status,
             commands::refresh_repo_status,
+            commands::set_repository_activity,
             commands::add_repository,
             commands::import_repositories,
             commands::remove_repository,

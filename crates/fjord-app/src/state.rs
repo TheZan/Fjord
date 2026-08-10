@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_domain::{GenerationSet, RepoStatusSummary, RepositoryEntry, RepositoryId};
-use fjord_fs::{RepoChangeSet, RepoEventWatcher};
+use fjord_fs::{RepoChangeSet, RepoEventWatcher, RepositoryWatchScope};
 use fjord_git::{
     GitCommandFactory, LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend,
 };
@@ -18,8 +19,15 @@ use crate::askpass::{AskpassBroker, AUTH_PROMPT_EVENT};
 use crate::ide_launcher::SystemIdeLauncher;
 use crate::interaction_traces::InteractionTraceCollector;
 use crate::operations::OperationRegistry;
+use crate::repository_tiers::{RepositoryTier, RepositoryTierPolicy};
 
 pub const REPOSITORY_CHANGED_EVENT: &str = "fjord-repository-changed";
+
+struct ManagedWatcher {
+    scope: RepositoryWatchScope,
+    repo_path: fjord_ports::RepoPath,
+    _watcher: RepoEventWatcher,
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,8 +75,10 @@ pub struct AppState {
     pub interaction_traces: Arc<InteractionTraceCollector>,
     askpass_executable: Option<PathBuf>,
     app_handle: tauri::AppHandle,
-    status_watchers: Arc<Mutex<HashMap<RepositoryId, RepoEventWatcher>>>,
+    status_watchers: Arc<Mutex<HashMap<RepositoryId, ManagedWatcher>>>,
     snapshot_tasks: Arc<Mutex<HashMap<RepositoryId, JoinHandle<()>>>>,
+    repository_tiers: Arc<Mutex<RepositoryTierPolicy>>,
+    tier_demotion_task: Arc<Mutex<Option<JoinHandle<()>>>>,
     startup_activated: tokio::sync::Mutex<bool>,
 }
 
@@ -156,6 +166,8 @@ pub async fn bootstrap(
         app_handle,
         status_watchers: Arc::new(Mutex::new(HashMap::new())),
         snapshot_tasks: Arc::new(Mutex::new(HashMap::new())),
+        repository_tiers: Arc::new(Mutex::new(RepositoryTierPolicy::default())),
+        tier_demotion_task: Arc::new(Mutex::new(None)),
         startup_activated: tokio::sync::Mutex::new(false),
     };
 
@@ -174,9 +186,7 @@ impl AppState {
 
         self.repos.refresh_git_executable().await;
         let repositories = self.workspaces.list_all_repositories().await?;
-        for repository in repositories {
-            self.watch_repository_status(repository);
-        }
+        self.sync_repository_tiers(&repositories);
         *activated = true;
         Ok(())
     }
@@ -206,30 +216,132 @@ impl AppState {
         ))
     }
 
-    pub fn watch_repository_status(&self, repo: RepositoryEntry) {
+    pub async fn set_repository_activity(
+        &self,
+        workspace_id: Option<fjord_domain::WorkspaceId>,
+        repository_id: Option<RepositoryId>,
+    ) -> Result<(), WorkspaceError> {
+        let repositories = self.workspaces.list_all_repositories().await?;
+        let repository_id = repository_id.filter(|id| {
+            repositories.iter().any(|repository| {
+                repository.id == *id
+                    && workspace_id.is_none_or(|workspace| repository.workspace_id == workspace)
+            })
+        });
+        self.repository_tiers
+            .lock()
+            .unwrap()
+            .activate(workspace_id, repository_id, Instant::now());
+        self.sync_repository_tiers(&repositories);
+        self.schedule_idle_demotion();
+        Ok(())
+    }
+
+    pub async fn refresh_repository_tiers(&self) -> Result<(), WorkspaceError> {
+        let repositories = self.workspaces.list_all_repositories().await?;
+        self.sync_repository_tiers(&repositories);
+        Ok(())
+    }
+
+    fn sync_repository_tiers(&self, repositories: &[RepositoryEntry]) {
+        let tiers = self
+            .repository_tiers
+            .lock()
+            .unwrap()
+            .tiers(repositories, Instant::now());
+        let resident = repositories
+            .iter()
+            .filter(|repository| tiers.get(&repository.id) != Some(&RepositoryTier::Cold))
+            .map(|repository| fjord_ports::RepoPath::new(repository.path.clone()))
+            .collect::<Vec<_>>();
+        fjord_git::set_resident_repositories(&resident);
+
+        let known = repositories
+            .iter()
+            .map(|repository| repository.id)
+            .collect::<std::collections::HashSet<_>>();
+        let removed = {
+            let mut watchers = self.status_watchers.lock().unwrap();
+            let removed = watchers
+                .keys()
+                .filter(|id| !known.contains(id))
+                .copied()
+                .collect::<Vec<_>>();
+            removed
+                .into_iter()
+                .filter_map(|id| watchers.remove(&id).map(|watcher| (id, watcher)))
+                .collect::<Vec<_>>()
+        };
+        for (id, watcher) in removed {
+            self.repository_tiers.lock().unwrap().remove(id);
+            if let Some(task) = self.snapshot_tasks.lock().unwrap().remove(&id) {
+                task.abort();
+            }
+            if !repositories
+                .iter()
+                .any(|repository| fjord_fs::paths_equal(&repository.path, &watcher.repo_path.0))
+            {
+                fjord_git::forget_repository(&watcher.repo_path);
+            }
+        }
+
+        for repository in repositories {
+            let scope = match tiers
+                .get(&repository.id)
+                .copied()
+                .unwrap_or(RepositoryTier::Cold)
+            {
+                RepositoryTier::Hot | RepositoryTier::Warm => RepositoryWatchScope::WorkingTree,
+                RepositoryTier::Cold => RepositoryWatchScope::GitMetadata,
+            };
+            self.watch_repository_status(repository.clone(), scope);
+        }
+    }
+
+    fn schedule_idle_demotion(&self) {
+        let mut task = self.tier_demotion_task.lock().unwrap();
+        if let Some(previous) = task.take() {
+            previous.abort();
+        }
+        let delay = self.repository_tiers.lock().unwrap().hot_idle();
+        let app_handle = self.app_handle.clone();
+        *task = Some(tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(delay).await;
+            let state = app_handle.state::<AppState>();
+            if let Err(error) = state.refresh_repository_tiers().await {
+                tracing::warn!(error = %error, "failed to apply idle repository demotion");
+            }
+        }));
+    }
+
+    fn watch_repository_status(&self, repo: RepositoryEntry, scope: RepositoryWatchScope) {
         let repo_id = repo.id;
         let mut watchers = self.status_watchers.lock().unwrap();
-        if watchers.contains_key(&repo_id) {
+        if watchers
+            .get(&repo_id)
+            .is_some_and(|watcher| watcher.scope == scope)
+        {
             return;
         }
+        watchers.remove(&repo_id);
 
         let workspaces = self.workspaces.clone();
         let repos = self.repos.clone();
         let app_handle = self.app_handle.clone();
         let snapshot_tasks = self.snapshot_tasks.clone();
         let repo_path = fjord_ports::RepoPath::new(repo.path.clone());
-        // Recursive working-tree watch with generated-directory filtering
-        // and debouncing inside fjord-fs (docs/tasks.md P4-15) — edits below
-        // the repo root invalidate the cache, while `target/`/`node_modules/`
-        // churn and event storms are absorbed before they reach us.
-        let watcher = RepoEventWatcher::watch_repository(&repo.path, move |changes| {
-            fjord_git::record_repository_changes(&repo_path, changes);
-            let repos_for_snapshot = repos.clone();
-            let mut tasks = snapshot_tasks.lock().unwrap();
-            if let Some(previous) = tasks.remove(&repo_id) {
-                previous.abort();
-            }
-            tasks.insert(
+        let callback_repo_path = repo_path.clone();
+        let watcher = RepoEventWatcher::watch_repository_with_scope(
+            &repo.path,
+            scope,
+            move |changes| {
+                fjord_git::record_repository_changes(&callback_repo_path, changes);
+                let repos_for_snapshot = repos.clone();
+                let mut tasks = snapshot_tasks.lock().unwrap();
+                if let Some(previous) = tasks.remove(&repo_id) {
+                    previous.abort();
+                }
+                tasks.insert(
                 repo_id,
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -241,42 +353,44 @@ impl AppState {
                     }
                 }),
             );
-            drop(tasks);
-            let workspaces = workspaces.clone();
-            let app_handle = app_handle.clone();
-            let repo_path = repo_path.clone();
-            tauri::async_runtime::spawn(async move {
-                let status_summary = match workspaces.refresh_repo_status(repo_id).await {
-                    Ok(summary) => Some(summary),
-                    Err(error) => {
-                        tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to refresh repository status after filesystem change");
-                        None
+                drop(tasks);
+                let workspaces = workspaces.clone();
+                let app_handle = app_handle.clone();
+                let repo_path = callback_repo_path.clone();
+                tauri::async_runtime::spawn(async move {
+                    let status_summary = match workspaces.refresh_repo_status(repo_id).await {
+                        Ok(summary) => Some(summary),
+                        Err(error) => {
+                            tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to refresh repository status after filesystem change");
+                            None
+                        }
+                    };
+                    let generations =
+                        fjord_git::repository_generations(&repo_path).unwrap_or_default();
+                    if let Err(error) = app_handle.emit(
+                        REPOSITORY_CHANGED_EVENT,
+                        RepositoryChangedEvent::new(repo_id, changes, generations, status_summary),
+                    ) {
+                        tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to emit repository change event");
                     }
-                };
-                let generations = fjord_git::repository_generations(&repo_path).unwrap_or_default();
-                if let Err(error) = app_handle.emit(
-                    REPOSITORY_CHANGED_EVENT,
-                    RepositoryChangedEvent::new(repo_id, changes, generations, status_summary),
-                ) {
-                    tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to emit repository change event");
-                }
-            });
-        });
+                });
+            },
+        );
 
         match watcher {
             Ok(watcher) => {
-                watchers.insert(repo_id, watcher);
+                watchers.insert(
+                    repo_id,
+                    ManagedWatcher {
+                        scope,
+                        repo_path,
+                        _watcher: watcher,
+                    },
+                );
             }
             Err(error) => {
                 tracing::warn!(repo_id = %repo_id.0, error = %error, "failed to watch repository status");
             }
-        }
-    }
-
-    pub fn unwatch_repository_status(&self, repo_id: RepositoryId) {
-        self.status_watchers.lock().unwrap().remove(&repo_id);
-        if let Some(task) = self.snapshot_tasks.lock().unwrap().remove(&repo_id) {
-            task.abort();
         }
     }
 }

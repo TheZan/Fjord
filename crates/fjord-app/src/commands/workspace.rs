@@ -69,6 +69,15 @@ pub async fn refresh_repo_status(
 }
 
 #[tauri::command]
+pub async fn set_repository_activity(
+    state: State<'_, AppState>,
+    workspace_id: Option<WorkspaceId>,
+    repo_id: Option<RepositoryId>,
+) -> Result<(), AppError> {
+    Ok(state.set_repository_activity(workspace_id, repo_id).await?)
+}
+
+#[tauri::command]
 pub async fn add_repository(
     state: State<'_, AppState>,
     workspace_id: WorkspaceId,
@@ -76,7 +85,7 @@ pub async fn add_repository(
 ) -> Result<RepositoryEntry, AppError> {
     let entry = state.workspaces.add_repository(workspace_id, path).await?;
     let _ = state.workspaces.refresh_repo_status(entry.id).await;
-    state.watch_repository_status(entry.clone());
+    state.refresh_repository_tiers().await?;
     Ok(entry)
 }
 
@@ -93,7 +102,6 @@ pub async fn import_repositories(
         match state.workspaces.add_repository(workspace_id, path).await {
             Ok(entry) => {
                 let _ = state.workspaces.refresh_repo_status(entry.id).await;
-                state.watch_repository_status(entry.clone());
                 imported.push(entry);
             }
             Err(WorkspaceError::RepositoryAlreadyAdded(_)) => {}
@@ -101,6 +109,8 @@ pub async fn import_repositories(
             Err(error) => return Err(error.into()),
         }
     }
+
+    state.refresh_repository_tiers().await?;
 
     Ok(imported)
 }
@@ -110,6 +120,7 @@ pub async fn remove_repository(
     state: State<'_, AppState>,
     id: RepositoryId,
 ) -> Result<(), AppError> {
-    state.unwatch_repository_status(id);
-    Ok(state.workspaces.remove_repository(id).await?)
+    state.workspaces.remove_repository(id).await?;
+    state.refresh_repository_tiers().await?;
+    Ok(())
 }

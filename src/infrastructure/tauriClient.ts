@@ -231,6 +231,13 @@ export function refreshRepoStatus(repoId: string): Promise<RepoStatusSummary> {
   return invoke("refresh_repo_status", { repoId });
 }
 
+export function setRepositoryActivity(
+  workspaceId: string | null,
+  repoId: string | null,
+): Promise<void> {
+  return invoke("set_repository_activity", { workspaceId, repoId });
+}
+
 export function getRepositorySnapshot(repoId: string): Promise<StoredRepositorySnapshot | null> {
   return invoke("get_repository_snapshot", { repoId });
 }
