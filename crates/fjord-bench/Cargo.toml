@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 fjord-db.workspace = true
+fjord-fs.workspace = true
 fjord-git.workspace = true
 fjord-ports.workspace = true
 fjord-services.workspace = true

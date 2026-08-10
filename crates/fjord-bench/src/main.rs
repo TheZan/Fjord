@@ -3,10 +3,12 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
+use fjord_fs::{RepoEventWatcher, RepositoryWatchScope};
 use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
 use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
 use fjord_services::RepoService;
@@ -55,6 +57,7 @@ struct Args {
     compare: Option<PathBuf>,
     warmups: usize,
     repetitions: usize,
+    idle_seconds: u64,
 }
 
 impl Default for Args {
@@ -80,6 +83,7 @@ impl Default for Args {
             compare: None,
             warmups: 3,
             repetitions: 20,
+            idle_seconds: 60,
         }
     }
 }
@@ -149,6 +153,10 @@ fn parse_args() -> Result<Args, String> {
                 args.repetitions =
                     parse_usize(next_value(&mut iter, "--repetitions")?, "--repetitions")?
             }
+            "--idle-seconds" => {
+                args.idle_seconds =
+                    parse_usize(next_value(&mut iter, "--idle-seconds")?, "--idle-seconds")? as u64
+            }
             "--cache-state" => {
                 args.cache_state = CacheState::parse(&next_value(&mut iter, "--cache-state")?)?
             }
@@ -174,6 +182,9 @@ fn parse_args() -> Result<Args, String> {
     }
     if args.repetitions == 0 {
         return Err("--repetitions must be at least 1".to_string());
+    }
+    if args.idle_seconds == 0 {
+        return Err("--idle-seconds must be at least 1".to_string());
     }
     let has_budget = [
         args.budget_log_ms,
@@ -236,6 +247,7 @@ fn usage() -> String {
            --cache-state STATE   cold | warm | unknown (operator-asserted)\n\n\
            --warmups N           discarded warmup runs (default: 3)\n  \
            --repetitions N       measured runs for P50/P95/max (default: 20)\n\n\
+           --idle-seconds N      resource-sampling window (default: 60)\n\n\
          Budgets (fail the run when exceeded):\n  \
            --budget-status-ms N  --budget-log-ms N  --budget-refs-ms N  --budget-diff-ms N\n  \
            --budget-live-refresh-ms N  --budget-cached-dashboard-ms N\n\n\
@@ -553,11 +565,227 @@ async fn run_named_fixture(args: Args, name: &str) -> Result<(), String> {
         fixtures::Scenario::RefsRead => measure_refs(&root, &args, &mut record).await?,
         fixtures::Scenario::FileDiff => measure_file_diff(&root, &args, &mut record).await?,
         fixtures::Scenario::WorkspaceDashboard => {
-            measure_workspace_dashboard(&root, &plan, &args, &mut record).await?
+            if args.scenario.as_deref() == Some("idle-cost") {
+                measure_idle_cost(&root, &plan, &args, &mut record).await?
+            } else {
+                measure_workspace_dashboard(&root, &plan, &args, &mut record).await?
+            }
         }
     }
 
     finish(&record, args.json.as_ref(), args.compare.as_deref())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProcessSample {
+    cpu_seconds: f64,
+    rss_bytes: u64,
+}
+
+/// Models the application's steady tiered state without a WebView: 3 Hot and
+/// 32 Warm repositories retain runtime handles and recursive watches; the
+/// remaining repositories retain metadata-only watches and no handles.
+async fn measure_idle_cost(
+    root: &Path,
+    plan: &fixtures::Plan,
+    args: &Args,
+    record: &mut Report,
+) -> Result<(), String> {
+    let fixtures::Build::Workspace { repos, .. } = plan.build else {
+        return Err("the idle-cost scenario needs a workspace fixture".to_string());
+    };
+    let paths = (0..repos)
+        .map(|index| RepoPath::new(root.join(format!("repo-{index:03}"))))
+        .collect::<Vec<_>>();
+    let resident_count = paths.len().min(35);
+    fjord_git::set_resident_repositories(&paths[..resident_count]);
+
+    let mut watchers = Vec::with_capacity(paths.len());
+    for (index, repo) in paths.iter().enumerate() {
+        let scope = if index < resident_count {
+            RepositoryWatchScope::WorkingTree
+        } else {
+            RepositoryWatchScope::GitMetadata
+        };
+        watchers.push(
+            RepoEventWatcher::watch_repository_with_scope(&repo.0, scope, |_| {})
+                .map_err(|error| error.to_string())?,
+        );
+    }
+
+    let backend = LocalGitBackend::new();
+    for repo in paths.iter().take(resident_count) {
+        backend
+            .status(repo)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let started = Instant::now();
+    let before = process_sample()?;
+    let deadline = started + Duration::from_secs(args.idle_seconds);
+    let mut after = before;
+    let mut max_rss_bytes = before.rss_bytes;
+    let mut resource_samples = 1_u64;
+    while Instant::now() < deadline {
+        tokio::time::sleep(
+            Duration::from_secs(1).min(deadline.saturating_duration_since(Instant::now())),
+        )
+        .await;
+        after = process_sample()?;
+        max_rss_bytes = max_rss_bytes.max(after.rss_bytes);
+        resource_samples += 1;
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let cpu_percent_one_core =
+        ((after.cpu_seconds - before.cpu_seconds).max(0.0) / elapsed) * 100.0;
+    let rss_megabytes = max_rss_bytes as f64 / (1024.0 * 1024.0);
+
+    println!("idle_window_seconds={:.3}", elapsed);
+    println!("idle_cpu_percent_one_core={cpu_percent_one_core:.3}");
+    println!("resident_memory_mb={rss_megabytes:.3}");
+    println!("resource_samples={resource_samples}");
+    println!("hot_repositories={}", resident_count.min(3));
+    println!("warm_repositories={}", resident_count.saturating_sub(3));
+    println!("cold_repositories={}", repos.saturating_sub(resident_count));
+
+    record
+        .metric("idle_window_seconds", elapsed, "s")
+        .metric("idle_cpu_percent_one_core", cpu_percent_one_core, "%core")
+        .metric("resident_memory", rss_megabytes, "MiB")
+        .count("resource_samples", resource_samples)
+        .count("hot_repositories", resident_count.min(3) as u64)
+        .count("warm_repositories", resident_count.saturating_sub(3) as u64)
+        .count(
+            "cold_repositories",
+            repos.saturating_sub(resident_count) as u64,
+        )
+        .count("recursive_watchers", resident_count as u64)
+        .count(
+            "metadata_watchers",
+            repos.saturating_sub(resident_count) as u64,
+        );
+
+    drop(watchers);
+    fjord_git::set_resident_repositories(&[]);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn process_sample() -> Result<ProcessSample, String> {
+    let pid = std::process::id();
+    let script = format!(
+        "$p=Get-Process -Id {pid}; Write-Output ($p.TotalProcessorTime.TotalSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture) + ',' + $p.WorkingSet64)"
+    );
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    parse_process_sample(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+#[cfg(target_os = "linux")]
+fn process_sample() -> Result<ProcessSample, String> {
+    let stat = fs::read_to_string("/proc/self/stat").map_err(|error| error.to_string())?;
+    let after_name = stat
+        .rsplit_once(')')
+        .map(|(_, fields)| fields.trim())
+        .ok_or_else(|| "could not parse /proc/self/stat".to_string())?;
+    let fields = after_name.split_whitespace().collect::<Vec<_>>();
+    let ticks = fields
+        .get(11)
+        .and_then(|value| value.parse::<f64>().ok())
+        .zip(fields.get(12).and_then(|value| value.parse::<f64>().ok()))
+        .map(|(user, system)| user + system)
+        .ok_or_else(|| "could not read process CPU ticks".to_string())?;
+    let ticks_per_second = Command::new("getconf")
+        .arg("CLK_TCK")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .unwrap_or(100.0);
+    let rss_pages = fields
+        .get(21)
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| "could not read resident pages".to_string())?;
+    let page_size = Command::new("getconf")
+        .arg("PAGESIZE")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(4096);
+    Ok(ProcessSample {
+        cpu_seconds: ticks / ticks_per_second,
+        rss_bytes: rss_pages.saturating_mul(page_size),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_sample() -> Result<ProcessSample, String> {
+    let output = Command::new("ps")
+        .args(["-o", "time=,rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let fields = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let time = fields
+        .first()
+        .ok_or_else(|| "missing CPU time".to_string())?;
+    let rss_kib = fields
+        .get(1)
+        .and_then(|value| value.parse::<u64>().ok())
+        .ok_or_else(|| "missing resident memory".to_string())?;
+    Ok(ProcessSample {
+        cpu_seconds: parse_cpu_time(time)?,
+        rss_bytes: rss_kib.saturating_mul(1024),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn parse_process_sample(value: &str) -> Result<ProcessSample, String> {
+    let (cpu, rss) = value
+        .split_once(',')
+        .ok_or_else(|| format!("invalid process sample: {value}"))?;
+    Ok(ProcessSample {
+        cpu_seconds: cpu
+            .trim()
+            .parse::<f64>()
+            .map_err(|error| error.to_string())?,
+        rss_bytes: rss
+            .trim()
+            .parse::<u64>()
+            .map_err(|error| error.to_string())?,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn parse_cpu_time(value: &str) -> Result<f64, String> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    let (hours, minutes, seconds) = match parts.as_slice() {
+        [minutes, seconds] => (
+            0.0,
+            minutes.parse::<f64>().map_err(|error| error.to_string())?,
+            seconds.parse::<f64>().map_err(|error| error.to_string())?,
+        ),
+        [hours, minutes, seconds] => (
+            hours.parse::<f64>().map_err(|error| error.to_string())?,
+            minutes.parse::<f64>().map_err(|error| error.to_string())?,
+            seconds.parse::<f64>().map_err(|error| error.to_string())?,
+        ),
+        _ => return Err(format!("invalid CPU time: {value}")),
+    };
+    Ok(hours * 3600.0 + minutes * 60.0 + seconds)
 }
 
 fn is_measured_iteration(args: &Args, iteration: usize) -> bool {
@@ -717,23 +945,41 @@ async fn measure_workspace_dashboard(
         .await
         .map_err(|error| error.to_string())?;
 
+    let cached_only = args.scenario.as_deref() == Some("workspace-render");
+    if cached_only {
+        for repo in &registered {
+            let status = backend
+                .status(&RepoPath::new(repo.path.clone()))
+                .await
+                .map_err(|error| error.to_string())?;
+            store
+                .upsert_repo_status(repo.id, &status)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
     let mut live_samples = Vec::with_capacity(args.repetitions);
     let mut cached_samples = Vec::with_capacity(args.repetitions);
     let mut snapshot_samples = Vec::with_capacity(args.repetitions);
     let mut dashboard = Vec::new();
     for iteration in sample_iterations(args) {
-        let start = Instant::now();
-        for repo in &registered {
-            let status = backend
-                .status(&RepoPath::new(repo.path.clone()))
-                .await
-                .map_err(|e| e.to_string())?;
-            store
-                .upsert_repo_status(repo.id, &status)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-        let live_refresh_ms = ms(start.elapsed());
+        let live_refresh_ms = if cached_only {
+            0.0
+        } else {
+            let start = Instant::now();
+            for repo in &registered {
+                let status = backend
+                    .status(&RepoPath::new(repo.path.clone()))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                store
+                    .upsert_repo_status(repo.id, &status)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            ms(start.elapsed())
+        };
 
         let start = Instant::now();
         dashboard = store
@@ -754,7 +1000,9 @@ async fn measure_workspace_dashboard(
             return Err("the representative repository snapshot disappeared".to_string());
         }
         if is_measured_iteration(args, iteration) {
-            live_samples.push(live_refresh_ms);
+            if !cached_only {
+                live_samples.push(live_refresh_ms);
+            }
             cached_samples.push(cached_dashboard_ms);
             snapshot_samples.push(repo_snapshot_load_ms);
         }
@@ -766,15 +1014,14 @@ async fn measure_workspace_dashboard(
     record
         .count("workspace_repos", repos as u64)
         .count("dashboard_rows", dashboard.len() as u64);
-    let live_distribution = report_distribution(record, "live_refresh", &live_samples);
+    let live_distribution =
+        (!cached_only).then(|| report_distribution(record, "live_refresh", &live_samples));
     let cached_distribution = report_distribution(record, "cached_dashboard", &cached_samples);
     report_distribution(record, "repo_snapshot_load", &snapshot_samples);
     for budget in [
-        check_distribution_budget(
-            "live_refresh",
-            &live_distribution,
-            args.budget_live_refresh_ms,
-        ),
+        live_distribution.as_ref().and_then(|distribution| {
+            check_distribution_budget("live_refresh", distribution, args.budget_live_refresh_ms)
+        }),
         check_distribution_budget(
             "cached_dashboard",
             &cached_distribution,

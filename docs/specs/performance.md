@@ -76,16 +76,17 @@ and on subjective impressions. Three concrete consequences:
 | History transport | ✅ Paginated (`log(cursor, limit)`, page size 30). |
 | Benchmarks | ⚠️ `fjord-bench` covers single-repo open/status/log and a 24-repo workspace, with budget flags and manifest-based fixture reuse (`P6-02`); emits human-readable stdout plus a machine-readable JSON record (`P6-03`), defaults to 3 warmups + 20 repetitions with P50/P95/max and P95 budgets (`P6-22`), and refuses to compare runs from different platforms, cache states, or sampling settings (`P6-07`). The torture fixtures of §2 exist and are generated on demand (`P6-04`–`P6-06`); first release measurements are recorded in [`../benchmarks/p6-fixtures.md`](../benchmarks/p6-fixtures.md). Weekly workflow `.github/workflows/benchmarks.yml` still runs only the old scenarios. |
 | History read | ⚠️ The first 30-commit page on a packed 500k-commit repository measures **3639 ms**; Git answers the same request in 33 ms. `Sort::TOPOLOGICAL` under libgit2 buffers the whole reachable history — see `P6-21`. |
-| Idle cost | ⚠️ Watchers are tiered: Hot/Warm use recursive working-tree watches, Cold uses `.git`-only watches and no retained Git handles (`P6-17`). CPU/RSS confirmation on `ws-100` remains `P6-18`. |
+| Idle cost | ⚠️ Watchers are tiered: Hot/Warm use recursive working-tree watches, Cold uses `.git`-only watches and no retained Git handles (`P6-17`). The `ws-100` backend floor is 0.389% CPU / 24.000 MiB RSS; full-process confirmation is P11-02. |
 
 ## Proposed design
 
 ### 1. SLO catalogue
 
 Budgets are **P95 on a release build**, on the reference machine defined below,
-unless a row says otherwise. Rows marked *provisional* have no measurement yet
-and are what `P6-18` must confirm or correct — a provisional number is a
-hypothesis, not a promise, and is never quoted as a property of the product.
+unless a row says otherwise. P6-18 replaced every provisional marker with either
+a measured baseline/corrected report budget or a named packaged-driver owner.
+An unmeasured target is still a hypothesis, not a promise, and is never quoted as
+a property of the product.
 
 Reference machine for published numbers: the CI runner class used by
 `.github/workflows/benchmarks.yml`, plus one recorded developer machine per OS in
@@ -99,33 +100,32 @@ be joined. No SLO may exist without one — a budget nobody can run is a wish.
 
 | # | Interaction | Budget (P95) | Scenario | Fixture | Status |
 |---|---|---|---|---|---|
-| SLO-1 | Cold start → first usable UI (window painted, workspace list rendered from snapshot, input accepted) | 1200 ms | `startup-cold` | `ws-100` | provisional |
-| SLO-2 | Warm start → first usable UI | 600 ms | `startup-warm` | `ws-100` | provisional |
-| SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | `workspace-render` | `ws-100` | provisional; anchored by a measured 0.1 ms cached dashboard read at 24 repos |
-| SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | `repo-switch-warm` | `ws-100` | provisional |
-| SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | `repo-switch-cold` | `ws-100` | provisional |
+| SLO-1 | Cold start → first usable UI (window painted, workspace list rendered from snapshot, input accepted) | 1200 ms | `startup-cold` | `ws-100` | Target retained; packaged baseline is P11-01 because P6-10 proves ordering, not elapsed startup |
+| SLO-2 | Warm start → first usable UI | 600 ms | `startup-warm` | `ws-100` | Target retained; packaged baseline is P11-01 |
+| SLO-3 | Workspace snapshot render, 100 repositories, cached | 120 ms | `workspace-render` | `ws-100` | Backend P50/P95/max **0.467/1.351/1.471 ms**; WebView render remains P11-01 |
+| SLO-4 | Repository switch with a valid snapshot → primary view painted | 150 ms | `repo-switch-warm` | `ws-100` | Snapshot load P95 **0.510 ms**; action-to-paint remains P11-01 |
+| SLO-5 | Repository switch without a snapshot → primary view painted | 800 ms | `repo-switch-cold` | `ws-100` | Target retained; no scripted WebView interaction driver yet (P11-01) |
 | SLO-6 | `status`, 300k-file working tree, warm runtime | 800 ms | `status-huge-tree` | `wt-huge` | **P50/P95/max 291.109/300.701/305.045 ms at 150k tracked files** after 3 warmups + 20 repetitions. Stable, but unconfirmed at 300k; see [`../benchmarks/p6-22-distributions.md`](../benchmarks/p6-22-distributions.md) |
-| SLO-7 | `status`, ≤5k files, warm runtime | 40 ms | `status-small-tree` | `wt-noisy` | measured: 3.5 ms at 200 files ([`p4-18-release.md`](../benchmarks/p4-18-release.md)) |
+| SLO-7 | `status`, 50k tracked + 200k ignored + 20k untracked, warm runtime | 1600 ms | `status-noisy-tree` | `wt-noisy` | Corrected by P6-18: same-hash P95 spans **856.065–1443.908 ms**; report-only until stable |
 | SLO-8 | First commit page (30 commits) on a 1M-commit repository | 200 ms | `log-first-page` | `hist-deep` | **measured 7.111 ms at 1M commits** after `P6-21` (packed, with a commit-graph); page 10 measured 3.592 ms. The pre-fix 500k result was 3639 ms. See [`../benchmarks/p6-21-history.md`](../benchmarks/p6-21-history.md) |
-| SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | `diff-first-viewport` | `diff-giant` | provisional |
-| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | `diff-first-viewport-giant` | `diff-giant` | **unreachable today**: the backend `file_diff` alone measures 601 ms, before IPC serialization of 2 694 458 lines and before any rendering. The windowed transport in §9 is a prerequisite, not an optimization |
-| SLO-11 | Watcher event → visible UI update, single repository | 500 ms | `watcher-to-paint` | `wt-noisy` | provisional; the 5 s max-delay debounce path is deliberately outside this budget and is reported separately |
-| SLO-12 | UI input latency (keystroke → frame) during background work | 50 ms | `input-under-load` | `ws-100` | provisional |
-| SLO-13 | Idle CPU, 100 tracked repositories, no input, 60 s window | < 1% of one core, mean | `idle-cost` | `ws-100` | provisional |
-| SLO-14 | Resident memory, 100 tracked repositories, 5 hot | 600 MB | `idle-cost` | `ws-100` | provisional |
-| SLO-15 | Bulk fetch, 24 repositories | wall clock ≤ 2× slowest single repository | `bulk-fetch` | `ws-100` | architectural invariant of the bounded pool; measured 62 ms for a 24-repo live refresh |
-| SLO-16 | Refs read (branches + tags), 5k branches / 5k tags | 300 ms | `refs-read` | `refs-many` | **measured 232 ms** (packed) — inside budget. An earlier 2005 ms reading was an unpacked-fixture artifact |
+| SLO-9 | Diff first viewport painted, file ≤2 MB | 250 ms | `diff-first-viewport` | `diff-giant` | Target retained; packaged WebView driver is P11-01 |
+| SLO-10 | Diff first viewport painted, giant file (≥50 MB or ≥500k lines) | 600 ms | `diff-first-viewport-giant` | `diff-giant` | Bounded backend P95 **34.592 ms**, 184 bytes; viewport portion remains P11-01 |
+| SLO-11 | Watcher event → visible UI update, single repository | 500 ms | `watcher-to-paint` | `wt-noisy` | Target retained; event-to-paint driver absent, and 5 s max-delay remains separately reported |
+| SLO-12 | UI input latency (keystroke → frame) during background work | 50 ms | `input-under-load` | `ws-100` | Target retained; scheduler and driver are P11-04 |
+| SLO-13 | Idle CPU, 100 tracked repositories, no input, 60 s window | < 1% of one core, mean | `idle-cost` | `ws-100` | Tiered backend model **0.389%**; full Tauri/WebView process remains P11-02 |
+| SLO-14 | Resident memory, 100 tracked repositories, 3 Hot + 32 Warm | 600 MB | `idle-cost` | `ws-100` | Tiered backend maximum **24.000 MiB** over 52 OS samples; full-process RSS remains P11-02 |
+| SLO-15 | Bulk fetch, 24 repositories | wall clock ≤ 2× slowest single repository | `bulk-fetch` | `ws-100` | Target retained; prior 62 ms status refresh and 5132 ms sequential total do not measure fetch |
+| SLO-16 | Refs read (10k local branches + 5k remote branches + 5k tags) | 550 ms | `refs-read` | `refs-many` | Corrected by four 20-sample P95 runs: **481.353–512.271 ms**; report-only pending CI stability |
 
 Existing SDD §11 budgets are absorbed here: cached dashboard read (24 repos)
 < 5 ms and uncached parallel refresh < 1 s remain as measured floors and become
 the smaller-scale anchors of SLO-3 and SLO-15. The `log` page budget of < 150 ms
 becomes SLO-8 at a twenty-fold larger history.
 
-Eleven of the seventeen rows are provisional, which is the honest state: the
-existing benchmarks measure two scenarios on fixtures an order of magnitude
-smaller than the ones Fjord claims to handle. `P6-18` converts them or revises
-them with a recorded rationale; until then, no provisional number is quoted as a
-property of the product.
+P6-18 audited all sixteen rows. Backend baselines and corrected report budgets
+are linked from [`../benchmarks/p6-18-slo-audit.md`](../benchmarks/p6-18-slo-audit.md);
+targets that require a packaged WebView or full-process resource driver name the
+Phase 11 owner explicitly and are not quoted as measured product properties.
 
 **Measurement methodology.**
 
@@ -543,8 +543,8 @@ Every mechanism here is itself on a hot path and is budgeted:
 ## Acceptance criteria
 
 1. `docs/specs/performance.md` SLO table has, for every row, a named scenario, a
-   measurement method, and either a measured baseline or an explicit *provisional*
-   marker; no roadmap task references an SLO that lacks a scenario.
+   measurement method, and either a measured baseline or an explicit driver owner
+   and rationale; no roadmap task references an SLO that lacks a scenario.
 2. `fjord-bench` can generate every fixture in §2 from parameters, skips
    regeneration when the manifest matches, and refuses to overwrite an unmarked
    directory.

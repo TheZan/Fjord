@@ -200,6 +200,18 @@ impl Report {
         self
     }
 
+    /// A scalar reported in an explicit non-duration unit, used by resource
+    /// scenarios such as idle CPU and resident memory.
+    pub fn metric(&mut self, name: &str, value: f64, unit: &'static str) -> &mut Self {
+        self.metrics.push(Metric {
+            name: name.to_string(),
+            value,
+            unit,
+            distribution: None,
+        });
+        self
+    }
+
     pub fn budget(&mut self, result: BudgetResult) -> &mut Self {
         self.budgets.push(result);
         self
@@ -287,7 +299,7 @@ impl Report {
             .require_comparable(&baseline.comparability)?;
 
         println!("--- compared with the recorded baseline ---");
-        for metric in self.metrics.iter().filter(|metric| metric.unit == "ms") {
+        for metric in self.metrics.iter().filter(|metric| metric.unit != "count") {
             let Some(previous) = baseline
                 .metrics
                 .iter()
@@ -296,6 +308,13 @@ impl Report {
                 println!("{}: no baseline", metric.name);
                 continue;
             };
+            if previous.unit != metric.unit {
+                println!(
+                    "{}: unit changed from {} to {}; no delta",
+                    metric.name, previous.unit, metric.unit
+                );
+                continue;
+            }
             let delta = metric.value - previous.value;
             let percent = if previous.value > 0.0 {
                 delta / previous.value * 100.0
@@ -303,8 +322,8 @@ impl Report {
                 0.0
             };
             println!(
-                "{}: {:.3} ms vs {:.3} ms ({:+.1}%)",
-                metric.name, metric.value, previous.value, percent
+                "{}: {:.3} {} vs {:.3} {} ({:+.1}%)",
+                metric.name, metric.value, metric.unit, previous.value, previous.unit, percent
             );
         }
         Ok(())
@@ -410,10 +429,12 @@ pub fn read_recorded(path: &Path) -> Result<Recorded, String> {
                 .map(|(name, metric)| Metric {
                     name: name.clone(),
                     value: metric["value"].as_f64().unwrap_or(f64::NAN),
-                    unit: if metric["unit"].as_str() == Some("count") {
-                        "count"
-                    } else {
-                        "ms"
+                    unit: match metric["unit"].as_str() {
+                        Some("count") => "count",
+                        Some("s") => "s",
+                        Some("%core") => "%core",
+                        Some("MiB") => "MiB",
+                        _ => "ms",
                     },
                     distribution: None,
                 })
@@ -601,6 +622,7 @@ mod tests {
             .ms("status", 3.535)
             .ms("log", 9.746)
             .count("log_commits", 200)
+            .metric("resident_memory", 24.0, "MiB")
             .budget(BudgetResult {
                 name: "log".into(),
                 budget_ms: 150.0,
@@ -637,6 +659,7 @@ mod tests {
 
         assert!(json.contains("\"log\":{\"value\":9.746,\"unit\":\"ms\"}"));
         assert!(json.contains("\"log_commits\":{\"value\":200.000,\"unit\":\"count\"}"));
+        assert!(json.contains("\"resident_memory\":{\"value\":24.000,\"unit\":\"MiB\"}"));
     }
 
     #[test]
