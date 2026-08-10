@@ -141,6 +141,11 @@
     "openMergeTool": "Open merge tool",
     "openingMergeTool": "Opening…"
   },
+  "snapshot": {
+    "loading": "Loading repository…",
+    "stale": "Showing saved data from {{time}} while live state is checked…",
+    "validationFailed": "Live repository state could not be verified. Mutating actions remain unavailable."
+  },
   "repositories": {
     "label": "Repositories",
     "openButton": "Open repository",

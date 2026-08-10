@@ -23,7 +23,7 @@ export interface UseCommitLogResult {
 }
 
 /** Paginated commit history for `repoId`, resetting whenever it changes. */
-export function useCommitLog(repoId: string | null): UseCommitLogResult {
+export function useCommitLog(repoId: string | null, ready = true): UseCommitLogResult {
   const queryClient = useQueryClient();
   const activeSeekPromisesRef = useRef(new Map<string, Promise<boolean>>());
   const seekGenerationRef = useRef(0);
@@ -35,7 +35,7 @@ export function useCommitLog(repoId: string | null): UseCommitLogResult {
       getCommitLog(repoId!, pageParam, REPOSITORY_LOG_PAGE_SIZE, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
-    enabled: repoId !== null,
+    enabled: repoId !== null && ready,
     staleTime: REPOSITORY_QUERY_STALE_TIME,
     gcTime: REPOSITORY_QUERY_GC_TIME,
   });

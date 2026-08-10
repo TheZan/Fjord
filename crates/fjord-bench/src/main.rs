@@ -650,10 +650,11 @@ async fn measure_workspace_dashboard(
         return Err("the workspace scenario needs a workspace fixture".to_string());
     };
 
-    let backend = LocalGitBackend::new();
+    let backend = Arc::new(LocalGitBackend::new());
     let pool = fjord_db::connect(Path::new(":memory:"))
         .await
         .map_err(|e| e.to_string())?;
+    let settings = Arc::new(SqliteSettingsStore::new(pool.clone()));
     let store = Arc::new(SqliteWorkspaceStore::new(pool));
     let workspace = store
         .create_workspace("Synthetic workspace")
@@ -670,8 +671,22 @@ async fn measure_workspace_dashboard(
         registered.push(entry);
     }
 
+    let repo_service = RepoService::new(
+        store.clone(),
+        settings,
+        backend.clone(),
+        Arc::new(SystemGitRemoteBackend::new()),
+        Arc::new(SystemGitEnvironmentProvider::new()),
+        Arc::new(NoopIdeLauncher),
+    );
+    repo_service
+        .capture_repository_snapshot(registered[0].id)
+        .await
+        .map_err(|error| error.to_string())?;
+
     let mut live_samples = Vec::with_capacity(args.repetitions);
     let mut cached_samples = Vec::with_capacity(args.repetitions);
+    let mut snapshot_samples = Vec::with_capacity(args.repetitions);
     let mut dashboard = Vec::new();
     for iteration in sample_iterations(args) {
         let start = Instant::now();
@@ -693,9 +708,22 @@ async fn measure_workspace_dashboard(
             .await
             .map_err(|e| e.to_string())?;
         let cached_dashboard_ms = ms(start.elapsed());
+
+        // Backend contribution to SLO-4. The frontend hydrates this one row
+        // into its existing query cache before mounting the repository view.
+        let start = Instant::now();
+        let snapshot = repo_service
+            .load_repository_snapshot(registered[0].id)
+            .await
+            .map_err(|error| error.to_string())?;
+        let repo_snapshot_load_ms = ms(start.elapsed());
+        if snapshot.is_none() {
+            return Err("the representative repository snapshot disappeared".to_string());
+        }
         if is_measured_iteration(args, iteration) {
             live_samples.push(live_refresh_ms);
             cached_samples.push(cached_dashboard_ms);
+            snapshot_samples.push(repo_snapshot_load_ms);
         }
     }
 
@@ -707,6 +735,7 @@ async fn measure_workspace_dashboard(
         .count("dashboard_rows", dashboard.len() as u64);
     let live_distribution = report_distribution(record, "live_refresh", &live_samples);
     let cached_distribution = report_distribution(record, "cached_dashboard", &cached_samples);
+    report_distribution(record, "repo_snapshot_load", &snapshot_samples);
     for budget in [
         check_distribution_budget(
             "live_refresh",

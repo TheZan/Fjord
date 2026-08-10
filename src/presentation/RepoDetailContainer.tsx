@@ -7,12 +7,12 @@ import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
+import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { CommitSummary } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
-  captureRepositorySnapshot,
   checkoutBranch,
   cherryPick,
   commitRepo,
@@ -31,7 +31,6 @@ import {
   runPublishBranch,
   runPushRepo,
   renameBranch,
-  revalidateRepositorySnapshot,
   resetToCommit,
   revertCommit,
   stageFiles,
@@ -70,13 +69,14 @@ export function RepoDetailContainer({
   const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
   const operations = useOperationProgress();
-  const { status, error: statusError } = useRepoStatus(repo.id);
-  const { commits, loading: commitsLoading } = useCommitLog(repo.id);
+  const snapshot = useRepositorySnapshot(repo.id);
+  const { status, error: statusError } = useRepoStatus(repo.id, snapshot.ready);
+  const { commits, loading: commitsLoading } = useCommitLog(repo.id, snapshot.ready);
   const {
     changes,
     loading: changesLoading,
     error: changesError,
-  } = useWorkingChanges(repo.id);
+  } = useWorkingChanges(repo.id, snapshot.ready);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
@@ -88,13 +88,6 @@ export function RepoDetailContainer({
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
-  useEffect(() => {
-    void revalidateRepositorySnapshot(repo.id).catch(() => undefined);
-    return () => {
-      void captureRepositorySnapshot(repo.id).catch(() => undefined);
-    };
-  }, [repo.id]);
-
   async function runRepoAction(
     action: string,
     run: () => Promise<void>,
@@ -104,6 +97,15 @@ export function RepoDetailContainer({
     setActionError(null);
     setActionPending(action);
     try {
+      if (
+        action !== "terminal" &&
+        action !== "open-ide" &&
+        !snapshot.validated &&
+        !(await snapshot.ensureValidated())
+      ) {
+        setActionError(t("snapshot.validationFailed"));
+        return false;
+      }
       await run();
       if (scopes.length > 0) {
         if (scopes.includes("history")) setSelectedCommit(null);
@@ -331,8 +333,10 @@ export function RepoDetailContainer({
   }
 
   return (
-    <RepoDetailView
+    snapshot.ready ? <RepoDetailView
       repo={repo}
+      snapshotValidated={snapshot.validated}
+      snapshotCapturedAt={snapshot.capturedAt}
       status={status}
       statusError={statusError}
       actionPending={actionPending}
@@ -384,7 +388,13 @@ export function RepoDetailContainer({
       onStage={onStage}
       onUnstage={onUnstage}
       onCommit={onCommit}
-    />
+    /> : (
+      <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
+        <span className="text-[13px]" style={{ color: "var(--mist)" }}>
+          {t("snapshot.loading")}
+        </span>
+      </div>
+    )
   );
 }
 

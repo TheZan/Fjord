@@ -30,6 +30,8 @@ type ActionConfirmation =
  */
 export function RepoDetailView({
   repo,
+  snapshotValidated,
+  snapshotCapturedAt,
   status,
   statusError,
   actionPending,
@@ -68,6 +70,8 @@ export function RepoDetailView({
   onCommit,
 }: {
   repo: RepositoryEntry;
+  snapshotValidated: boolean;
+  snapshotCapturedAt: string | null;
   status: RepoStatus | null;
   statusError: string | null;
   actionPending: string | null;
@@ -168,6 +172,7 @@ export function RepoDetailView({
       loading={changesLoading}
       error={changesError}
       busy={actionPending !== null}
+      validated={snapshotValidated}
       selectedFile={selectedWorkingFile}
       onSelectFile={setSelectedWorkingFile}
       onStage={onStage}
@@ -190,6 +195,7 @@ export function RepoDetailView({
       <RepoToolbar
         repo={repo}
         status={status}
+        dataValidated={snapshotValidated}
         actionPending={actionPending}
         operationProgress={operationProgress}
         onBack={onBack}
@@ -204,6 +210,11 @@ export function RepoDetailView({
         }
       />
 
+      <RepositorySnapshotMarker
+        validated={snapshotValidated}
+        capturedAt={snapshotCapturedAt}
+      />
+
       {statusError && (
         <p className="text-[13px]" style={{ color: "var(--rust-ink)" }}>
           {statusError}
@@ -216,7 +227,11 @@ export function RepoDetailView({
           style={{ background: "var(--rust-tint)", color: "var(--rust-ink)" }}
         >
           <span>{t("repoStatus.conflict")}</span>
-          <Button size="sm" disabled={actionPending !== null} onClick={() => onAction("merge-tool")}>
+          <Button
+            size="sm"
+            disabled={actionPending !== null || !snapshotValidated}
+            onClick={() => onAction("merge-tool")}
+          >
             {actionPending === "merge-tool"
               ? t("repoStatus.openingMergeTool")
               : t("repoStatus.openMergeTool")}
@@ -401,6 +416,34 @@ export function RepoDetailView({
     onSelectWorking();
     if (compactLayout) setInspectorDrawerOpen(true);
   }
+}
+
+export function RepositorySnapshotMarker({
+  validated,
+  capturedAt,
+}: {
+  validated: boolean;
+  capturedAt: string | null;
+}) {
+  const { t, i18n } = useTranslation("workspace");
+  if (validated || !capturedAt) return null;
+  const captured = new Date(capturedAt);
+  const time = Number.isNaN(captured.getTime())
+    ? capturedAt
+    : new Intl.DateTimeFormat(i18n.language, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(captured);
+
+  return (
+    <p
+      role="status"
+      className="-mt-2 rounded-md px-3 py-1.5 text-[12px]"
+      style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}
+    >
+      {t("snapshot.stale", { time })}
+    </p>
+  );
 }
 
 type ContextDialog =

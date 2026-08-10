@@ -29,6 +29,7 @@ export function WorkingChangesPanel({
   loading,
   error,
   busy,
+  validated,
   selectedFile,
   onSelectFile,
   onStage,
@@ -39,6 +40,7 @@ export function WorkingChangesPanel({
   loading: boolean;
   error: string | null;
   busy: boolean;
+  validated: boolean;
   selectedFile: SelectedWorkingFile | null;
   onSelectFile: (file: SelectedWorkingFile) => void;
   onStage: (paths: string[]) => void;
@@ -58,7 +60,7 @@ export function WorkingChangesPanel({
   const collapse = useFileTreeCollapse(directoryPaths);
 
   const total = changes.staged.length + changes.unstaged.length;
-  const canCommit = changes.staged.length > 0 && summary.trim().length > 0 && !busy;
+  const canCommit = validated && changes.staged.length > 0 && summary.trim().length > 0 && !busy;
 
   async function commit() {
     if (!canCommit) return;
@@ -115,7 +117,7 @@ export function WorkingChangesPanel({
           collapse={collapse}
           actionLabel={t("working.stage")}
           bulkLabel={t("working.stageAll")}
-          busy={busy}
+          busy={busy || !validated}
           selectedFile={selectedFile}
           onSelectFile={onSelectFile}
           onAct={onStage}
@@ -128,7 +130,7 @@ export function WorkingChangesPanel({
           collapse={collapse}
           actionLabel={t("working.unstage")}
           bulkLabel={t("working.unstageAll")}
-          busy={busy}
+          busy={busy || !validated}
           selectedFile={selectedFile}
           onSelectFile={onSelectFile}
           onAct={onUnstage}

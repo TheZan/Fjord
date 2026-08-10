@@ -17,11 +17,11 @@ export interface UseWorkingChangesResult {
 const EMPTY: WorkingChanges = { staged: [], unstaged: [] };
 
 /** Uncommitted work for `repoId`, refreshed only after working-tree mutations. */
-export function useWorkingChanges(repoId: string | null): UseWorkingChangesResult {
+export function useWorkingChanges(repoId: string | null, ready = true): UseWorkingChangesResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.workingChanges(repoId) : queryKeys.repos.all,
     queryFn: ({ signal }) => getWorkingChanges(repoId!, signal),
-    enabled: repoId !== null,
+    enabled: repoId !== null && ready,
     staleTime: REPOSITORY_QUERY_STALE_TIME,
     gcTime: REPOSITORY_QUERY_GC_TIME,
   });

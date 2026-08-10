@@ -139,6 +139,11 @@
     "openMergeTool": "Abrir herramienta de merge",
     "openingMergeTool": "Abriendo…"
   },
+  "snapshot": {
+    "loading": "Cargando repositorio…",
+    "stale": "Se muestran datos guardados de {{time}} mientras se comprueba el estado actual…",
+    "validationFailed": "No se pudo verificar el estado actual del repositorio. Las acciones de modificación siguen deshabilitadas."
+  },
   "repositories": {
     "label": "Repositorios",
     "openButton": "Abrir repositorio",

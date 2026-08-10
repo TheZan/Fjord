@@ -14,11 +14,11 @@ export interface UseRepoStatusResult {
   error: string | null;
 }
 
-export function useRepoStatus(repoId: string | null): UseRepoStatusResult {
+export function useRepoStatus(repoId: string | null, ready = true): UseRepoStatusResult {
   const query = useQuery({
     queryKey: repoId ? queryKeys.repos.status(repoId) : queryKeys.repos.all,
     queryFn: ({ signal }) => getRepoStatus(repoId!, signal),
-    enabled: repoId !== null,
+    enabled: repoId !== null && ready,
     staleTime: REPOSITORY_QUERY_STALE_TIME,
     gcTime: REPOSITORY_QUERY_GC_TIME,
   });

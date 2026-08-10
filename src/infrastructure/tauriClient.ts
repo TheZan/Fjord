@@ -239,6 +239,13 @@ export function captureRepositorySnapshot(repoId: string): Promise<StoredReposit
   return invoke("capture_repository_snapshot", { repoId });
 }
 
+/** Snapshot persistence is explicitly outside the interaction latency path. */
+export function captureRepositorySnapshotInBackground(
+  repoId: string,
+): Promise<StoredRepositorySnapshot> {
+  return tauriInvoke("capture_repository_snapshot", { repoId });
+}
+
 export function revalidateRepositorySnapshot(repoId: string): Promise<SnapshotRevalidation> {
   return invoke("revalidate_repository_snapshot", { repoId });
 }

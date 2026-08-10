@@ -36,6 +36,7 @@ export interface RepoOperationProgress {
 export function RepoToolbar({
   repo,
   status,
+  dataValidated,
   actionPending,
   operationProgress,
   onBack,
@@ -47,6 +48,7 @@ export function RepoToolbar({
 }: {
   repo: RepositoryEntry;
   status: RepoStatus | null;
+  dataValidated: boolean;
   actionPending: string | null;
   operationProgress: RepoOperationProgress | null;
   onBack: () => void;
@@ -63,6 +65,7 @@ export function RepoToolbar({
   const branchRef = useRef<HTMLDivElement>(null);
 
   const busy = actionPending !== null;
+  const mutationBlocked = busy || !dataValidated;
 
   useEffect(() => {
     if (!branchOpen) return;
@@ -116,7 +119,7 @@ export function RepoToolbar({
             label={t("repoActions.fetch")}
             icon={<IconFetch />}
             pending={actionPending === "fetch"}
-            disabled={busy}
+            disabled={mutationBlocked}
             onClick={() => onAction("fetch")}
           />
           <ToolButton
@@ -124,7 +127,7 @@ export function RepoToolbar({
             icon={<IconPull />}
             badge={status && status.behind > 0 ? status.behind : undefined}
             pending={actionPending === "pull"}
-            disabled={busy}
+            disabled={mutationBlocked}
             onClick={() => onAction("pull")}
           />
           <ToolButton
@@ -132,7 +135,7 @@ export function RepoToolbar({
             icon={<IconPush />}
             badge={status && status.ahead > 0 ? status.ahead : undefined}
             pending={actionPending === "push"}
-            disabled={busy}
+            disabled={mutationBlocked}
             onClick={() => onAction("push")}
           />
         </ToolGroup>
@@ -142,7 +145,7 @@ export function RepoToolbar({
             <ToolButton
               label={t("toolbar.branch")}
               icon={<IconBranch />}
-              disabled={busy}
+              disabled={mutationBlocked}
               active={branchOpen}
               onClick={() => setBranchOpen((open) => !open)}
             />
@@ -178,7 +181,7 @@ export function RepoToolbar({
             label={t("toolbar.stash")}
             icon={<IconStash />}
             pending={actionPending === "stash"}
-            disabled={busy || (status !== null && status.dirtyCount === 0)}
+            disabled={mutationBlocked || (status !== null && status.dirtyCount === 0)}
             onClick={() => onAction("stash")}
           />
           <ToolButton
@@ -186,7 +189,7 @@ export function RepoToolbar({
             icon={<IconPop />}
             badge={stashes.length > 0 ? stashes.length : undefined}
             pending={actionPending === "stash-pop"}
-            disabled={busy || stashes.length === 0}
+            disabled={mutationBlocked || stashes.length === 0}
             onClick={() => onAction("stash-pop")}
           />
         </ToolGroup>

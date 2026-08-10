@@ -139,6 +139,11 @@
     "openMergeTool": "Ouvrir l'outil de merge",
     "openingMergeTool": "Ouverture…"
   },
+  "snapshot": {
+    "loading": "Chargement du dépôt…",
+    "stale": "Affichage des données enregistrées à {{time}} pendant la vérification de l’état actuel…",
+    "validationFailed": "L’état actuel du dépôt n’a pas pu être vérifié. Les actions de modification restent indisponibles."
+  },
   "repositories": {
     "label": "Dépôts",
     "openButton": "Ouvrir un dépôt",

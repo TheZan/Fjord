@@ -139,6 +139,11 @@
     "openMergeTool": "Merge-Tool öffnen",
     "openingMergeTool": "Wird geöffnet…"
   },
+  "snapshot": {
+    "loading": "Repository wird geladen…",
+    "stale": "Gespeicherte Daten vom {{time}} werden angezeigt, während der Live-Stand geprüft wird…",
+    "validationFailed": "Der Live-Stand des Repositorys konnte nicht geprüft werden. Ändernde Aktionen bleiben gesperrt."
+  },
   "repositories": {
     "label": "Repositorys",
     "openButton": "Repository öffnen",
