@@ -6,12 +6,13 @@ type ShortcutKeyboardEvent = Pick<
 /** Matches a physical letter key, independent of the active keyboard layout. */
 export function isPrimaryShortcut(
   event: ShortcutKeyboardEvent,
-  code: `Key${Uppercase<string>}`,
+  code: string,
+  modifiers: { alt?: boolean; shift?: boolean } = {},
 ) {
   return (
     (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    !event.shiftKey &&
+    event.altKey === Boolean(modifiers.alt) &&
+    event.shiftKey === Boolean(modifiers.shift) &&
     event.code === code
   );
 }

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isPrimaryShortcut } from "@/application/keyboardShortcut";
 import type { GlobalSearchResult } from "@/domain/git";
 import { globalSearch } from "@/infrastructure/tauriClient";
 import type { PaletteItem } from "@/presentation/CommandPalette";
@@ -23,18 +22,6 @@ export function useCommandPaletteState({
   function closePalette() {
     setOpen(false);
   }
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (isPrimaryShortcut(event, "KeyK")) {
-        event.preventDefault();
-        openPalette();
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   useEffect(() => {
     const trimmed = query.trim();

@@ -40,17 +40,10 @@ describe("useCommandPaletteState", () => {
     vi.useRealTimers();
   });
 
-  it("opens from the physical primary shortcut and clears the previous query", () => {
+  it("opens explicitly and clears the previous query", () => {
     const { result } = renderHook(() => useCommandPaletteState({ onSearchResult: vi.fn() }));
     act(() => result.current.setQuery("old query"));
-
-    act(() => window.dispatchEvent(new KeyboardEvent("keydown", {
-      key: "л",
-      code: "KeyK",
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    })));
+    act(() => result.current.openPalette());
 
     expect(result.current.open).toBe(true);
     expect(result.current.query).toBe("");

@@ -10,6 +10,7 @@ import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEven
 import { queryKeys } from "@/application/queryKeys";
 import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
+import { useShortcutRegistry } from "@/application/useShortcutRegistry";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
@@ -111,6 +112,18 @@ export function App() {
   );
   useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
+  useShortcutRegistry(
+    [
+      {
+        id: "palette.open",
+        code: "KeyK",
+        modifiers: { primary: true },
+        scope: "global",
+        handler: openPalette,
+      },
+    ],
+    paletteOpen || settingsOpen ? ["dialog"] : selectedRepo ? ["repository"] : [],
+  );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
   const activeBulkOperation = bulkOperationId ? (operations[bulkOperationId] ?? null) : null;
