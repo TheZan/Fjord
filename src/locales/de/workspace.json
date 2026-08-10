@@ -172,7 +172,10 @@
     "pop": "Pop",
     "terminal": "Terminal",
     "search": "Suchen",
-    "moreActions": "Weitere Aktionen"
+    "moreActions": "Weitere Aktionen",
+    "nothingToStash": "Es gibt keine lokalen Änderungen für den Stash.",
+    "noStashes": "Es gibt keine gespeicherten Stashes zum Anwenden.",
+    "noConflicts": "Es gibt keine Merge-Konflikte zu lösen."
   },
   "tree": {
     "local": "Lokal",

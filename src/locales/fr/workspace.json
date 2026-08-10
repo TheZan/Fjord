@@ -172,7 +172,10 @@
     "pop": "Pop",
     "terminal": "Terminal",
     "search": "Rechercher",
-    "moreActions": "Plus d’actions"
+    "moreActions": "Plus d’actions",
+    "nothingToStash": "Aucune modification locale à placer dans le stash.",
+    "noStashes": "Aucun stash enregistré à appliquer.",
+    "noConflicts": "Aucun conflit de fusion à résoudre."
   },
   "tree": {
     "local": "Locale",

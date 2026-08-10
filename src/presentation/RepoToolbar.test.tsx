@@ -68,8 +68,13 @@ describe("RepoToolbar", () => {
   it("enforces stash availability and dispatches enabled actions", () => {
     const toolbarProps = props({ status: { ...status, dirtyCount: 0 } });
     const view = render(<RepoToolbar {...toolbarProps} />);
-    expect(screen.getByRole("button", { name: "toolbar.stash" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "toolbar.pop" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: "toolbar.stash" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "toolbar.stash" })).toHaveAttribute(
+      "title",
+      "toolbar.nothingToStash",
+    );
+    expect(screen.getByRole("menuitem", { name: "toolbar.pop" })).toBeDisabled();
 
     vi.mocked(useStashes).mockReturnValue({
       stashes: [{ index: 0, message: "WIP" }],
@@ -77,10 +82,31 @@ describe("RepoToolbar", () => {
       error: null,
     });
     view.rerender(<RepoToolbar {...toolbarProps} status={status} />);
-    fireEvent.click(screen.getByRole("button", { name: "toolbar.stash" }));
-    fireEvent.click(screen.getByRole("button", { name: /toolbar.pop/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "toolbar.stash" }));
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /toolbar.pop/ }));
     expect(toolbarProps.onAction).toHaveBeenCalledWith("stash");
     expect(toolbarProps.onAction).toHaveBeenCalledWith("stash-pop");
+  });
+
+  it("keeps primary and utility actions visible while rare actions live in overflow", () => {
+    render(<RepoToolbar {...props()} />);
+
+    for (const name of ["repoActions.fetch", "repoActions.pull", "repoActions.push", "toolbar.branch"]) {
+      expect(screen.getByRole("button", { name })).toBeVisible();
+    }
+    expect(screen.getByRole("button", { name: "toolbar.search" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "repoActions.openIde" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "toolbar.stash" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: "toolbar.stash" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "toolbar.terminal" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "repoStatus.openMergeTool" })).toHaveAttribute(
+      "title",
+      "toolbar.noConflicts",
+    );
+    expect(screen.getByRole("menuitem", { name: "inspector.open" })).toBeInTheDocument();
   });
 
   it("trims a new branch name and closes the branch popover", () => {

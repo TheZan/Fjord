@@ -174,7 +174,10 @@
     "pop": "Pop",
     "terminal": "Terminal",
     "search": "Search",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "nothingToStash": "There are no local changes to stash.",
+    "noStashes": "There are no saved stashes to apply.",
+    "noConflicts": "There are no merge conflicts to resolve."
   },
   "tree": {
     "local": "Local",

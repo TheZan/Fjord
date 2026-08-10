@@ -6,6 +6,7 @@ export interface OverflowMenuItem {
   label: string;
   onSelect: () => void;
   disabled?: boolean;
+  disabledReason?: string;
   danger?: boolean;
 }
 
@@ -115,6 +116,7 @@ export function OverflowMenu({
               type="button"
               role="menuitem"
               disabled={item.disabled}
+              title={item.disabled ? item.disabledReason : undefined}
               onClick={() => {
                 item.onSelect();
                 setOpen(false);

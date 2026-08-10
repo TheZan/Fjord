@@ -116,37 +116,34 @@ export function RepoToolbar({
         </div>
 
         <ToolGroup>
-          <ToolButton
+          <PrimaryToolButton
             label={t("repoActions.fetch")}
-            icon={<IconFetch />}
             pending={actionPending === "fetch"}
             disabled={mutationBlocked}
+            disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
             onClick={() => onAction("fetch")}
           />
-          <ToolButton
+          <PrimaryToolButton
             label={t("repoActions.pull")}
-            icon={<IconPull />}
             badge={status && status.behind > 0 ? status.behind : undefined}
             pending={actionPending === "pull"}
             disabled={mutationBlocked}
+            disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
             onClick={() => onAction("pull")}
           />
-          <ToolButton
+          <PrimaryToolButton
             label={t("repoActions.push")}
-            icon={<IconPush />}
             badge={status && status.ahead > 0 ? status.ahead : undefined}
             pending={actionPending === "push"}
             disabled={mutationBlocked}
+            disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
             onClick={() => onAction("push")}
           />
-        </ToolGroup>
-
-        <ToolGroup>
           <div className="relative" ref={branchRef}>
-            <ToolButton
+            <PrimaryToolButton
               label={t("toolbar.branch")}
-              icon={<IconBranch />}
               disabled={mutationBlocked}
+              disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
               active={branchOpen}
               onClick={() => setBranchOpen((open) => !open)}
             />
@@ -178,48 +175,64 @@ export function RepoToolbar({
               </div>
             )}
           </div>
-          <ToolButton
-            label={t("toolbar.stash")}
-            icon={<IconStash />}
-            pending={actionPending === "stash"}
-            disabled={mutationBlocked || (status !== null && status.dirtyCount === 0)}
-            onClick={() => onAction("stash")}
-          />
-          <ToolButton
-            label={t("toolbar.pop")}
-            icon={<IconPop />}
-            badge={stashes.length > 0 ? stashes.length : undefined}
-            pending={actionPending === "stash-pop"}
-            disabled={mutationBlocked || stashes.length === 0}
-            onClick={() => onAction("stash-pop")}
-          />
         </ToolGroup>
 
         <ToolGroup last>
-          <ToolButton
+          <IconToolButton label={t("toolbar.search")} icon={<IconSearch />} onClick={onOpenSearch} />
+          <IconToolButton
             label={t("repoActions.openIde")}
             icon={<IconIde />}
             pending={actionPending === "open-ide"}
             disabled={busy}
+            disabledReason={t("operations.running")}
             onClick={() => onAction("open-ide")}
           />
-          <ToolButton label={t("toolbar.search")} icon={<IconSearch />} onClick={onOpenSearch} />
-          {onOpenInspector ? (
-            <ToolButton
-              label={t("inspector.open")}
-              icon={<IconInspector />}
-              onClick={onOpenInspector}
-            />
-          ) : null}
           <OverflowMenu
             label={t("toolbar.moreActions")}
             items={[
               {
+                id: "stash",
+                label: t("toolbar.stash"),
+                disabled: mutationBlocked || (status !== null && status.dirtyCount === 0),
+                disabledReason: !dataValidated
+                  ? t("snapshot.validationFailed")
+                  : busy
+                    ? t("operations.running")
+                    : t("toolbar.nothingToStash"),
+                onSelect: () => onAction("stash"),
+              },
+              {
+                id: "stash-pop",
+                label: `${t("toolbar.pop")}${stashes.length > 0 ? ` (${stashes.length})` : ""}`,
+                disabled: mutationBlocked || stashes.length === 0,
+                disabledReason: !dataValidated
+                  ? t("snapshot.validationFailed")
+                  : busy
+                    ? t("operations.running")
+                    : t("toolbar.noStashes"),
+                onSelect: () => onAction("stash-pop"),
+              },
+              {
                 id: "terminal",
                 label: t("toolbar.terminal"),
                 disabled: busy,
+                disabledReason: t("operations.running"),
                 onSelect: () => onAction("terminal"),
               },
+              {
+                id: "merge-tool",
+                label: t("repoStatus.openMergeTool"),
+                disabled: mutationBlocked || !status?.hasConflict,
+                disabledReason: !dataValidated
+                  ? t("snapshot.validationFailed")
+                  : busy
+                    ? t("operations.running")
+                    : t("toolbar.noConflicts"),
+                onSelect: () => onAction("merge-tool"),
+              },
+              ...(onOpenInspector
+                ? [{ id: "inspector", label: t("inspector.open"), onSelect: onOpenInspector }]
+                : []),
             ]}
           />
         </ToolGroup>
@@ -293,19 +306,19 @@ function ToolGroup({ children, last = false }: { children: ReactNode; last?: boo
   );
 }
 
-function ToolButton({
+function PrimaryToolButton({
   label,
-  icon,
   onClick,
   disabled = false,
+  disabledReason,
   pending = false,
   active = false,
   badge,
 }: {
   label: string;
-  icon: ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  disabledReason?: string;
   pending?: boolean;
   active?: boolean;
   badge?: number;
@@ -315,27 +328,54 @@ function ToolButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={label}
+      aria-label={label}
+      title={disabled ? disabledReason : label}
       data-selected={active}
-      className="interactive-control relative flex w-[3.75rem] flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 transition-colors disabled:opacity-35"
+      className="interactive-control relative flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors disabled:opacity-35"
       style={{
         color: active ? "var(--fjord-ink)" : "var(--ink)",
+        opacity: pending ? 0.55 : undefined,
       }}
     >
-      <span className="relative flex h-4 items-center justify-center" style={{ opacity: pending ? 0.5 : 1 }}>
-        {icon}
-        {badge !== undefined && (
-          <span
-            className="absolute -right-2.5 -top-1 rounded-full px-1 text-[9px] font-medium leading-[13px] tabular-nums"
-            style={{ background: "var(--fjord)", color: "var(--paper)" }}
-          >
-            {badge}
-          </span>
-        )}
-      </span>
-      <span className="max-w-full truncate text-[10px] leading-none" style={{ color: "var(--slate)" }}>
-        {label}
-      </span>
+      <span>{label}</span>
+      {badge !== undefined ? (
+        <span
+          className="rounded-full px-1 text-[9px] font-medium leading-[13px] tabular-nums"
+          style={{ background: "var(--fjord)", color: "var(--paper)" }}
+        >
+          {badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function IconToolButton({
+  label,
+  icon,
+  onClick,
+  disabled = false,
+  disabledReason,
+  pending = false,
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
+  pending?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={disabled ? disabledReason : label}
+      className="interactive-control flex h-8 w-8 items-center justify-center rounded-md disabled:opacity-35"
+      style={{ color: "var(--slate)", opacity: pending ? 0.55 : undefined }}
+    >
+      {icon}
     </button>
   );
 }
@@ -381,55 +421,6 @@ function IconBranch({ size = 15 }: { size?: number }) {
   );
 }
 
-function IconFetch() {
-  return (
-    <Svg>
-      <path d="M21 12a9 9 0 1 1-3-6.7" />
-      <path d="M21 3v6h-6" />
-    </Svg>
-  );
-}
-
-function IconPull() {
-  return (
-    <Svg>
-      <path d="M12 3v12" />
-      <path d="m7 10 5 5 5-5" />
-      <path d="M5 21h14" />
-    </Svg>
-  );
-}
-
-function IconPush() {
-  return (
-    <Svg>
-      <path d="M12 21V9" />
-      <path d="m7 14 5-5 5 5" />
-      <path d="M5 3h14" />
-    </Svg>
-  );
-}
-
-function IconStash() {
-  return (
-    <Svg>
-      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
-      <rect x="2" y="3" width="20" height="5" rx="1" />
-      <path d="M10 12h4" />
-    </Svg>
-  );
-}
-
-function IconPop() {
-  return (
-    <Svg>
-      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7" />
-      <path d="M12 15V3" />
-      <path d="m8 7 4-4 4 4" />
-    </Svg>
-  );
-}
-
 function IconIde() {
   return (
     <Svg>
@@ -445,15 +436,6 @@ function IconSearch() {
     <Svg>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
-    </Svg>
-  );
-}
-
-function IconInspector() {
-  return (
-    <Svg>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="M15 4v16" />
     </Svg>
   );
 }
