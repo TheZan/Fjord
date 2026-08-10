@@ -205,6 +205,10 @@ export function activateAfterFirstPaint(): Promise<void> {
   return invoke("activate_after_first_paint");
 }
 
+export function revealLogFolder(): Promise<void> {
+  return invoke("reveal_log_folder");
+}
+
 export function getInteractionTraces(): Promise<InteractionTrace[]> {
   return invoke("get_interaction_traces");
 }

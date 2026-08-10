@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import packageInfo from "../../package.json";
+import logoUrl from "../../assets/logo/fjord-mark.svg";
 import { userErrorMessage } from "@/application/errorMessage";
 import { pickFile } from "@/infrastructure/dialog";
 import { setLocale } from "@/infrastructure/i18n";
@@ -8,6 +10,7 @@ import {
   getGitEnvironment,
   getSettings,
   resetGitExecutable,
+  revealLogFolder,
   selectGitExecutable,
   testGitConnection,
   updateSettings,
@@ -28,9 +31,9 @@ import type { RepositoryEntry } from "@/domain/workspace";
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 const CUSTOM_IDE_PREFIX = "custom:";
 
-type SettingsSection = "general" | "sync" | "git" | "appearance" | "tools";
+type SettingsSection = "general" | "sync" | "git" | "appearance" | "tools" | "about";
 
-const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "git", "appearance", "tools"];
+const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "git", "appearance", "tools", "about"];
 const DEFAULT_SETTINGS: Settings = {
   locale: "en",
   theme: "system",
@@ -84,6 +87,8 @@ export function SettingsDialog({
   const [gitDiagnostics, setGitDiagnostics] = useState<string | null>(null);
   const [connectionResult, setConnectionResult] = useState<GitConnectionTestResult | null>(null);
   const [connectionRepoId, setConnectionRepoId] = useState(repositories[0]?.id ?? "");
+  const [logFolderPending, setLogFolderPending] = useState(false);
+  const [logFolderError, setLogFolderError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialogFocusTrap(dialogRef, onClose);
 
@@ -221,6 +226,18 @@ export function SettingsDialog({
       setGitDiagnostics(readDiagnostics(reason));
     } finally {
       setGitPending(false);
+    }
+  }
+
+  async function revealLogs() {
+    setLogFolderPending(true);
+    setLogFolderError(null);
+    try {
+      await revealLogFolder();
+    } catch (reason) {
+      setLogFolderError(userErrorMessage(reason));
+    } finally {
+      setLogFolderPending(false);
     }
   }
 
@@ -607,6 +624,34 @@ export function SettingsDialog({
                     </Button>
                   </div>
                   <Muted className="text-[11px]">{t("settings.defaultIde.customValue")}</Muted>
+                </SettingsGroup>
+              </div>
+            )}
+
+            {activeSection === "about" && (
+              <div className="flex flex-col gap-5">
+                <div className="flex items-center gap-4">
+                  <img src={logoUrl} alt="" className="h-14 w-14 shrink-0" />
+                  <div>
+                    <div className="text-lg font-semibold">{t("app.title")}</div>
+                    <Muted className="mt-0.5 block text-[12px]">{t("app.tagline")}</Muted>
+                    <div className="mt-1 text-[11px]" style={{ color: "var(--mist)" }}>
+                      {t("settings.about.version", { version: packageInfo.version })}
+                    </div>
+                  </div>
+                </div>
+                <SettingsGroup title={t("settings.about.diagnostics") }>
+                  <Muted className="text-[11px] leading-4">
+                    {t("settings.about.logsDescription")}
+                  </Muted>
+                  <div>
+                    <Button size="sm" disabled={logFolderPending} onClick={() => void revealLogs()}>
+                      {logFolderPending
+                        ? t("settings.about.revealingLogs")
+                        : t("settings.about.revealLogs")}
+                    </Button>
+                  </div>
+                  {logFolderError && <p role="alert" className="text-[11px]" style={{ color: "var(--rust-ink)" }}>{logFolderError}</p>}
                 </SettingsGroup>
               </div>
             )}

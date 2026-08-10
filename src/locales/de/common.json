@@ -61,7 +61,8 @@
     "repository_not_found": "Das Repository wurde nicht gefunden. Es wurde möglicherweise verschoben oder entfernt.",
     "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
-    "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut."
+    "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut.",
+    "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell."
   },
   "settings": {
     "sections": {
@@ -69,7 +70,8 @@
       "sync": "Synchronisierung",
       "git": "Git",
       "appearance": "Darstellung",
-      "tools": "Werkzeuge"
+      "tools": "Werkzeuge",
+      "about": "Über"
     },
     "theme": {
       "label": "Design",
@@ -142,6 +144,13 @@
       "customPlaceholder": "editor-befehl",
       "customValue": "Wird als custom:<command> gespeichert.",
       "saveCustom": "Speichern"
+    },
+    "about": {
+      "version": "Version {{version}}",
+      "diagnostics": "Diagnose",
+      "logsDescription": "Protokolle enthalten Betriebsdiagnosen, Repository-Namen, Pfade und Zeitangaben, aber keine Datei- oder Diff-Inhalte.",
+      "revealLogs": "Protokollordner anzeigen",
+      "revealingLogs": "Wird geöffnet…"
     }
   }
 }

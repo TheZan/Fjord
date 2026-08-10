@@ -254,7 +254,7 @@ Implemented in `fjord-app/src/logging.rs` (`P4-14`):
 - ✅ A daily-rotating file appender (`tracing-appender`) writing to `<app data dir>/logs/fjord.*.log`; retention of the 5 most recent files. Initialized before state bootstrap so startup failures leave a trace on disk; a logging failure never blocks the app itself.
 - ✅ Log lines never include file *contents* or diff bodies — paths, repo names, and timings only (logs may be attached to public bug reports).
 - ✅ Opt-in interaction diagnostics keep the latest 512 traces in memory and expose a draining IPC command. Trace records are stricter than logs: ids, phase/operation names, durations, and counts only; disabling the setting clears the buffer (`P6-08`).
-- 🚧 A "reveal log folder" affordance in settings.
+- ✅ Settings exposes the application-owned rotating-log directory through the native OS folder viewer (`P7-15`).
 
 ## 11. Non-functional requirements and benchmarks
 

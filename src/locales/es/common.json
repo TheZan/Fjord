@@ -61,7 +61,8 @@
     "repository_not_found": "No se encontró el repositorio. Puede haberse movido o eliminado.",
     "stash_empty": "No hay stashes guardados para aplicar.",
     "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
-    "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo."
+    "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo.",
+    "log_folder_unavailable": "No se pudo abrir la carpeta de registros. Abre manualmente la carpeta de datos de la aplicación."
   },
   "settings": {
     "sections": {
@@ -69,7 +70,8 @@
       "sync": "Sincronización",
       "git": "Git",
       "appearance": "Apariencia",
-      "tools": "Herramientas"
+      "tools": "Herramientas",
+      "about": "Acerca de"
     },
     "theme": {
       "label": "Tema",
@@ -142,6 +144,13 @@
       "customPlaceholder": "comando-editor",
       "customValue": "Se guarda como custom:<command>.",
       "saveCustom": "Guardar"
+    },
+    "about": {
+      "version": "Versión {{version}}",
+      "diagnostics": "Diagnóstico",
+      "logsDescription": "Los registros contienen diagnósticos, nombres y rutas de repositorios y tiempos, pero nunca contenido de archivos o diffs.",
+      "revealLogs": "Mostrar carpeta de registros",
+      "revealingLogs": "Abriendo…"
     }
   }
 }

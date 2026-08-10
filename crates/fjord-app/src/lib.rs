@@ -75,6 +75,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_git_environment,
             commands::select_git_executable,
             commands::reset_git_executable,
+            commands::reveal_log_folder,
             commands::list_workspaces,
             commands::create_workspace,
             commands::rename_workspace,

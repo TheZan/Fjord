@@ -61,7 +61,8 @@
     "repository_not_found": "Le dépôt est introuvable. Il a peut-être été déplacé ou supprimé.",
     "stash_empty": "Aucun stash enregistré n'est disponible.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
-    "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez."
+    "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez.",
+    "log_folder_unavailable": "Impossible d'ouvrir le dossier des journaux. Ouvrez manuellement le dossier de données de l'application."
   },
   "settings": {
     "sections": {
@@ -69,7 +70,8 @@
       "sync": "Synchronisation",
       "git": "Git",
       "appearance": "Apparence",
-      "tools": "Outils"
+      "tools": "Outils",
+      "about": "À propos"
     },
     "theme": {
       "label": "Thème",
@@ -142,6 +144,13 @@
       "customPlaceholder": "commande-editeur",
       "customValue": "Enregistré sous custom:<command>.",
       "saveCustom": "Enregistrer"
+    },
+    "about": {
+      "version": "Version {{version}}",
+      "diagnostics": "Diagnostic",
+      "logsDescription": "Les journaux contiennent des diagnostics, noms de dépôts, chemins et durées, mais jamais le contenu des fichiers ou des diffs.",
+      "revealLogs": "Afficher le dossier des journaux",
+      "revealingLogs": "Ouverture…"
     }
   }
 }

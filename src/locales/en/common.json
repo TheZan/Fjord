@@ -61,7 +61,8 @@
     "repository_not_found": "The repository could not be found. It may have been moved or removed.",
     "stash_empty": "There are no saved stashes to apply.",
     "unexpected": "Something went wrong. Try again or restart Fjord if the problem continues.",
-    "workspace_not_found": "The workspace could not be found. Refresh the app and try again."
+    "workspace_not_found": "The workspace could not be found. Refresh the app and try again.",
+    "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually."
   },
   "settings": {
     "sections": {
@@ -69,7 +70,8 @@
       "sync": "Sync",
       "git": "Git",
       "appearance": "Appearance",
-      "tools": "Tools"
+      "tools": "Tools",
+      "about": "About"
     },
     "theme": {
       "label": "Theme",
@@ -146,6 +148,13 @@
       "customPlaceholder": "editor-command",
       "customValue": "Saved as custom:<command>.",
       "saveCustom": "Save"
+    },
+    "about": {
+      "version": "Version {{version}}",
+      "diagnostics": "Diagnostics",
+      "logsDescription": "Logs contain operational diagnostics, repository names, paths, and timings, but never file or diff contents.",
+      "revealLogs": "Reveal log folder",
+      "revealingLogs": "Opening…"
     }
   }
 }

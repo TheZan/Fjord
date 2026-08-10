@@ -5,7 +5,7 @@ const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { getBranches, setRepositoryActivity } from "@/infrastructure/tauriClient";
+import { getBranches, revealLogFolder, setRepositoryActivity } from "@/infrastructure/tauriClient";
 import { beginInteraction, setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 
 describe("abortable Tauri queries", () => {
@@ -48,6 +48,12 @@ describe("abortable Tauri queries", () => {
       workspaceId: "workspace-1",
       repoId: "repo-1",
     });
+  });
+
+  it("reveals the application-owned log folder without accepting a path", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+    await revealLogFolder();
+    expect(tauri.invoke).toHaveBeenCalledWith("reveal_log_folder", {});
   });
 });
 

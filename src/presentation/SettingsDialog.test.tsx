@@ -6,6 +6,7 @@ import { SettingsDialog } from "@/presentation/SettingsDialog";
 const getSettings = vi.fn();
 const getGitEnvironment = vi.fn();
 const testGitConnection = vi.fn();
+const revealLogFolder = vi.fn();
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   getSettings: (...args: unknown[]) => getSettings(...args),
@@ -14,6 +15,7 @@ vi.mock("@/infrastructure/tauriClient", () => ({
   selectGitExecutable: vi.fn(),
   resetGitExecutable: vi.fn(),
   testGitConnection: (...args: unknown[]) => testGitConnection(...args),
+  revealLogFolder: (...args: unknown[]) => revealLogFolder(...args),
 }));
 
 vi.mock("@/infrastructure/dialog", () => ({ pickFile: vi.fn() }));
@@ -27,6 +29,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
     t: (key: string, values?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
         "settings.sections.git": "Git",
+        "settings.sections.about": "About",
         "settings.git.version": String(values?.version ?? ""),
         "settings.git.testConnection": "Test connection",
         "settings.git.connectionSuccess": `${String(values?.protocol ?? "")} ${String(values?.duration ?? "")} ms`,
@@ -63,6 +66,7 @@ describe("SettingsDialog Git section", () => {
       protocol: "https",
       referenceCount: 3,
     });
+    revealLogFolder.mockResolvedValue(undefined);
   });
 
   it("shows diagnostics and can test a repository connection", async () => {
@@ -148,6 +152,17 @@ describe("SettingsDialog Git section", () => {
 
     expect(await screen.findByText("settings.git.askpass")).toBeInTheDocument();
     expect(screen.getByText("settings.git.askpassMissingDescription")).toBeInTheDocument();
+  });
+
+  it("gives branding a home and reveals the application log folder", async () => {
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "About" }));
+    expect(await screen.findByText("app.title")).toBeInTheDocument();
+    expect(screen.getByText("app.tagline")).toBeInTheDocument();
+    expect(screen.getByText("settings.about.version")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "settings.about.revealLogs" }));
+    await waitFor(() => expect(revealLogFolder).toHaveBeenCalledOnce());
   });
 
   it("shows the ownership refusal diagnostic and safe-directory command", async () => {

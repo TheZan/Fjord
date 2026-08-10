@@ -30,6 +30,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `get_git_environment` | — | `GitEnvironmentInfo` | Read-only inspection: executable, version, credential helpers, SSH/proxy presence |
 | `select_git_executable` | `{ path }` | `GitEnvironmentInfo` | Validates before persisting; applies to local and remote Git alike |
 | `reset_git_executable` | — | `GitEnvironmentInfo` | Clears the override, falls back to discovery |
+| `reveal_log_folder` | — | — | Creates and opens the application-owned rotating-log directory with the OS folder viewer |
 | `test_git_connection` | `{ repo_id, remote }` | `GitConnectionTestResult` | `git ls-remote --symref`; never mutates the repository |
 
 ### Workspaces and repositories

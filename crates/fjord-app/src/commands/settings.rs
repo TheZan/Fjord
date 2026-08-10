@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use tauri::Manager;
 
 use crate::error::AppError;
 use crate::interaction_traces::TracedState;
@@ -65,9 +68,40 @@ pub async fn reset_git_executable(state: TracedState<'_>) -> Result<GitEnvironme
     Ok(with_askpass_availability(state.askpass_available(), info))
 }
 
+#[tauri::command]
+pub fn reveal_log_folder(app: tauri::AppHandle) -> Result<(), AppError> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::log_folder(format!("could not resolve log folder: {error}")))?
+        .join("logs");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| AppError::log_folder(format!("could not create log folder: {error}")))?;
+    spawn_reveal_command(&directory)
+        .map_err(|error| AppError::log_folder(format!("could not reveal log folder: {error}")))?;
+    Ok(())
+}
+
+fn spawn_reveal_command(directory: &Path) -> std::io::Result<()> {
+    let mut command = reveal_command(directory);
+    command.spawn().map(|_| ())
+}
+
+fn reveal_command(directory: &Path) -> Command {
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = Command::new("xdg-open");
+    command.arg(directory);
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
     fn inspected() -> GitEnvironmentInfo {
         GitEnvironmentInfo {
@@ -88,5 +122,21 @@ mod tests {
     fn availability_comes_from_the_application_not_the_git_adapter() {
         assert!(with_askpass_availability(true, inspected()).askpass_available);
         assert!(!with_askpass_availability(false, inspected()).askpass_available);
+    }
+
+    #[test]
+    fn reveal_command_uses_the_platform_folder_opener_without_a_shell() {
+        let directory = Path::new("logs");
+        let command = reveal_command(directory);
+        #[cfg(target_os = "windows")]
+        assert_eq!(command.get_program(), OsStr::new("explorer.exe"));
+        #[cfg(target_os = "macos")]
+        assert_eq!(command.get_program(), OsStr::new("open"));
+        #[cfg(all(unix, not(target_os = "macos")))]
+        assert_eq!(command.get_program(), OsStr::new("xdg-open"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            vec![OsStr::new("logs")]
+        );
     }
 }

@@ -32,6 +32,10 @@ impl AppError {
             "performance diagnostics are disabled".to_string(),
         )
     }
+
+    pub fn log_folder(message: String) -> Self {
+        Self::new("log_folder_unavailable", message)
+    }
 }
 
 impl From<StoreError> for AppError {
