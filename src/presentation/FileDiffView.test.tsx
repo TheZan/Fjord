@@ -1,37 +1,46 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileDiffView } from "@/presentation/FileDiffView";
 
 const state = vi.hoisted(() => ({
   hasMore: true,
   loadMore: vi.fn(),
+  loading: false,
+  loadingMore: false,
+  error: null as string | null,
+  diff: null as null | {
+    path: string;
+    changeType: "modified";
+    isBinary: boolean;
+    tooLarge: boolean;
+    fileBytes: number;
+    hunks: Array<{
+      oldStart: number;
+      oldLines: number;
+      newStart: number;
+      newLines: number;
+      lines: Array<{
+        kind: "context" | "addition" | "deletion";
+        oldLineno: number | null;
+        newLineno: number | null;
+        content: string;
+      }>;
+    }>;
+    totalHunks: number;
+    totalLines: number;
+    truncated: boolean;
+    nextOffset: number | null;
+  },
 }));
 
 vi.mock("@/application/useFileDiff", () => ({
   useFileDiff: () => ({
-    diff: {
-      path: "large.txt",
-      changeType: "modified",
-      isBinary: false,
-      tooLarge: false,
-      fileBytes: 100,
-      hunks: [{
-        oldStart: 1,
-        oldLines: 1,
-        newStart: 1,
-        newLines: 1,
-        lines: [{ kind: "context", oldLineno: 1, newLineno: 1, content: "line" }],
-      }],
-      totalHunks: 1,
-      totalLines: 2_000,
-      truncated: state.hasMore,
-      nextOffset: state.hasMore ? 1_000 : null,
-    },
-    loading: false,
-    loadingMore: false,
+    diff: state.diff,
+    loading: state.loading,
+    loadingMore: state.loadingMore,
     hasMore: state.hasMore,
     loadMore: state.loadMore,
-    error: null,
+    error: state.error,
   }),
 }));
 
@@ -50,13 +59,20 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string>) =>
+      key === "diff.tooLarge" ? `too large: ${values?.size}` : key,
+  }),
 }));
 
 describe("FileDiffView windowing", () => {
   beforeEach(() => {
     state.hasMore = true;
     state.loadMore.mockClear();
+    state.loading = false;
+    state.loadingMore = false;
+    state.error = null;
+    state.diff = textDiff();
   });
 
   it("loads the next window near the virtualized end and stops when complete", async () => {
@@ -80,4 +96,69 @@ describe("FileDiffView windowing", () => {
     await Promise.resolve();
     expect(state.loadMore).toHaveBeenCalledOnce();
   });
+
+  it("renders hunk coordinates and line prefixes through the virtualized row model", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} />,
+    );
+
+    expect(screen.getByText("@@ -4,2 +4,2 @@")).toBeInTheDocument();
+    expect(screen.getByText("-old line")).toBeInTheDocument();
+    expect(screen.getByText("+new line")).toBeInTheDocument();
+    expect(screen.getAllByText("4")).toHaveLength(2);
+  });
+
+  it.each([
+    [{ isBinary: true }, "diff.binary"],
+    [{ tooLarge: true, fileBytes: 2 * 1024 * 1024 }, "too large: 2.0 MB"],
+    [{ hunks: [], totalHunks: 0, totalLines: 0 }, "diff.empty"],
+  ])("renders a non-text state without diff rows", (overrides, message) => {
+    state.hasMore = false;
+    state.diff = { ...textDiff(), ...overrides };
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} />,
+    );
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("@@ -4,2 +4,2 @@")).not.toBeInTheDocument();
+  });
+
+  it("reports errors and dispatches the optional back action", () => {
+    state.hasMore = false;
+    state.diff = null;
+    state.error = "diff failed";
+    const onBack = vi.fn();
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: true }} onBack={onBack} />,
+    );
+
+    expect(screen.getByText("diff failed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /diff.back/ }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
 });
+
+function textDiff() {
+  return {
+    path: "large.txt",
+    changeType: "modified" as const,
+    isBinary: false,
+    tooLarge: false,
+    fileBytes: 100,
+    hunks: [{
+      oldStart: 4,
+      oldLines: 2,
+      newStart: 4,
+      newLines: 2,
+      lines: [
+        { kind: "deletion" as const, oldLineno: 4, newLineno: null, content: "old line" },
+        { kind: "addition" as const, oldLineno: null, newLineno: 4, content: "new line" },
+      ],
+    }],
+    totalHunks: 1,
+    totalLines: 2_000,
+    truncated: state.hasMore,
+    nextOffset: state.hasMore ? 1_000 : null,
+  };
+}

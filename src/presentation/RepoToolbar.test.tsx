@@ -1,0 +1,111 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useStashes } from "@/application/useStashes";
+import { RepoToolbar } from "@/presentation/RepoToolbar";
+import type { RepoStatus } from "@/domain/git";
+import type { RepositoryEntry } from "@/domain/workspace";
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, number>) =>
+      key === "operations.progress" ? `${values?.completed}/${values?.total}` : key,
+  }),
+}));
+
+vi.mock("@/application/useStashes", () => ({ useStashes: vi.fn() }));
+
+const repo: RepositoryEntry = {
+  id: "repo-1",
+  workspaceId: "workspace-1",
+  name: "Fjord",
+  path: "/dev/fjord",
+  sortOrder: 0,
+};
+const status: RepoStatus = {
+  branch: "main",
+  ahead: 2,
+  behind: 1,
+  dirtyCount: 3,
+  hasConflict: false,
+};
+
+function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}) {
+  return {
+    repo,
+    status,
+    dataValidated: true,
+    actionPending: null,
+    operationProgress: null,
+    onBack: vi.fn(),
+    onAction: vi.fn(),
+    onCancelOperation: vi.fn(),
+    onCreateBranch: vi.fn(),
+    onOpenSearch: vi.fn(),
+    onOpenInspector: vi.fn(),
+    ...overrides,
+  };
+}
+
+describe("RepoToolbar", () => {
+  beforeEach(() => {
+    vi.mocked(useStashes).mockReturnValue({ stashes: [], loading: false, error: null });
+  });
+
+  it("blocks repository mutations until validation but keeps non-mutating tools available", () => {
+    const toolbarProps = props({ dataValidated: false });
+    render(<RepoToolbar {...toolbarProps} />);
+
+    expect(screen.getByRole("button", { name: "repoActions.fetch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "toolbar.branch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "toolbar.terminal" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.search" }));
+    expect(toolbarProps.onAction).toHaveBeenCalledWith("terminal");
+    expect(toolbarProps.onOpenSearch).toHaveBeenCalledOnce();
+  });
+
+  it("enforces stash availability and dispatches enabled actions", () => {
+    const toolbarProps = props({ status: { ...status, dirtyCount: 0 } });
+    const view = render(<RepoToolbar {...toolbarProps} />);
+    expect(screen.getByRole("button", { name: "toolbar.stash" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "toolbar.pop" })).toBeDisabled();
+
+    vi.mocked(useStashes).mockReturnValue({
+      stashes: [{ index: 0, message: "WIP" }],
+      loading: false,
+      error: null,
+    });
+    view.rerender(<RepoToolbar {...toolbarProps} status={status} />);
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.stash" }));
+    fireEvent.click(screen.getByRole("button", { name: /toolbar.pop/ }));
+    expect(toolbarProps.onAction).toHaveBeenCalledWith("stash");
+    expect(toolbarProps.onAction).toHaveBeenCalledWith("stash-pop");
+  });
+
+  it("trims a new branch name and closes the branch popover", () => {
+    const toolbarProps = props();
+    render(<RepoToolbar {...toolbarProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.branch" }));
+    const input = screen.getByPlaceholderText("toolbar.branchPlaceholder");
+    fireEvent.change(input, { target: { value: "  feature/tests  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(toolbarProps.onCreateBranch).toHaveBeenCalledWith("feature/tests");
+    expect(screen.queryByPlaceholderText("toolbar.branchPlaceholder")).not.toBeInTheDocument();
+  });
+
+  it("shows clamped operation progress and cancels the operation", () => {
+    const toolbarProps = props({
+      actionPending: "fetch",
+      operationProgress: { completed: 5, total: 2, error: null, status: "fetching" },
+    });
+    const { container } = render(<RepoToolbar {...toolbarProps} />);
+
+    expect(screen.getByRole("button", { name: "repoActions.fetch" })).toBeDisabled();
+    expect(screen.getByText("5/2")).toBeInTheDocument();
+    expect(container.querySelector('[style*="width: 100%"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "operations.cancel" }));
+    expect(toolbarProps.onCancelOperation).toHaveBeenCalledOnce();
+  });
+});
