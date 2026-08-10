@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FjordMark } from "@/presentation/FjordMark";
 import { GroupLabel, Input } from "@/presentation/ui";
 import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
@@ -24,7 +23,6 @@ interface SidebarProps {
   onMoveWorkspace: (id: string, direction: -1 | 1) => void;
   onMoveWorkspaceTo: (id: string, targetId: string) => void;
   pending: string | null;
-  onOpenSettings: () => void;
 }
 
 export function Sidebar({
@@ -46,9 +44,7 @@ export function Sidebar({
   onMoveWorkspace,
   onMoveWorkspaceTo,
   pending,
-  onOpenSettings,
 }: SidebarProps) {
-  const { t } = useTranslation();
   const { t: tw } = useTranslation("workspace");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
@@ -106,22 +102,7 @@ export function Sidebar({
       className="flex w-60 shrink-0 flex-col border-r"
       style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--sidebar-bg)" }}
     >
-      <div className="flex items-center gap-2 px-4 pb-3 pt-4">
-        <FjordMark size={18} style={{ color: "var(--brand)" }} />
-        <span className="text-[15px] font-medium">{t("app.title")}</span>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="interactive-control ml-auto flex h-8 w-8 items-center justify-center rounded-md"
-          style={{ color: "var(--slate)" }}
-          aria-label={tw("settings.title")}
-          title={tw("settings.title")}
-        >
-          <SettingsIcon />
-        </button>
-      </div>
-
-      <nav className="flex flex-col gap-0.5 px-2">
+      <nav className="flex flex-col gap-0.5 px-2 pt-3">
         <NavItem active={view === "overview"} onClick={() => onViewChange("overview")}>
           {tw("nav.overview")}
         </NavItem>
@@ -434,21 +415,6 @@ function DragHandleIcon() {
       <circle cx="6" cy="7" r="0.8" fill="currentColor" />
       <circle cx="2" cy="11" r="0.8" fill="currentColor" />
       <circle cx="6" cy="11" r="0.8" fill="currentColor" />
-    </svg>
-  );
-}
-
-function SettingsIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
-      <path
-        d="M7.1 2.25h1.8l.34 1.42c.3.11.57.27.83.47l1.4-.43.9 1.56-1.06 1a4.1 4.1 0 0 1 0 .96l1.06 1-.9 1.56-1.4-.43c-.26.2-.53.36-.83.47l-.34 1.42H7.1l-.34-1.42a3.66 3.66 0 0 1-.83-.47l-1.4.43-.9-1.56 1.06-1a4.1 4.1 0 0 1 0-.96l-1.06-1 .9-1.56 1.4.43c.26-.2.53-.36.83-.47l.34-1.42Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.15"
-      />
-      <circle cx="8" cy="7.75" r="1.55" fill="none" stroke="currentColor" strokeWidth="1.15" />
     </svg>
   );
 }

@@ -47,12 +47,20 @@ function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     onMoveWorkspace: vi.fn(),
     onMoveWorkspaceTo: vi.fn(),
     pending: null,
-    onOpenSettings: vi.fn(),
     ...overrides,
   };
 }
 
 describe("Sidebar", () => {
+  it("starts with navigation and renders no shell branding", () => {
+    const { container } = render(<Sidebar {...props({ selectedWorkspaceId: null })} />);
+    const sidebar = container.querySelector("aside")!;
+
+    expect(sidebar.querySelector("button")).toHaveTextContent("nav.overview");
+    expect(screen.queryByLabelText("Fjord")).not.toBeInTheDocument();
+    expect(screen.queryByText("app.title")).not.toBeInTheDocument();
+  });
+
   it("auto-expands the selected workspace and wires repository selection and warm-up", async () => {
     const sidebarProps = props();
     render(<Sidebar {...sidebarProps} />);

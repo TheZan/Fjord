@@ -337,7 +337,6 @@ export function App() {
         onSelectRepository={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
         onWarmRepository={queueRepositoryWarm}
         pending={workspaceActionPending}
-        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
