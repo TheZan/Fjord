@@ -207,11 +207,13 @@ impl AppState {
 
         let workspaces = self.workspaces.clone();
         let app_handle = self.app_handle.clone();
+        let repo_path = fjord_ports::RepoPath::new(repo.path.clone());
         // Recursive working-tree watch with generated-directory filtering
         // and debouncing inside fjord-fs (docs/tasks.md P4-15) — edits below
         // the repo root invalidate the cache, while `target/`/`node_modules/`
         // churn and event storms are absorbed before they reach us.
         let watcher = RepoEventWatcher::watch_repository(&repo.path, move |changes| {
+            fjord_git::record_repository_changes(&repo_path, changes);
             let workspaces = workspaces.clone();
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {

@@ -15,6 +15,7 @@ use super::process_runner::{
 };
 use super::progress::{parse_progress, ProgressThrottle};
 use crate::locking;
+use crate::{generation::MutationKind, local::bump_repository_mutation};
 
 const REMOTE_OPERATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Transfer commands report through stderr; their stdout only ever holds a
@@ -112,8 +113,9 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
             OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
-        .await
-        .map(|_| ())
+        .await?;
+        bump_repository_mutation(repo, MutationKind::Fetch);
+        Ok(())
     }
 
     async fn push(
@@ -132,8 +134,9 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
             OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
-        .await
-        .map(|_| ())
+        .await?;
+        bump_repository_mutation(repo, MutationKind::Push);
+        Ok(())
     }
 
     async fn publish_branch(
@@ -156,8 +159,9 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
             OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
-        .await
-        .map(|_| ())
+        .await?;
+        bump_repository_mutation(repo, MutationKind::PublishBranch);
+        Ok(())
     }
 
     async fn delete_remote_branch(
@@ -179,8 +183,9 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
             OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
-        .await
-        .map(|_| ())
+        .await?;
+        bump_repository_mutation(repo, MutationKind::DeleteRemoteBranch);
+        Ok(())
     }
 
     async fn ls_remote(

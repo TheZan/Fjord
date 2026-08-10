@@ -5,13 +5,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use fjord_fs::RepoChangeSet;
 use fjord_ports::{GitError, RepoPath};
+
+use crate::generation::{
+    mutation_mask, GenerationClock, GenerationMask, GenerationSet, MutationKind,
+};
 
 const NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(5);
 
 pub(super) struct RepositoryRuntime {
     gix: gix::ThreadSafeRepository,
     git2: Mutex<git2::Repository>,
+    generations: GenerationClock,
 }
 
 impl RepositoryRuntime {
@@ -26,6 +32,7 @@ impl RepositoryRuntime {
         Ok(Self {
             gix,
             git2: Mutex::new(git2),
+            generations: GenerationClock::default(),
         })
     }
 
@@ -42,6 +49,14 @@ impl RepositoryRuntime {
             .lock()
             .map_err(|_| GitError::Git2("repository handle lock was poisoned".to_string()))?;
         run(&mut repository)
+    }
+
+    pub(super) fn generations(&self) -> GenerationSet {
+        self.generations.snapshot()
+    }
+
+    fn bump(&self, mask: GenerationMask) {
+        self.generations.bump(mask);
     }
 }
 
@@ -103,6 +118,17 @@ impl RepositoryRuntimeRegistry {
         }
     }
 
+    fn ready(&self, repo: &RepoPath) -> Option<Arc<RepositoryRuntime>> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match state.entries.get(&canonical_key(&repo.0)) {
+            Some(Entry::Ready(runtime)) => Some(runtime.clone()),
+            Some(Entry::FailedUntil(_)) | None => None,
+        }
+    }
+
     #[cfg(test)]
     fn attempts(&self, repo: &RepoPath) -> usize {
         self.state
@@ -130,6 +156,52 @@ fn canonical_key(path: &Path) -> PathBuf {
 pub(super) fn registry() -> &'static RepositoryRuntimeRegistry {
     static REGISTRY: OnceLock<RepositoryRuntimeRegistry> = OnceLock::new();
     REGISTRY.get_or_init(|| RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL))
+}
+
+pub(super) fn bump_mutation(repo: &RepoPath, mutation: MutationKind) {
+    if let Ok(runtime) = registry().resolve(repo) {
+        runtime.bump(mutation_mask(mutation));
+    }
+}
+
+pub(crate) fn record_watcher_changes(repo: &RepoPath, changes: RepoChangeSet) {
+    let Some(runtime) = registry().ready(repo) else {
+        return;
+    };
+    runtime.bump(watcher_mask(changes));
+}
+
+pub(crate) fn generations(repo: &RepoPath) -> Result<GenerationSet, GitError> {
+    Ok(registry().resolve(repo)?.generations())
+}
+
+fn watcher_mask(changes: RepoChangeSet) -> GenerationMask {
+    let mut mask = GenerationMask::NONE;
+    // `status` is an app query-invalidation hint that accompanies refs and
+    // config changes too. Treat it as working-tree state only when it is the
+    // sole classification; explicit `working` is authoritative.
+    if changes.working
+        || (changes.status
+            && !changes.refs
+            && !changes.history
+            && !changes.stashes
+            && !changes.config)
+    {
+        mask.merge(GenerationMask::WORKING_TREE);
+    }
+    if changes.refs {
+        mask.merge(GenerationMask::REFS);
+    }
+    if changes.history {
+        mask.merge(GenerationMask::new(false, false, true, false, false));
+    }
+    if changes.stashes {
+        mask.merge(GenerationMask::new(false, false, false, true, false));
+    }
+    if changes.config {
+        mask.merge(GenerationMask::CONFIG);
+    }
+    mask
 }
 
 #[cfg(test)]
@@ -169,5 +241,69 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(registry.attempts(&direct), 1);
+    }
+
+    #[test]
+    fn watcher_changes_bump_only_the_classified_domains() {
+        let cases = [
+            (
+                RepoChangeSet {
+                    status: true,
+                    ..RepoChangeSet::default()
+                },
+                GenerationMask::WORKING_TREE,
+            ),
+            (
+                RepoChangeSet {
+                    refs: true,
+                    history: true,
+                    ..RepoChangeSet::default()
+                },
+                GenerationMask::REFS_HISTORY,
+            ),
+            (
+                RepoChangeSet {
+                    stashes: true,
+                    ..RepoChangeSet::default()
+                },
+                GenerationMask::new(false, false, false, true, false),
+            ),
+            (
+                RepoChangeSet {
+                    config: true,
+                    ..RepoChangeSet::default()
+                },
+                GenerationMask::CONFIG,
+            ),
+        ];
+
+        for (changes, expected) in cases {
+            assert_eq!(watcher_mask(changes), expected);
+        }
+    }
+
+    #[test]
+    fn watcher_event_updates_an_existing_runtime_generation_set() {
+        let directory = tempfile::TempDir::new().unwrap();
+        git2::Repository::init(directory.path()).unwrap();
+        let repo = RepoPath::new(directory.path().to_path_buf());
+        let runtime = registry().resolve(&repo).unwrap();
+
+        record_watcher_changes(
+            &repo,
+            RepoChangeSet {
+                status: true,
+                working: true,
+                ..RepoChangeSet::default()
+            },
+        );
+
+        assert_eq!(
+            runtime.generations(),
+            GenerationSet {
+                working_tree: 1,
+                ..GenerationSet::default()
+            }
+        );
     }
 }

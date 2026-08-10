@@ -2,6 +2,7 @@
 //! `GitBackend` trait against real fixture repositories.
 
 use super::*;
+use crate::GenerationSet;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
 use std::path::Path;
 use tempfile::TempDir;
@@ -99,6 +100,66 @@ async fn primary_reads_share_one_repository_runtime() {
     changes.unwrap();
 
     assert_eq!(runtime::open_attempts(&repo_path), 1);
+}
+
+#[tokio::test]
+async fn generations_move_only_after_successful_mutations() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let zero = GenerationSet::default();
+    assert_eq!(runtime::generations(&repo_path).unwrap(), zero);
+
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial").await.unwrap();
+    let after_initial = GenerationSet {
+        working_tree: 2,
+        refs: 1,
+        history: 1,
+        ..GenerationSet::default()
+    };
+    assert_eq!(runtime::generations(&repo_path).unwrap(), after_initial);
+
+    backend
+        .create_branch(&repo_path, "topic", false)
+        .await
+        .unwrap();
+    let after_branch = GenerationSet {
+        refs: 2,
+        ..after_initial
+    };
+    assert_eq!(runtime::generations(&repo_path).unwrap(), after_branch);
+
+    let error = backend.commit(&repo_path, "Nothing").await.unwrap_err();
+    assert!(matches!(error, GitError::NothingToCommit));
+    assert_eq!(runtime::generations(&repo_path).unwrap(), after_branch);
+
+    write_file(&repo_path, "README.md", "updated\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime::generations(&repo_path).unwrap(),
+        GenerationSet {
+            working_tree: 3,
+            ..after_branch
+        }
+    );
+
+    backend.commit(&repo_path, "Update").await.unwrap();
+    assert_eq!(
+        runtime::generations(&repo_path).unwrap(),
+        GenerationSet {
+            working_tree: 4,
+            refs: 3,
+            history: 2,
+            ..GenerationSet::default()
+        }
+    );
 }
 
 #[tokio::test]

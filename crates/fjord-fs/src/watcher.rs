@@ -45,6 +45,7 @@ pub struct RepoChangeSet {
     pub history: bool,
     pub refs: bool,
     pub stashes: bool,
+    pub config: bool,
 }
 
 impl RepoChangeSet {
@@ -55,6 +56,7 @@ impl RepoChangeSet {
             history: true,
             refs: true,
             stashes: true,
+            config: true,
         }
     }
 
@@ -64,10 +66,16 @@ impl RepoChangeSet {
         self.history |= other.history;
         self.refs |= other.refs;
         self.stashes |= other.stashes;
+        self.config |= other.config;
     }
 
     fn is_empty(self) -> bool {
-        !self.status && !self.working && !self.history && !self.refs && !self.stashes
+        !self.status
+            && !self.working
+            && !self.history
+            && !self.refs
+            && !self.stashes
+            && !self.config
     }
 }
 
@@ -191,6 +199,12 @@ fn classify_change(root: &Path, path: &Path) -> RepoChangeSet {
             // FETCH_HEAD is rewritten even when a fetch receives no new
             // refs. Ignore it so periodic fetches do not redraw the graph.
             Some("FETCH_HEAD") => RepoChangeSet::default(),
+            Some("config") => RepoChangeSet {
+                status: true,
+                refs: true,
+                config: true,
+                ..RepoChangeSet::default()
+            },
             Some("refs" | "packed-refs") => RepoChangeSet {
                 status: true,
                 history: true,
@@ -299,6 +313,15 @@ mod tests {
         assert_eq!(
             classify_change(root, Path::new("/repo/.git/FETCH_HEAD")),
             RepoChangeSet::default()
+        );
+        assert_eq!(
+            classify_change(root, Path::new("/repo/.git/config")),
+            RepoChangeSet {
+                status: true,
+                refs: true,
+                config: true,
+                ..RepoChangeSet::default()
+            }
         );
     }
 

@@ -7,6 +7,7 @@
 //! submodule.
 
 use crate::executable::GitCommandFactory;
+use crate::generation::MutationKind;
 use crate::locking;
 
 use std::collections::HashMap;
@@ -60,6 +61,18 @@ impl Default for LocalGitBackend {
             commands: GitCommandFactory::new(),
         }
     }
+}
+
+pub(crate) fn record_repository_changes(repo: &RepoPath, changes: fjord_fs::RepoChangeSet) {
+    runtime::record_watcher_changes(repo, changes);
+}
+
+pub(crate) fn bump_repository_mutation(repo: &RepoPath, mutation: MutationKind) {
+    runtime::bump_mutation(repo, mutation);
+}
+
+pub(crate) fn repository_generations(repo: &RepoPath) -> Result<crate::GenerationSet, GitError> {
+    runtime::generations(repo)
 }
 
 #[async_trait]
@@ -129,7 +142,9 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
-        refs::checkout(repo, branch).await
+        refs::checkout(repo, branch).await?;
+        runtime::bump_mutation(repo, MutationKind::Checkout);
+        Ok(())
     }
 
     async fn remote_checkout_refspec(
@@ -141,7 +156,9 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn checkout_local(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
-        refs::checkout_local(repo, branch).await
+        refs::checkout_local(repo, branch).await?;
+        runtime::bump_mutation(repo, MutationKind::Checkout);
+        Ok(())
     }
 
     async fn create_branch(
@@ -150,7 +167,9 @@ impl GitBackend for LocalGitBackend {
         name: &str,
         checkout: bool,
     ) -> Result<(), GitError> {
-        refs::create_branch(repo, name, checkout).await
+        refs::create_branch(repo, name, checkout).await?;
+        runtime::bump_mutation(repo, MutationKind::CreateBranch { checkout });
+        Ok(())
     }
 
     async fn create_branch_at(
@@ -160,7 +179,9 @@ impl GitBackend for LocalGitBackend {
         target: &str,
         checkout: bool,
     ) -> Result<(), GitError> {
-        refs::create_branch_at(&self.commands, repo, name, target, checkout).await
+        refs::create_branch_at(&self.commands, repo, name, target, checkout).await?;
+        runtime::bump_mutation(repo, MutationKind::CreateBranchAt { checkout });
+        Ok(())
     }
 
     async fn rename_branch(
@@ -169,31 +190,50 @@ impl GitBackend for LocalGitBackend {
         old_name: &str,
         new_name: &str,
     ) -> Result<(), GitError> {
-        refs::rename_branch(&self.commands, repo, old_name, new_name).await
+        refs::rename_branch(&self.commands, repo, old_name, new_name).await?;
+        runtime::bump_mutation(repo, MutationKind::RenameBranch);
+        Ok(())
     }
 
     async fn delete_branch(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
-        refs::delete_branch(&self.commands, repo, name).await
+        refs::delete_branch(&self.commands, repo, name).await?;
+        runtime::bump_mutation(repo, MutationKind::DeleteBranch);
+        Ok(())
     }
 
     async fn create_tag(&self, repo: &RepoPath, name: &str, target: &str) -> Result<(), GitError> {
-        refs::create_tag(&self.commands, repo, name, target).await
+        refs::create_tag(&self.commands, repo, name, target).await?;
+        runtime::bump_mutation(repo, MutationKind::CreateTag);
+        Ok(())
     }
 
     async fn delete_tag(&self, repo: &RepoPath, name: &str) -> Result<(), GitError> {
-        refs::delete_tag(&self.commands, repo, name).await
+        refs::delete_tag(&self.commands, repo, name).await?;
+        runtime::bump_mutation(repo, MutationKind::DeleteTag);
+        Ok(())
     }
 
     async fn cherry_pick(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::cherry_pick(&self.commands, repo, commit_id).await
+        mutations::cherry_pick(&self.commands, repo, commit_id).await?;
+        runtime::bump_mutation(repo, MutationKind::CherryPick);
+        Ok(())
     }
 
     async fn revert(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::revert(&self.commands, repo, commit_id).await
+        mutations::revert(&self.commands, repo, commit_id).await?;
+        runtime::bump_mutation(repo, MutationKind::Revert);
+        Ok(())
     }
 
     async fn reset(&self, repo: &RepoPath, commit_id: &str, mode: &str) -> Result<(), GitError> {
-        mutations::reset(&self.commands, repo, commit_id, mode).await
+        mutations::reset(&self.commands, repo, commit_id, mode).await?;
+        runtime::bump_mutation(
+            repo,
+            MutationKind::Reset {
+                touches_working_tree: mode != "soft",
+            },
+        );
+        Ok(())
     }
 
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
@@ -201,23 +241,33 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {
-        mutations::stash_push(repo, message).await
+        mutations::stash_push(repo, message).await?;
+        runtime::bump_mutation(repo, MutationKind::StashPush);
+        Ok(())
     }
 
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
-        mutations::stash_pop(repo).await
+        mutations::stash_pop(repo).await?;
+        runtime::bump_mutation(repo, MutationKind::StashPop);
+        Ok(())
     }
 
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
-        working_tree::stage(repo, paths).await
+        working_tree::stage(repo, paths).await?;
+        runtime::bump_mutation(repo, MutationKind::Stage);
+        Ok(())
     }
 
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
-        working_tree::unstage(repo, paths).await
+        working_tree::unstage(repo, paths).await?;
+        runtime::bump_mutation(repo, MutationKind::Unstage);
+        Ok(())
     }
 
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
-        mutations::commit(repo, message).await
+        let commit_id = mutations::commit(repo, message).await?;
+        runtime::bump_mutation(repo, MutationKind::Commit);
+        Ok(commit_id)
     }
 
     async fn upstream_remote(&self, repo: &RepoPath) -> Result<String, GitError> {
@@ -225,7 +275,9 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError> {
-        mutations::integrate_upstream(repo).await
+        mutations::integrate_upstream(repo).await?;
+        runtime::bump_mutation(repo, MutationKind::IntegrateUpstream);
+        Ok(())
     }
 
     async fn current_push_target(&self, repo: &RepoPath) -> Result<PushTarget, GitError> {
