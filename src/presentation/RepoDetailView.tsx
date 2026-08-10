@@ -12,7 +12,7 @@ import type { BranchContextAction, TagContextAction } from "@/presentation/RepoT
 import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
-import { Button, Muted, NotificationToast } from "@/presentation/ui";
+import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type { CommitSummary, RepoStatus, WorkingChanges } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
@@ -191,7 +191,7 @@ export function RepoDetailView({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <ScreenSurface screen="repository" className="flex min-h-0 flex-1 flex-col gap-4">
       <RepoToolbar
         repo={repo}
         status={status}
@@ -373,7 +373,7 @@ export function RepoDetailView({
           onClose={() => setNotice(null)}
         />
       ) : null}
-    </div>
+    </ScreenSurface>
   );
 
   function handleBranchContextAction(action: BranchContextAction, branch: import("@/domain/git").BranchInfo) {

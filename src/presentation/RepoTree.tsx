@@ -4,7 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useTags } from "@/application/useTags";
-import { Input } from "@/presentation/ui";
+import { Input, Surface } from "@/presentation/ui";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import type { BranchInfo, TagInfo } from "@/domain/git";
 
@@ -87,10 +87,10 @@ export function RepoTree({
   }
 
   return (
-    <div
+    <Surface
       ref={treeRef}
-      className="flex w-full max-w-sm flex-col rounded-lg border text-sm"
-      style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
+      className="flex w-full max-w-sm flex-col text-sm"
+      style={{ background: "var(--paper)" }}
       onKeyDown={handleTreeKeyDown}
     >
       <div className="border-b p-2" style={{ borderColor: "var(--hairline)" }}>
@@ -202,7 +202,7 @@ export function RepoTree({
           }}
         />
       )}
-    </div>
+    </Surface>
   );
 
   function handleTreeKeyDown(event: KeyboardEvent<HTMLDivElement>) {

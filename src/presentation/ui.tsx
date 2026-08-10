@@ -9,12 +9,67 @@
 
 import type {
   ButtonHTMLAttributes,
+  CSSProperties,
+  HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
-import { forwardRef, useEffect } from "react";
+import { createContext, forwardRef, useContext, useEffect } from "react";
+
+/**
+ * Shell typography scale. These four steps cover screen identity, ordinary
+ * controls/content, supporting metadata, and compact uppercase labels.
+ * Components should consume these tokens instead of inventing nearby pixel
+ * sizes, keeping density consistent across the sidebar and main screens.
+ */
+export const TYPOGRAPHY = {
+  screenTitle: "text-[17px] font-medium",
+  body: "text-[13px]",
+  caption: "text-[11px]",
+  microLabel: "text-[10px] font-medium uppercase tracking-[0.08em]",
+} as const;
+
+const SurfaceDepth = createContext(0);
+
+/**
+ * A visual grouping surface. A nested surface deliberately drops its full
+ * border, so cards and panels can be composed without producing card-in-card
+ * chrome. Hairline separators inside a surface remain available to its owner.
+ */
+export const Surface = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement> & { bordered?: boolean }
+>(function Surface({ bordered = true, className = "", style, children, ...props }, ref) {
+  const depth = useContext(SurfaceDepth);
+  const drawsBorder = bordered && depth === 0;
+  return (
+    <SurfaceDepth.Provider value={depth + 1}>
+      <div
+        ref={ref}
+        {...props}
+        data-ui-surface=""
+        data-border-level={drawsBorder ? "1" : "0"}
+        className={`rounded-lg ${drawsBorder ? "border" : ""} ${className}`}
+        style={{
+          borderWidth: drawsBorder ? "0.5px" : undefined,
+          borderColor: drawsBorder ? "var(--hairline)" : undefined,
+          ...style,
+        }}
+      >
+        {children}
+      </div>
+    </SurfaceDepth.Provider>
+  );
+});
+
+export function ScreenSurface({
+  screen,
+  ...props
+}: Omit<HTMLAttributes<HTMLDivElement>, "data-screen"> & { screen: "overview" | "repository" }) {
+  return <Surface {...props} bordered={false} data-screen={screen} />;
+}
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
@@ -136,20 +191,20 @@ export function Card({
   children: ReactNode;
   className?: string;
   selected?: boolean;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
 }) {
   return (
-    <div
-      className={`rounded-lg border ${className}`}
+    <Surface
+      className={className}
       style={{
-        borderWidth: "0.5px",
-        borderColor: selected ? "var(--fjord)" : "var(--hairline)",
         background: "var(--paper)",
+        outline: selected ? "1px solid var(--fjord)" : undefined,
+        outlineOffset: selected ? "-1px" : undefined,
         ...style,
       }}
     >
       {children}
-    </div>
+    </Surface>
   );
 }
 
@@ -157,7 +212,7 @@ export function Card({
 export function GroupLabel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <span
-      className={`text-[10px] font-medium uppercase tracking-[0.08em] ${className}`}
+      className={`${TYPOGRAPHY.microLabel} ${className}`}
       style={{ color: "var(--mist)" }}
     >
       {children}

@@ -27,6 +27,20 @@ Semantic colors (`moss`/`amber`/`rust`) are a separate axis from the brand accen
 
 The light palette uses muted mineral-grey surfaces instead of pure white. The dark palette uses raised graphite surfaces instead of a near-black canvas, with a restrained blue-grey interaction accent kept separate from the fixed teal brand mark. Both themes preserve visible surface hierarchy without taking on the high-contrast black-and-teal appearance common to Git clients.
 
+## Density and typography
+
+`src/presentation/ui.tsx` owns the shell's four-step `TYPOGRAPHY` scale:
+`screenTitle` (17 px), `body` (13 px), `caption` (11 px), and `microLabel`
+(10 px uppercase). Shell components consume these named steps instead of
+introducing adjacent one-off sizes.
+
+The same module owns `Surface` and `ScreenSurface`. A screen surface uses the
+page background and never draws a card border around the whole screen. Any
+panel or card composed inside it automatically suppresses its full border;
+owners may still use `--hairline` separators for real pane or section
+boundaries. This makes “one border level per surface” structural rather than a
+per-component styling convention.
+
 ## Resolution and persistence
 
 ```

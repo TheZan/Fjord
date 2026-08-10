@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { GroupLabel, Input } from "@/presentation/ui";
+import { GroupLabel, Input, TYPOGRAPHY } from "@/presentation/ui";
 import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
 
@@ -205,7 +205,7 @@ export function Sidebar({
             >
               <div
                 data-selected={isSelected}
-                className="interactive-row flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left text-[13px] active:cursor-grabbing"
+                className={`interactive-row flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left active:cursor-grabbing ${TYPOGRAPHY.body}`}
                 style={{
                   color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                 }}
@@ -372,8 +372,8 @@ function RepositoryItem({
       }}
     >
       <span className="row-span-2 h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
-      <span className="min-w-0 truncate text-[12px] font-medium">{repo.name}</span>
-      <span className="min-w-0 truncate text-[10px]" style={{ color: "var(--mist)" }}>
+      <span className={`min-w-0 truncate font-medium ${TYPOGRAPHY.body}`}>{repo.name}</span>
+      <span className={`min-w-0 truncate ${TYPOGRAPHY.caption}`} style={{ color: "var(--mist)" }}>
         {status?.branch ?? repo.path}
         {(dirty > 0 || ahead > 0 || behind > 0) && (
           <span className="ml-1.5 inline-flex gap-1 tabular-nums">
@@ -433,7 +433,7 @@ function NavItem({
       type="button"
       onClick={onClick}
       data-selected={active}
-      className="interactive-row rounded-md px-2 py-1.5 text-left text-[13px]"
+      className={`interactive-row rounded-md px-2 py-1.5 text-left ${TYPOGRAPHY.body}`}
       style={{
         color: active ? "var(--fjord-ink)" : "var(--slate)",
         fontWeight: active ? 500 : 400,

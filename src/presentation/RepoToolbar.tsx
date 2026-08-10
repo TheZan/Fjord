@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useStashes } from "@/application/useStashes";
-import { Button, Input } from "@/presentation/ui";
+import { Button, Input, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
 import type { RepoStatus } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
@@ -89,10 +89,7 @@ export function RepoToolbar({
   }
 
   return (
-    <div
-      className="flex shrink-0 flex-col rounded-lg border"
-      style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
-    >
+    <Surface className="flex shrink-0 flex-col" style={{ background: "var(--paper)" }}>
       <header className="flex items-stretch gap-1 px-2 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <button
@@ -106,8 +103,8 @@ export function RepoToolbar({
             <IconBack />
           </button>
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium leading-tight">{repo.name}</div>
-            <div className="flex items-center gap-1.5 truncate text-[11px]" style={{ color: "var(--slate)" }}>
+            <div className={`truncate font-medium leading-tight ${TYPOGRAPHY.body}`}>{repo.name}</div>
+            <div className={`flex items-center gap-1.5 truncate ${TYPOGRAPHY.caption}`} style={{ color: "var(--slate)" }}>
               <IconBranch size={11} />
               <span className="truncate font-mono">{status?.branch ?? t("dashboard.unknown")}</span>
               {status ? <SyncCounters status={status} /> : null}
@@ -241,7 +238,7 @@ export function RepoToolbar({
       {operationProgress ? (
         <OperationProgressStrip progress={operationProgress} onCancel={onCancelOperation} />
       ) : null}
-    </div>
+    </Surface>
   );
 }
 

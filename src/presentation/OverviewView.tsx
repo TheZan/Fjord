@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { RepoCard } from "@/presentation/RepoCard";
-import { Button, Muted } from "@/presentation/ui";
+import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
 import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
@@ -75,10 +75,10 @@ export function OverviewView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-5">
+    <ScreenSurface screen="overview" className="flex min-h-0 flex-1 flex-col gap-5">
       <header className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[17px] font-medium">
+          <h2 className={`truncate ${TYPOGRAPHY.screenTitle}`}>
             {workspace?.name ?? t("dashboard.title")}
           </h2>
         </div>
@@ -137,7 +137,7 @@ export function OverviewView({
           onRemoveRepo={onRemoveRepo}
         />
       )}
-    </div>
+    </ScreenSurface>
   );
 }
 
@@ -158,10 +158,7 @@ function BulkProgressStrip({
     progress.total > 0 ? Math.min(100, Math.round((progress.completed / progress.total) * 100)) : 0;
 
   return (
-    <div
-      className="flex items-center gap-3 rounded-lg border px-3 py-2"
-      style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
-    >
+    <Surface className="flex items-center gap-3 px-3 py-2" style={{ background: "var(--paper)" }}>
       <div className="h-1.5 min-w-32 flex-1 overflow-hidden rounded-full" style={{ background: "var(--page-bg)" }}>
         <div
           className="h-full rounded-full transition-[width]"
@@ -174,7 +171,7 @@ function BulkProgressStrip({
       <Button size="sm" variant="ghost" onClick={onCancel}>
         {t("operations.cancel")}
       </Button>
-    </div>
+    </Surface>
   );
 }
 
@@ -278,7 +275,7 @@ function SummaryLine({
 }) {
   const { t } = useTranslation("workspace");
   return (
-    <div className="flex min-h-7 items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+    <div className={`flex min-h-7 items-center gap-2 ${TYPOGRAPHY.body}`} style={{ color: "var(--slate)" }}>
       <span className="font-medium tabular-nums" style={{ color: "var(--ink)" }}>
         {t("dashboard.repoCountValue", { count: metrics.total })}
       </span>

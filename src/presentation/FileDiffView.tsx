@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
+import { Surface } from "@/presentation/ui";
 import type { DiffLineKind } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 
@@ -65,10 +66,7 @@ export function FileDiffView({
   }, [hasMore, lastVisibleIndex, loadMore, loadingMore, rows.length]);
 
   return (
-    <div
-      className="flex h-full min-h-0 w-full flex-col rounded-lg border text-sm"
-      style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-    >
+    <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
       <div
         className="flex items-center gap-3 border-b px-3 py-2"
         style={{ borderColor: "var(--hairline)" }}
@@ -151,7 +149,7 @@ export function FileDiffView({
           </p>
         )}
       </div>
-    </div>
+    </Surface>
   );
 }
 

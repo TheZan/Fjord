@@ -10,7 +10,7 @@ import {
   type FileViewMode,
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
-import { Button, Input, Textarea } from "@/presentation/ui";
+import { Button, Input, Surface, Textarea } from "@/presentation/ui";
 import type { WorkingChanges, WorkingFile } from "@/domain/git";
 
 export interface SelectedWorkingFile {
@@ -72,10 +72,7 @@ export function WorkingChangesPanel({
   }
 
   return (
-    <div
-      className="flex h-full min-h-0 w-full flex-col rounded-lg border text-sm"
-      style={{ borderColor: "var(--hairline)", background: "var(--paper)" }}
-    >
+    <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
       <div
         className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2"
         style={{ borderColor: "var(--hairline)" }}
@@ -166,7 +163,7 @@ export function WorkingChangesPanel({
           {t("working.commit", { count: changes.staged.length })}
         </Button>
       </div>
-    </div>
+    </Surface>
   );
 }
 
