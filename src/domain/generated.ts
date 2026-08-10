@@ -118,11 +118,15 @@ export type Settings = {
  */
 locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
 
+export type SidebarUiState = { width: number | null, };
+
 export type RepoUiState = { treeWidth: number | null, inspectorWidth: number | null, };
 
-export type UiState = { version: number, repo: RepoUiState, };
+export type UiState = { version: number, sidebar: SidebarUiState, repo: RepoUiState, };
+
+export type SidebarUiStatePatch = { width: number | null, };
 
 export type RepoUiStatePatch = { treeWidth: number | null, inspectorWidth: number | null, };
 
-export type UiStatePatch = { repo: RepoUiStatePatch | null, };
+export type UiStatePatch = { sidebar: SidebarUiStatePatch | null, repo: RepoUiStatePatch | null, };
 

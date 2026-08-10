@@ -107,7 +107,8 @@
   "nav": {
     "overview": "Resumen",
     "allRepositories": "Todos los repositorios",
-    "back": "Atrás"
+    "back": "Atrás",
+    "resizeSidebar": "Cambiar el ancho de la barra lateral"
   },
   "notifications": {
     "operationCompleted": "Operación completada.",

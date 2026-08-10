@@ -99,8 +99,8 @@ export function Sidebar({
 
   return (
     <aside
-      className="flex w-60 shrink-0 flex-col border-r"
-      style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--sidebar-bg)" }}
+      className="flex h-full w-full flex-col"
+      style={{ background: "var(--sidebar-bg)" }}
     >
       <nav className="flex flex-col gap-0.5 px-2 pt-3">
         <NavItem active={view === "overview"} onClick={() => onViewChange("overview")}>

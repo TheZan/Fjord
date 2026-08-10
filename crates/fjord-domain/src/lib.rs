@@ -532,6 +532,13 @@ pub const UI_STATE_VERSION: u32 = 1;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct SidebarUiState {
+    pub width: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct RepoUiState {
     pub tree_width: Option<f64>,
     pub inspector_width: Option<f64>,
@@ -542,6 +549,7 @@ pub struct RepoUiState {
 #[ts(rename_all = "camelCase")]
 pub struct UiState {
     pub version: u32,
+    pub sidebar: SidebarUiState,
     pub repo: RepoUiState,
 }
 
@@ -549,6 +557,7 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             version: UI_STATE_VERSION,
+            sidebar: SidebarUiState::default(),
             repo: RepoUiState::default(),
         }
     }
@@ -565,12 +574,25 @@ pub struct RepoUiStatePatch {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(default, rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
+pub struct SidebarUiStatePatch {
+    pub width: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct UiStatePatch {
+    pub sidebar: Option<SidebarUiStatePatch>,
     pub repo: Option<RepoUiStatePatch>,
 }
 
 impl UiState {
     pub fn apply(&mut self, patch: UiStatePatch) {
+        if let Some(sidebar) = patch.sidebar {
+            if let Some(width) = sidebar.width {
+                self.sidebar.width = Some(width);
+            }
+        }
         if let Some(repo) = patch.repo {
             if let Some(width) = repo.tree_width {
                 self.repo.tree_width = Some(width);

@@ -109,7 +109,8 @@
   "nav": {
     "overview": "Overview",
     "allRepositories": "All repositories",
-    "back": "Back"
+    "back": "Back",
+    "resizeSidebar": "Resize sidebar"
   },
   "notifications": {
     "operationCompleted": "Operation completed.",

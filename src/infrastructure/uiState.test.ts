@@ -19,10 +19,12 @@ describe("UI state migration", () => {
   it("moves legacy pane widths to SQLite and removes the old key", async () => {
     getUiState.mockResolvedValue({
       version: 1,
+      sidebar: { width: null },
       repo: { treeWidth: null, inspectorWidth: null },
     });
     updateUiState.mockResolvedValue({
       version: 1,
+      sidebar: { width: null },
       repo: { treeWidth: 276, inspectorWidth: 410 },
     });
     localStorage.setItem("fjord:repo-layout:v1", JSON.stringify({ left: 276, right: 410 }));
@@ -31,6 +33,7 @@ describe("UI state migration", () => {
     const state = await loadUiState();
 
     expect(updateUiState).toHaveBeenCalledWith({
+      sidebar: null,
       repo: { treeWidth: 276, inspectorWidth: 410 },
     });
     expect(state.repo).toEqual({ treeWidth: 276, inspectorWidth: 410 });
@@ -40,6 +43,7 @@ describe("UI state migration", () => {
   it("keeps the legacy key when persistence fails so migration can retry", async () => {
     getUiState.mockResolvedValue({
       version: 1,
+      sidebar: { width: null },
       repo: { treeWidth: null, inspectorWidth: null },
     });
     updateUiState.mockRejectedValue(new Error("database locked"));
@@ -48,5 +52,20 @@ describe("UI state migration", () => {
 
     await expect(loadUiState()).rejects.toThrow("database locked");
     expect(localStorage.getItem("fjord:repo-layout:v1")).not.toBeNull();
+  });
+
+  it("persists sidebar width as an isolated partial patch", async () => {
+    const initial = {
+      version: 1,
+      sidebar: { width: null },
+      repo: { treeWidth: 240, inspectorWidth: 384 },
+    };
+    getUiState.mockResolvedValue(initial);
+    updateUiState.mockResolvedValue({ ...initial, sidebar: { width: 312 } });
+    const { saveSidebarWidth } = await import("@/infrastructure/uiState");
+
+    await saveSidebarWidth(312);
+
+    expect(updateUiState).toHaveBeenCalledWith({ sidebar: { width: 312 }, repo: null });
   });
 });

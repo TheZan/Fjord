@@ -39,6 +39,7 @@ import {
 } from "@/presentation/performance";
 import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { MainShell } from "@/presentation/MainShell";
+import { ResizableSidebar } from "@/presentation/ResizableSidebar";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
@@ -310,7 +311,8 @@ export function App() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--page-bg)", color: "var(--ink)" }}>
-      <Sidebar
+      <ResizableSidebar resizeLabel={tw("nav.resizeSidebar")}>
+        <Sidebar
         view={view}
         onViewChange={(next) => {
           setView(next);
@@ -338,7 +340,8 @@ export function App() {
         onSelectRepository={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
         onWarmRepository={queueRepositoryWarm}
         pending={workspaceActionPending}
-      />
+        />
+      </ResizableSidebar>
 
       <MainShell
         searchLabel={tw("toolbar.search")}

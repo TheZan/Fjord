@@ -107,7 +107,8 @@
   "nav": {
     "overview": "Vue d'ensemble",
     "allRepositories": "Tous les dépôts",
-    "back": "Retour"
+    "back": "Retour",
+    "resizeSidebar": "Redimensionner la barre latérale"
   },
   "notifications": {
     "operationCompleted": "Opération terminée.",

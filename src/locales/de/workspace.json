@@ -107,7 +107,8 @@
   "nav": {
     "overview": "Übersicht",
     "allRepositories": "Alle Repositorys",
-    "back": "Zurück"
+    "back": "Zurück",
+    "resizeSidebar": "Seitenleiste skalieren"
   },
   "notifications": {
     "operationCompleted": "Vorgang abgeschlossen.",

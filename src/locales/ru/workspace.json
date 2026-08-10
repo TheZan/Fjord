@@ -109,7 +109,8 @@
   "nav": {
     "overview": "Обзор",
     "allRepositories": "Все репозитории",
-    "back": "Назад"
+    "back": "Назад",
+    "resizeSidebar": "Изменить ширину боковой панели"
   },
   "notifications": {
     "operationCompleted": "Операция завершена.",

@@ -1,4 +1,4 @@
-import type { UiState } from "@/domain/generated";
+import type { UiState, UiStatePatch } from "@/domain/generated";
 import { getUiState, updateUiState } from "@/infrastructure/tauriClient";
 
 export const LEGACY_REPO_LAYOUT_KEY = "fjord:repo-layout:v1";
@@ -24,9 +24,17 @@ export function loadUiState(): Promise<UiState> {
 }
 
 export function saveRepoPaneSizes(treeWidth: number, inspectorWidth: number): Promise<UiState> {
+  return saveUiState({ sidebar: null, repo: { treeWidth, inspectorWidth } });
+}
+
+export function saveSidebarWidth(width: number): Promise<UiState> {
+  return saveUiState({ sidebar: { width }, repo: null });
+}
+
+function saveUiState(patch: UiStatePatch): Promise<UiState> {
   const previous = stateWrite ?? loadUiState();
   stateWrite = previous.catch(defaultUiState).then(() =>
-    updateUiState({ repo: { treeWidth, inspectorWidth } }).then((state) => {
+    updateUiState(patch).then((state) => {
       stateRequest = Promise.resolve(state);
       return state;
     }),
@@ -42,7 +50,7 @@ function migrateLegacyPaneSizes(state: UiState): Promise<UiState> | UiState {
   const inspectorWidth = state.repo.inspectorWidth ?? finiteNumber(legacy.right);
   const migration =
     treeWidth !== state.repo.treeWidth || inspectorWidth !== state.repo.inspectorWidth
-      ? updateUiState({ repo: { treeWidth, inspectorWidth } })
+      ? updateUiState({ sidebar: null, repo: { treeWidth, inspectorWidth } })
       : Promise.resolve(state);
   return migration.then((updated) => {
     localStorage.removeItem(LEGACY_REPO_LAYOUT_KEY);
@@ -63,5 +71,5 @@ function finiteNumber(value: unknown): number | null {
 }
 
 function defaultUiState(): UiState {
-  return { version: 1, repo: { treeWidth: null, inspectorWidth: null } };
+  return { version: 1, sidebar: { width: null }, repo: { treeWidth: null, inspectorWidth: null } };
 }
