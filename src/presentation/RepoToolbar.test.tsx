@@ -99,7 +99,9 @@ describe("RepoToolbar", () => {
     render(<RepoToolbar {...props()} />);
 
     for (const name of ["repoActions.fetch", "repoActions.pull", "repoActions.push", "toolbar.branch"]) {
-      expect(screen.getByRole("button", { name })).toBeVisible();
+      const button = screen.getByRole("button", { name });
+      expect(button).toBeVisible();
+      expect(button.querySelector("svg")).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "toolbar.search" })).toBeVisible();
     expect(screen.getByRole("button", { name: "repoActions.openIde" })).toBeVisible();

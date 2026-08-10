@@ -115,6 +115,7 @@ export function RepoToolbar({
         <ToolGroup>
           <PrimaryToolButton
             label={t("repoActions.fetch")}
+            icon={<IconFetch />}
             pending={actionPending === "fetch"}
             disabled={mutationBlocked}
             disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
@@ -122,6 +123,7 @@ export function RepoToolbar({
           />
           <PrimaryToolButton
             label={t("repoActions.pull")}
+            icon={<IconPull />}
             badge={status && status.behind > 0 ? status.behind : undefined}
             pending={actionPending === "pull"}
             disabled={mutationBlocked}
@@ -130,6 +132,7 @@ export function RepoToolbar({
           />
           <PrimaryToolButton
             label={t("repoActions.push")}
+            icon={<IconPush />}
             badge={status && status.ahead > 0 ? status.ahead : undefined}
             pending={actionPending === "push"}
             disabled={mutationBlocked}
@@ -139,6 +142,7 @@ export function RepoToolbar({
           <div className="relative" ref={branchRef}>
             <PrimaryToolButton
               label={t("toolbar.branch")}
+              icon={<IconBranch />}
               disabled={mutationBlocked}
               disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
               active={branchOpen}
@@ -307,6 +311,7 @@ function ToolGroup({ children, last = false }: { children: ReactNode; last?: boo
 
 function PrimaryToolButton({
   label,
+  icon,
   onClick,
   disabled = false,
   disabledReason,
@@ -315,6 +320,7 @@ function PrimaryToolButton({
   badge,
 }: {
   label: string;
+  icon: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   disabledReason?: string;
@@ -336,6 +342,7 @@ function PrimaryToolButton({
         opacity: pending ? 0.55 : undefined,
       }}
     >
+      <span className="flex shrink-0 items-center justify-center">{icon}</span>
       <span>{label}</span>
       {badge !== undefined ? (
         <span
@@ -435,6 +442,35 @@ function IconSearch() {
     <Svg>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
+    </Svg>
+  );
+}
+
+function IconFetch() {
+  return (
+    <Svg>
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 3v6h-6" />
+    </Svg>
+  );
+}
+
+function IconPull() {
+  return (
+    <Svg>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </Svg>
+  );
+}
+
+function IconPush() {
+  return (
+    <Svg>
+      <path d="M12 21V9" />
+      <path d="m7 14 5-5 5 5" />
+      <path d="M5 3h14" />
     </Svg>
   );
 }
