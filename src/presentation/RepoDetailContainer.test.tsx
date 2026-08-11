@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, runPushRepo } from "@/infrastructure/tauriClient";
+import { checkoutBranch, runPushRepo, stagePatch } from "@/infrastructure/tauriClient";
+import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
 import type { RepositoryEntry } from "@/domain/workspace";
 
@@ -58,6 +59,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   checkoutBranch: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
+  stagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
 }));
 
 vi.mock("@/presentation/RepoDetailView", () => ({
@@ -66,15 +68,18 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onAction,
     onCheckout,
     onConfirmAction,
+    onApplyHunk,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push") => void;
     onCheckout: (branch: string) => void;
     onConfirmAction: () => void;
+    onApplyHunk: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
   }) => (
     <div>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
+      <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -96,6 +101,9 @@ describe("RepoDetailContainer checkout confirmation", () => {
   beforeEach(() => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(runPushRepo).mockClear();
+    vi.mocked(stagePatch).mockReset();
+    vi.mocked(stagePatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
+    vi.mocked(invalidateRepoData).mockClear();
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
@@ -165,6 +173,19 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     await waitFor(() => expect(runPushRepo).toHaveBeenCalledOnce());
     expect(order).toEqual(["validated", "operation-created"]);
+  });
+
+  it("refreshes rather than retrying a stale hunk selection", async () => {
+    vi.mocked(stagePatch).mockRejectedValue({ code: "patch_stale" });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "stage hunk" }));
+
+    await waitFor(() => expect(stagePatch).toHaveBeenCalledOnce());
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "workspace-1", ["status", "working"],
+    ));
+    expect(stagePatch).toHaveBeenCalledOnce();
   });
 });
 

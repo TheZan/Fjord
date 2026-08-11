@@ -59,6 +59,11 @@ interface GenerationEnvelope<T> {
   generations: GenerationSet;
 }
 
+export interface VersionedFileDiffWindow {
+  data: FileDiffWindow;
+  generations: GenerationSet | null;
+}
+
 export type OperationKind = "fetch" | "pull" | "push" | "publish" | "bulk-fetch" | "bulk-pull";
 export type OperationStatus =
   | "started"
@@ -182,10 +187,26 @@ function invokeVersioned<T>(
   repoId: string,
   scope: RepositoryGenerationScope,
   signal?: AbortSignal,
-): Promise<T> {
+): Promise<T>;
+function invokeVersioned<T>(
+  command: string,
+  args: Record<string, unknown>,
+  repoId: string,
+  scope: RepositoryGenerationScope,
+  signal: AbortSignal | undefined,
+  includeGenerations: true,
+): Promise<GenerationEnvelope<T>>;
+function invokeVersioned<T>(
+  command: string,
+  args: Record<string, unknown>,
+  repoId: string,
+  scope: RepositoryGenerationScope,
+  signal?: AbortSignal,
+  includeGenerations = false,
+): Promise<T | GenerationEnvelope<T>> {
   return invokeAbortable<GenerationEnvelope<T>>(command, args, signal).then((response) => {
     observeRepositoryGenerations(repoId, response.generations, scope);
-    return response.data;
+    return includeGenerations ? response : response.data;
   });
 }
 
@@ -414,12 +435,26 @@ export function getWorkingFileDiff(
   limit: number,
   signal?: AbortSignal,
 ): Promise<FileDiffWindow> {
-  return invokeVersioned(
+  return getWorkingFileDiffWithGenerations(repoId, path, staged, offset, limit, signal).then(
+    (response) => response.data,
+  );
+}
+
+export function getWorkingFileDiffWithGenerations(
+  repoId: string,
+  path: string,
+  staged: boolean,
+  offset: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<VersionedFileDiffWindow> {
+  return invokeVersioned<FileDiffWindow>(
     "get_working_file_diff",
     { repoId, path, staged, offset, limit },
     repoId,
     "working",
     signal,
+    true,
   );
 }
 

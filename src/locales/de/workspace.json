@@ -120,6 +120,11 @@
     "empty": "Keine Änderungen zum Anzeigen.",
     "back": "Zurück zum Graphen",
     "loadingMore": "Weitere Änderungen werden geladen…",
+    "stageHunk": "Hunk stagen",
+    "stagingHunk": "Hunk wird gestaged…",
+    "unstageHunk": "Hunk aus Staging entfernen",
+    "unstagingHunk": "Hunk wird entfernt…",
+    "patchStale": "Die Datei wurde vor dem Anwenden des Hunks geändert. Der Diff wurde aktualisiert.",
     "tooLarge": "Diese Datei ist {{size}} groß und überschreitet das Anzeigelimit von 10 MB. Der Inhalt wurde nicht geladen."
   },
   "fileView": {

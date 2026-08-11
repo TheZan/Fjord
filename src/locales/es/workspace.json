@@ -120,6 +120,11 @@
     "empty": "No hay cambios para mostrar.",
     "back": "Volver al grafo",
     "loadingMore": "Cargando más cambios…",
+    "stageHunk": "Preparar bloque",
+    "stagingHunk": "Preparando bloque…",
+    "unstageHunk": "Quitar bloque de preparación",
+    "unstagingHunk": "Quitando bloque…",
+    "patchStale": "El archivo cambió antes de aplicar este bloque. Se actualizó el diff.",
     "tooLarge": "Este archivo ocupa {{size}} y supera el límite de visualización de 10 MB. No se cargó su contenido."
   },
   "fileView": {

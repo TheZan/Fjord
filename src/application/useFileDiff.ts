@@ -2,8 +2,8 @@ import { useCallback, useMemo } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
-import { getFileDiff, getWorkingFileDiff } from "@/infrastructure/tauriClient";
-import type { DiffHunk, FileDiffWindow } from "@/domain/git";
+import { getFileDiff, getWorkingFileDiffWithGenerations } from "@/infrastructure/tauriClient";
+import type { DiffHunk, FileDiffWindow, GenerationSet } from "@/domain/git";
 
 export type DiffSource =
   | { kind: "commit"; commitId: string }
@@ -16,6 +16,7 @@ export interface UseFileDiffResult {
   hasMore: boolean;
   loadMore: () => void;
   error: string | null;
+  generations: GenerationSet | null;
 }
 
 export const DIFF_WINDOW_LINES = 1_000;
@@ -39,8 +40,8 @@ export function useFileDiff(
         : queryKeys.repos.all,
     queryFn: ({ pageParam, signal }) =>
       source!.kind === "commit"
-        ? getFileDiff(repoId!, source!.commitId, path!, pageParam, DIFF_WINDOW_LINES, signal)
-        : getWorkingFileDiff(
+        ? getFileDiff(repoId!, source!.commitId, path!, pageParam, DIFF_WINDOW_LINES, signal).then((data) => ({ data, generations: null }))
+        : getWorkingFileDiffWithGenerations(
             repoId!,
             path!,
             source!.staged,
@@ -49,13 +50,13 @@ export function useFileDiff(
             signal,
           ),
     initialPageParam: 0,
-    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
+    getNextPageParam: (lastPage) => lastPage.data.nextOffset ?? undefined,
     enabled: repoId !== null && path !== null && source !== null,
     staleTime: source?.kind === "commit" ? Infinity : 0,
     gcTime: source?.kind === "commit" ? 30 * 60 * 1_000 : undefined,
   });
 
-  const diff = useMemo(() => mergeDiffWindows(query.data?.pages ?? []), [query.data?.pages]);
+  const diff = useMemo(() => mergeDiffWindows((query.data?.pages ?? []).map((page) => page.data)), [query.data?.pages]);
   const loadMore = useCallback(() => {
     if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
   }, [query]);
@@ -67,6 +68,7 @@ export function useFileDiff(
     hasMore: query.hasNextPage,
     loadMore,
     error: query.error ? userErrorMessage(query.error) : null,
+    generations: query.data?.pages[0]?.generations ?? null,
   };
 }
 

@@ -9,7 +9,7 @@ import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { CommitSummary } from "@/domain/git";
+import type { CommitSummary, GenerationSet, PatchSelection } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -34,9 +34,11 @@ import {
   resetToCommit,
   revertCommit,
   stageFiles,
+  stagePatch,
   stashPop,
   stashPush,
   unstageFiles,
+  unstagePatch,
   type OperationProgressEvent,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
@@ -337,6 +339,22 @@ export function RepoDetailContainer({
     void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
+  function onApplyHunk(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
+    const action = selection.source === "worktree" ? "stage-hunk" : "unstage-hunk";
+    const mutate = selection.source === "worktree" ? stagePatch : unstagePatch;
+    return runRepoAction(
+      action,
+      () => mutate(repo.id, selection, expectedGenerations).then(() => undefined),
+      ["status", "working"],
+      (error) => {
+        if (invokeErrorCode(error) !== "patch_stale") return false;
+        setActionError(t("diff.patchStale"));
+        void invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
+        return true;
+      },
+    );
+  }
+
   function onCommit(message: string): Promise<boolean> {
     return runWorkingAction("commit", () => commitRepo(repo.id, message).then(() => undefined), ["status", "working", "history", "refs"]);
   }
@@ -407,6 +425,7 @@ export function RepoDetailContainer({
       }}
       onStage={onStage}
       onUnstage={onUnstage}
+      onApplyHunk={onApplyHunk}
       onCommit={onCommit}
     /> : (
       <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">

@@ -120,6 +120,11 @@
     "empty": "Aucun changement à afficher.",
     "back": "Retour au graphe",
     "loadingMore": "Chargement des modifications suivantes…",
+    "stageHunk": "Indexer le bloc",
+    "stagingHunk": "Indexation du bloc…",
+    "unstageHunk": "Retirer le bloc de l’index",
+    "unstagingHunk": "Retrait du bloc…",
+    "patchStale": "Le fichier a changé avant l’application du bloc. Le diff a été actualisé.",
     "tooLarge": "Ce fichier fait {{size}} et dépasse la limite d’affichage de 10 Mo. Son contenu n’a pas été chargé."
   },
   "fileView": {

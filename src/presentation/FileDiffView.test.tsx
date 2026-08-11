@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   loading: false,
   loadingMore: false,
   error: null as string | null,
+  generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
   diff: null as null | {
     path: string;
     changeType: "modified";
@@ -30,6 +31,7 @@ const state = vi.hoisted(() => ({
     totalLines: number;
     truncated: boolean;
     nextOffset: number | null;
+    baseDigest: string | null;
   },
 }));
 
@@ -41,6 +43,7 @@ vi.mock("@/application/useFileDiff", () => ({
     hasMore: state.hasMore,
     loadMore: state.loadMore,
     error: state.error,
+    generations: state.generations,
   }),
 }));
 
@@ -109,6 +112,49 @@ describe("FileDiffView windowing", () => {
     expect(screen.getAllByText("4")).toHaveLength(2);
   });
 
+  it("stages exactly the selected unstaged hunk using the backend digest and generations", async () => {
+    state.hasMore = false;
+    const onApplyHunk = vi.fn().mockResolvedValue(true);
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={onApplyHunk}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageHunk" }));
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledWith({
+      path: "large.txt",
+      source: "worktree",
+      baseDigest: "digest-1",
+      hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
+    }, state.generations));
+  });
+
+  it("unstages a staged hunk and prevents duplicate clicks while pending", async () => {
+    state.hasMore = false;
+    let resolve!: (value: boolean) => void;
+    const onApplyHunk = vi.fn().mockReturnValue(new Promise<boolean>((done) => { resolve = done; }));
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: true }}
+        onApplyHunk={onApplyHunk}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "diff.unstageHunk" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onApplyHunk).toHaveBeenCalledOnce();
+    resolve(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: "diff.unstageHunk" })).toBeEnabled());
+    expect(onApplyHunk.mock.calls[0][0].source).toBe("index");
+  });
+
   it.each([
     [{ isBinary: true }, "diff.binary"],
     [{ tooLarge: true, fileBytes: 2 * 1024 * 1024 }, "too large: 2.0 MB"],
@@ -160,5 +206,6 @@ function textDiff() {
     totalLines: 2_000,
     truncated: state.hasMore,
     nextOffset: state.hasMore ? 1_000 : null,
+    baseDigest: "digest-1",
   };
 }

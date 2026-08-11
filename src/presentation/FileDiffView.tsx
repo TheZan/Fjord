@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { Surface } from "@/presentation/ui";
-import type { DiffLineKind } from "@/domain/git";
+import type { DiffLineKind, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 
 const DIFF_LINE_HEIGHT = 20;
@@ -38,14 +38,18 @@ export function FileDiffView({
   path,
   source,
   onBack,
+  actionDisabled = false,
+  onApplyHunk,
 }: {
   repoId: string;
   path: string;
   source: DiffSource;
   onBack?: () => void;
+  actionDisabled?: boolean;
+  onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
-  const { diff, loading, loadingMore, hasMore, loadMore, error } = useFileDiff(
+  const { diff, loading, loadingMore, hasMore, loadMore, error, generations } = useFileDiff(
     repoId,
     path,
     source,
@@ -137,7 +141,18 @@ export function FileDiffView({
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  {row.kind === "hunk" ? <HunkRow hunk={row.hunk} /> : <DiffLineRow line={row.line} />}
+                  {row.kind === "hunk" ? (
+                    <HunkRow
+                      hunk={row.hunk}
+                      source={source}
+                      disabled={actionDisabled || !diff.baseDigest || !generations}
+                      onApply={
+                        diff.baseDigest && generations && onApplyHunk
+                          ? () => onApplyHunk(wholeHunkSelection(path, source, row.hunk, diff.baseDigest!), generations)
+                          : undefined
+                      }
+                    />
+                  ) : <DiffLineRow line={row.line} />}
                 </div>
               );
             })}
@@ -173,15 +188,69 @@ function flattenDiffRows(hunks: DiffHunk[]): FlatDiffRow[] {
   ]);
 }
 
-function HunkRow({ hunk }: { hunk: DiffHunk }) {
+function wholeHunkSelection(path: string, source: DiffSource, hunk: DiffHunk, baseDigest: string): PatchSelection {
+  return {
+    path,
+    source: source.kind === "working" && source.staged ? "index" : "worktree",
+    baseDigest,
+    hunks: [{ oldStart: hunk.oldStart, oldLines: hunk.oldLines, newStart: hunk.newStart, newLines: hunk.newLines, lines: [] }],
+  };
+}
+
+function HunkRow({
+  hunk,
+  source,
+  disabled,
+  onApply,
+}: {
+  hunk: DiffHunk;
+  source: DiffSource;
+  disabled: boolean;
+  onApply?: () => Promise<boolean>;
+}) {
+  const { t } = useTranslation("workspace");
+  const [pending, setPending] = useState(false);
+  const staged = source.kind === "working" && source.staged;
+  if (source.kind !== "working") {
+    return <HunkHeader hunk={hunk} />;
+  }
+
+  const actionLabel = pending
+    ? t(staged ? "diff.unstagingHunk" : "diff.stagingHunk")
+    : t(staged ? "diff.unstageHunk" : "diff.stageHunk");
+  return (
+    <div className="flex h-full items-center gap-2 whitespace-nowrap px-3 py-1" style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}>
+      <HunkCoordinates hunk={hunk} />
+      <button
+        type="button"
+        className="interactive-control ml-auto rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled || pending || !onApply}
+        aria-label={actionLabel}
+        onClick={() => {
+          if (pending || !onApply) return;
+          setPending(true);
+          void onApply().finally(() => setPending(false));
+        }}
+      >
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function HunkHeader({ hunk }: { hunk: DiffHunk }) {
   return (
     <div
       className="h-full whitespace-nowrap px-3 py-1"
       style={{ background: "var(--fjord-tint)", color: "var(--fjord-ink)" }}
     >
-      @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@
+      <HunkCoordinates hunk={hunk} />
     </div>
   );
+}
+
+function HunkCoordinates({ hunk }: { hunk: DiffHunk }) {
+  return <>@@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@</>;
 }
 
 function DiffLineRow({ line }: { line: DiffLine }) {

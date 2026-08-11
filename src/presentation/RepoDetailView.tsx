@@ -13,7 +13,7 @@ import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContext
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
-import type { CommitSummary, RepoStatus, WorkingChanges } from "@/domain/git";
+import type { CommitSummary, GenerationSet, PatchSelection, RepoStatus, WorkingChanges } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
@@ -68,6 +68,7 @@ export function RepoDetailView({
   onSelectWorking,
   onStage,
   onUnstage,
+  onApplyHunk,
   onCommit,
 }: {
   repo: RepositoryEntry;
@@ -114,6 +115,7 @@ export function RepoDetailView({
   onSelectWorking: () => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
+  onApplyHunk: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onCommit: (message: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
@@ -269,6 +271,8 @@ export function RepoDetailView({
               repoId={repo.id}
               path={diffTarget.path}
               source={diffTarget.source}
+              actionDisabled={!snapshotValidated || actionPending !== null}
+              onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
               onBack={() =>
                 workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
               }
