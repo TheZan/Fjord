@@ -75,6 +75,7 @@ describe("FileDiffView windowing", () => {
     state.loading = false;
     state.loadingMore = false;
     state.error = null;
+    state.generations = { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 };
     state.diff = textDiff();
   });
 
@@ -110,6 +111,142 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText("-old line")).toBeInTheDocument();
     expect(screen.getByText("+new line")).toBeInTheDocument();
     expect(screen.getAllByText("4")).toHaveLength(2);
+  });
+
+  it("selects eligible changed lines while context lines remain non-interactive", () => {
+    state.hasMore = false;
+    state.diff = {
+      ...textDiff(),
+      hunks: [{
+        ...textDiff().hunks[0],
+        lines: [
+          textDiff().hunks[0].lines[0],
+          { kind: "context", oldLineno: 5, newLineno: 5, content: "unchanged" },
+          textDiff().hunks[0].lines[1],
+        ],
+      }],
+    };
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={vi.fn()} />,
+    );
+
+    expect(screen.getByRole("button", { name: "diff.select.deletion" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "diff.select.addition" })).toBeEnabled();
+    expect(screen.getByText("unchanged").closest("button")).toBeNull();
+  });
+
+  it("selects and deselects a changed line and updates the selected-lines action", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={vi.fn()} />,
+    );
+
+    const action = screen.getByRole("button", { name: "diff.stageSelectedLines" });
+    expect(action).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    expect(action).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "diff.deselect.deletion" }));
+    expect(action).toBeDisabled();
+  });
+
+  it("stages only selected line indices with the backend digest and generations", async () => {
+    state.hasMore = false;
+    const onApplyHunk = vi.fn().mockResolvedValue(true);
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={onApplyHunk} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.addition" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageSelectedLines" }));
+
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledWith({
+      path: "large.txt",
+      source: "worktree",
+      baseDigest: "digest-1",
+      hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [1] }],
+    }, state.generations));
+    expect(screen.getByRole("button", { name: "diff.stageSelectedLines" })).toBeDisabled();
+  });
+
+  it("unstages multiple selected lines using shift-click and the index source", async () => {
+    state.hasMore = false;
+    const original = textDiff();
+    state.diff = {
+      ...original,
+      hunks: [{
+        ...original.hunks[0],
+        lines: [
+          original.hunks[0].lines[0],
+          { kind: "context", oldLineno: 5, newLineno: 5, content: "unchanged" },
+          original.hunks[0].lines[1],
+        ],
+      }],
+    };
+    const onApplyHunk = vi.fn().mockResolvedValue(true);
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: true }} onApplyHunk={onApplyHunk} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.addition" }), { shiftKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "diff.unstageSelectedLines" }));
+
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledWith(expect.objectContaining({
+      source: "index",
+      hunks: [expect.objectContaining({ lines: [0, 2] })],
+    }), state.generations));
+  });
+
+  it("extends line selection with Shift+Arrow and clears it after a failed or stale mutation", async () => {
+    state.hasMore = false;
+    const onApplyHunk = vi.fn().mockResolvedValue(false);
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={onApplyHunk} />,
+    );
+
+    const deletion = screen.getByRole("button", { name: "diff.select.deletion" });
+    deletion.focus();
+    fireEvent.keyDown(deletion, { key: "ArrowDown", shiftKey: true });
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageSelectedLines" }));
+
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
+  });
+
+  it("prevents duplicate selected-line submission while pending", async () => {
+    state.hasMore = false;
+    let resolve!: (value: boolean) => void;
+    const onApplyHunk = vi.fn().mockReturnValue(new Promise<boolean>((done) => { resolve = done; }));
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={onApplyHunk} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    const action = screen.getByRole("button", { name: "diff.stageSelectedLines" });
+    fireEvent.click(action);
+    fireEvent.click(action);
+    expect(onApplyHunk).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "diff.stageSelectedLines" })).toBeDisabled();
+    resolve(true);
+    await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
+  });
+
+  it("does not carry line selection into a refreshed diff snapshot", async () => {
+    state.hasMore = false;
+    const view = render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
+
+    state.diff = { ...textDiff(), baseDigest: "digest-2" };
+    state.generations = { ...state.generations, workingTree: 5 };
+    view.rerender(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={vi.fn()} />,
+    );
+
+    await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
   });
 
   it("stages exactly the selected unstaged hunk using the backend digest and generations", async () => {

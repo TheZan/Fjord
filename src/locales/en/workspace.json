@@ -127,6 +127,18 @@
       "unstageHunk": "Unstage hunk",
       "unstagingHunk": "Unstaging hunk…",
       "patchStale": "The file changed before this hunk could be applied. The diff has been refreshed.",
+      "stageSelectedLines": "Stage selected lines",
+      "stagingSelectedLines": "Staging selected lines…",
+      "unstageSelectedLines": "Unstage selected lines",
+      "unstagingSelectedLines": "Unstaging selected lines…",
+      "select": {
+        "addition": "Select added line {{line}}",
+        "deletion": "Select deleted line {{line}}"
+      },
+      "deselect": {
+        "addition": "Deselect added line {{line}}",
+        "deletion": "Deselect deleted line {{line}}"
+      },
     "tooLarge": "This file is {{size}}, above the 10 MB display limit. Its contents were not loaded."
   },
   "fileView": {

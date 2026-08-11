@@ -125,6 +125,18 @@
     "unstageHunk": "Retirer le bloc de l’index",
     "unstagingHunk": "Retrait du bloc…",
     "patchStale": "Le fichier a changé avant l’application du bloc. Le diff a été actualisé.",
+    "stageSelectedLines": "Indexer les lignes sélectionnées",
+    "stagingSelectedLines": "Indexation des lignes sélectionnées…",
+    "unstageSelectedLines": "Retirer les lignes sélectionnées de l’index",
+    "unstagingSelectedLines": "Retrait des lignes sélectionnées…",
+    "select": {
+      "addition": "Sélectionner la ligne ajoutée {{line}}",
+      "deletion": "Sélectionner la ligne supprimée {{line}}"
+    },
+    "deselect": {
+      "addition": "Désélectionner la ligne ajoutée {{line}}",
+      "deletion": "Désélectionner la ligne supprimée {{line}}"
+    },
     "tooLarge": "Ce fichier fait {{size}} et dépasse la limite d’affichage de 10 Mo. Son contenu n’a pas été chargé."
   },
   "fileView": {

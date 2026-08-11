@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
@@ -55,7 +55,10 @@ export function FileDiffView({
     source,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
+  const [selectionPending, setSelectionPending] = useState(false);
   const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
+  const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -68,6 +71,60 @@ export function FileDiffView({
   useEffect(() => {
     if (hasMore && !loadingMore && lastVisibleIndex >= rows.length - 100) loadMore();
   }, [hasMore, lastVisibleIndex, loadMore, loadingMore, rows.length]);
+
+  useEffect(() => {
+    setLineSelection(null);
+    setSelectionPending(false);
+  }, [snapshotKey]);
+
+  function selectLine(hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) {
+    if (selectionPending || source.kind !== "working" || !diff) return;
+    setLineSelection((current) => {
+      if (event.shiftKey && current?.hunkIndex === hunkIndex) {
+        return rangeSelection(diff.hunks[hunkIndex], hunkIndex, current.anchorIndex, lineIndex);
+      }
+      const lineIndices = current?.hunkIndex === hunkIndex
+        ? new Set(current.lineIndices)
+        : new Set<number>();
+      if (lineIndices.has(lineIndex)) lineIndices.delete(lineIndex);
+      else lineIndices.add(lineIndex);
+      return lineIndices.size > 0 ? { hunkIndex, lineIndices, anchorIndex: lineIndex } : null;
+    });
+  }
+
+  function extendLineSelection(hunkIndex: number, lineIndex: number, direction: -1 | 1) {
+    if (selectionPending || source.kind !== "working" || !diff) return;
+    const hunk = diff.hunks[hunkIndex];
+    const targetIndex = nextChangedLineIndex(hunk, lineIndex, direction);
+    if (targetIndex === null) return;
+    setLineSelection((current) => {
+      const anchorIndex = current?.hunkIndex === hunkIndex ? current.anchorIndex : lineIndex;
+      return rangeSelection(hunk, hunkIndex, anchorIndex, targetIndex);
+    });
+    queueMicrotask(() => {
+      document.querySelector<HTMLButtonElement>(`[data-diff-line="${hunkIndex}:${targetIndex}"]`)?.focus();
+    });
+  }
+
+  async function applySelectedLines(hunkIndex: number, hunk: DiffHunk) {
+    if (
+      selectionPending ||
+      !onApplyHunk ||
+      !diff?.baseDigest ||
+      !generations ||
+      lineSelection?.hunkIndex !== hunkIndex ||
+      lineSelection.lineIndices.size === 0
+    ) return;
+    const selection = selectedLinesSelection(path, source, hunk, diff.baseDigest, lineSelection.lineIndices);
+    const expectedGenerations = generations;
+    setSelectionPending(true);
+    try {
+      await onApplyHunk(selection, expectedGenerations);
+    } finally {
+      setLineSelection(null);
+      setSelectionPending(false);
+    }
+  }
 
   return (
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
@@ -145,14 +202,27 @@ export function FileDiffView({
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
-                      disabled={actionDisabled || !diff.baseDigest || !generations}
+                      disabled={actionDisabled || selectionPending || !diff.baseDigest || !generations}
+                      selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
+                      selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
                       onApply={
                         diff.baseDigest && generations && onApplyHunk
                           ? () => onApplyHunk(wholeHunkSelection(path, source, row.hunk, diff.baseDigest!), generations)
                           : undefined
                       }
+                      onApplySelected={onApplyHunk ? () => applySelectedLines(row.hunkIndex, row.hunk) : undefined}
                     />
-                  ) : <DiffLineRow line={row.line} />}
+                  ) : (
+                    <DiffLineRow
+                      line={row.line}
+                      hunkIndex={row.hunkIndex}
+                      lineIndex={row.lineIndex}
+                      interactive={source.kind === "working" && !actionDisabled && !selectionPending}
+                      selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
+                      onSelect={selectLine}
+                      onExtendSelection={extendLineSelection}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -174,18 +244,57 @@ function formatFileBytes(bytes: number): string {
 }
 
 type FlatDiffRow =
-  | { kind: "hunk"; key: string; hunk: DiffHunk }
-  | { kind: "line"; key: string; line: DiffLine };
+  | { kind: "hunk"; key: string; hunk: DiffHunk; hunkIndex: number }
+  | { kind: "line"; key: string; line: DiffLine; hunkIndex: number; lineIndex: number };
 
 function flattenDiffRows(hunks: DiffHunk[]): FlatDiffRow[] {
   return hunks.flatMap((hunk, hunkIndex) => [
-    { kind: "hunk" as const, key: `hunk-${hunkIndex}`, hunk },
+    { kind: "hunk" as const, key: `hunk-${hunkIndex}`, hunk, hunkIndex },
     ...hunk.lines.map((line, lineIndex) => ({
       kind: "line" as const,
       key: `line-${hunkIndex}-${lineIndex}`,
       line,
+      hunkIndex,
+      lineIndex,
     })),
   ]);
+}
+
+interface LineSelection {
+  hunkIndex: number;
+  lineIndices: Set<number>;
+  anchorIndex: number;
+}
+
+function diffSourceKey(source: DiffSource) {
+  return source.kind === "commit" ? `commit:${source.commitId}` : `working:${source.staged}`;
+}
+
+function generationKey(generations: GenerationSet | null) {
+  return generations
+    ? `${generations.workingTree}:${generations.refs}:${generations.history}:${generations.stash}:${generations.config}`
+    : "";
+}
+
+function isChangedLine(line: DiffLine | undefined) {
+  return line?.kind === "addition" || line?.kind === "deletion";
+}
+
+function rangeSelection(hunk: DiffHunk, hunkIndex: number, anchorIndex: number, lineIndex: number): LineSelection {
+  const start = Math.min(anchorIndex, lineIndex);
+  const end = Math.max(anchorIndex, lineIndex);
+  const lineIndices = new Set<number>();
+  for (let index = start; index <= end; index += 1) {
+    if (isChangedLine(hunk.lines[index])) lineIndices.add(index);
+  }
+  return { hunkIndex, lineIndices, anchorIndex };
+}
+
+function nextChangedLineIndex(hunk: DiffHunk, lineIndex: number, direction: -1 | 1): number | null {
+  for (let index = lineIndex + direction; index >= 0 && index < hunk.lines.length; index += direction) {
+    if (isChangedLine(hunk.lines[index])) return index;
+  }
+  return null;
 }
 
 function wholeHunkSelection(path: string, source: DiffSource, hunk: DiffHunk, baseDigest: string): PatchSelection {
@@ -197,16 +306,43 @@ function wholeHunkSelection(path: string, source: DiffSource, hunk: DiffHunk, ba
   };
 }
 
+function selectedLinesSelection(
+  path: string,
+  source: DiffSource,
+  hunk: DiffHunk,
+  baseDigest: string,
+  lineIndices: Set<number>,
+): PatchSelection {
+  return {
+    path,
+    source: source.kind === "working" && source.staged ? "index" : "worktree",
+    baseDigest,
+    hunks: [{
+      oldStart: hunk.oldStart,
+      oldLines: hunk.oldLines,
+      newStart: hunk.newStart,
+      newLines: hunk.newLines,
+      lines: [...lineIndices].sort((left, right) => left - right),
+    }],
+  };
+}
+
 function HunkRow({
   hunk,
   source,
   disabled,
+  selectedLineCount,
+  selectionPending,
   onApply,
+  onApplySelected,
 }: {
   hunk: DiffHunk;
   source: DiffSource;
   disabled: boolean;
+  selectedLineCount: number;
+  selectionPending: boolean;
   onApply?: () => Promise<boolean>;
+  onApplySelected?: () => Promise<void>;
 }) {
   const { t } = useTranslation("workspace");
   const [pending, setPending] = useState(false);
@@ -224,6 +360,17 @@ function HunkRow({
       <button
         type="button"
         className="interactive-control ml-auto rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled || selectedLineCount === 0 || !onApplySelected}
+        aria-label={t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
+        onClick={() => void onApplySelected?.()}
+      >
+        {selectionPending
+          ? t(staged ? "diff.unstagingSelectedLines" : "diff.stagingSelectedLines")
+          : t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
+      </button>
+      <button
+        type="button"
+        className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || pending || !onApply}
         aria-label={actionLabel}
         onClick={() => {
@@ -253,22 +400,69 @@ function HunkCoordinates({ hunk }: { hunk: DiffHunk }) {
   return <>@@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines} @@</>;
 }
 
-function DiffLineRow({ line }: { line: DiffLine }) {
+function DiffLineRow({
+  line,
+  hunkIndex,
+  lineIndex,
+  interactive,
+  selected,
+  onSelect,
+  onExtendSelection,
+}: {
+  line: DiffLine;
+  hunkIndex: number;
+  lineIndex: number;
+  interactive: boolean;
+  selected: boolean;
+  onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
+  onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const content = <>
+    <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
+      {line.oldLineno ?? ""}
+    </span>
+    <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
+      {line.newLineno ?? ""}
+    </span>
+    <span className="whitespace-pre px-2">
+      {LINE_PREFIX[line.kind]}
+      {line.content}
+    </span>
+  </>;
+  if (!isChangedLine(line) || !interactive) {
+    return (
+      <div className="flex h-full min-w-full" style={{ background: LINE_BG[line.kind], color: LINE_COLOR[line.kind] }}>
+        {content}
+      </div>
+    );
+  }
+
+  const lineNumber = line.oldLineno ?? line.newLineno ?? lineIndex + 1;
+  const label = t(selected ? `diff.deselect.${line.kind}` : `diff.select.${line.kind}`, { line: lineNumber });
   return (
-    <div
-      className="flex h-full min-w-full"
-      style={{ background: LINE_BG[line.kind], color: LINE_COLOR[line.kind] }}
+    <button
+      type="button"
+      data-diff-line={`${hunkIndex}:${lineIndex}`}
+      aria-pressed={selected}
+      aria-label={label}
+      title={label}
+      className="flex h-full min-w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-inset"
+      style={{
+        background: selected
+          ? `color-mix(in srgb, var(--fjord-tint) 55%, ${LINE_BG[line.kind]})`
+          : LINE_BG[line.kind],
+        color: LINE_COLOR[line.kind],
+        boxShadow: selected ? "inset 3px 0 var(--fjord)" : undefined,
+      }}
+      onClick={(event) => onSelect(hunkIndex, lineIndex, event)}
+      onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+        if (!event.shiftKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+        event.preventDefault();
+        onExtendSelection(hunkIndex, lineIndex, event.key === "ArrowUp" ? -1 : 1);
+      }}
     >
-      <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
-        {line.oldLineno ?? ""}
-      </span>
-      <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
-        {line.newLineno ?? ""}
-      </span>
-      <span className="whitespace-pre px-2">
-        {LINE_PREFIX[line.kind]}
-        {line.content}
-      </span>
-    </div>
+      {content}
+    </button>
   );
 }

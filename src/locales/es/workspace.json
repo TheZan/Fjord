@@ -125,6 +125,18 @@
     "unstageHunk": "Quitar bloque de preparación",
     "unstagingHunk": "Quitando bloque…",
     "patchStale": "El archivo cambió antes de aplicar este bloque. Se actualizó el diff.",
+    "stageSelectedLines": "Preparar líneas seleccionadas",
+    "stagingSelectedLines": "Preparando líneas seleccionadas…",
+    "unstageSelectedLines": "Quitar líneas seleccionadas de preparación",
+    "unstagingSelectedLines": "Quitando líneas seleccionadas…",
+    "select": {
+      "addition": "Seleccionar línea añadida {{line}}",
+      "deletion": "Seleccionar línea eliminada {{line}}"
+    },
+    "deselect": {
+      "addition": "Deseleccionar línea añadida {{line}}",
+      "deletion": "Deseleccionar línea eliminada {{line}}"
+    },
     "tooLarge": "Este archivo ocupa {{size}} y supera el límite de visualización de 10 MB. No se cargó su contenido."
   },
   "fileView": {
