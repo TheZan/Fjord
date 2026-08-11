@@ -63,11 +63,11 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Working changes listing | ✅ `WorkingChanges { staged, unstaged }`, `WorkingFile { path, changeType, conflicted }`; a partially-staged file legitimately appears in both lists. |
 | Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
 | Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. |
-| Partial stage mutation | ✅ `stage_patch` reconstructs the current worktree diff under the repository write lock, validates the caller's complete generation stamp and digest, runs `git apply --check --cached` then `git apply --cached` through the shared executable, and returns the success-only updated generation. Every Phase 8 apply uses the deterministic `--whitespace=nowarn --no-ignore-whitespace` profile, so user `apply.whitespace` / `apply.ignoreWhitespace` settings cannot rewrite patch bytes or relax context matching. |
-| Partial unstage mutation | ✅ `unstage_patch` reconstructs the current staged diff under the same write lock and validation boundary, builds index-side context for selected changes, then runs `git apply --check --cached --reverse` and `git apply --cached --reverse` without writing the worktree, under the same deterministic apply profile. |
+| Partial stage mutation | ✅ `stage_patch` reconstructs the current worktree diff under the repository write lock and Git's resolved per-worktree index lock, validates the caller's generation stamp and digest, applies through an alternate transactional index, revalidates the exact original-index SHA-256 fingerprint and current diff, then atomically publishes the index. Every Phase 8 apply uses the deterministic `--whitespace=nowarn --no-ignore-whitespace` profile, so user `apply.whitespace` / `apply.ignoreWhitespace` settings cannot rewrite patch bytes or relax context matching. |
+| Partial unstage mutation | ✅ `unstage_patch` uses the same index transaction and a prepared verify-only `git update-ref` transaction that holds HEAD and its symbolic target ref stable through index publication. It builds index-side context for selected changes and applies `--cached --reverse` without writing the worktree. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
-| Discard | ✅ File, hunk, and selected-line discard use the shared destructive preflight. The backend reconstructs the current index-to-worktree selection under the repository write lock, runs `git apply --check --reverse`, revalidates/reconstructs, then applies without writing HEAD or the index; check and mutation use the same deterministic apply profile. |
+| Discard | ✅ File, hunk, and selected-line discard use the shared destructive preflight. The backend holds the resolved per-worktree index lock while it reconstructs the current index-to-worktree selection, runs `git apply --check --reverse`, revalidates the diff and exact index fingerprint, then contextually applies without writing HEAD or the index. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
@@ -132,6 +132,41 @@ hand-written index writer because patch application is exactly where subtle
 correctness bugs destroy user work, and Git's own implementation handles CRLF,
 trailing-newline, mode, and binary edge cases that a reimplementation would get
 wrong.
+
+The mutation boundary also uses Git's own cross-process synchronization:
+
+- Stage and unstage acquire the index path resolved by libgit2 (including a
+  linked worktree's private index), copy that exact index into the standard
+  `index.lock`, and point `GIT_INDEX_FILE` at the lock while Git validates and
+  applies the patch. A SHA-256 fingerprint of the complete original index is
+  checked before the lock is atomically published over the index. Unrelated
+  staged entries and index extensions therefore survive; an index writer that
+  ignores the lock is detected instead of overwritten.
+- Unstage also starts a verify-only `git update-ref --stdin` transaction for the
+  current HEAD OID or unborn state and leaves it prepared until index
+  publication. Git resolves the active ref backend and locks HEAD plus its
+  symbolic target, so commit/update-ref cannot turn a confirmed `HEAD=A,
+  INDEX=B` reversal into `HEAD=B, INDEX=A`.
+- Discard holds the same standard index lock without publishing it, from final
+  reconstruction through `git apply --reverse`. Standard `git add`, commit,
+  reset, checkout, and switch operations therefore cannot replace its index
+  base after validation.
+
+Lock contention or a changed backend-derived diff/index/HEAD state fails as
+`patch_stale`; no generation advances. Ordinary success and error paths remove
+the index/ref locks. A process crash can leave the same stale `.lock` files any
+Git writer can leave and is handled by Git's standard lock diagnostics.
+
+There is no portable transaction joining arbitrary worktree-only writes to a
+file with Git's index/ref locks. This includes editors and Git commands such as
+`git apply` without `--index` that deliberately do not acquire the index lock.
+Fjord narrows that limitation by reconstructing the exact diff immediately
+before stage publication or discard apply. For discard, Git then performs its
+own contextual validation while updating the file. A write before this final
+reconstruction causes `patch_stale`; a write in the remaining interval may race
+stage's atomic index publication or discard's internal file replacement. Unstage
+is unaffected because its confirmed `HEAD -> INDEX` diff does not depend on
+worktree bytes.
 
 New port methods on `GitBackend` (local, no network):
 
@@ -313,13 +348,21 @@ flags keep display and patch identical, at the cost of a recomputation on toggle
 - `patch_stale` must be surfaced to the user, never retried automatically —
   an automatic retry against a changed file is exactly the failure mode the digest
   exists to prevent.
+- The standard per-worktree index lock spans final validation and mutation for
+  stage, unstage, and discard. Unstage also holds a prepared verify-only HEAD ref
+  transaction. Exact index fingerprints catch nonconforming direct index writes.
+- Worktree-only writers that do not take Git's index lock (editors and commands
+  such as `git apply` without `--index`) remain advisory-unaware. The final diff
+  reconstruction and Git's contextual discard apply reduce but cannot portably
+  eliminate the residual interval described in §1; no stronger guarantee is
+  claimed.
 
 ## Testing strategy
 
 | Level | Coverage |
 |---|---|
 | Unit (Rust) | Patch generation from a selection: whole hunk, single line, first/last line of a file, file without trailing newline, CRLF file, added file, deleted file. Digest stability and mismatch detection. Force-with-lease argument construction. |
-| Integration (Rust) | Against real fixtures: stage one hunk of a two-hunk file and assert `working_changes` shows the file in both lists; unstage a single line; discard a hunk and assert the worktree content; amend with and without a message change; amend preserves the original author; push with a stale lease is rejected with `git_force_lease_failed`. |
+| Integration (Rust) | Against real fixtures: stage one hunk of a two-hunk file and assert `working_changes` shows the file in both lists; unstage a single line; discard a hunk and assert the worktree content; deterministic barriers race stage against external add/checkout and an editor, unstage against commit, and discard against add while comparing HEAD, raw index, cached/unstaged diffs, worktree bytes, generations, and lock cleanup; linked-worktree index-path coverage; amend with and without a message change; amend preserves the original author; push with a stale lease is rejected with `git_force_lease_failed`. |
 | Frontend/component | Hunk and line selection interactions; disabled states while pending or unvalidated; `patch_stale` refreshes and informs; split/unified row building; whitespace toggle disables hunk staging where the patch is not representable; `too_large` state. |
 | E2E | Split a two-change file into two commits entirely through the UI; amend the message of the last commit; commit-and-push in one action with the push failing and the commit surviving. |
 | Benchmark | Diff rendering and highlighting against `diff-giant`; patch apply latency on a large file; split-mode render cost vs. unified. |
@@ -358,3 +401,8 @@ flags keep display and patch identical, at the cost of a recomputation on toggle
     the reason is shown, rather than staging a patch that differs from the display.
 14. Setting a branch's upstream through the UI changes only configuration, is
     reflected in the branch row, and a subsequent push targets the new upstream.
+15. External Git index/ref/worktree operations cannot cross the final patch
+    validation boundary: they serialize on Git's standard locks or Fjord fails
+    with `patch_stale`, without partial mutation or generation advancement.
+16. Index locks use the linked worktree's resolved private index path, and all
+    ordinary success/failure paths remove index, HEAD, and target-ref locks.

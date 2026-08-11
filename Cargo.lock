@@ -1166,6 +1166,7 @@ dependencies = [
  "fjord-ports",
  "git2",
  "gix",
+ "gix-lock",
  "libc",
  "regex",
  "sha2 0.10.9",

@@ -37,6 +37,7 @@ mod diff;
 mod history;
 mod mutations;
 mod patch;
+mod patch_transaction;
 mod refs;
 mod repository;
 mod runtime;

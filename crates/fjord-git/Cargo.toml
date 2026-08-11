@@ -18,6 +18,7 @@ sha2 = "0.10"
 uuid.workspace = true
 
 gix = "0.86"
+gix-lock = "24"
 git2 = "0.21"
 
 [target.'cfg(unix)'.dependencies]

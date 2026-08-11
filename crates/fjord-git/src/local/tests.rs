@@ -199,6 +199,125 @@ fn run_git_success(backend: &LocalGitBackend, repo: &RepoPath, args: &[&str]) {
     assert!(status.success(), "git {} should succeed", args.join(" "));
 }
 
+fn run_git_status(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    args: &[&str],
+) -> std::process::ExitStatus {
+    backend
+        .commands
+        .command()
+        .unwrap()
+        .args(args)
+        .current_dir(&repo.0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
+}
+
+fn resolved_index_path(repo: &RepoPath) -> PathBuf {
+    let git = Repository::open(&repo.0).unwrap();
+    let index = git.index().unwrap();
+    index.path().unwrap().to_path_buf()
+}
+
+fn lock_path(resource: &Path) -> PathBuf {
+    let mut value = resource.as_os_str().to_owned();
+    value.push(".lock");
+    PathBuf::from(value)
+}
+
+fn assert_index_lock_cleaned(repo: &RepoPath) {
+    let index_lock = lock_path(&resolved_index_path(repo));
+    assert!(
+        !index_lock.exists(),
+        "stale index lock: {}",
+        index_lock.display()
+    );
+    let nested = lock_path(&index_lock);
+    assert!(
+        !nested.exists(),
+        "stale alternate-index lock: {}",
+        nested.display()
+    );
+}
+
+fn resolved_git_path(backend: &LocalGitBackend, repo: &RepoPath, path: &str) -> PathBuf {
+    let output = git_output(backend, repo, &["rev-parse", "--git-path", path]);
+    let value = PathBuf::from(String::from_utf8(output).unwrap().trim());
+    if value.is_absolute() {
+        value
+    } else {
+        repo.0.join(value)
+    }
+}
+
+fn assert_head_locks_cleaned(backend: &LocalGitBackend, repo: &RepoPath) {
+    let head_lock = lock_path(&resolved_git_path(backend, repo, "HEAD"));
+    assert!(
+        !head_lock.exists(),
+        "stale HEAD lock: {}",
+        head_lock.display()
+    );
+    let git = Repository::open(&repo.0).unwrap();
+    let target = {
+        let head = git.find_reference("HEAD").unwrap();
+        head.symbolic_target().unwrap().map(str::to_string)
+    };
+    if let Some(target) = target {
+        let target_lock = lock_path(&resolved_git_path(backend, repo, &target));
+        assert!(
+            !target_lock.exists(),
+            "stale HEAD target lock: {}",
+            target_lock.display()
+        );
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct AtomicPatchState {
+    head: Option<Oid>,
+    index: Option<Vec<u8>>,
+    cached_diff: Vec<u8>,
+    worktree_diff: Vec<u8>,
+    worktree_files: Vec<(String, Option<Vec<u8>>)>,
+    generations: GenerationSet,
+}
+
+fn atomic_patch_state(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    paths: &[&str],
+) -> AtomicPatchState {
+    let git = Repository::open(&repo.0).unwrap();
+    let head = git.head().ok().and_then(|head| head.target());
+    let index = match std::fs::read(resolved_index_path(repo)) {
+        Ok(index) => Some(index),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("could not read test index: {error}"),
+    };
+    AtomicPatchState {
+        head,
+        index,
+        cached_diff: git_output(backend, repo, &["diff", "--cached"]),
+        worktree_diff: git_output(backend, repo, &["diff"]),
+        worktree_files: paths
+            .iter()
+            .map(|path| {
+                let bytes = match std::fs::read(repo.0.join(path)) {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => panic!("could not read worktree test file: {error}"),
+                };
+                ((*path).to_string(), bytes)
+            })
+            .collect(),
+        generations: backend.generations(repo).unwrap(),
+    }
+}
+
 /// Repository-local configuration has the same `git apply` effect as a user
 /// setting in `.gitconfig`, while keeping the hostile setting contained to this
 /// real temporary repository.
@@ -3466,6 +3585,486 @@ async fn library_reads_survive_an_unavailable_executable() {
         .commits
         .is_empty());
     backend.working_changes(&repo_path).await.unwrap();
+}
+
+/// Phase 8 safety finding #3. The real index lock is held across discard's
+/// final validation and worktree apply, so an external add cannot move the
+/// patch base from A to C and leave the stale worktree reversal at A.
+#[tokio::test]
+async fn discard_patch_serializes_external_git_add_at_the_mutation_boundary() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"A\n")]).await;
+    write_file(&repo_path, "target.txt", "C\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let (action, token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, generations).await;
+    let before = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let action = action.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .discard_patch(&repo_path, &action, &selection, generations, &token)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_add = run_git_status(&backend, &repo_path, &["add", "target.txt"]);
+    pause.resume();
+    let result = operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_add.success(),
+        "external add must honor index.lock"
+    );
+    assert_eq!(result.working_tree, before.generations.working_tree + 1);
+    let after = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    assert_eq!(after.head, before.head);
+    assert_eq!(after.cached_diff, Vec::<u8>::new());
+    assert_eq!(after.worktree_diff, Vec::<u8>::new());
+    assert_eq!(
+        after.worktree_files[0].1.as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_index_lock_cleaned(&repo_path);
+}
+
+/// HEAD=A, INDEX=B, WORKTREE=B must never become HEAD=B, INDEX=A because a
+/// commit crossed unstage's final validation. The prepared update-ref verify
+/// transaction and index lock make the external commit fail before changing
+/// either state owner.
+#[tokio::test]
+async fn unstage_patch_serializes_external_commit_at_the_mutation_boundary() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"A\n")]).await;
+    write_file(&repo_path, "target.txt", "B\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("target.txt")])
+        .await
+        .unwrap();
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", true)
+        .await
+        .unwrap();
+    let selection = staged_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let before = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .unstage_patch(&repo_path, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_commit = run_git_status(&backend, &repo_path, &["commit", "-m", "external"]);
+    pause.resume();
+    operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_commit.success(),
+        "external commit must not cross the prepared HEAD/index locks"
+    );
+    let after = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    assert_eq!(after.head, before.head);
+    assert_eq!(after.cached_diff, Vec::<u8>::new());
+    assert!(!after.worktree_diff.is_empty());
+    assert_eq!(
+        after.worktree_files[0].1.as_deref(),
+        Some(b"B\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(head_blob(&repo_path, "target.txt"), b"A\n");
+    assert_index_lock_cleaned(&repo_path);
+    assert_head_locks_cleaned(&backend, &repo_path);
+}
+
+/// Even a writer that ignores Git's index.lock is detected by the exact raw
+/// index fingerprint before publication. The external index bytes survive and
+/// both the index and prepared HEAD/ref locks are cleaned on the stale failure.
+#[tokio::test]
+async fn unstage_patch_rejects_nonconforming_index_replacement_without_partial_mutation() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("target.txt", b"A\n"), ("other.txt", b"other A\n")],
+    )
+    .await;
+    write_file(&repo_path, "target.txt", "B\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("target.txt")])
+        .await
+        .unwrap();
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", true)
+        .await
+        .unwrap();
+    let selection = staged_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let original_index = std::fs::read(resolved_index_path(&repo_path)).unwrap();
+
+    write_file(&repo_path, "other.txt", "other B changed size\n");
+    run_git_success(&backend, &repo_path, &["add", "other.txt"]);
+    let replacement_index = std::fs::read(resolved_index_path(&repo_path)).unwrap();
+    std::fs::write(resolved_index_path(&repo_path), &original_index).unwrap();
+    let before = atomic_patch_state(&backend, &repo_path, &["target.txt", "other.txt"]);
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .unstage_patch(&repo_path, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    std::fs::write(resolved_index_path(&repo_path), &replacement_index).unwrap();
+    pause.resume();
+    let result = operation.await.unwrap();
+
+    assert!(matches!(result, Err(GitError::PatchStale)));
+    let after = atomic_patch_state(&backend, &repo_path, &["target.txt", "other.txt"]);
+    assert_eq!(after.head, before.head);
+    assert_eq!(after.index.as_deref(), Some(replacement_index.as_slice()));
+    assert_eq!(after.generations, before.generations);
+    assert_eq!(after.worktree_files, before.worktree_files);
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").as_deref(),
+        Some(b"B\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo_path, "other.txt").as_deref(),
+        Some(b"other B changed size\n".as_slice())
+    );
+    assert_index_lock_cleaned(&repo_path);
+    assert_head_locks_cleaned(&backend, &repo_path);
+}
+
+/// An external index writer cannot replace or be silently overwritten by the
+/// prepared stage transaction. Existing unrelated staged state survives, and
+/// the attempted concurrent add remains only in the worktree.
+#[tokio::test]
+async fn stage_patch_serializes_external_index_mutation_and_preserves_unrelated_state() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[
+            ("target.txt", b"A\n"),
+            ("other.txt", b"other A\n"),
+            ("existing.txt", b"existing A\n"),
+        ],
+    )
+    .await;
+    write_file(&repo_path, "existing.txt", "existing B\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("existing.txt")])
+        .await
+        .unwrap();
+    write_file(&repo_path, "target.txt", "C\n");
+    write_file(&repo_path, "other.txt", "other B changed size\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let before = atomic_patch_state(
+        &backend,
+        &repo_path,
+        &["target.txt", "other.txt", "existing.txt"],
+    );
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .stage_patch(&repo_path, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_add = run_git_status(&backend, &repo_path, &["add", "other.txt"]);
+    pause.resume();
+    operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_add.success(),
+        "external add must honor index.lock"
+    );
+    let after = atomic_patch_state(
+        &backend,
+        &repo_path,
+        &["target.txt", "other.txt", "existing.txt"],
+    );
+    assert_eq!(after.head, before.head);
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").as_deref(),
+        Some(b"C\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo_path, "existing.txt").as_deref(),
+        Some(b"existing B\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo_path, "other.txt").as_deref(),
+        Some(b"other A\n".as_slice())
+    );
+    assert_eq!(after.worktree_files, before.worktree_files);
+    assert!(!after.worktree_diff.is_empty());
+    assert_index_lock_cleaned(&repo_path);
+}
+
+/// Checkout/switch/reset-style worktree changes also need the index lock. A
+/// checkout racing stage must fail rather than let Fjord stage C after the
+/// worktree has returned to A.
+#[tokio::test]
+async fn stage_patch_serializes_external_git_worktree_mutation() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"A\n")]).await;
+    write_file(&repo_path, "target.txt", "C\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .stage_patch(&repo_path, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_checkout = run_git_status(
+        &backend,
+        &repo_path,
+        &["checkout", "HEAD", "--", "target.txt"],
+    );
+    pause.resume();
+    operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_checkout.success(),
+        "external checkout must honor index.lock"
+    );
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").as_deref(),
+        Some(b"C\n".as_slice())
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("target.txt")).unwrap(),
+        b"C\n"
+    );
+    assert_index_lock_cleaned(&repo_path);
+}
+
+/// Editors do not honor index.lock. The final backend reconstruction catches a
+/// deterministic edit at the boundary, rejects with patch_stale, and leaves
+/// HEAD, index, cached state, and generations untouched.
+#[tokio::test]
+async fn stage_patch_rejects_editor_change_at_the_mutation_boundary_atomically() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"A\n")]).await;
+    write_file(&repo_path, "target.txt", "C\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let before = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    let mut pause = patch_transaction::install_mutation_pause(&repo_path);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo_path = repo_path.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .stage_patch(&repo_path, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    write_file(&repo_path, "target.txt", "D from editor\n");
+    pause.resume();
+    let result = operation.await.unwrap();
+
+    assert!(matches!(result, Err(GitError::PatchStale)));
+    let after = atomic_patch_state(&backend, &repo_path, &["target.txt"]);
+    assert_eq!(after.head, before.head);
+    assert_eq!(after.index, before.index);
+    assert_eq!(after.cached_diff, before.cached_diff);
+    assert_eq!(after.generations, before.generations);
+    assert_eq!(
+        after.worktree_files[0].1.as_deref(),
+        Some(b"D from editor\n".as_slice())
+    );
+    assert!(String::from_utf8_lossy(&after.worktree_diff).contains("D from editor"));
+    assert_index_lock_cleaned(&repo_path);
+}
+
+/// `Index::path()` resolves the per-worktree index rather than assuming
+/// `.git/index`. The linked worktree owns the lock and cleanup; the main
+/// worktree's index is never locked or replaced.
+#[tokio::test]
+async fn stage_patch_uses_the_linked_worktree_index_transaction() {
+    let (_main_dir, main_repo) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &main_repo, &[("target.txt", b"A\n")]).await;
+    let linked_parent = TempDir::new().unwrap();
+    let linked_path = linked_parent.path().join("linked");
+    let linked_text = linked_path.to_string_lossy().into_owned();
+    run_git_success(
+        &backend,
+        &main_repo,
+        &["worktree", "add", "--detach", &linked_text],
+    );
+    let linked_repo = RepoPath(linked_path);
+    write_file(&linked_repo, "target.txt", "C\n");
+    let detail = backend
+        .working_file_diff(&linked_repo, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&linked_repo).unwrap();
+    let mut pause = patch_transaction::install_mutation_pause(&linked_repo);
+    let linked_index_lock = lock_path(&resolved_index_path(&linked_repo));
+    let main_index_lock = lock_path(&resolved_index_path(&main_repo));
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let linked_repo = linked_repo.clone();
+        let selection = selection.clone();
+        tokio::spawn(async move {
+            backend
+                .stage_patch(&linked_repo, &selection, generations)
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    assert!(linked_index_lock.exists());
+    assert!(!main_index_lock.exists());
+    pause.resume();
+    operation.await.unwrap().unwrap();
+
+    assert_eq!(
+        index_blob(&linked_repo, "target.txt").as_deref(),
+        Some(b"C\n".as_slice())
+    );
+    assert!(!linked_index_lock.exists());
+    assert!(!main_index_lock.exists());
+
+    let staged = backend
+        .working_file_diff(&linked_repo, "target.txt", true)
+        .await
+        .unwrap();
+    let unstage_selection = staged_patch_selection(&staged, 0..staged.hunks.len());
+    backend
+        .unstage_patch(
+            &linked_repo,
+            &unstage_selection,
+            backend.generations(&linked_repo).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        index_blob(&linked_repo, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(
+        std::fs::read(linked_repo.0.join("target.txt")).unwrap(),
+        b"C\n"
+    );
+    assert_index_lock_cleaned(&linked_repo);
+    assert_head_locks_cleaned(&backend, &linked_repo);
+}
+
+/// Missing indexes and unborn HEAD are explicit fingerprint states. Git creates
+/// the transactional empty index, while update-ref verifies and locks the
+/// unborn symbolic target before unstage publishes its inverse.
+#[tokio::test]
+async fn patch_transaction_supports_a_missing_index_and_unborn_head() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    assert!(!resolved_index_path(&repo_path).exists());
+    write_file(&repo_path, "new.txt", "new\n");
+    let unstaged = backend
+        .working_file_diff(&repo_path, "new.txt", false)
+        .await
+        .unwrap();
+    let stage_selection = whole_patch_selection(&unstaged, 0..unstaged.hunks.len());
+    let after_stage = backend
+        .stage_patch(
+            &repo_path,
+            &stage_selection,
+            backend.generations(&repo_path).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        index_blob(&repo_path, "new.txt").as_deref(),
+        Some(b"new\n".as_slice())
+    );
+
+    let staged = backend
+        .working_file_diff(&repo_path, "new.txt", true)
+        .await
+        .unwrap();
+    let unstage_selection = staged_patch_selection(&staged, 0..staged.hunks.len());
+    backend
+        .unstage_patch(&repo_path, &unstage_selection, after_stage)
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo_path, "new.txt"), None);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("new.txt")).unwrap(),
+        b"new\n"
+    );
+    assert_index_lock_cleaned(&repo_path);
+    assert_head_locks_cleaned(&backend, &repo_path);
 }
 
 #[test]

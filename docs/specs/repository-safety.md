@@ -208,6 +208,17 @@ any Git work. Tokens expire after two minutes, are one-use even after a failed
 binding attempt, and cannot be substituted across scopes or repositories.
 Generation equality by itself is never confirmation.
 
+Discard execution additionally holds Git's resolved per-worktree `index.lock`
+from repository reconstruction through the final contextual worktree apply.
+This is the lock standard index/worktree Git mutations honor, so an external
+`git add`, commit, reset, checkout, or switch cannot change the confirmed index
+base between validation and discard. The complete original index is
+fingerprinted and rechecked; lock contention or a changed fingerprint/diff fails
+as `patch_stale`, and no index content is published by discard. Editors and
+worktree-only Git commands do not necessarily honor this lock; the exact
+residual interval is documented in
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §1.
+
 `blockers` covers cases where Fjord refuses outright — for example, deleting the
 current branch. A blocker disables confirmation and states the reason.
 

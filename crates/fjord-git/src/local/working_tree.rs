@@ -322,6 +322,7 @@ pub(super) async fn discard_patch(
     let confirmation_token = confirmation_token.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
+        let index_lock = patch_transaction::IndexLock::acquire(&repo)?;
         confirmations.consume(
             &confirmation_token,
             &repo,
@@ -342,15 +343,17 @@ pub(super) async fn discard_patch(
 
         run_git_apply_to_worktree(&commands, &repo, &patch, true)?;
 
-        // A successful check is not authority to mutate later. Re-read and
-        // reconstruct while still holding the write lock so an out-of-band
-        // edit can only fail closed as stale or at Git's atomic apply step.
+        // The standard index lock remains held through this final validation
+        // and the worktree mutation, so an external `git add`, commit, reset,
+        // checkout, or switch cannot change the discard base in between.
+        patch_transaction::pause_before_mutation(&repo);
         ensure_confirmed_generations(&repo, expected_generations)?;
         let verified_detail = current_index_patch_diff(&repo, &selection.path, false)?;
         let verified_patch = patch::build_unified_reverse_patch(&verified_detail, &selection)?;
         if verified_patch != patch {
             return Err(GitError::PatchStale);
         }
+        index_lock.verify_unchanged()?;
 
         run_git_apply_to_worktree(&commands, &repo, &patch, false)?;
         runtime::bump_mutation(&repo, MutationKind::Discard);
@@ -509,23 +512,48 @@ async fn apply_index_patch(
         }
         ensure_expected_generations(&repo, expected_generations)?;
 
+        // Acquiring the real index lock is the external-process transaction
+        // boundary. Stage/unstage build their result in that lock file and only
+        // publish it after every defining state has been revalidated.
+        let transaction = patch_transaction::IndexTransaction::begin(&commands, &repo)?;
+        let _head_lock = if matches!(operation, IndexPatchOperation::Unstage) {
+            Some(patch_transaction::HeadLock::acquire(&commands, &repo)?)
+        } else {
+            None
+        };
+        ensure_expected_generations(&repo, expected_generations)?;
+
         let detail = current_index_patch_diff(&repo, &selection.path, operation.staged())?;
         let patch = build_index_patch(&detail, &selection, operation)?;
         ensure_expected_generations(&repo, expected_generations)?;
 
-        run_git_apply_to_index(&commands, &repo, &patch, true, operation.reverse())?;
+        run_git_apply_to_transaction_index(
+            &commands,
+            &repo,
+            transaction.alternate_index_path(),
+            &patch,
+            true,
+            operation.reverse(),
+        )?;
+        run_git_apply_to_transaction_index(
+            &commands,
+            &repo,
+            transaction.alternate_index_path(),
+            &patch,
+            false,
+            operation.reverse(),
+        )?;
 
-        // `--check` is intentionally followed by a fresh diff reconstruction.
-        // This closes the ordinary out-of-band-change window without trusting
-        // the earlier bytes merely because Git considered them applicable.
+        patch_transaction::pause_before_mutation(&repo);
         ensure_expected_generations(&repo, expected_generations)?;
         let verified_detail = current_index_patch_diff(&repo, &selection.path, operation.staged())?;
         let verified_patch = build_index_patch(&verified_detail, &selection, operation)?;
         if verified_patch != patch {
             return Err(GitError::PatchStale);
         }
+        transaction.verify_original_unchanged()?;
 
-        run_git_apply_to_index(&commands, &repo, &patch, false, operation.reverse())?;
+        transaction.commit()?;
         runtime::bump_mutation(&repo, operation.mutation());
         runtime::generations(&repo)
     })
@@ -615,6 +643,7 @@ fn current_index_patch_diff(
     })
 }
 
+#[cfg(test)]
 pub(super) fn run_git_apply_to_index(
     commands: &GitCommandFactory,
     repo: &RepoPath,
@@ -628,6 +657,25 @@ pub(super) fn run_git_apply_to_index(
         patch,
         check,
         GitApplyTarget::Index { reverse },
+        None,
+    )
+}
+
+fn run_git_apply_to_transaction_index(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    alternate_index: &std::path::Path,
+    patch: &[u8],
+    check: bool,
+    reverse: bool,
+) -> Result<(), GitError> {
+    run_git_apply(
+        commands,
+        repo,
+        patch,
+        check,
+        GitApplyTarget::Index { reverse },
+        Some(alternate_index),
     )
 }
 
@@ -643,6 +691,7 @@ pub(super) fn run_git_apply_to_worktree(
         patch,
         check,
         GitApplyTarget::WorktreeReverse,
+        None,
     )
 }
 
@@ -662,6 +711,7 @@ fn run_git_apply(
     patch: &[u8],
     check: bool,
     target: GitApplyTarget,
+    alternate_index: Option<&std::path::Path>,
 ) -> Result<(), GitError> {
     let mut command = commands.command()?;
     command
@@ -690,6 +740,9 @@ fn run_git_apply(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(alternate_index) = alternate_index {
+        command.env("GIT_INDEX_FILE", alternate_index);
+    }
 
     let mut child = command.spawn().map_err(|_| {
         GitError::PatchApplyFailed("could not start Git patch application".to_string())
