@@ -622,51 +622,13 @@ pub(super) fn run_git_apply_to_index(
     check: bool,
     reverse: bool,
 ) -> Result<(), GitError> {
-    let mut command = commands.command()?;
-    command.arg("apply");
-    if check {
-        command.arg("--check");
-    }
-    if reverse {
-        command.arg("--reverse");
-    }
-    command
-        .arg("--cached")
-        .current_dir(&repo.0)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    let mut child = command.spawn().map_err(|_| {
-        GitError::PatchApplyFailed("could not start Git patch application".to_string())
-    })?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| GitError::PatchApplyFailed("Git patch input was unavailable".to_string()))?;
-    let write_result = stdin.write_all(patch);
-    drop(stdin);
-    if write_result.is_err() {
-        let _ = child.wait();
-        return Err(GitError::PatchApplyFailed(
-            "could not send the selected patch to Git".to_string(),
-        ));
-    }
-
-    let status = child.wait().map_err(|_| {
-        GitError::PatchApplyFailed("could not await Git patch application".to_string())
-    })?;
-    if status.success() {
-        Ok(())
-    } else if check {
-        Err(GitError::PatchApplyFailed(
-            "Git rejected the selected patch during validation".to_string(),
-        ))
-    } else {
-        Err(GitError::PatchApplyFailed(
-            "Git could not apply the selected patch to the index".to_string(),
-        ))
-    }
+    run_git_apply(
+        commands,
+        repo,
+        patch,
+        check,
+        GitApplyTarget::Index { reverse },
+    )
 }
 
 pub(super) fn run_git_apply_to_worktree(
@@ -675,13 +637,55 @@ pub(super) fn run_git_apply_to_worktree(
     patch: &[u8],
     check: bool,
 ) -> Result<(), GitError> {
+    run_git_apply(
+        commands,
+        repo,
+        patch,
+        check,
+        GitApplyTarget::WorktreeReverse,
+    )
+}
+
+/// The only Phase 8 `git apply` profile. It deliberately overrides the two
+/// apply-specific configuration keys that otherwise change whether Git rewrites
+/// whitespace or relaxes context matching. `nowarn` accepts the validated patch
+/// bytes without stripping/fixing whitespace; disabling whitespace matching keeps
+/// applicability exact to the patch Fjord constructed.
+enum GitApplyTarget {
+    Index { reverse: bool },
+    WorktreeReverse,
+}
+
+fn run_git_apply(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    patch: &[u8],
+    check: bool,
+    target: GitApplyTarget,
+) -> Result<(), GitError> {
     let mut command = commands.command()?;
-    command.arg("apply");
+    command
+        .arg("apply")
+        .arg("--whitespace=nowarn")
+        .arg("--no-ignore-whitespace");
     if check {
         command.arg("--check");
     }
+
+    let target_description = match target {
+        GitApplyTarget::Index { reverse } => {
+            if reverse {
+                command.arg("--reverse");
+            }
+            command.arg("--cached");
+            "index"
+        }
+        GitApplyTarget::WorktreeReverse => {
+            command.arg("--reverse");
+            "worktree"
+        }
+    };
     command
-        .arg("--reverse")
         .current_dir(&repo.0)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -713,9 +717,9 @@ pub(super) fn run_git_apply_to_worktree(
             "Git rejected the selected patch during validation".to_string(),
         ))
     } else {
-        Err(GitError::PatchApplyFailed(
-            "Git could not apply the selected patch to the worktree".to_string(),
-        ))
+        Err(GitError::PatchApplyFailed(format!(
+            "Git could not apply the selected patch to the {target_description}"
+        )))
     }
 }
 

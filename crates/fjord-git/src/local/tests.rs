@@ -199,6 +199,22 @@ fn run_git_success(backend: &LocalGitBackend, repo: &RepoPath, args: &[&str]) {
     assert!(status.success(), "git {} should succeed", args.join(" "));
 }
 
+/// Repository-local configuration has the same `git apply` effect as a user
+/// setting in `.gitconfig`, while keeping the hostile setting contained to this
+/// real temporary repository.
+fn set_apply_whitespace_config(repo: &RepoPath, whitespace: &str) {
+    let git = Repository::open(&repo.0).unwrap();
+    let mut config = git.config().unwrap();
+    config.set_str("apply.whitespace", whitespace).unwrap();
+}
+
+fn set_hostile_apply_config(repo: &RepoPath) {
+    set_apply_whitespace_config(repo, "fix");
+    let git = Repository::open(&repo.0).unwrap();
+    let mut config = git.config().unwrap();
+    config.set_str("apply.ignoreWhitespace", "change").unwrap();
+}
+
 async fn commit_fixture(backend: &LocalGitBackend, repo: &RepoPath, files: &[(&str, &[u8])]) {
     let mut paths = Vec::new();
     for (path, content) in files {
@@ -213,7 +229,14 @@ fn assert_patch_applies_without_mutation(backend: &LocalGitBackend, repo: &RepoP
     let mut command = backend.commands.command().unwrap();
     command
         .current_dir(&repo.0)
-        .args(["apply", "--check", "--cached", "-"])
+        .args([
+            "apply",
+            "--whitespace=nowarn",
+            "--no-ignore-whitespace",
+            "--check",
+            "--cached",
+            "-",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -2120,6 +2143,129 @@ async fn unstage_patch_preserves_crlf_and_missing_final_newline_and_reverses_fil
     );
     assert!(!repo_path.0.join("deleted.txt").exists());
     assert_eq!(after_deleted.working_tree, after_added.working_tree + 1);
+}
+
+/// P8 safety finding #2. `apply.whitespace=fix` must not rewrite the
+/// backend-constructed patch, and `apply.ignoreWhitespace` must not relax the
+/// exact-context contract that the checked patch is applied under.
+#[tokio::test]
+async fn patch_apply_is_deterministic_under_hostile_apply_configuration() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    // This one file covers CRLF, a missing final newline, trailing spaces,
+    // tabs, and a whitespace-only replacement.
+    let base = b"first\r\ncontext\t \r\nchanged old \t\r\n \t \r\nlast";
+    let changed = b"first\r\ncontext\t \r\nchanged new \t \r\n\t  \r\nlast";
+    commit_fixture(&backend, &repo_path, &[("whitespace.txt", base)]).await;
+    set_hostile_apply_config(&repo_path);
+    write_bytes(&repo_path, "whitespace.txt", changed);
+
+    // Each operation runs its own `--check` then mutation internally. Exact
+    // bytes prove that neither invocation honored the hostile rewrite setting.
+    let unstaged = backend
+        .working_file_diff(&repo_path, "whitespace.txt", false)
+        .await
+        .unwrap();
+    let stage_selection = whole_patch_selection(&unstaged, 0..unstaged.hunks.len());
+    let stage_patch = patch::build_unified_patch(&unstaged, &stage_selection).unwrap();
+    assert_patch_applies_without_mutation(&backend, &repo_path, &stage_patch);
+    backend
+        .stage_patch(
+            &repo_path,
+            &stage_selection,
+            backend.generations(&repo_path).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo_path, "whitespace.txt").unwrap(), changed);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("whitespace.txt")).unwrap(),
+        changed
+    );
+
+    let staged = backend
+        .working_file_diff(&repo_path, "whitespace.txt", true)
+        .await
+        .unwrap();
+    let unstage_selection = staged_patch_selection(&staged, 0..staged.hunks.len());
+    backend
+        .unstage_patch(
+            &repo_path,
+            &unstage_selection,
+            backend.generations(&repo_path).unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo_path, "whitespace.txt").unwrap(), base);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("whitespace.txt")).unwrap(),
+        changed
+    );
+
+    let unstaged = backend
+        .working_file_diff(&repo_path, "whitespace.txt", false)
+        .await
+        .unwrap();
+    let discard_selection = whole_patch_selection(&unstaged, 0..unstaged.hunks.len());
+    discard_confirmed(
+        &backend,
+        &repo_path,
+        &discard_selection,
+        backend.generations(&repo_path).unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(index_blob(&repo_path, "whitespace.txt").unwrap(), base);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("whitespace.txt")).unwrap(),
+        base
+    );
+}
+
+#[tokio::test]
+async fn the_same_generated_patch_has_identical_checked_and_applied_bytes_across_apply_configs() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = b"base \t\r\nwhitespace only\r\nlast";
+    let changed = b"base \t \r\n \t \r\nlast";
+    commit_fixture(&backend, &repo_path, &[("same-patch.txt", base)]).await;
+    write_bytes(&repo_path, "same-patch.txt", changed);
+    let detail = backend
+        .working_file_diff(&repo_path, "same-patch.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let patch = patch::build_unified_patch(&detail, &selection).unwrap();
+
+    set_apply_whitespace_config(&repo_path, "warn");
+    working_tree::run_git_apply_to_index(&backend.commands, &repo_path, &patch, true, false)
+        .unwrap();
+    working_tree::run_git_apply_to_index(&backend.commands, &repo_path, &patch, false, false)
+        .unwrap();
+    let ordinary_index = index_blob(&repo_path, "same-patch.txt").unwrap();
+
+    // Reset only the temporary test index, retaining the identical worktree,
+    // backend instance, and exact generated patch for the hostile-config run.
+    backend
+        .unstage(&repo_path, &[PathBuf::from("same-patch.txt")])
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo_path, "same-patch.txt").unwrap(), base);
+    set_hostile_apply_config(&repo_path);
+    working_tree::run_git_apply_to_index(&backend.commands, &repo_path, &patch, true, false)
+        .unwrap();
+    working_tree::run_git_apply_to_index(&backend.commands, &repo_path, &patch, false, false)
+        .unwrap();
+
+    assert_eq!(ordinary_index, changed);
+    assert_eq!(
+        index_blob(&repo_path, "same-patch.txt").unwrap(),
+        ordinary_index
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("same-patch.txt")).unwrap(),
+        changed
+    );
 }
 
 #[tokio::test]
