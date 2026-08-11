@@ -33,6 +33,11 @@ const state = vi.hoisted(() => ({
     nextOffset: number | null;
     baseDigest: string | null;
   },
+  preflight: vi.fn(),
+}));
+
+vi.mock("@/infrastructure/tauriClient", () => ({
+  preflightDestructiveAction: state.preflight,
 }));
 
 vi.mock("@/application/useFileDiff", () => ({
@@ -77,6 +82,14 @@ describe("FileDiffView windowing", () => {
     state.error = null;
     state.generations = { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 };
     state.diff = textDiff();
+    state.preflight.mockReset();
+    state.preflight.mockImplementation(async (_repoId, action) => ({
+      action,
+      consequences: [{ kind: "modifiedLinesDiscarded", path: "large.txt", count: 2 }],
+      recoverable: "notRecoverable",
+      blockers: [],
+      generations: state.generations,
+    }));
   });
 
   it("loads the next window near the virtualized end and stops when complete", async () => {
@@ -290,6 +303,136 @@ describe("FileDiffView windowing", () => {
     resolve(true);
     await waitFor(() => expect(screen.getByRole("button", { name: "diff.unstageHunk" })).toBeEnabled());
     expect(onApplyHunk.mock.calls[0][0].source).toBe("index");
+  });
+
+  it("routes hunk discard through preflight and cancel performs no mutation", async () => {
+    state.hasMore = false;
+    const onDiscardPatch = vi.fn();
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardHunk" }));
+    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith("repo-1", {
+      kind: "discard",
+      selection: {
+        kind: "hunk",
+        path: "large.txt",
+        oldStart: 4,
+        oldLines: 2,
+        newStart: 4,
+        newLines: 2,
+      },
+    }));
+    expect(onDiscardPatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "context.cancel" }));
+    expect(onDiscardPatch).not.toHaveBeenCalled();
+  });
+
+  it("confirms selected-line discard with the exact frozen patch and generation", async () => {
+    state.hasMore = false;
+    const onDiscardPatch = vi.fn().mockResolvedValue(true);
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.addition" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardSelectedLines" }));
+    await screen.findByRole("dialog", { name: "preflight.discard.title" });
+    expect(onDiscardPatch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "preflight.discard.confirm" }));
+
+    await waitFor(() => expect(onDiscardPatch).toHaveBeenCalledWith({
+      path: "large.txt",
+      source: "worktree",
+      baseDigest: "digest-1",
+      hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [1] }],
+    }, state.generations));
+    expect(state.preflight).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+  });
+
+  it("routes whole-file discard through one file preflight and hides discard for staged diffs", async () => {
+    state.hasMore = false;
+    const onDiscardPatch = vi.fn();
+    const view = render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardFile" }));
+    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith("repo-1", {
+      kind: "discard",
+      selection: { kind: "file", path: "large.txt" },
+    }));
+    expect(onDiscardPatch).not.toHaveBeenCalled();
+
+    view.rerender(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: true }}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "diff.discardFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.discardHunk" })).not.toBeInTheDocument();
+  });
+
+  it("does not allow whole-file discard until every diff window is loaded", () => {
+    state.hasMore = true;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    const action = screen.getByRole("button", { name: "diff.discardFile" });
+    expect(action).toBeDisabled();
+    expect(action).toHaveAttribute("title", "diff.discardFileIncomplete");
+  });
+
+  it("prevents duplicate confirmation and freezes line selection while discard is pending", async () => {
+    state.hasMore = false;
+    let resolve!: (value: boolean) => void;
+    const onDiscardPatch = vi.fn().mockReturnValue(new Promise<boolean>((done) => { resolve = done; }));
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardSelectedLines" }));
+    const confirm = await screen.findByRole("button", { name: "preflight.discard.confirm" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(onDiscardPatch).toHaveBeenCalledOnce());
+    expect(confirm).toBeDisabled();
+    resolve(true);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it.each([

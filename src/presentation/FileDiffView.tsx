@@ -3,8 +3,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
+import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { Surface } from "@/presentation/ui";
-import type { DiffLineKind, GenerationSet, PatchSelection } from "@/domain/git";
+import type { DestructiveAction, DiffLineKind, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 
 const DIFF_LINE_HEIGHT = 20;
@@ -40,6 +41,7 @@ export function FileDiffView({
   onBack,
   actionDisabled = false,
   onApplyHunk,
+  onDiscardPatch,
 }: {
   repoId: string;
   path: string;
@@ -47,6 +49,7 @@ export function FileDiffView({
   onBack?: () => void;
   actionDisabled?: boolean;
   onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
+  onDiscardPatch?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations } = useFileDiff(
@@ -57,6 +60,7 @@ export function FileDiffView({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
   const [selectionPending, setSelectionPending] = useState(false);
+  const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
   const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
   const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
@@ -75,10 +79,11 @@ export function FileDiffView({
   useEffect(() => {
     setLineSelection(null);
     setSelectionPending(false);
+    setPendingDiscard(null);
   }, [snapshotKey]);
 
   function selectLine(hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) {
-    if (selectionPending || source.kind !== "working" || !diff) return;
+    if (selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
     setLineSelection((current) => {
       if (event.shiftKey && current?.hunkIndex === hunkIndex) {
         return rangeSelection(diff.hunks[hunkIndex], hunkIndex, current.anchorIndex, lineIndex);
@@ -93,7 +98,7 @@ export function FileDiffView({
   }
 
   function extendLineSelection(hunkIndex: number, lineIndex: number, direction: -1 | 1) {
-    if (selectionPending || source.kind !== "working" || !diff) return;
+    if (selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
     const hunk = diff.hunks[hunkIndex];
     const targetIndex = nextChangedLineIndex(hunk, lineIndex, direction);
     if (targetIndex === null) return;
@@ -126,7 +131,28 @@ export function FileDiffView({
     }
   }
 
-  return (
+  function requestDiscard(selection: PatchSelection, discardSelection: DiscardSelection) {
+    if (selectionPending || pendingDiscard || !onDiscardPatch) return;
+    setPendingDiscard({
+      selection,
+      action: { kind: "discard", selection: discardSelection },
+    });
+  }
+
+  function discardSelectedLines(hunkIndex: number, hunk: DiffHunk) {
+    if (
+      !diff?.baseDigest ||
+      !generations ||
+      lineSelection?.hunkIndex !== hunkIndex ||
+      lineSelection.lineIndices.size === 0
+    ) return;
+    const selection = selectedLinesSelection(path, source, hunk, diff.baseDigest, lineSelection.lineIndices);
+    requestDiscard(selection, linesDiscardSelection(path, hunk, lineSelection.lineIndices));
+  }
+
+  const canDiscard = source.kind === "working" && !source.staged && Boolean(onDiscardPatch);
+
+  return <>
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
       <div
         className="flex items-center gap-3 border-b px-3 py-2"
@@ -154,6 +180,21 @@ export function FileDiffView({
         <code className="min-w-0 flex-1 truncate font-mono text-xs" style={{ color: "var(--ink)" }}>
           {path}
         </code>
+        {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
+          <button
+            type="button"
+            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+            style={{ color: "var(--rust-ink)" }}
+            disabled={actionDisabled || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
+            title={hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined}
+            onClick={() => requestDiscard(
+              wholeFileSelection(path, diff.hunks, diff.baseDigest!),
+              { kind: "file", path },
+            )}
+          >
+            {t("diff.discardFile")}
+          </button>
+        ) : null}
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
@@ -202,7 +243,7 @@ export function FileDiffView({
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
-                      disabled={actionDisabled || selectionPending || !diff.baseDigest || !generations}
+                      disabled={actionDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
                       selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
                       selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
                       onApply={
@@ -211,13 +252,22 @@ export function FileDiffView({
                           : undefined
                       }
                       onApplySelected={onApplyHunk ? () => applySelectedLines(row.hunkIndex, row.hunk) : undefined}
+                      onDiscard={
+                        canDiscard && diff.baseDigest
+                          ? () => requestDiscard(
+                            wholeHunkSelection(path, source, row.hunk, diff.baseDigest!),
+                            hunkDiscardSelection(path, row.hunk),
+                          )
+                          : undefined
+                      }
+                      onDiscardSelected={canDiscard ? () => discardSelectedLines(row.hunkIndex, row.hunk) : undefined}
                     />
                   ) : (
                     <DiffLineRow
                       line={row.line}
                       hunkIndex={row.hunkIndex}
                       lineIndex={row.lineIndex}
-                      interactive={source.kind === "working" && !actionDisabled && !selectionPending}
+                      interactive={source.kind === "working" && !actionDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
@@ -235,7 +285,21 @@ export function FileDiffView({
         )}
       </div>
     </Surface>
-  );
+    {pendingDiscard ? (
+      <DestructivePreflightDialog
+        repoId={repoId}
+        action={pendingDiscard.action}
+        onClose={() => setPendingDiscard(null)}
+        onConfirm={async (confirmedGenerations) => {
+          const request = pendingDiscard;
+          const succeeded = await onDiscardPatch?.(request.selection, confirmedGenerations) ?? false;
+          setPendingDiscard(null);
+          setLineSelection(null);
+          if (succeeded) setSelectionPending(false);
+        }}
+      />
+    ) : null}
+  </>;
 }
 
 function formatFileBytes(bytes: number): string {
@@ -264,6 +328,11 @@ interface LineSelection {
   hunkIndex: number;
   lineIndices: Set<number>;
   anchorIndex: number;
+}
+
+interface PendingDiscard {
+  selection: PatchSelection;
+  action: DestructiveAction;
 }
 
 function diffSourceKey(source: DiffSource) {
@@ -327,6 +396,44 @@ function selectedLinesSelection(
   };
 }
 
+function wholeFileSelection(path: string, hunks: DiffHunk[], baseDigest: string): PatchSelection {
+  return {
+    path,
+    source: "worktree",
+    baseDigest,
+    hunks: hunks.map((hunk) => ({
+      oldStart: hunk.oldStart,
+      oldLines: hunk.oldLines,
+      newStart: hunk.newStart,
+      newLines: hunk.newLines,
+      lines: [],
+    })),
+  };
+}
+
+function hunkDiscardSelection(path: string, hunk: DiffHunk): DiscardSelection {
+  return {
+    kind: "hunk",
+    path,
+    oldStart: hunk.oldStart,
+    oldLines: hunk.oldLines,
+    newStart: hunk.newStart,
+    newLines: hunk.newLines,
+  };
+}
+
+function linesDiscardSelection(path: string, hunk: DiffHunk, lineIndices: Set<number>): DiscardSelection {
+  return {
+    kind: "lines",
+    path,
+    oldStart: hunk.oldStart,
+    oldLines: hunk.oldLines,
+    newStart: hunk.newStart,
+    newLines: hunk.newLines,
+    lines: [...lineIndices].sort((left, right) => left - right),
+  };
+}
+
 function HunkRow({
   hunk,
   source,
@@ -335,6 +442,8 @@ function HunkRow({
   selectionPending,
   onApply,
   onApplySelected,
+  onDiscard,
+  onDiscardSelected,
 }: {
   hunk: DiffHunk;
   source: DiffSource;
@@ -343,6 +452,8 @@ function HunkRow({
   selectionPending: boolean;
   onApply?: () => Promise<boolean>;
   onApplySelected?: () => Promise<void>;
+  onDiscard?: () => void;
+  onDiscardSelected?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [pending, setPending] = useState(false);
@@ -368,6 +479,18 @@ function HunkRow({
           ? t(staged ? "diff.unstagingSelectedLines" : "diff.stagingSelectedLines")
           : t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
       </button>
+      {!staged && onDiscardSelected ? (
+        <button
+          type="button"
+          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ color: "var(--rust-ink)" }}
+          disabled={disabled || selectedLineCount === 0}
+          aria-label={t("diff.discardSelectedLines")}
+          onClick={onDiscardSelected}
+        >
+          {t("diff.discardSelectedLines")}
+        </button>
+      ) : null}
       <button
         type="button"
         className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
@@ -381,6 +504,18 @@ function HunkRow({
       >
         {actionLabel}
       </button>
+      {!staged && onDiscard ? (
+        <button
+          type="button"
+          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ color: "var(--rust-ink)" }}
+          disabled={disabled}
+          aria-label={t("diff.discardHunk")}
+          onClick={onDiscard}
+        >
+          {t("diff.discardHunk")}
+        </button>
+      ) : null}
     </div>
   );
 }

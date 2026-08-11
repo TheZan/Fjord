@@ -75,10 +75,10 @@ pub(super) fn build_unified_patch(
     build_unified_patch_with_direction(diff, selection, PatchDirection::Forward)
 }
 
-/// Builds a selected staged patch in the orientation required by
-/// `git apply --cached --reverse`: its context is the current index, so
-/// unrelated staged changes in the same hunk remain intact when Git reverses
-/// only the selected changes.
+/// Builds a selected patch in the orientation required by `git apply
+/// --reverse`: its context is the diff's current/new side, so unrelated
+/// changes in the same hunk remain intact when Git reverses only the selected
+/// changes. This is used for both index unstaging and worktree discard.
 pub(super) fn build_unified_reverse_patch(
     diff: &FileDiffDetail,
     selection: &PatchSelection,

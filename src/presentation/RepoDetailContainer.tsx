@@ -22,6 +22,7 @@ import {
   deleteBranch,
   deleteRemoteBranch,
   deleteTag,
+  discardPatch,
   invokeErrorCode,
   openInIde,
   openMergeTool,
@@ -355,6 +356,21 @@ export function RepoDetailContainer({
     );
   }
 
+  function onDiscardPatch(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
+    return runRepoAction(
+      "discard-patch",
+      () => discardPatch(repo.id, selection, expectedGenerations).then(() => undefined),
+      ["status", "working"],
+      (error) => {
+        const code = invokeErrorCode(error);
+        if (code !== "patch_stale" && code !== "preflight_stale") return false;
+        setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
+        void invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
+        return true;
+      },
+    );
+  }
+
   function onCommit(message: string): Promise<boolean> {
     return runWorkingAction("commit", () => commitRepo(repo.id, message).then(() => undefined), ["status", "working", "history", "refs"]);
   }
@@ -426,6 +442,7 @@ export function RepoDetailContainer({
       onStage={onStage}
       onUnstage={onUnstage}
       onApplyHunk={onApplyHunk}
+      onDiscardPatch={onDiscardPatch}
       onCommit={onCommit}
     /> : (
       <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">

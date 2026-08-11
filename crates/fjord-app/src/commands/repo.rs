@@ -419,6 +419,19 @@ pub async fn unstage_patch(
 }
 
 #[tauri::command]
+pub async fn discard_patch(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    selection: PatchSelection,
+    expected_generations: GenerationSet,
+) -> Result<GenerationSet, AppError> {
+    Ok(state
+        .repos
+        .discard_patch(repo_id, &selection, expected_generations)
+        .await?)
+}
+
+#[tauri::command]
 pub async fn commit_repo(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

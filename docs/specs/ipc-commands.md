@@ -88,6 +88,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
+| `discard_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current index-to-worktree patch under the write lock; confirmed-generation mismatch is `preflight_stale`, digest mismatch is `patch_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
 | `commit_repo` | `{ repo_id, message }` | `string` | New commit id; `nothing_to_commit` when the index matches `HEAD` |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
@@ -138,7 +139,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |
 | `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
@@ -154,7 +154,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 ## What's not a command
 

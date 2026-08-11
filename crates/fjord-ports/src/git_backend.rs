@@ -180,6 +180,8 @@ pub enum GitError {
     Cancelled,
     #[error("the selected patch no longer matches the current diff")]
     PatchStale,
+    #[error("the destructive preflight no longer matches the repository state")]
+    PreflightStale,
     #[error("Git could not apply the selected patch: {0}")]
     PatchApplyFailed(String),
     #[error("the selected change cannot be represented as a line patch: {0}")]
@@ -372,6 +374,16 @@ pub trait GitBackend: Send + Sync {
         _expected_generations: GenerationSet,
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("unstage_patch"))
+    }
+    /// Discards a verified index-to-worktree selection against the exact
+    /// generation confirmed by the destructive preflight.
+    async fn discard_patch(
+        &self,
+        _repo: &RepoPath,
+        _selection: &PatchSelection,
+        _expected_generations: GenerationSet,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("discard_patch"))
     }
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
     /// Returns the configured remote for the current branch's upstream.

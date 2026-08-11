@@ -62,12 +62,12 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Whole-file stage/unstage | ✅ `stage_files` / `unstage_files`, empty list = all. `git2`-backed. |
 | Working changes listing | ✅ `WorkingChanges { staged, unstaged }`, `WorkingFile { path, changeType, conflicted }`; a partially-staged file legitimately appears in both lists. |
 | Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
-| Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. Discard apply remains P8-06. |
+| Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. |
 | Partial stage mutation | ✅ `stage_patch` reconstructs the current worktree diff under the repository write lock, validates the caller's complete generation stamp and digest, runs `git apply --check --cached` then `git apply --cached` through the shared executable, and returns the success-only updated generation. |
 | Partial unstage mutation | ✅ `unstage_patch` reconstructs the current staged diff under the same write lock and validation boundary, builds index-side context for selected changes, then runs `git apply --check --cached --reverse` and `git apply --cached --reverse` without writing the worktree. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
-| Discard | 🚧 Mutation absent at any granularity; the P8-00 destructive-preflight contract for file/hunk/line selections is implemented. |
+| Discard | ✅ File, hunk, and selected-line discard use the shared destructive preflight. The backend reconstructs the current index-to-worktree selection under the repository write lock, runs `git apply --check --reverse`, revalidates/reconstructs, then applies without writing HEAD or the index. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |

@@ -69,6 +69,7 @@ export function RepoDetailView({
   onStage,
   onUnstage,
   onApplyHunk,
+  onDiscardPatch,
   onCommit,
 }: {
   repo: RepositoryEntry;
@@ -116,6 +117,7 @@ export function RepoDetailView({
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onApplyHunk: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
+  onDiscardPatch: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onCommit: (message: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
@@ -273,6 +275,11 @@ export function RepoDetailView({
               source={diffTarget.source}
               actionDisabled={!snapshotValidated || actionPending !== null}
               onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
+              onDiscardPatch={
+                diffTarget.source.kind === "working" && !diffTarget.source.staged
+                  ? onDiscardPatch
+                  : undefined
+              }
               onBack={() =>
                 workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
               }

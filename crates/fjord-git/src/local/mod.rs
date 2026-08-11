@@ -329,6 +329,15 @@ impl GitBackend for LocalGitBackend {
         working_tree::unstage_patch(&self.commands, repo, selection, expected_generations).await
     }
 
+    async fn discard_patch(
+        &self,
+        repo: &RepoPath,
+        selection: &PatchSelection,
+        expected_generations: crate::GenerationSet,
+    ) -> Result<crate::GenerationSet, GitError> {
+        working_tree::discard_patch(&self.commands, repo, selection, expected_generations).await
+    }
+
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
         let commit_id = mutations::commit(repo, message).await?;
         runtime::bump_mutation(repo, MutationKind::Commit);

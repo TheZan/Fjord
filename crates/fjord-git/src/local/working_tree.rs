@@ -279,6 +279,50 @@ pub(super) async fn unstage_patch(
     .await
 }
 
+/// Discards one verified index-to-worktree selection. The current index is the
+/// patch base; neither HEAD nor the index is written by this operation.
+pub(super) async fn discard_patch(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: crate::GenerationSet,
+) -> Result<crate::GenerationSet, GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let selection = selection.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        if selection.source != PatchSource::Worktree {
+            return Err(GitError::PatchUnsupported(
+                "discard_patch requires a worktree selection".to_string(),
+            ));
+        }
+        ensure_confirmed_generations(&repo, expected_generations)?;
+
+        let detail = current_index_patch_diff(&repo, &selection.path, false)?;
+        let patch = patch::build_unified_reverse_patch(&detail, &selection)?;
+        ensure_confirmed_generations(&repo, expected_generations)?;
+
+        run_git_apply_to_worktree(&commands, &repo, &patch, true)?;
+
+        // A successful check is not authority to mutate later. Re-read and
+        // reconstruct while still holding the write lock so an out-of-band
+        // edit can only fail closed as stale or at Git's atomic apply step.
+        ensure_confirmed_generations(&repo, expected_generations)?;
+        let verified_detail = current_index_patch_diff(&repo, &selection.path, false)?;
+        let verified_patch = patch::build_unified_reverse_patch(&verified_detail, &selection)?;
+        if verified_patch != patch {
+            return Err(GitError::PatchStale);
+        }
+
+        run_git_apply_to_worktree(&commands, &repo, &patch, false)?;
+        runtime::bump_mutation(&repo, MutationKind::Discard);
+        runtime::generations(&repo)
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
 #[derive(Clone, Copy)]
 enum IndexPatchOperation {
     Stage,
@@ -387,6 +431,17 @@ fn ensure_expected_generations(
     }
 }
 
+fn ensure_confirmed_generations(
+    repo: &RepoPath,
+    expected: crate::GenerationSet,
+) -> Result<(), GitError> {
+    if runtime::generations(repo)? == expected {
+        Ok(())
+    } else {
+        Err(GitError::PreflightStale)
+    }
+}
+
 fn current_index_patch_diff(
     repo: &RepoPath,
     path: &str,
@@ -485,6 +540,56 @@ pub(super) fn run_git_apply_to_index(
     } else {
         Err(GitError::PatchApplyFailed(
             "Git could not apply the selected patch to the index".to_string(),
+        ))
+    }
+}
+
+pub(super) fn run_git_apply_to_worktree(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    patch: &[u8],
+    check: bool,
+) -> Result<(), GitError> {
+    let mut command = commands.command()?;
+    command.arg("apply");
+    if check {
+        command.arg("--check");
+    }
+    command
+        .arg("--reverse")
+        .current_dir(&repo.0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let mut child = command.spawn().map_err(|_| {
+        GitError::PatchApplyFailed("could not start Git patch application".to_string())
+    })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| GitError::PatchApplyFailed("Git patch input was unavailable".to_string()))?;
+    let write_result = stdin.write_all(patch);
+    drop(stdin);
+    if write_result.is_err() {
+        let _ = child.wait();
+        return Err(GitError::PatchApplyFailed(
+            "could not send the selected patch to Git".to_string(),
+        ));
+    }
+
+    let status = child.wait().map_err(|_| {
+        GitError::PatchApplyFailed("could not await Git patch application".to_string())
+    })?;
+    if status.success() {
+        Ok(())
+    } else if check {
+        Err(GitError::PatchApplyFailed(
+            "Git rejected the selected patch during validation".to_string(),
+        ))
+    } else {
+        Err(GitError::PatchApplyFailed(
+            "Git could not apply the selected patch to the worktree".to_string(),
         ))
     }
 }

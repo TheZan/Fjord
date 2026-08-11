@@ -555,6 +555,19 @@ export function unstagePatch(
   );
 }
 
+export function discardPatch(
+  repoId: string,
+  selection: PatchSelection,
+  expectedGenerations: GenerationSet,
+): Promise<GenerationSet> {
+  return invoke<GenerationSet>("discard_patch", { repoId, selection, expectedGenerations }).then(
+    (generations) => {
+      observeRepositoryGenerations(repoId, generations, "working");
+      return generations;
+    },
+  );
+}
+
 export function commitRepo(repoId: string, message: string): Promise<string> {
   return invoke("commit_repo", { repoId, message });
 }
