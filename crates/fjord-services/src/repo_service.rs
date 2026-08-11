@@ -4,8 +4,8 @@ use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DestructivePreflight, DiffHunk, DiffLineKind, DiscardSelection, FileChangeType, FileDiff,
     FileDiffDetail, FileDiffWindow, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
-    GlobalSearchResult, LogCursor, Recoverability, RepoStatus, RepositoryEntry, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    GlobalSearchResult, LogCursor, PatchSelection, Recoverability, RepoStatus, RepositoryEntry,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
@@ -871,6 +871,19 @@ impl RepoService {
         Ok(self.git.stage(&RepoPath::new(repo.path), paths).await?)
     }
 
+    pub async fn stage_patch(
+        &self,
+        repo_id: RepositoryId,
+        selection: &PatchSelection,
+        expected_generations: GenerationSet,
+    ) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .stage_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .await?)
+    }
+
     pub async fn unstage_files(
         &self,
         repo_id: RepositoryId,
@@ -1380,6 +1393,7 @@ mod tests {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
         generation_changes_on_first_preflight: bool,
         working_diff_calls: AtomicUsize,
+        stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -1755,6 +1769,19 @@ mod tests {
         async fn stage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
+        }
+        async fn stage_patch(
+            &self,
+            repo: &RepoPath,
+            selection: &PatchSelection,
+            expected_generations: GenerationSet,
+        ) -> Result<GenerationSet, GitError> {
+            *self.stage_patch_call.lock().unwrap() =
+                Some((repo.0.clone(), selection.clone(), expected_generations));
+            Ok(GenerationSet {
+                working_tree: expected_generations.working_tree + 1,
+                ..expected_generations
+            })
         }
         async fn unstage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -2461,6 +2488,40 @@ mod tests {
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn stage_patch_forwards_selection_and_expected_generation_and_returns_the_result() {
+        let (repo, git, _, service) = service_with_fake_git();
+        let selection = PatchSelection {
+            path: "src/main.rs".into(),
+            source: fjord_domain::PatchSource::Worktree,
+            hunks: vec![fjord_domain::HunkSelection {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: Vec::new(),
+            }],
+            base_digest: "digest".into(),
+        };
+        let expected = GenerationSet {
+            working_tree: 7,
+            refs: 2,
+            ..GenerationSet::default()
+        };
+
+        let result = service
+            .stage_patch(repo.id, &selection, expected)
+            .await
+            .unwrap();
+
+        assert_eq!(result.working_tree, 8);
+        assert_eq!(result.refs, 2);
+        assert_eq!(
+            *git.stage_patch_call.lock().unwrap(),
+            Some((repo.path, selection, expected))
+        );
     }
 
     #[tokio::test]

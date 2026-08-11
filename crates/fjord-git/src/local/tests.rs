@@ -45,6 +45,81 @@ fn write_file(repo: &RepoPath, path: &str, content: &str) {
     std::fs::write(repo.0.join(path), content).unwrap();
 }
 
+fn write_bytes(repo: &RepoPath, path: &str, content: &[u8]) {
+    std::fs::write(repo.0.join(path), content).unwrap();
+}
+
+fn index_blob(repo: &RepoPath, path: &str) -> Option<Vec<u8>> {
+    let git = Repository::open(&repo.0).unwrap();
+    let mut index = git.index().unwrap();
+    index.read(true).unwrap();
+    let entry = index.get_path(Path::new(path), 0)?;
+    let content = git.find_blob(entry.id).unwrap().content().to_vec();
+    Some(content)
+}
+
+fn head_blob(repo: &RepoPath, path: &str) -> Vec<u8> {
+    let git = Repository::open(&repo.0).unwrap();
+    let commit = git.head().unwrap().peel_to_commit().unwrap();
+    let tree = commit.tree().unwrap();
+    let entry = tree.get_path(Path::new(path)).unwrap();
+    let content = git.find_blob(entry.id()).unwrap().content().to_vec();
+    content
+}
+
+fn git_output(backend: &LocalGitBackend, repo: &RepoPath, args: &[&str]) -> Vec<u8> {
+    let output = backend
+        .commands
+        .command()
+        .unwrap()
+        .args(args)
+        .current_dir(&repo.0)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {} failed: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    output.stdout
+}
+
+fn whole_patch_selection(
+    detail: &FileDiffDetail,
+    hunk_indices: impl IntoIterator<Item = usize>,
+) -> fjord_domain::PatchSelection {
+    fjord_domain::PatchSelection {
+        path: detail.path.clone(),
+        source: PatchSource::Worktree,
+        hunks: hunk_indices
+            .into_iter()
+            .map(|index| {
+                let hunk = &detail.hunks[index];
+                fjord_domain::HunkSelection {
+                    old_start: hunk.old_start,
+                    old_lines: hunk.old_lines,
+                    new_start: hunk.new_start,
+                    new_lines: hunk.new_lines,
+                    lines: Vec::new(),
+                }
+            })
+            .collect(),
+        base_digest: patch::base_digest(detail, PatchSource::Worktree),
+    }
+}
+
+async fn commit_fixture(backend: &LocalGitBackend, repo: &RepoPath, files: &[(&str, &[u8])]) {
+    let mut paths = Vec::new();
+    for (path, content) in files {
+        write_bytes(repo, path, content);
+        paths.push(PathBuf::from(path));
+    }
+    backend.stage(repo, &paths).await.unwrap();
+    backend.commit(repo, "Initial commit").await.unwrap();
+}
+
 fn assert_patch_applies_without_mutation(backend: &LocalGitBackend, repo: &RepoPath, patch: &[u8]) {
     let mut command = backend.commands.command().unwrap();
     command
@@ -1047,6 +1122,439 @@ async fn added_and_deleted_working_files_produce_checkable_read_only_patches() {
         "add me\n"
     );
     assert!(!repo_path.0.join("deleted.txt").exists());
+}
+
+#[tokio::test]
+async fn stage_patch_stages_a_complete_hunk_without_touching_the_worktree() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("file.txt", b"one\ntwo\nthree\n")]).await;
+
+    let worktree = b"one\nTWO\nthree\n";
+    write_bytes(&repo_path, "file.txt", worktree);
+    let detail = backend
+        .working_file_diff(&repo_path, "file.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let before = backend.generations(&repo_path).unwrap();
+
+    let after = backend
+        .stage_patch(&repo_path, &selection, before)
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo_path, "file.txt").unwrap(), worktree);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("file.txt")).unwrap(),
+        worktree
+    );
+    assert_eq!(after.working_tree, before.working_tree + 1);
+    assert_eq!(after.refs, before.refs);
+    assert_eq!(after.history, before.history);
+    assert_eq!(after.stash, before.stash);
+    assert_eq!(after.config, before.config);
+
+    let index_after = std::fs::read(repo_path.0.join(".git").join("index")).unwrap();
+    assert!(matches!(
+        backend.stage_patch(&repo_path, &selection, before).await,
+        Err(GitError::PatchStale)
+    ));
+    assert_eq!(
+        std::fs::read(repo_path.0.join(".git").join("index")).unwrap(),
+        index_after,
+        "reusing a stale selection must not stage anything else"
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_stages_one_of_two_hunks_and_commit_records_only_that_hunk() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = (1..=20)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    commit_fixture(&backend, &repo_path, &[("two-hunks.txt", base.as_bytes())]).await;
+    let worktree = base
+        .replace("line 2\n", "selected 2\n")
+        .replace("line 19\n", "unstaged 19\n");
+    let committed = base.replace("line 2\n", "selected 2\n");
+    write_file(&repo_path, "two-hunks.txt", &worktree);
+
+    let detail = backend
+        .working_file_diff(&repo_path, "two-hunks.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(detail.hunks.len(), 2);
+    let selection = whole_patch_selection(&detail, [0]);
+    let generations = backend.generations(&repo_path).unwrap();
+    backend
+        .stage_patch(&repo_path, &selection, generations)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo_path, "two-hunks.txt").unwrap(),
+        committed.as_bytes()
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("two-hunks.txt")).unwrap(),
+        worktree.as_bytes()
+    );
+    let changes = backend.working_changes(&repo_path).await.unwrap();
+    assert!(changes
+        .staged
+        .iter()
+        .any(|file| file.path == "two-hunks.txt"));
+    assert!(changes
+        .unstaged
+        .iter()
+        .any(|file| file.path == "two-hunks.txt"));
+    let cached = git_output(
+        &backend,
+        &repo_path,
+        &["diff", "--cached", "--", "two-hunks.txt"],
+    );
+    let unstaged = git_output(&backend, &repo_path, &["diff", "--", "two-hunks.txt"]);
+    assert!(String::from_utf8_lossy(&cached).contains("selected 2"));
+    assert!(!String::from_utf8_lossy(&cached).contains("unstaged 19"));
+    assert!(String::from_utf8_lossy(&unstaged).contains("unstaged 19"));
+
+    backend.commit(&repo_path, "Selected hunk").await.unwrap();
+    assert_eq!(head_blob(&repo_path, "two-hunks.txt"), committed.as_bytes());
+    assert_eq!(
+        std::fs::read(repo_path.0.join("two-hunks.txt")).unwrap(),
+        worktree.as_bytes()
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_stages_selected_lines_and_leaves_neighboring_changes_unstaged() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = b"one\ntwo\nthree\nfour\nfive\n";
+    let worktree = b"one\nTWO\nthree\nFOUR\nfive\n";
+    let expected_index = b"one\nTWO\nthree\nfour\nfive\n";
+    commit_fixture(&backend, &repo_path, &[("lines.txt", base)]).await;
+    write_bytes(&repo_path, "lines.txt", worktree);
+
+    let detail = backend
+        .working_file_diff(&repo_path, "lines.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(detail.hunks.len(), 1);
+    let selected_lines = detail.hunks[0]
+        .lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.kind != DiffLineKind::Context
+                && (line.old_lineno == Some(2) || line.new_lineno == Some(2))
+        })
+        .map(|(index, _)| index as u32)
+        .collect::<Vec<_>>();
+    assert_eq!(selected_lines.len(), 2);
+    let mut selection = whole_patch_selection(&detail, [0]);
+    selection.hunks[0].lines = selected_lines;
+    let generations = backend.generations(&repo_path).unwrap();
+    backend
+        .stage_patch(&repo_path, &selection, generations)
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo_path, "lines.txt").unwrap(), expected_index);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("lines.txt")).unwrap(),
+        worktree
+    );
+    let unstaged = git_output(&backend, &repo_path, &["diff", "--", "lines.txt"]);
+    let unstaged = String::from_utf8_lossy(&unstaged);
+    assert!(unstaged.lines().any(|line| line == "+FOUR"));
+    assert!(!unstaged.lines().any(|line| matches!(line, "+TWO" | "-TWO")));
+}
+
+#[tokio::test]
+async fn stage_patch_preserves_existing_staged_and_unrelated_changes() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[
+            ("target.txt", b"one\ntwo\nthree\nfour\nfive\n"),
+            ("staged.txt", b"staged base\n"),
+            ("unstaged.txt", b"unstaged base\n"),
+        ],
+    )
+    .await;
+
+    write_file(&repo_path, "target.txt", "one\nTWO\nthree\nfour\nfive\n");
+    write_file(&repo_path, "staged.txt", "staged existing\n");
+    backend
+        .stage(
+            &repo_path,
+            &[PathBuf::from("target.txt"), PathBuf::from("staged.txt")],
+        )
+        .await
+        .unwrap();
+    let target_worktree = b"one\nTWO\nthree\nfour\nFIVE\n";
+    let unstaged_worktree = b"unstaged outside selection\n";
+    write_bytes(&repo_path, "target.txt", target_worktree);
+    write_bytes(&repo_path, "unstaged.txt", unstaged_worktree);
+
+    let staged_before = git_output(
+        &backend,
+        &repo_path,
+        &["diff", "--cached", "--", "staged.txt"],
+    );
+    let unstaged_before = git_output(&backend, &repo_path, &["diff", "--", "unstaged.txt"]);
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    backend
+        .stage_patch(&repo_path, &selection, generations)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo_path, "target.txt").unwrap(),
+        target_worktree
+    );
+    assert_eq!(
+        index_blob(&repo_path, "staged.txt").unwrap(),
+        b"staged existing\n"
+    );
+    assert_eq!(
+        index_blob(&repo_path, "unstaged.txt").unwrap(),
+        b"unstaged base\n"
+    );
+    assert_eq!(
+        git_output(
+            &backend,
+            &repo_path,
+            &["diff", "--cached", "--", "staged.txt"]
+        ),
+        staged_before
+    );
+    assert_eq!(
+        git_output(&backend, &repo_path, &["diff", "--", "unstaged.txt"]),
+        unstaged_before
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("target.txt")).unwrap(),
+        target_worktree
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("unstaged.txt")).unwrap(),
+        unstaged_worktree
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_rejects_stale_generation_and_external_diff_changes_without_mutation() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("target.txt", b"base\n"), ("other.txt", b"other base\n")],
+    )
+    .await;
+
+    write_file(&repo_path, "target.txt", "selected\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let stale_generations = backend.generations(&repo_path).unwrap();
+    write_file(&repo_path, "other.txt", "other staged\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("other.txt")])
+        .await
+        .unwrap();
+    let index_after_other_change = std::fs::read(repo_path.0.join(".git").join("index")).unwrap();
+
+    assert!(matches!(
+        backend
+            .stage_patch(&repo_path, &selection, stale_generations)
+            .await,
+        Err(GitError::PatchStale)
+    ));
+    assert_eq!(
+        std::fs::read(repo_path.0.join(".git").join("index")).unwrap(),
+        index_after_other_change
+    );
+    assert_eq!(index_blob(&repo_path, "target.txt").unwrap(), b"base\n");
+
+    let current_generations = backend.generations(&repo_path).unwrap();
+    let refreshed = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let external_selection = whole_patch_selection(&refreshed, 0..refreshed.hunks.len());
+    let index_before_external = std::fs::read(repo_path.0.join(".git").join("index")).unwrap();
+    write_file(&repo_path, "target.txt", "changed after selection\n");
+
+    assert!(matches!(
+        backend
+            .stage_patch(&repo_path, &external_selection, current_generations)
+            .await,
+        Err(GitError::PatchStale)
+    ));
+    assert_eq!(
+        backend.generations(&repo_path).unwrap(),
+        current_generations
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join(".git").join("index")).unwrap(),
+        index_before_external
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("target.txt")).unwrap(),
+        b"changed after selection\n"
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_apply_failures_and_unsupported_sources_do_not_bump_or_mutate() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("file.txt", b"base\n"), ("binary.dat", b"\0base")],
+    )
+    .await;
+    write_file(&repo_path, "file.txt", "changed\n");
+    write_bytes(&repo_path, "binary.dat", b"\0changed");
+    let detail = backend
+        .working_file_diff(&repo_path, "file.txt", false)
+        .await
+        .unwrap();
+    let mut unsupported = whole_patch_selection(&detail, 0..detail.hunks.len());
+    unsupported.source = PatchSource::Index;
+    let generations = backend.generations(&repo_path).unwrap();
+    let index_before = std::fs::read(repo_path.0.join(".git").join("index")).unwrap();
+
+    assert!(matches!(
+        backend
+            .stage_patch(&repo_path, &unsupported, generations)
+            .await,
+        Err(GitError::PatchUnsupported(_))
+    ));
+    let binary = backend
+        .working_file_diff(&repo_path, "binary.dat", false)
+        .await
+        .unwrap();
+    assert!(binary.is_binary);
+    let binary_selection = whole_patch_selection(&binary, 0..binary.hunks.len());
+    assert!(matches!(
+        backend
+            .stage_patch(&repo_path, &binary_selection, generations)
+            .await,
+        Err(GitError::PatchUnsupported(_))
+    ));
+    assert!(matches!(
+        working_tree::run_git_apply_to_index(
+            &backend.commands,
+            &repo_path,
+            b"this is not a patch\n",
+            false,
+        ),
+        Err(GitError::PatchApplyFailed(_))
+    ));
+    assert_eq!(backend.generations(&repo_path).unwrap(), generations);
+    assert_eq!(
+        std::fs::read(repo_path.0.join(".git").join("index")).unwrap(),
+        index_before
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("file.txt")).unwrap(),
+        b"changed\n"
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("binary.dat")).unwrap(),
+        b"\0changed"
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_preserves_crlf_and_missing_final_newline_bytes() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("eol.txt", b"old\r\nmiddle\r\nlast")],
+    )
+    .await;
+    let worktree = b"new\r\nmiddle\r\nLAST";
+    write_bytes(&repo_path, "eol.txt", worktree);
+    let detail = backend
+        .working_file_diff(&repo_path, "eol.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+
+    backend
+        .stage_patch(&repo_path, &selection, generations)
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo_path, "eol.txt").unwrap(), worktree);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("eol.txt")).unwrap(),
+        worktree
+    );
+}
+
+#[tokio::test]
+async fn stage_patch_stages_added_and_deleted_files() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("deleted.txt", b"remove me\n")]).await;
+    write_file(&repo_path, "added.txt", "add me\n");
+    std::fs::remove_file(repo_path.0.join("deleted.txt")).unwrap();
+
+    let added = backend
+        .working_file_diff(&repo_path, "added.txt", false)
+        .await
+        .unwrap();
+    let added_selection = whole_patch_selection(&added, 0..added.hunks.len());
+    let generations = backend.generations(&repo_path).unwrap();
+    let after_added = backend
+        .stage_patch(&repo_path, &added_selection, generations)
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo_path, "added.txt").unwrap(), b"add me\n");
+    assert_eq!(
+        std::fs::read(repo_path.0.join("added.txt")).unwrap(),
+        b"add me\n"
+    );
+
+    let deleted = backend
+        .working_file_diff(&repo_path, "deleted.txt", false)
+        .await
+        .unwrap();
+    let deleted_selection = whole_patch_selection(&deleted, 0..deleted.hunks.len());
+    let after_deleted = backend
+        .stage_patch(&repo_path, &deleted_selection, after_added)
+        .await
+        .unwrap();
+    assert!(index_blob(&repo_path, "deleted.txt").is_none());
+    assert!(!repo_path.0.join("deleted.txt").exists());
+    assert_eq!(after_deleted.working_tree, after_added.working_tree + 1);
+    let cached = git_output(&backend, &repo_path, &["diff", "--cached", "--name-status"]);
+    let cached = String::from_utf8_lossy(&cached);
+    assert!(cached.contains("A\tadded.txt"));
+    assert!(cached.contains("D\tdeleted.txt"));
 }
 
 #[tokio::test]

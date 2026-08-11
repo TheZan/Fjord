@@ -5,7 +5,12 @@ const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
-import { getBranches, revealLogFolder, setRepositoryActivity } from "@/infrastructure/tauriClient";
+import {
+  getBranches,
+  revealLogFolder,
+  setRepositoryActivity,
+  stagePatch,
+} from "@/infrastructure/tauriClient";
 import { beginInteraction, setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 
 describe("abortable Tauri queries", () => {
@@ -54,6 +59,27 @@ describe("abortable Tauri queries", () => {
     tauri.invoke.mockResolvedValue(undefined);
     await revealLogFolder();
     expect(tauri.invoke).toHaveBeenCalledWith("reveal_log_folder", {});
+  });
+
+  it("sends a stage patch selection with its coherent generation stamp", async () => {
+    const selection = {
+      path: "src/main.rs",
+      source: "worktree" as const,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
+      baseDigest: "digest",
+    };
+    const expectedGenerations = zeroGenerations();
+    const resultingGenerations = { ...expectedGenerations, workingTree: 1 };
+    tauri.invoke.mockResolvedValue(resultingGenerations);
+
+    await expect(stagePatch("repo-1", selection, expectedGenerations)).resolves.toEqual(
+      resultingGenerations,
+    );
+    expect(tauri.invoke).toHaveBeenCalledWith("stage_patch", {
+      repoId: "repo-1",
+      selection,
+      expectedGenerations,
+    });
   });
 });
 

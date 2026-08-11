@@ -1,13 +1,7 @@
 //! Deterministic, read-only construction of minimal unified patches.
 //!
-//! P8-01 deliberately stops at bytes: later tasks own locking and invoking
-//! `git apply`. Keeping verification and construction here lets every patch
-//! mutation share one fail-closed implementation.
-
-// P8-01 intentionally lands the constructor one task before P8-02 wires it to
-// `git apply`; keep the foundation compiled and tested without exposing patch
-// bytes through a temporary public API.
-#![cfg_attr(not(test), allow(dead_code))]
+//! Keeping verification and construction here lets every patch mutation share
+//! one fail-closed implementation without accepting caller-supplied patch text.
 
 use std::collections::{BTreeMap, BTreeSet};
 

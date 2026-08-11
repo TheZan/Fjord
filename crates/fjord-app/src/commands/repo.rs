@@ -1,7 +1,7 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, DestructiveAction, DestructivePreflight,
     FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
-    LogCursor, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
+    LogCursor, PatchSelection, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
@@ -381,6 +381,19 @@ pub async fn stage_files(
     paths: Vec<PathBuf>,
 ) -> Result<(), AppError> {
     Ok(state.repos.stage_files(repo_id, &paths).await?)
+}
+
+#[tauri::command]
+pub async fn stage_patch(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    selection: PatchSelection,
+    expected_generations: GenerationSet,
+) -> Result<GenerationSet, AppError> {
+    Ok(state
+        .repos
+        .stage_patch(repo_id, &selection, expected_generations)
+        .await?)
 }
 
 #[tauri::command]

@@ -119,6 +119,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::stash_pop,
             commands::open_terminal,
             commands::stage_files,
+            commands::stage_patch,
             commands::unstage_files,
             commands::commit_repo,
             commands::fetch_repo,

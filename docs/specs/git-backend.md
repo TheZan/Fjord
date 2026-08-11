@@ -58,7 +58,8 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
 | `file_diff` | `gix` | Read-only; unified line diff via `gix-diff`'s blob platform and `imara-diff`. |
-| Working patch generation | `git2` diff + pure Rust constructor | Read-only. Reuses the working-file diff model, verifies a SHA-256 digest, and produces unified patch bytes for the later system-Git apply tasks. |
+| Working patch generation | `git2` diff + pure Rust constructor | Read-only. Reuses the working-file diff model, verifies a SHA-256 digest, and produces unified patch bytes for system-Git apply tasks. |
+| `stage_patch` | `git2` diff + system `git apply --cached` | Reconstructs and validates the selection under the repository write lock, applies only to the index through the shared resolved executable, and advances `working_tree` only on success. |
 | `checkout` | `git2` | Working-tree writes are already proven in libgit2 and share error handling with the other mutation paths. |
 | `stage` / `unstage` / `commit` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories. |
 | `fetch` | system Git | Uses the user's credential helpers, SSH configuration, proxy, and certificates. |

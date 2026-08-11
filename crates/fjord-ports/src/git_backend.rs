@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet,
-    LogCursor, RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    LogCursor, PatchSelection, RepoStatus, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -352,6 +352,16 @@ pub trait GitBackend: Send + Sync {
     /// Applies and drops `stash@{0}`, the most recent entry.
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
+    /// Stages a verified line selection against the exact repository
+    /// generation from which it was rendered.
+    async fn stage_patch(
+        &self,
+        _repo: &RepoPath,
+        _selection: &PatchSelection,
+        _expected_generations: GenerationSet,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("stage_patch"))
+    }
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
     /// Returns the configured remote for the current branch's upstream.

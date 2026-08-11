@@ -17,8 +17,8 @@ use std::process::Stdio;
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineEnding,
-    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor, PatchSource,
-    RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor,
+    PatchSelection, PatchSource, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
@@ -303,6 +303,15 @@ impl GitBackend for LocalGitBackend {
         working_tree::stage(repo, paths).await?;
         runtime::bump_mutation(repo, MutationKind::Stage);
         Ok(())
+    }
+
+    async fn stage_patch(
+        &self,
+        repo: &RepoPath,
+        selection: &PatchSelection,
+        expected_generations: crate::GenerationSet,
+    ) -> Result<crate::GenerationSet, GitError> {
+        working_tree::stage_patch(&self.commands, repo, selection, expected_generations).await
     }
 
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {

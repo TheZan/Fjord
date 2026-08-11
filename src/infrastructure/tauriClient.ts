@@ -11,6 +11,7 @@ import type {
   GenerationSet,
   GitAuthPrompt,
   InteractionTrace,
+  PatchSelection,
   SnapshotRevalidation,
   StoredRepositorySnapshot,
   UiState,
@@ -487,6 +488,19 @@ export function openTerminal(repoId: string): Promise<void> {
 
 export function stageFiles(repoId: string, paths: string[]): Promise<void> {
   return invoke("stage_files", { repoId, paths });
+}
+
+export function stagePatch(
+  repoId: string,
+  selection: PatchSelection,
+  expectedGenerations: GenerationSet,
+): Promise<GenerationSet> {
+  return invoke<GenerationSet>("stage_patch", { repoId, selection, expectedGenerations }).then(
+    (generations) => {
+      observeRepositoryGenerations(repoId, generations, "working");
+      return generations;
+    },
+  );
 }
 
 export function unstageFiles(repoId: string, paths: string[]): Promise<void> {

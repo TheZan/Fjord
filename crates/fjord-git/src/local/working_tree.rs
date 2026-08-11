@@ -1,6 +1,7 @@
 //! Working-tree inspection and index staging.
 
 use super::*;
+use std::io::Write;
 
 pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, GitError> {
     let repo = repo.clone();
@@ -74,6 +75,7 @@ pub(super) async fn working_file_diff(
             let mut options = git2::DiffOptions::new();
             options
                 .pathspec(&path)
+                .disable_pathspec_match(true)
                 .include_untracked(true)
                 .recurse_untracked_dirs(true)
                 .show_untracked_content(true);
@@ -133,6 +135,7 @@ pub(super) async fn working_file_diff_window(
             let mut options = git2::DiffOptions::new();
             options
                 .pathspec(&path)
+                .disable_pathspec_match(true)
                 .include_untracked(true)
                 .recurse_untracked_dirs(true)
                 .show_untracked_content(true);
@@ -239,6 +242,147 @@ pub(super) async fn stage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitE
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+/// Stages one verified worktree selection while keeping state validation,
+/// application, and the generation bump inside the repository write lock.
+pub(super) async fn stage_patch(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: crate::GenerationSet,
+) -> Result<crate::GenerationSet, GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let selection = selection.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        if selection.source != PatchSource::Worktree {
+            return Err(GitError::PatchUnsupported(
+                "stage_patch requires a worktree selection".to_string(),
+            ));
+        }
+        ensure_expected_generations(&repo, expected_generations)?;
+
+        let detail = current_worktree_diff(&repo, &selection.path)?;
+        let patch = patch::build_unified_patch(&detail, &selection)?;
+        ensure_expected_generations(&repo, expected_generations)?;
+
+        run_git_apply_to_index(&commands, &repo, &patch, true)?;
+
+        // `--check` is intentionally followed by a fresh diff reconstruction.
+        // This closes the ordinary out-of-band-change window without trusting
+        // the earlier bytes merely because Git considered them applicable.
+        ensure_expected_generations(&repo, expected_generations)?;
+        let verified_detail = current_worktree_diff(&repo, &selection.path)?;
+        let verified_patch = patch::build_unified_patch(&verified_detail, &selection)?;
+        if verified_patch != patch {
+            return Err(GitError::PatchStale);
+        }
+
+        run_git_apply_to_index(&commands, &repo, &patch, false)?;
+        runtime::bump_mutation(&repo, MutationKind::Stage);
+        runtime::generations(&repo)
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn ensure_expected_generations(
+    repo: &RepoPath,
+    expected: crate::GenerationSet,
+) -> Result<(), GitError> {
+    if runtime::generations(repo)? == expected {
+        Ok(())
+    } else {
+        Err(GitError::PatchStale)
+    }
+}
+
+fn current_worktree_diff(repo: &RepoPath, path: &str) -> Result<FileDiffDetail, GitError> {
+    LocalGitBackend::with_runtime_git2(repo, |git| {
+        let mut options = git2::DiffOptions::new();
+        options
+            .pathspec(path)
+            .disable_pathspec_match(true)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
+        let index = LocalGitBackend::fresh_index(git)?;
+        let diff = git
+            .diff_index_to_workdir(Some(&index), Some(&mut options))
+            .map_err(LocalGitBackend::map_git2_error)?;
+        let delta = diff.deltas().next();
+        let change_type = delta
+            .as_ref()
+            .map(|delta| LocalGitBackend::classify_delta(delta.status()))
+            .unwrap_or(FileChangeType::Modified);
+        let old_mode = delta
+            .as_ref()
+            .and_then(|delta| file_mode(delta.old_file().mode()));
+        let new_mode = delta
+            .as_ref()
+            .and_then(|delta| file_mode(delta.new_file().mode()));
+        let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
+        Ok(FileDiffDetail {
+            path: path.to_string(),
+            change_type,
+            old_mode,
+            new_mode,
+            is_binary,
+            hunks,
+        })
+    })
+}
+
+pub(super) fn run_git_apply_to_index(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    patch: &[u8],
+    check: bool,
+) -> Result<(), GitError> {
+    let mut command = commands.command()?;
+    command.arg("apply");
+    if check {
+        command.arg("--check");
+    }
+    command
+        .arg("--cached")
+        .current_dir(&repo.0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let mut child = command.spawn().map_err(|_| {
+        GitError::PatchApplyFailed("could not start Git patch application".to_string())
+    })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| GitError::PatchApplyFailed("Git patch input was unavailable".to_string()))?;
+    let write_result = stdin.write_all(patch);
+    drop(stdin);
+    if write_result.is_err() {
+        let _ = child.wait();
+        return Err(GitError::PatchApplyFailed(
+            "could not send the selected patch to Git".to_string(),
+        ));
+    }
+
+    let status = child.wait().map_err(|_| {
+        GitError::PatchApplyFailed("could not await Git patch application".to_string())
+    })?;
+    if status.success() {
+        Ok(())
+    } else if check {
+        Err(GitError::PatchApplyFailed(
+            "Git rejected the selected patch during validation".to_string(),
+        ))
+    } else {
+        Err(GitError::PatchApplyFailed(
+            "Git could not apply the selected patch to the index".to_string(),
+        ))
+    }
 }
 
 pub(super) async fn unstage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {

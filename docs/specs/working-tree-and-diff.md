@@ -62,7 +62,8 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Whole-file stage/unstage | ✅ `stage_files` / `unstage_files`, empty list = all. `git2`-backed. |
 | Working changes listing | ✅ `WorkingChanges { staged, unstaged }`, `WorkingFile { path, changeType, conflicted }`; a partially-staged file legitimately appears in both lists. |
 | Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
-| Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. Apply remains P8-02/P8-03/P8-06. |
+| Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. Unstage/discard apply remains P8-03/P8-06. |
+| Partial stage mutation | ✅ `stage_patch` reconstructs the current worktree diff under the repository write lock, validates the caller's complete generation stamp and digest, runs `git apply --check --cached` then `git apply --cached` through the shared executable, and returns the success-only updated generation. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
 | Discard | 🚧 Mutation absent at any granularity; the P8-00 destructive-preflight contract for file/hunk/line selections is implemented. |
@@ -134,16 +135,34 @@ wrong.
 New port methods on `GitBackend` (local, no network):
 
 ```rust
-async fn stage_patch(&self, repo: &RepoPath, selection: &PatchSelection) -> Result<(), GitError>;
-async fn unstage_patch(&self, repo: &RepoPath, selection: &PatchSelection) -> Result<(), GitError>;
-async fn discard_patch(&self, repo: &RepoPath, selection: &PatchSelection) -> Result<(), GitError>;
+async fn stage_patch(
+    &self,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: GenerationSet,
+) -> Result<GenerationSet, GitError>;
+async fn unstage_patch(
+    &self,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: GenerationSet,
+) -> Result<GenerationSet, GitError>;
+async fn discard_patch(
+    &self,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: GenerationSet,
+) -> Result<GenerationSet, GitError>;
 ```
 
-Each takes the repository write lock and bumps the `working_tree` generation
-([`performance.md`](performance.md) §5) on success.
+Each validates the caller's complete generation stamp while holding the
+repository write lock, bumps only the `working_tree` generation
+([`performance.md`](performance.md) §5) on success, and returns the resulting
+generation set.
 
 New IPC commands: `stage_patch`, `unstage_patch`, `discard_patch`, all taking
-`{ repo_id, selection }`. New stable error codes: `patch_stale`,
+`{ repo_id, selection, expected_generations }` and returning the resulting
+`GenerationSet`. New stable error codes: `patch_stale`,
 `patch_apply_failed`, `patch_unsupported` (binary or mode-only change that has no
 line representation).
 
