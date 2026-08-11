@@ -9,7 +9,7 @@ import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { CommitSummary, GenerationSet, PatchSelection } from "@/domain/git";
+import type { CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -356,10 +356,21 @@ export function RepoDetailContainer({
     );
   }
 
-  function onDiscardPatch(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
+  function onDiscardPatch(
+    action: DestructiveAction,
+    selection: PatchSelection,
+    expectedGenerations: GenerationSet,
+    confirmationToken: string,
+  ): Promise<boolean> {
     return runRepoAction(
       "discard-patch",
-      () => discardPatch(repo.id, selection, expectedGenerations).then(() => undefined),
+      () => discardPatch(
+        repo.id,
+        action,
+        selection,
+        expectedGenerations,
+        confirmationToken,
+      ).then(() => undefined),
       ["status", "working"],
       (error) => {
         const code = invokeErrorCode(error);

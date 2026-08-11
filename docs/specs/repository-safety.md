@@ -183,7 +183,8 @@ Covered actions: `reset --hard`, `reset --mixed` with staged content, discard
 delete branch, delete remote branch, delete tag, stash pop with a dirty tree,
 force-with-lease push, checkout that would overwrite, abort of an operation.
 
-Command: `preflight_destructive_action(repo_id, action)` → `DestructivePreflight`.
+Command: `preflight_destructive_action(repo_id, action, patch_selection?)` →
+`DestructivePreflight`.
 The dialog renders consequences as concrete sentences with counts and up to five
 example paths or commit subjects, and states recoverability honestly:
 
@@ -197,6 +198,15 @@ A preflight is computed immediately before the dialog opens and is re-validated
 against the repository generation at confirmation time; a generation change
 between showing and confirming re-runs the preflight and shows the difference
 rather than acting on stale facts.
+
+For discard, the backend also validates the supplied `PatchSelection` against
+the action and current diff, then issues a short-lived opaque confirmation token.
+The token is bound server-side to the repository, exact action, exact file/hunk/
+line selection, patch digest, and complete `GenerationSet`. `discard_patch`
+validates and consumes that token under the repository write lock before doing
+any Git work. Tokens expire after two minutes, are one-use even after a failed
+binding attempt, and cannot be substituted across scopes or repositories.
+Generation equality by itself is never confirmation.
 
 `blockers` covers cases where Fjord refuses outright — for example, deleting the
 current branch. A blocker disables confirmation and states the reason.

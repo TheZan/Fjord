@@ -470,6 +470,9 @@ pub struct DestructivePreflight {
     // Captured only after consequence computation completed without a
     // generation change; confirmation must present this stamp to execution.
     pub generations: GenerationSet,
+    // Backend-issued bearer proof for this exact destructive scope. Blocked
+    // preflights do not receive a confirmation.
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

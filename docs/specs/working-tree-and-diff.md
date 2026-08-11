@@ -151,8 +151,10 @@ async fn unstage_patch(
 async fn discard_patch(
     &self,
     repo: &RepoPath,
+    action: &DestructiveAction,
     selection: &PatchSelection,
     expected_generations: GenerationSet,
+    confirmation_token: &str,
 ) -> Result<GenerationSet, GitError>;
 ```
 
@@ -161,9 +163,10 @@ repository write lock, bumps only the `working_tree` generation
 ([`performance.md`](performance.md) §5) on success, and returns the resulting
 generation set.
 
-New IPC commands: `stage_patch`, `unstage_patch`, `discard_patch`, all taking
-`{ repo_id, selection, expected_generations }` and returning the resulting
-`GenerationSet`. New stable error codes: `patch_stale`,
+New IPC commands: `stage_patch`, `unstage_patch`, `discard_patch`. The first two
+take `{ repo_id, selection, expected_generations }`; discard additionally takes
+the exact confirmed `action` and backend-issued `confirmation_token`. Each
+returns the resulting `GenerationSet`. New stable error codes: `patch_stale`,
 `patch_apply_failed`, `patch_unsupported` (binary or mode-only change that has no
 line representation).
 
@@ -298,7 +301,9 @@ flags keep display and patch identical, at the cost of a recomputation on toggle
   through the shared resolved Git executable; no shell strings.
 - `discard_patch` is irreversible for the discarded lines. It is gated by the
   preflight contract, it reports exact line counts, and it refuses to run against
-  an unvalidated snapshot.
+  an unvalidated snapshot. Its short-lived, one-use confirmation is bound to the
+  repository, action, complete patch selection and digest, and generation set;
+  validation and consumption happen under the repository write lock.
 - Amend of a published commit is permitted but always labeled with its
   consequence.
 - Force push is `--force-with-lease` with an explicit expected OID; a stale lease

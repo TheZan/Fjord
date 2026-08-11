@@ -13,7 +13,14 @@ import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContext
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
-import type { CommitSummary, GenerationSet, PatchSelection, RepoStatus, WorkingChanges } from "@/domain/git";
+import type {
+  CommitSummary,
+  DestructiveAction,
+  GenerationSet,
+  PatchSelection,
+  RepoStatus,
+  WorkingChanges,
+} from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
@@ -117,7 +124,12 @@ export function RepoDetailView({
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onApplyHunk: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
-  onDiscardPatch: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
+  onDiscardPatch: (
+    action: DestructiveAction,
+    selection: PatchSelection,
+    expectedGenerations: GenerationSet,
+    confirmationToken: string,
+  ) => Promise<boolean>;
   onCommit: (message: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");

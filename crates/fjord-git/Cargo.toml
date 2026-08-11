@@ -15,6 +15,7 @@ time.workspace = true
 tracing.workspace = true
 regex = "1"
 sha2 = "0.10"
+uuid.workspace = true
 
 gix = "0.86"
 git2 = "0.21"

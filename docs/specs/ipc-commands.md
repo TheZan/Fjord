@@ -73,7 +73,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded unified-diff window; maximum 2 MB serialized response and 10 MB source-file display ceiling |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Patchable responses carry the full diff's `baseDigest`; the digest and existing `working_tree` generation are captured coherently. |
-| `preflight_destructive_action` | `{ repo_id, action }` | `DestructivePreflight` | Phase 8 discard and force-with-lease consequences; includes the coherent generation stamp required at confirmation |
+| `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Phase 8 consequences; discard requires its exact `PatchSelection` and returns a short-lived backend confirmation token bound to repository, action, selection/digest, and coherent generation stamp |
 
 ### Repository mutations (local)
 
@@ -88,7 +88,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
-| `discard_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current index-to-worktree patch under the write lock; confirmed-generation mismatch is `preflight_stale`, digest mismatch is `patch_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
+| `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
 | `commit_repo` | `{ repo_id, message }` | `string` | New commit id; `nothing_to_commit` when the index matches `HEAD` |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |

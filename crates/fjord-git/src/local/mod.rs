@@ -13,12 +13,14 @@ use crate::locking;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineEnding,
-    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor,
-    PatchSelection, PatchSource, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
+    DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
+    FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource, RepoStatus, StashEntry,
+    TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
@@ -30,6 +32,7 @@ use gix::object::tree::diff::{Change, ChangeDetached};
 use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
+mod destructive_confirmation;
 mod diff;
 mod history;
 mod mutations;
@@ -44,6 +47,7 @@ pub struct LocalGitBackend {
     /// Shared with the application so a Git executable chosen in Settings is
     /// used by local subprocess commands too, not just remote transport.
     commands: GitCommandFactory,
+    destructive_confirmations: Arc<destructive_confirmation::DestructiveConfirmationStore>,
 }
 
 impl LocalGitBackend {
@@ -52,7 +56,24 @@ impl LocalGitBackend {
     }
 
     pub fn with_commands(commands: GitCommandFactory) -> Self {
-        Self { commands }
+        Self {
+            commands,
+            destructive_confirmations: Arc::new(
+                destructive_confirmation::DestructiveConfirmationStore::new(
+                    destructive_confirmation::DEFAULT_CONFIRMATION_TTL,
+                ),
+            ),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_confirmation_ttl(ttl: std::time::Duration) -> Self {
+        Self {
+            commands: GitCommandFactory::new(),
+            destructive_confirmations: Arc::new(
+                destructive_confirmation::DestructiveConfirmationStore::new(ttl),
+            ),
+        }
     }
 }
 
@@ -60,6 +81,11 @@ impl Default for LocalGitBackend {
     fn default() -> Self {
         Self {
             commands: GitCommandFactory::new(),
+            destructive_confirmations: Arc::new(
+                destructive_confirmation::DestructiveConfirmationStore::new(
+                    destructive_confirmation::DEFAULT_CONFIRMATION_TTL,
+                ),
+            ),
         }
     }
 }
@@ -329,13 +355,41 @@ impl GitBackend for LocalGitBackend {
         working_tree::unstage_patch(&self.commands, repo, selection, expected_generations).await
     }
 
+    async fn issue_discard_confirmation(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        selection: &PatchSelection,
+        generations: crate::GenerationSet,
+    ) -> Result<String, GitError> {
+        working_tree::issue_discard_confirmation(
+            &self.destructive_confirmations,
+            repo,
+            action,
+            selection,
+            generations,
+        )
+        .await
+    }
+
     async fn discard_patch(
         &self,
         repo: &RepoPath,
+        action: &DestructiveAction,
         selection: &PatchSelection,
         expected_generations: crate::GenerationSet,
+        confirmation_token: &str,
     ) -> Result<crate::GenerationSet, GitError> {
-        working_tree::discard_patch(&self.commands, repo, selection, expected_generations).await
+        working_tree::discard_patch(
+            &self.commands,
+            &self.destructive_confirmations,
+            repo,
+            action,
+            selection,
+            expected_generations,
+            confirmation_token,
+        )
+        .await
     }
 
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {

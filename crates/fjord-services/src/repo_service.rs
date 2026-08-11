@@ -650,6 +650,7 @@ impl RepoService {
         &self,
         repo_id: RepositoryId,
         action: DestructiveAction,
+        patch_selection: Option<PatchSelection>,
     ) -> Result<DestructivePreflight, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let path = RepoPath::new(repo.path);
@@ -691,12 +692,28 @@ impl RepoService {
             };
             let after = self.git.generations(&path)?;
             if before == after {
+                let confirmation_token =
+                    if blockers.is_empty() && matches!(action, DestructiveAction::Discard { .. }) {
+                        let selection = patch_selection.as_ref().ok_or(GitError::PreflightStale)?;
+                        match self
+                            .git
+                            .issue_discard_confirmation(&path, &action, selection, after)
+                            .await
+                        {
+                            Ok(token) => Some(token),
+                            Err(GitError::PreflightStale | GitError::PatchStale) => continue,
+                            Err(error) => return Err(error.into()),
+                        }
+                    } else {
+                        None
+                    };
                 return Ok(DestructivePreflight {
                     action,
                     consequences,
                     recoverable,
                     blockers,
                     generations: after,
+                    confirmation_token,
                 });
             }
         }
@@ -909,13 +926,21 @@ impl RepoService {
     pub async fn discard_patch(
         &self,
         repo_id: RepositoryId,
+        action: &DestructiveAction,
         selection: &PatchSelection,
         expected_generations: GenerationSet,
+        confirmation_token: &str,
     ) -> Result<GenerationSet, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
-            .discard_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .discard_patch(
+                &RepoPath::new(repo.path),
+                action,
+                selection,
+                expected_generations,
+                confirmation_token,
+            )
             .await?)
     }
 
@@ -1414,6 +1439,14 @@ mod tests {
         }
     }
 
+    type RecordedDiscard = (
+        PathBuf,
+        DestructiveAction,
+        PatchSelection,
+        GenerationSet,
+        String,
+    );
+
     #[derive(Default)]
     struct FakeGit {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
@@ -1421,7 +1454,7 @@ mod tests {
         working_diff_calls: AtomicUsize,
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
-        discard_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
+        discard_patch_call: Mutex<Option<RecordedDiscard>>,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -1542,6 +1575,21 @@ mod tests {
             name: "api-gateway".into(),
             path: PathBuf::from("/repos/api-gateway"),
             sort_order: 0,
+        }
+    }
+
+    fn fake_worktree_selection(lines: Vec<u32>) -> PatchSelection {
+        PatchSelection {
+            path: "src/main.rs".into(),
+            source: fjord_domain::PatchSource::Worktree,
+            hunks: vec![fjord_domain::HunkSelection {
+                old_start: 1,
+                old_lines: 2,
+                new_start: 1,
+                new_lines: 2,
+                lines,
+            }],
+            base_digest: "digest".into(),
         }
     }
 
@@ -1828,14 +1876,31 @@ mod tests {
                 ..expected_generations
             })
         }
+        async fn issue_discard_confirmation(
+            &self,
+            _repo: &RepoPath,
+            _action: &DestructiveAction,
+            _selection: &PatchSelection,
+            _generations: GenerationSet,
+        ) -> Result<String, GitError> {
+            Ok("confirmation-token".to_string())
+        }
+
         async fn discard_patch(
             &self,
             repo: &RepoPath,
+            action: &DestructiveAction,
             selection: &PatchSelection,
             expected_generations: GenerationSet,
+            confirmation_token: &str,
         ) -> Result<GenerationSet, GitError> {
-            *self.discard_patch_call.lock().unwrap() =
-                Some((repo.0.clone(), selection.clone(), expected_generations));
+            *self.discard_patch_call.lock().unwrap() = Some((
+                repo.0.clone(),
+                action.clone(),
+                selection.clone(),
+                expected_generations,
+                confirmation_token.to_string(),
+            ));
             Ok(GenerationSet {
                 working_tree: expected_generations.working_tree + 1,
                 ..expected_generations
@@ -2632,9 +2697,19 @@ mod tests {
             refs: 2,
             ..GenerationSet::default()
         };
+        let action = DestructiveAction::Discard {
+            selection: DiscardSelection::Lines {
+                path: "src/main.rs".into(),
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![0],
+            },
+        };
 
         let result = service
-            .discard_patch(repo.id, &selection, expected)
+            .discard_patch(repo.id, &action, &selection, expected, "confirmation-token")
             .await
             .unwrap();
 
@@ -2642,7 +2717,13 @@ mod tests {
         assert_eq!(result.refs, 2);
         assert_eq!(
             *git.discard_patch_call.lock().unwrap(),
-            Some((repo.path, selection, expected))
+            Some((
+                repo.path,
+                action,
+                selection,
+                expected,
+                "confirmation-token".to_string(),
+            ))
         );
     }
 
@@ -2690,10 +2771,15 @@ mod tests {
                         path: "src/main.rs".into(),
                     },
                 },
+                Some(fake_worktree_selection(Vec::new())),
             )
             .await
             .unwrap();
         assert_eq!(discard.blockers, Vec::<String>::new());
+        assert_eq!(
+            discard.confirmation_token.as_deref(),
+            Some("confirmation-token")
+        );
         assert!(discard
             .consequences
             .contains(&Consequence::ModifiedFilesDiscarded {
@@ -2715,6 +2801,7 @@ mod tests {
                     ref_name: "refs/heads/main".into(),
                     expected_oid: CommitId("deadbeef".into()),
                 },
+                None,
             )
             .await
             .unwrap();
@@ -2726,6 +2813,7 @@ mod tests {
                 _ => None,
             })
             .unwrap();
+        assert_eq!(force.confirmation_token, None);
         assert_eq!(sample.0, 7);
         assert_eq!(sample.1.len(), PREFLIGHT_SAMPLE_LIMIT);
     }
@@ -2746,6 +2834,7 @@ mod tests {
                         lines: vec![0, 0, 2],
                     },
                 },
+                Some(fake_worktree_selection(vec![0, 0, 2])),
             )
             .await
             .unwrap();
@@ -2769,10 +2858,12 @@ mod tests {
                         new_lines: 1,
                     },
                 },
+                Some(fake_worktree_selection(Vec::new())),
             )
             .await
             .unwrap();
         assert_eq!(stale.blockers, ["selection_changed"]);
+        assert_eq!(stale.confirmation_token, None);
         assert!(stale.consequences.is_empty());
     }
 
@@ -2806,6 +2897,7 @@ mod tests {
                         path: "src/main.rs".into(),
                     },
                 },
+                Some(fake_worktree_selection(Vec::new())),
             )
             .await
             .unwrap();

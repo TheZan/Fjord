@@ -78,14 +78,24 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onCheckout: (branch: string) => void;
     onConfirmAction: () => void;
     onApplyHunk: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
-    onDiscardPatch: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
+    onDiscardPatch: (
+      action: import("@/domain/git").DestructiveAction,
+      selection: import("@/domain/git").PatchSelection,
+      generations: import("@/domain/git").GenerationSet,
+      confirmationToken: string,
+    ) => Promise<boolean>;
   }) => (
     <div>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
-      <button type="button" onClick={() => void onDiscardPatch({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [0] }] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>discard lines</button>
+      <button type="button" onClick={() => void onDiscardPatch(
+        { kind: "discard", selection: { kind: "lines", path: "file.txt", oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [0] } },
+        { path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [0] }] },
+        { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
+        "confirmation-token",
+      )}>discard lines</button>
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -225,12 +235,25 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(discardPatch).toHaveBeenCalledWith(
       "repo-1",
       {
+        kind: "discard",
+        selection: {
+          kind: "lines",
+          path: "file.txt",
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [0],
+        },
+      },
+      {
         path: "file.txt",
         source: "worktree",
         baseDigest: "digest",
         hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [0] }],
       },
       { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
+      "confirmation-token",
     );
     await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
       expect.anything(), "repo-1", "workspace-1", ["status", "working"],

@@ -281,17 +281,54 @@ pub(super) async fn unstage_patch(
 
 /// Discards one verified index-to-worktree selection. The current index is the
 /// patch base; neither HEAD nor the index is written by this operation.
-pub(super) async fn discard_patch(
-    commands: &GitCommandFactory,
+pub(super) async fn issue_discard_confirmation(
+    confirmations: &std::sync::Arc<destructive_confirmation::DestructiveConfirmationStore>,
     repo: &RepoPath,
+    action: &DestructiveAction,
     selection: &PatchSelection,
-    expected_generations: crate::GenerationSet,
-) -> Result<crate::GenerationSet, GitError> {
-    let commands = commands.clone();
+    generations: crate::GenerationSet,
+) -> Result<String, GitError> {
+    let confirmations = confirmations.clone();
     let repo = repo.clone();
+    let action = action.clone();
     let selection = selection.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
+        ensure_confirmed_generations(&repo, generations)?;
+        let detail = current_index_patch_diff(&repo, &selection.path, false)?;
+        ensure_discard_scope_matches(&action, &selection, &detail)?;
+        patch::build_unified_reverse_patch(&detail, &selection)?;
+        ensure_confirmed_generations(&repo, generations)?;
+        confirmations.issue(&repo, &action, &selection, generations)
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+pub(super) async fn discard_patch(
+    commands: &GitCommandFactory,
+    confirmations: &std::sync::Arc<destructive_confirmation::DestructiveConfirmationStore>,
+    repo: &RepoPath,
+    action: &DestructiveAction,
+    selection: &PatchSelection,
+    expected_generations: crate::GenerationSet,
+    confirmation_token: &str,
+) -> Result<crate::GenerationSet, GitError> {
+    let commands = commands.clone();
+    let confirmations = confirmations.clone();
+    let repo = repo.clone();
+    let action = action.clone();
+    let selection = selection.clone();
+    let confirmation_token = confirmation_token.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        confirmations.consume(
+            &confirmation_token,
+            &repo,
+            &action,
+            &selection,
+            expected_generations,
+        )?;
         if selection.source != PatchSource::Worktree {
             return Err(GitError::PatchUnsupported(
                 "discard_patch requires a worktree selection".to_string(),
@@ -321,6 +358,94 @@ pub(super) async fn discard_patch(
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn ensure_discard_scope_matches(
+    action: &DestructiveAction,
+    selection: &PatchSelection,
+    detail: &FileDiffDetail,
+) -> Result<(), GitError> {
+    if selection.source != PatchSource::Worktree
+        || selection.path != detail.path
+        || action_discard_path(action) != Some(selection.path.as_str())
+    {
+        return Err(GitError::PreflightStale);
+    }
+
+    let matches = match action {
+        DestructiveAction::Discard {
+            selection: DiscardSelection::File { .. },
+        } => {
+            selection.hunks.len() == detail.hunks.len()
+                && selection
+                    .hunks
+                    .iter()
+                    .zip(&detail.hunks)
+                    .all(|(selected, current)| {
+                        selected.lines.is_empty() && hunk_coordinates_match(selected, current)
+                    })
+        }
+        DestructiveAction::Discard {
+            selection:
+                DiscardSelection::Hunk {
+                    old_start,
+                    old_lines,
+                    new_start,
+                    new_lines,
+                    ..
+                },
+        } => {
+            selection.hunks.as_slice()
+                == [HunkSelection {
+                    old_start: *old_start,
+                    old_lines: *old_lines,
+                    new_start: *new_start,
+                    new_lines: *new_lines,
+                    lines: Vec::new(),
+                }]
+        }
+        DestructiveAction::Discard {
+            selection:
+                DiscardSelection::Lines {
+                    old_start,
+                    old_lines,
+                    new_start,
+                    new_lines,
+                    lines,
+                    ..
+                },
+        } => {
+            selection.hunks.as_slice()
+                == [HunkSelection {
+                    old_start: *old_start,
+                    old_lines: *old_lines,
+                    new_start: *new_start,
+                    new_lines: *new_lines,
+                    lines: lines.clone(),
+                }]
+        }
+        DestructiveAction::ForceWithLease { .. } => false,
+    };
+
+    if matches {
+        Ok(())
+    } else {
+        Err(GitError::PreflightStale)
+    }
+}
+
+fn action_discard_path(action: &DestructiveAction) -> Option<&str> {
+    match action {
+        DestructiveAction::Discard { selection } => Some(selection.path()),
+        DestructiveAction::ForceWithLease { .. } => None,
+    }
+}
+
+fn hunk_coordinates_match(selection: &HunkSelection, hunk: &DiffHunk) -> bool {
+    selection.old_start == hunk.old_start
+        && selection.old_lines == hunk.old_lines
+        && selection.new_start == hunk.new_start
+        && selection.new_lines == hunk.new_lines
 }
 
 #[derive(Clone, Copy)]

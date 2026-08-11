@@ -89,6 +89,7 @@ describe("FileDiffView windowing", () => {
       recoverable: "notRecoverable",
       blockers: [],
       generations: state.generations,
+      confirmationToken: "confirmation-token",
     }));
   });
 
@@ -319,17 +320,26 @@ describe("FileDiffView windowing", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "diff.discardHunk" }));
-    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith("repo-1", {
-      kind: "discard",
-      selection: {
-        kind: "hunk",
-        path: "large.txt",
-        oldStart: 4,
-        oldLines: 2,
-        newStart: 4,
-        newLines: 2,
+    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith(
+      "repo-1",
+      {
+        kind: "discard",
+        selection: {
+          kind: "hunk",
+          path: "large.txt",
+          oldStart: 4,
+          oldLines: 2,
+          newStart: 4,
+          newLines: 2,
+        },
       },
-    }));
+      {
+        path: "large.txt",
+        source: "worktree",
+        baseDigest: "digest-1",
+        hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
+      },
+    ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "context.cancel" }));
     expect(onDiscardPatch).not.toHaveBeenCalled();
@@ -354,12 +364,28 @@ describe("FileDiffView windowing", () => {
     expect(onDiscardPatch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "preflight.discard.confirm" }));
 
-    await waitFor(() => expect(onDiscardPatch).toHaveBeenCalledWith({
-      path: "large.txt",
-      source: "worktree",
-      baseDigest: "digest-1",
-      hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [1] }],
-    }, state.generations));
+    await waitFor(() => expect(onDiscardPatch).toHaveBeenCalledWith(
+      {
+        kind: "discard",
+        selection: {
+          kind: "lines",
+          path: "large.txt",
+          oldStart: 4,
+          oldLines: 2,
+          newStart: 4,
+          newLines: 2,
+          lines: [1],
+        },
+      },
+      {
+        path: "large.txt",
+        source: "worktree",
+        baseDigest: "digest-1",
+        hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [1] }],
+      },
+      state.generations,
+      "confirmation-token",
+    ));
     expect(state.preflight).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
@@ -377,10 +403,19 @@ describe("FileDiffView windowing", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "diff.discardFile" }));
-    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith("repo-1", {
-      kind: "discard",
-      selection: { kind: "file", path: "large.txt" },
-    }));
+    await waitFor(() => expect(state.preflight).toHaveBeenCalledWith(
+      "repo-1",
+      {
+        kind: "discard",
+        selection: { kind: "file", path: "large.txt" },
+      },
+      {
+        path: "large.txt",
+        source: "worktree",
+        baseDigest: "digest-1",
+        hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
+      },
+    ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
 
     view.rerender(

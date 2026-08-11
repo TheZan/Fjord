@@ -219,10 +219,11 @@ pub async fn preflight_destructive_action(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     action: DestructiveAction,
+    patch_selection: Option<PatchSelection>,
 ) -> Result<DestructivePreflight, AppError> {
     Ok(state
         .repos
-        .preflight_destructive_action(repo_id, action)
+        .preflight_destructive_action(repo_id, action, patch_selection)
         .await?)
 }
 
@@ -422,12 +423,20 @@ pub async fn unstage_patch(
 pub async fn discard_patch(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
+    action: DestructiveAction,
     selection: PatchSelection,
     expected_generations: GenerationSet,
+    confirmation_token: String,
 ) -> Result<GenerationSet, AppError> {
     Ok(state
         .repos
-        .discard_patch(repo_id, &selection, expected_generations)
+        .discard_patch(
+            repo_id,
+            &action,
+            &selection,
+            expected_generations,
+            &confirmation_token,
+        )
         .await?)
 }
 

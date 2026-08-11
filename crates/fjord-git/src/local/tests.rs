@@ -86,6 +86,13 @@ fn git_output(backend: &LocalGitBackend, repo: &RepoPath, args: &[&str]) -> Vec<
     output.stdout
 }
 
+fn patch_state(backend: &LocalGitBackend, repo: &RepoPath) -> (Vec<u8>, Vec<u8>) {
+    (
+        git_output(backend, repo, &["diff"]),
+        git_output(backend, repo, &["diff", "--cached"]),
+    )
+}
+
 fn whole_patch_selection(
     detail: &FileDiffDetail,
     hunk_indices: impl IntoIterator<Item = usize>,
@@ -118,6 +125,63 @@ fn staged_patch_selection(
     selection.source = PatchSource::Index;
     selection.base_digest = patch::base_digest(detail, PatchSource::Index);
     selection
+}
+
+fn discard_action(selection: &PatchSelection) -> DestructiveAction {
+    if selection.hunks.len() != 1 {
+        return DestructiveAction::Discard {
+            selection: DiscardSelection::File {
+                path: selection.path.clone(),
+            },
+        };
+    }
+
+    let hunk = &selection.hunks[0];
+    let selection = if hunk.lines.is_empty() {
+        DiscardSelection::Hunk {
+            path: selection.path.clone(),
+            old_start: hunk.old_start,
+            old_lines: hunk.old_lines,
+            new_start: hunk.new_start,
+            new_lines: hunk.new_lines,
+        }
+    } else {
+        DiscardSelection::Lines {
+            path: selection.path.clone(),
+            old_start: hunk.old_start,
+            old_lines: hunk.old_lines,
+            new_start: hunk.new_start,
+            new_lines: hunk.new_lines,
+            lines: hunk.lines.clone(),
+        }
+    };
+    DestructiveAction::Discard { selection }
+}
+
+async fn issue_discard_confirmation(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    generations: GenerationSet,
+) -> (DestructiveAction, String) {
+    let action = discard_action(selection);
+    let token = backend
+        .issue_discard_confirmation(repo, &action, selection, generations)
+        .await
+        .unwrap();
+    (action, token)
+}
+
+async fn discard_confirmed(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    generations: GenerationSet,
+) -> Result<GenerationSet, GitError> {
+    let (action, token) = issue_discard_confirmation(backend, repo, selection, generations).await;
+    backend
+        .discard_patch(repo, &action, selection, generations, &token)
+        .await
 }
 
 fn run_git_success(backend: &LocalGitBackend, repo: &RepoPath, args: &[&str]) {
@@ -2095,8 +2159,7 @@ async fn discard_patch_discards_one_hunk_and_preserves_everything_else() {
     let selection = whole_patch_selection(&detail, [0]);
     let before = backend.generations(&repo_path).unwrap();
 
-    let after = backend
-        .discard_patch(&repo_path, &selection, before)
+    let after = discard_confirmed(&backend, &repo_path, &selection, before)
         .await
         .unwrap();
 
@@ -2164,8 +2227,7 @@ async fn discard_patch_preserves_staged_changes_under_selected_unstaged_lines() 
     selection.hunks[0].lines = selected_lines;
     let before = backend.generations(&repo_path).unwrap();
 
-    backend
-        .discard_patch(&repo_path, &selection, before)
+    discard_confirmed(&backend, &repo_path, &selection, before)
         .await
         .unwrap();
 
@@ -2215,14 +2277,14 @@ async fn discard_patch_handles_individual_added_and_deleted_lines_in_a_replaceme
         .unwrap() as u32;
     let mut remove_added = whole_patch_selection(&detail, [0]);
     remove_added.hunks[0].lines = vec![new_a];
-    let after_added = backend
-        .discard_patch(
-            &repo_path,
-            &remove_added,
-            backend.generations(&repo_path).unwrap(),
-        )
-        .await
-        .unwrap();
+    let after_added = discard_confirmed(
+        &backend,
+        &repo_path,
+        &remove_added,
+        backend.generations(&repo_path).unwrap(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         std::fs::read(repo_path.0.join("replacement.txt")).unwrap(),
         b"before\nnew-b\nafter\n"
@@ -2239,8 +2301,7 @@ async fn discard_patch_handles_individual_added_and_deleted_lines_in_a_replaceme
         .unwrap() as u32;
     let mut restore_deleted = whole_patch_selection(&detail, [0]);
     restore_deleted.hunks[0].lines = vec![old_a];
-    backend
-        .discard_patch(&repo_path, &restore_deleted, after_added)
+    discard_confirmed(&backend, &repo_path, &restore_deleted, after_added)
         .await
         .unwrap();
     assert_eq!(
@@ -2272,14 +2333,14 @@ async fn discard_patch_preserves_crlf_final_newline_state_and_supports_file_add_
             .await
             .unwrap();
         let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
-        backend
-            .discard_patch(
-                &repo_path,
-                &selection,
-                backend.generations(&repo_path).unwrap(),
-            )
-            .await
-            .unwrap();
+        discard_confirmed(
+            &backend,
+            &repo_path,
+            &selection,
+            backend.generations(&repo_path).unwrap(),
+        )
+        .await
+        .unwrap();
     }
 
     assert_eq!(
@@ -2315,6 +2376,8 @@ async fn discard_patch_stale_and_unsupported_failures_are_atomic() {
         .unwrap();
     let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
     let stale_generations = backend.generations(&repo_path).unwrap();
+    let (stale_action, stale_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, stale_generations).await;
     write_file(&repo_path, "other.txt", "staged elsewhere\n");
     backend
         .stage(&repo_path, &[PathBuf::from("other.txt")])
@@ -2345,7 +2408,13 @@ async fn discard_patch_stale_and_unsupported_failures_are_atomic() {
     let unstaged_before = git_output(&backend, &repo_path, &["diff"]);
     assert!(matches!(
         backend
-            .discard_patch(&repo_path, &selection, stale_generations)
+            .discard_patch(
+                &repo_path,
+                &stale_action,
+                &selection,
+                stale_generations,
+                &stale_token,
+            )
             .await,
         Err(GitError::PreflightStale)
     ));
@@ -2358,11 +2427,19 @@ async fn discard_patch_stale_and_unsupported_failures_are_atomic() {
 
     let mut invalid_selection = selection.clone();
     invalid_selection.hunks[0].lines = vec![u32::MAX];
+    let (invalid_action, invalid_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, current).await;
     assert!(matches!(
         backend
-            .discard_patch(&repo_path, &invalid_selection, current)
+            .discard_patch(
+                &repo_path,
+                &invalid_action,
+                &invalid_selection,
+                current,
+                &invalid_token,
+            )
             .await,
-        Err(GitError::PatchUnsupported(_))
+        Err(GitError::PreflightStale)
     ));
     assert_unchanged(
         current,
@@ -2371,11 +2448,21 @@ async fn discard_patch_stale_and_unsupported_failures_are_atomic() {
         unstaged_before,
     );
 
+    let (changed_action, changed_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, current).await;
     write_file(&repo_path, "target.txt", "changed after selection\n");
     let changed_before = std::fs::read(repo_path.0.join("target.txt")).unwrap();
     let changed_diff = git_output(&backend, &repo_path, &["diff"]);
     assert!(matches!(
-        backend.discard_patch(&repo_path, &selection, current).await,
+        backend
+            .discard_patch(
+                &repo_path,
+                &changed_action,
+                &selection,
+                current,
+                &changed_token,
+            )
+            .await,
         Err(GitError::PatchStale)
     ));
     assert_unchanged(current, changed_before, cached_before.clone(), changed_diff);
@@ -2387,7 +2474,12 @@ async fn discard_patch_stale_and_unsupported_failures_are_atomic() {
     let binary_selection = whole_patch_selection(&binary, 0..binary.hunks.len());
     assert!(matches!(
         backend
-            .discard_patch(&repo_path, &binary_selection, current)
+            .issue_discard_confirmation(
+                &repo_path,
+                &discard_action(&binary_selection),
+                &binary_selection,
+                current,
+            )
             .await,
         Err(GitError::PatchUnsupported(_))
     ));
@@ -2406,13 +2498,15 @@ async fn discard_patch_rejects_external_index_change_and_git_apply_failures_with
         .unwrap();
     let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
     let generations = backend.generations(&repo_path).unwrap();
+    let (action, token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, generations).await;
 
     run_git_success(&backend, &repo_path, &["add", "target.txt"]);
     let before = std::fs::read(repo_path.0.join("target.txt")).unwrap();
     let cached_before = git_output(&backend, &repo_path, &["diff", "--cached"]);
     assert!(matches!(
         backend
-            .discard_patch(&repo_path, &selection, generations)
+            .discard_patch(&repo_path, &action, &selection, generations, &token)
             .await,
         Err(GitError::PatchStale)
     ));
@@ -2453,6 +2547,265 @@ async fn discard_patch_rejects_external_index_change_and_git_apply_failures_with
         cached_before
     );
     assert_eq!(backend.generations(&repo_path).unwrap(), generations);
+}
+
+#[tokio::test]
+async fn discard_confirmation_rejects_scope_escalation_and_hunk_substitution_atomically() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = (1..=40)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    commit_fixture(&backend, &repo_path, &[("target.txt", base.as_bytes())]).await;
+    write_file(
+        &repo_path,
+        "target.txt",
+        &base
+            .replace("line 2\n", "changed A\n")
+            .replace("line 39\n", "changed B\n"),
+    );
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(detail.hunks.len(), 2);
+    let generations = backend.generations(&repo_path).unwrap();
+    let hunk_a = whole_patch_selection(&detail, [0]);
+    let hunk_b = whole_patch_selection(&detail, [1]);
+    let whole_file = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let mut one_line = hunk_a.clone();
+    one_line.hunks[0].lines = vec![detail.hunks[0]
+        .lines
+        .iter()
+        .position(|line| line.kind != DiffLineKind::Context)
+        .unwrap() as u32];
+    let unchanged = patch_state(&backend, &repo_path);
+
+    let (_, line_token) =
+        issue_discard_confirmation(&backend, &repo_path, &one_line, generations).await;
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &discard_action(&hunk_a),
+                &hunk_a,
+                generations,
+                &line_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), unchanged);
+
+    let (_, line_token) =
+        issue_discard_confirmation(&backend, &repo_path, &one_line, generations).await;
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &discard_action(&whole_file),
+                &whole_file,
+                generations,
+                &line_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), unchanged);
+
+    let (_, hunk_a_token) =
+        issue_discard_confirmation(&backend, &repo_path, &hunk_a, generations).await;
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &discard_action(&hunk_b),
+                &hunk_b,
+                generations,
+                &hunk_a_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), unchanged);
+}
+
+#[tokio::test]
+async fn discard_confirmation_rejects_digest_generation_repository_expiry_and_replay_atomically() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"base\n")]).await;
+    write_file(&repo_path, "target.txt", "changed\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, [0]);
+    let generations = backend.generations(&repo_path).unwrap();
+    let unchanged = patch_state(&backend, &repo_path);
+
+    let (action, digest_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, generations).await;
+    let mut changed_digest = selection.clone();
+    changed_digest.base_digest = "different-digest".to_string();
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &action,
+                &changed_digest,
+                generations,
+                &digest_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), unchanged);
+
+    let (action, submitted_generation_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, generations).await;
+    let submitted_generations = GenerationSet {
+        working_tree: generations.working_tree + 1,
+        ..generations
+    };
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &action,
+                &selection,
+                submitted_generations,
+                &submitted_generation_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), unchanged);
+
+    let (action, generation_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, generations).await;
+    runtime::bump_mutation(&repo_path, MutationKind::Stage);
+    let changed_generations = backend.generations(&repo_path).unwrap();
+    let generation_unchanged = patch_state(&backend, &repo_path);
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &action,
+                &selection,
+                generations,
+                &generation_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), generation_unchanged);
+
+    let (_other_dir, other_repo) = empty_repo();
+    commit_fixture(&backend, &other_repo, &[("target.txt", b"base\n")]).await;
+    write_file(&other_repo, "target.txt", "changed\n");
+    let other_unchanged = patch_state(&backend, &other_repo);
+    let (action, repository_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, changed_generations).await;
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &other_repo,
+                &action,
+                &selection,
+                changed_generations,
+                &repository_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &other_repo), other_unchanged);
+    assert_eq!(patch_state(&backend, &repo_path), generation_unchanged);
+
+    let (action, replay_token) =
+        issue_discard_confirmation(&backend, &repo_path, &selection, changed_generations).await;
+    backend
+        .discard_patch(
+            &repo_path,
+            &action,
+            &selection,
+            changed_generations,
+            &replay_token,
+        )
+        .await
+        .unwrap();
+    let after_success = patch_state(&backend, &repo_path);
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo_path,
+                &action,
+                &selection,
+                changed_generations,
+                &replay_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo_path), after_success);
+
+    let (_stale_dir, stale_repo) = empty_repo();
+    let stale_backend = LocalGitBackend::with_confirmation_ttl(std::time::Duration::ZERO);
+    commit_fixture(&stale_backend, &stale_repo, &[("target.txt", b"base\n")]).await;
+    write_file(&stale_repo, "target.txt", "changed\n");
+    let stale_detail = stale_backend
+        .working_file_diff(&stale_repo, "target.txt", false)
+        .await
+        .unwrap();
+    let stale_selection = whole_patch_selection(&stale_detail, [0]);
+    let stale_generations = stale_backend.generations(&stale_repo).unwrap();
+    let (stale_action, stale_token) = issue_discard_confirmation(
+        &stale_backend,
+        &stale_repo,
+        &stale_selection,
+        stale_generations,
+    )
+    .await;
+    let stale_unchanged = patch_state(&stale_backend, &stale_repo);
+    assert!(matches!(
+        stale_backend
+            .discard_patch(
+                &stale_repo,
+                &stale_action,
+                &stale_selection,
+                stale_generations,
+                &stale_token,
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&stale_backend, &stale_repo), stale_unchanged);
+}
+
+#[tokio::test]
+async fn discard_confirmation_allows_one_successful_exact_match() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("target.txt", b"base\n")]).await;
+    write_file(&repo_path, "target.txt", "changed\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "target.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, [0]);
+    let generations = backend.generations(&repo_path).unwrap();
+
+    discard_confirmed(&backend, &repo_path, &selection, generations)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read(repo_path.0.join("target.txt")).unwrap(),
+        b"base\n"
+    );
+    assert!(git_output(&backend, &repo_path, &["diff", "--cached"]).is_empty());
 }
 
 #[tokio::test]

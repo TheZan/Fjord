@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitPage, CommitSummary, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet,
-    LogCursor, PatchSelection, RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    BranchInfo, CommitPage, CommitSummary, DestructiveAction, FileDiff, FileDiffDetail,
+    FileDiffWindow, GenerationSet, LogCursor, PatchSelection, RepoStatus, StashEntry, TagInfo,
+    WorkingChanges,
 };
 use thiserror::Error;
 
@@ -375,13 +376,25 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("unstage_patch"))
     }
-    /// Discards a verified index-to-worktree selection against the exact
-    /// generation confirmed by the destructive preflight.
+    /// Issues a short-lived backend confirmation for one exact discard scope.
+    async fn issue_discard_confirmation(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _selection: &PatchSelection,
+        _generations: GenerationSet,
+    ) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("issue_discard_confirmation"))
+    }
+    /// Discards a verified index-to-worktree selection only after atomically
+    /// validating and consuming its backend-issued confirmation.
     async fn discard_patch(
         &self,
         _repo: &RepoPath,
+        _action: &DestructiveAction,
         _selection: &PatchSelection,
         _expected_generations: GenerationSet,
+        _confirmation_token: &str,
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("discard_patch"))
     }

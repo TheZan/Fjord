@@ -461,8 +461,9 @@ export function getWorkingFileDiffWithGenerations(
 export function preflightDestructiveAction(
   repoId: string,
   action: DestructiveAction,
+  patchSelection: PatchSelection,
 ): Promise<DestructivePreflight> {
-  return invoke("preflight_destructive_action", { repoId, action });
+  return invoke("preflight_destructive_action", { repoId, action, patchSelection });
 }
 
 export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {
@@ -557,10 +558,18 @@ export function unstagePatch(
 
 export function discardPatch(
   repoId: string,
+  action: DestructiveAction,
   selection: PatchSelection,
   expectedGenerations: GenerationSet,
+  confirmationToken: string,
 ): Promise<GenerationSet> {
-  return invoke<GenerationSet>("discard_patch", { repoId, selection, expectedGenerations }).then(
+  return invoke<GenerationSet>("discard_patch", {
+    repoId,
+    action,
+    selection,
+    expectedGenerations,
+    confirmationToken,
+  }).then(
     (generations) => {
       observeRepositoryGenerations(repoId, generations, "working");
       return generations;

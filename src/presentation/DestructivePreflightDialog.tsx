@@ -5,6 +5,7 @@ import type {
   DestructiveAction,
   DestructivePreflight,
   GenerationSet,
+  PatchSelection,
 } from "@/domain/generated";
 import { preflightDestructiveAction } from "@/infrastructure/tauriClient";
 import { Button } from "@/presentation/ui";
@@ -13,18 +14,21 @@ import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 type PreflightLoader = (
   repoId: string,
   action: DestructiveAction,
+  patchSelection: PatchSelection,
 ) => Promise<DestructivePreflight>;
 
 export function DestructivePreflightDialog({
   repoId,
   action,
+  patchSelection,
   onConfirm,
   onClose,
   loadPreflight = preflightDestructiveAction,
 }: {
   repoId: string;
   action: DestructiveAction;
-  onConfirm: (generations: GenerationSet) => Promise<void> | void;
+  patchSelection: PatchSelection;
+  onConfirm: (generations: GenerationSet, confirmationToken: string) => Promise<void> | void;
   onClose: () => void;
   loadPreflight?: PreflightLoader;
 }) {
@@ -42,7 +46,7 @@ export function DestructivePreflightDialog({
   useEffect(() => {
     let active = true;
     setError(false);
-    void loadPreflight(repoId, action)
+    void loadPreflight(repoId, action, patchSelection)
       .then((result) => {
         if (active) setPreflight(result);
       })
@@ -52,23 +56,24 @@ export function DestructivePreflightDialog({
     return () => {
       active = false;
     };
-  }, [action, loadPreflight, repoId]);
+  }, [action, loadPreflight, patchSelection, repoId]);
 
   const actionName = action.kind === "discard" ? "discard" : "forceWithLease";
   const blocked = Boolean(preflight?.blockers.length);
 
   async function confirm() {
-    if (!preflight || blocked || pending) return;
+    if (!preflight || !preflight.confirmationToken || blocked || pending) return;
     setPending(true);
     setError(false);
     try {
-      const fresh = await loadPreflight(repoId, action);
+      const fresh = await loadPreflight(repoId, action, patchSelection);
       if (!samePreflight(preflight, fresh)) {
         setPreflight(fresh);
         setChanged(true);
         return;
       }
-      await onConfirm(fresh.generations);
+      if (!fresh.confirmationToken) throw new Error("preflight did not issue a confirmation");
+      await onConfirm(fresh.generations, fresh.confirmationToken);
     } catch {
       setError(true);
     } finally {
@@ -146,7 +151,7 @@ export function DestructivePreflightDialog({
           <Button onClick={onClose} disabled={pending}>{t("context.cancel")}</Button>
           <Button
             variant="danger"
-            disabled={!preflight || blocked || pending || error}
+            disabled={!preflight?.confirmationToken || blocked || pending || error}
             aria-describedby={blocked ? blockerId : undefined}
             onClick={() => void confirm()}
           >
@@ -192,5 +197,7 @@ function ConsequenceItem({ consequence }: { consequence: Consequence }) {
 }
 
 function samePreflight(left: DestructivePreflight, right: DestructivePreflight) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  const { confirmationToken: _leftToken, ...leftFacts } = left;
+  const { confirmationToken: _rightToken, ...rightFacts } = right;
+  return JSON.stringify(leftFacts) === JSON.stringify(rightFacts);
 }

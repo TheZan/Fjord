@@ -88,7 +88,7 @@ export type Recoverability = "reflog" | "stash" | "notRecoverable";
 
 export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, };
 
-export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, };
+export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, confirmationToken: string | null, };
 
 export type DiffLineKind = "context" | "addition" | "deletion";
 

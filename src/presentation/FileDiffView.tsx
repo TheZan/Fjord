@@ -49,7 +49,12 @@ export function FileDiffView({
   onBack?: () => void;
   actionDisabled?: boolean;
   onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
-  onDiscardPatch?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
+  onDiscardPatch?: (
+    action: DestructiveAction,
+    selection: PatchSelection,
+    expectedGenerations: GenerationSet,
+    confirmationToken: string,
+  ) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations } = useFileDiff(
@@ -289,10 +294,16 @@ export function FileDiffView({
       <DestructivePreflightDialog
         repoId={repoId}
         action={pendingDiscard.action}
+        patchSelection={pendingDiscard.selection}
         onClose={() => setPendingDiscard(null)}
-        onConfirm={async (confirmedGenerations) => {
+        onConfirm={async (confirmedGenerations, confirmationToken) => {
           const request = pendingDiscard;
-          const succeeded = await onDiscardPatch?.(request.selection, confirmedGenerations) ?? false;
+          const succeeded = await onDiscardPatch?.(
+            request.action,
+            request.selection,
+            confirmedGenerations,
+            confirmationToken,
+          ) ?? false;
           setPendingDiscard(null);
           setLineSelection(null);
           if (succeeded) setSelectionPending(false);
