@@ -1,8 +1,8 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffWindow, GenerationSet,
-    GitConnectionTestResult, GlobalSearchResult, LogCursor, RepoStatus, RepositoryId,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
-    WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, DestructiveAction, DestructivePreflight,
+    FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
+    LogCursor, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -212,6 +212,18 @@ pub async fn get_working_file_diff(
         .get_working_file_diff(repo_id, &path, staged, offset, limit)
         .await?;
     versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn preflight_destructive_action(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    action: DestructiveAction,
+) -> Result<DestructivePreflight, AppError> {
+    Ok(state
+        .repos
+        .preflight_destructive_action(repo_id, action)
+        .await?)
 }
 
 #[tauri::command]

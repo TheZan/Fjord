@@ -67,13 +67,13 @@ resolution.
 |---|---|
 | Operation state | 🚧 Only `has_conflict`. No detection of `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, or an unborn branch. |
 | Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
-| Destructive confirmations | ⚠️ `ConfirmActionDialog` with static localized text; reset offers soft/mixed/hard mode selection. No computed consequences. |
+| Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard and force-with-lease, including coherent generation capture and confirmation-time recomputation. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
 | Branch deletion | ✅ `delete_branch`, `delete_remote_branch`. No merged/unmerged check surfaced. |
 | Checkout | ⚠️ `checkout_branch`; remote branches materialize via a targeted fetch first (`remote_checkout_refspec` + `checkout_local`). No overwrite preflight, no stash-and-checkout. |
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`. |
 | Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
-| Discard | 🚧 Absent (Phase 8 introduces it; its preflight is defined here). |
+| Discard | 🚧 Mutation absent; the file/hunk/line consequence preflight is implemented by P8-00. |
 
 ## Proposed design
 
@@ -163,10 +163,12 @@ pub struct DestructivePreflight {
     pub consequences: Vec<Consequence>,   // computed, specific
     pub recoverable: Recoverability,      // Reflog | Stash | NotRecoverable
     pub blockers: Vec<String>,            // conditions that make the action refuse
+    pub generations: GenerationSet,       // coherent stamp required at confirmation
 }
 
 pub enum Consequence {
     ModifiedFilesDiscarded { count: u32, sample: Vec<String> },
+    ModifiedLinesDiscarded { path: String, count: u32 },
     UntrackedFilesDeleted  { count: u32, sample: Vec<String> },
     StagedChangesDiscarded { count: u32 },
     CommitsUnreachable     { count: u32, sample: Vec<CommitSummary> },

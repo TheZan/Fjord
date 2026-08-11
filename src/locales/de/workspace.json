@@ -160,6 +160,41 @@
     "cancel": "Abbrechen",
     "cancelled": "Abgebrochen."
   },
+  "preflight": {
+    "description": "Prüfen Sie die konkreten Folgen, die aus dem aktuellen Repository-Zustand berechnet wurden.",
+    "loading": "Repository wird geprüft…",
+    "revalidating": "Erneute Prüfung…",
+    "changed": "Das Repository wurde geändert. Prüfen Sie die aktualisierten Folgen und bestätigen Sie erneut.",
+    "error": "Die Folgen konnten nicht verifiziert werden. Es wurde nichts geändert.",
+    "blocked": "Diese Aktion kann nicht fortgesetzt werden:",
+    "commitSample": "Beispiel-Commits",
+    "discard": { "title": "Änderungen verwerfen?", "confirm": "Änderungen verwerfen" },
+    "forceWithLease": { "title": "Push mit Lease erzwingen?", "confirm": "Push erzwingen", "expectedOid": "Erwarteter Remote-Commit: {{oid}}" },
+    "recoverability": {
+      "reflog": "Die Commits bleiben über das Reflog erreichbar und können im Wiederherstellungscenter wiederhergestellt werden.",
+      "stash": "Ihre Änderungen werden im Stash gespeichert.",
+      "notRecoverable": "Diese nicht committeten Änderungen sind nirgends gespeichert und können nicht wiederhergestellt werden."
+    },
+    "blockers": {
+      "binary_changes_unsupported": "Binäre Änderungen können in dieser Granularität nicht verworfen werden.",
+      "selection_changed": "Der ausgewählte Diff stimmt nicht mehr mit der Datei überein.",
+      "no_changes_selected": "Die Auswahl enthält keine geänderten Zeilen."
+    },
+    "consequences": {
+      "modifiedFilesDiscarded_one": "Änderungen in {{count}} geänderter Datei verwerfen: {{sample}}.",
+      "modifiedFilesDiscarded_other": "Änderungen in {{count}} geänderten Dateien verwerfen: {{sample}}.",
+      "modifiedLinesDiscarded_one": "{{count}} geänderte Zeile aus {{path}} verwerfen.",
+      "modifiedLinesDiscarded_other": "{{count}} geänderte Zeilen aus {{path}} verwerfen.",
+      "untrackedFilesDeleted_one": "{{count}} nicht verfolgte Datei löschen: {{sample}}.",
+      "untrackedFilesDeleted_other": "{{count}} nicht verfolgte Dateien löschen: {{sample}}.",
+      "stagedChangesDiscarded": "{{count}} bereitgestellte Änderungen verwerfen.",
+      "commitsUnreachable_one": "{{count}} Commit von der Remote-Referenz unerreichbar machen.",
+      "commitsUnreachable_other": "{{count}} Commits von der Remote-Referenz unerreichbar machen.",
+      "branchDeleted": "Branch {{name}} löschen.",
+      "stashEntryConsumed": "Stash {{index}} anwenden und verbrauchen: {{message}}.",
+      "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen."
+    }
+  },
   "repoActions": {
     "fetch": "Fetch",
     "fetching": "Fetch läuft…",

@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, FileDiff, FileDiffWindow, GenerationSet,
-    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, RepoStatus,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, Consequence, DestructiveAction,
+    DestructivePreflight, DiffHunk, DiffLineKind, DiscardSelection, FileChangeType, FileDiff,
+    FileDiffDetail, FileDiffWindow, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
+    GlobalSearchResult, LogCursor, Recoverability, RepoStatus, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitExecutableResolution,
@@ -20,6 +22,8 @@ const BULK_WORKER_LIMIT: usize = 6;
 const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const SNAPSHOT_CAPTURE_ATTEMPTS: usize = 3;
+const PREFLIGHT_CAPTURE_ATTEMPTS: usize = 3;
+const PREFLIGHT_SAMPLE_LIMIT: usize = 5;
 pub const DIFF_WINDOW_DEFAULT_LINES: u32 = 1_000;
 pub const DIFF_WINDOW_MAX_LINES: u32 = 2_000;
 pub const DIFF_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
@@ -40,6 +44,8 @@ pub enum RepoError {
     Launch(#[from] LaunchError),
     #[error("repository changed while its snapshot was being captured")]
     SnapshotChangedDuringCapture,
+    #[error("repository changed while destructive consequences were being computed")]
+    PreflightChangedDuringCapture,
     #[error("serialized diff window is {actual_bytes} bytes; maximum is {max_bytes} bytes")]
     DiffWindowTooLarge {
         actual_bytes: usize,
@@ -83,6 +89,122 @@ fn ensure_diff_response_ceiling(window: FileDiffWindow) -> Result<FileDiffWindow
         });
     }
     Ok(window)
+}
+
+fn discard_consequences(
+    selection: &DiscardSelection,
+    diff: &FileDiffDetail,
+) -> (Vec<Consequence>, Recoverability, Vec<String>) {
+    if diff.is_binary {
+        return (
+            Vec::new(),
+            Recoverability::NotRecoverable,
+            vec!["binary_changes_unsupported".to_string()],
+        );
+    }
+
+    let selected_count = match selection {
+        DiscardSelection::File { .. } => diff.hunks.iter().map(changed_line_count).sum(),
+        DiscardSelection::Hunk {
+            old_start,
+            old_lines,
+            new_start,
+            new_lines,
+            ..
+        } => match matching_hunk(diff, *old_start, *old_lines, *new_start, *new_lines) {
+            Some(hunk) => changed_line_count(hunk),
+            None => {
+                return (
+                    Vec::new(),
+                    Recoverability::NotRecoverable,
+                    vec!["selection_changed".to_string()],
+                );
+            }
+        },
+        DiscardSelection::Lines {
+            old_start,
+            old_lines,
+            new_start,
+            new_lines,
+            lines,
+            ..
+        } => {
+            let Some(hunk) = matching_hunk(diff, *old_start, *old_lines, *new_start, *new_lines)
+            else {
+                return (
+                    Vec::new(),
+                    Recoverability::NotRecoverable,
+                    vec!["selection_changed".to_string()],
+                );
+            };
+            let unique = lines
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            if unique.is_empty() || unique.iter().any(|line| *line as usize >= hunk.lines.len()) {
+                return (
+                    Vec::new(),
+                    Recoverability::NotRecoverable,
+                    vec!["selection_changed".to_string()],
+                );
+            }
+            unique
+                .into_iter()
+                .filter(|line| hunk.lines[*line as usize].kind != DiffLineKind::Context)
+                .count() as u32
+        }
+    };
+
+    if selected_count == 0 {
+        return (
+            Vec::new(),
+            Recoverability::NotRecoverable,
+            vec!["no_changes_selected".to_string()],
+        );
+    }
+
+    let path = selection.path().to_string();
+    let mut consequences = Vec::new();
+    if matches!(selection, DiscardSelection::File { .. }) {
+        if diff.change_type == FileChangeType::Added {
+            consequences.push(Consequence::UntrackedFilesDeleted {
+                count: 1,
+                sample: vec![path.clone()],
+            });
+        } else {
+            consequences.push(Consequence::ModifiedFilesDiscarded {
+                count: 1,
+                sample: vec![path.clone()],
+            });
+        }
+    }
+    consequences.push(Consequence::ModifiedLinesDiscarded {
+        path,
+        count: selected_count,
+    });
+    (consequences, Recoverability::NotRecoverable, Vec::new())
+}
+
+fn matching_hunk(
+    diff: &FileDiffDetail,
+    old_start: u32,
+    old_lines: u32,
+    new_start: u32,
+    new_lines: u32,
+) -> Option<&DiffHunk> {
+    diff.hunks.iter().find(|hunk| {
+        hunk.old_start == old_start
+            && hunk.old_lines == old_lines
+            && hunk.new_start == new_start
+            && hunk.new_lines == new_lines
+    })
+}
+
+fn changed_line_count(hunk: &DiffHunk) -> u32 {
+    hunk.lines
+        .iter()
+        .filter(|line| line.kind != DiffLineKind::Context)
+        .count() as u32
 }
 
 /// Read-side git queries scoped by `RepositoryId` rather than a raw path —
@@ -492,6 +614,67 @@ impl RepoService {
             )
             .await?;
         ensure_diff_response_ceiling(window)
+    }
+
+    /// Computes bounded, concrete consequences against one coherent generation
+    /// stamp. If Git changes during inspection, the facts are discarded and
+    /// recomputed rather than returned stale.
+    pub async fn preflight_destructive_action(
+        &self,
+        repo_id: RepositoryId,
+        action: DestructiveAction,
+    ) -> Result<DestructivePreflight, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let path = RepoPath::new(repo.path);
+
+        for _ in 0..PREFLIGHT_CAPTURE_ATTEMPTS {
+            let before = self.git.generations(&path)?;
+            let (consequences, recoverable, blockers) = match &action {
+                DestructiveAction::Discard { selection } => {
+                    let diff = self
+                        .git
+                        .working_file_diff(&path, selection.path(), false)
+                        .await?;
+                    discard_consequences(selection, &diff)
+                }
+                DestructiveAction::ForceWithLease {
+                    remote,
+                    ref_name,
+                    expected_oid,
+                } => {
+                    let (count, mut sample) = self
+                        .git
+                        .commits_unreachable_from_head(
+                            &path,
+                            &expected_oid.0,
+                            PREFLIGHT_SAMPLE_LIMIT as u32,
+                        )
+                        .await?;
+                    sample.truncate(PREFLIGHT_SAMPLE_LIMIT);
+                    let mut consequences = vec![Consequence::RemoteRefUpdated {
+                        remote: remote.clone(),
+                        ref_name: ref_name.clone(),
+                        dropped_commits: count,
+                    }];
+                    if count > 0 {
+                        consequences.push(Consequence::CommitsUnreachable { count, sample });
+                    }
+                    (consequences, Recoverability::Reflog, Vec::new())
+                }
+            };
+            let after = self.git.generations(&path)?;
+            if before == after {
+                return Ok(DestructivePreflight {
+                    action,
+                    consequences,
+                    recoverable,
+                    blockers,
+                    generations: after,
+                });
+            }
+        }
+
+        Err(RepoError::PreflightChangedDuringCapture)
     }
 
     pub async fn create_branch(
@@ -1016,12 +1199,14 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use fjord_domain::{
-        CommitId, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail,
-        FileDiffWindow, LogCursor, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings,
-        StashEntry, TagInfo, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+        CommitId, CommitPage, CommitSummary, Consequence, DestructiveAction, DiscardSelection,
+        FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
+        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
+        WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
     use fjord_ports::PushTarget;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
     use time::OffsetDateTime;
 
@@ -1159,8 +1344,11 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
     struct FakeGit {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
+        generation_changes_on_first_preflight: bool,
+        working_diff_calls: AtomicUsize,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -1294,6 +1482,7 @@ mod tests {
         let seen_path = Arc::new(Mutex::new(None));
         let git = Arc::new(FakeGit {
             seen_path: seen_path.clone(),
+            ..FakeGit::default()
         });
         let ide = Arc::new(FakeIdeLauncher {
             opened: Mutex::new(None),
@@ -1320,6 +1509,16 @@ mod tests {
 
     #[async_trait]
     impl GitBackend for FakeGit {
+        fn generations(&self, _repo: &RepoPath) -> Result<GenerationSet, GitError> {
+            Ok(GenerationSet {
+                working_tree: u64::from(
+                    self.generation_changes_on_first_preflight
+                        && self.working_diff_calls.load(Ordering::SeqCst) > 0,
+                ),
+                ..GenerationSet::default()
+            })
+        }
+
         async fn status(&self, _repo: &RepoPath) -> Result<RepoStatus, GitError> {
             Ok(RepoStatus {
                 branch: Some("main".into()),
@@ -1388,6 +1587,27 @@ mod tests {
                 Ok(vec![])
             }
         }
+        async fn commits_unreachable_from_head(
+            &self,
+            _repo: &RepoPath,
+            _tip: &str,
+            _sample_limit: u32,
+        ) -> Result<(u32, Vec<CommitSummary>), GitError> {
+            Ok((
+                7,
+                (0..7)
+                    .map(|index| CommitSummary {
+                        id: CommitId(format!("commit-{index}")),
+                        parent_ids: vec![],
+                        message: format!("Dropped commit {index}"),
+                        author_name: "Ada".into(),
+                        author_email: "ada@example.test".into(),
+                        authored_at: OffsetDateTime::UNIX_EPOCH,
+                        refs: vec![],
+                    })
+                    .collect(),
+            ))
+        }
         async fn diff(&self, repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![FileDiff {
@@ -1433,11 +1653,37 @@ mod tests {
             _staged: bool,
         ) -> Result<FileDiffDetail, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.working_diff_calls.fetch_add(1, Ordering::SeqCst);
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
                 is_binary: false,
-                hunks: vec![],
+                hunks: vec![fjord_domain::DiffHunk {
+                    old_start: 1,
+                    old_lines: 2,
+                    new_start: 1,
+                    new_lines: 2,
+                    lines: vec![
+                        fjord_domain::DiffLine {
+                            kind: fjord_domain::DiffLineKind::Deletion,
+                            old_lineno: Some(1),
+                            new_lineno: None,
+                            content: "old".into(),
+                        },
+                        fjord_domain::DiffLine {
+                            kind: fjord_domain::DiffLineKind::Addition,
+                            old_lineno: None,
+                            new_lineno: Some(1),
+                            content: "new".into(),
+                        },
+                        fjord_domain::DiffLine {
+                            kind: fjord_domain::DiffLineKind::Context,
+                            old_lineno: Some(2),
+                            new_lineno: Some(2),
+                            content: "same".into(),
+                        },
+                    ],
+                }],
             })
         }
         async fn create_branch(
@@ -1526,6 +1772,7 @@ mod tests {
         };
         let git = Arc::new(FakeGit {
             seen_path: Arc::new(Mutex::new(None)),
+            ..FakeGit::default()
         });
         let service = RepoService::new(
             Arc::new(FakeStore { repo }),
@@ -2010,6 +2257,7 @@ mod tests {
             }),
             Arc::new(FakeGit {
                 seen_path: Arc::new(Mutex::new(None)),
+                ..FakeGit::default()
             }),
             remote.clone(),
             Arc::new(FakeEnvironment),
@@ -2175,6 +2423,142 @@ mod tests {
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn destructive_preflight_computes_discard_lines_and_bounds_commit_samples() {
+        let (repo, _, _, service) = service_with_fake_git();
+
+        let discard = service
+            .preflight_destructive_action(
+                repo.id,
+                DestructiveAction::Discard {
+                    selection: DiscardSelection::File {
+                        path: "src/main.rs".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(discard.blockers, Vec::<String>::new());
+        assert!(discard
+            .consequences
+            .contains(&Consequence::ModifiedFilesDiscarded {
+                count: 1,
+                sample: vec!["src/main.rs".into()],
+            }));
+        assert!(discard
+            .consequences
+            .contains(&Consequence::ModifiedLinesDiscarded {
+                path: "src/main.rs".into(),
+                count: 2,
+            }));
+
+        let force = service
+            .preflight_destructive_action(
+                repo.id,
+                DestructiveAction::ForceWithLease {
+                    remote: "origin".into(),
+                    ref_name: "refs/heads/main".into(),
+                    expected_oid: CommitId("deadbeef".into()),
+                },
+            )
+            .await
+            .unwrap();
+        let sample = force
+            .consequences
+            .iter()
+            .find_map(|consequence| match consequence {
+                Consequence::CommitsUnreachable { count, sample } => Some((*count, sample)),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(sample.0, 7);
+        assert_eq!(sample.1.len(), PREFLIGHT_SAMPLE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn discard_preflight_counts_selected_changed_lines_and_blocks_stale_coordinates() {
+        let (repo, _, _, service) = service_with_fake_git();
+        let selected = service
+            .preflight_destructive_action(
+                repo.id,
+                DestructiveAction::Discard {
+                    selection: DiscardSelection::Lines {
+                        path: "src/main.rs".into(),
+                        old_start: 1,
+                        old_lines: 2,
+                        new_start: 1,
+                        new_lines: 2,
+                        lines: vec![0, 0, 2],
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            selected.consequences,
+            vec![Consequence::ModifiedLinesDiscarded {
+                path: "src/main.rs".into(),
+                count: 1,
+            }]
+        );
+
+        let stale = service
+            .preflight_destructive_action(
+                repo.id,
+                DestructiveAction::Discard {
+                    selection: DiscardSelection::Hunk {
+                        path: "src/main.rs".into(),
+                        old_start: 99,
+                        old_lines: 1,
+                        new_start: 99,
+                        new_lines: 1,
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale.blockers, ["selection_changed"]);
+        assert!(stale.consequences.is_empty());
+    }
+
+    #[tokio::test]
+    async fn generation_change_discards_and_recomputes_preflight_facts() {
+        let repo = repo_entry();
+        let git = Arc::new(FakeGit {
+            seen_path: Arc::new(Mutex::new(None)),
+            generation_changes_on_first_preflight: true,
+            ..FakeGit::default()
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            git.clone(),
+            Arc::new(FakeRemoteGit::default()),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        let result = service
+            .preflight_destructive_action(
+                repo.id,
+                DestructiveAction::Discard {
+                    selection: DiscardSelection::File {
+                        path: "src/main.rs".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(git.working_diff_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(result.generations.working_tree, 1);
     }
 
     #[tokio::test]

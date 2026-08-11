@@ -256,3 +256,67 @@ pub(super) async fn search_commits(
     .await
     .map_err(|e| GitError::Gix(e.to_string()))?
 }
+
+/// Exact reachability count with a bounded sample for the force-with-lease
+/// preflight. `tip` is the locally known remote OID used by the lease, so no
+/// network access occurs here.
+pub(super) async fn commits_unreachable_from_head(
+    repo: &RepoPath,
+    tip: &str,
+    sample_limit: u32,
+) -> Result<(u32, Vec<CommitSummary>), GitError> {
+    let repo = repo.clone();
+    let tip = tip.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let tip = git2::Oid::from_str(&tip).map_err(LocalGitBackend::map_git2_error)?;
+            let Some(head) = LocalGitBackend::current_head_commit(git)? else {
+                return Ok((0, Vec::new()));
+            };
+            let mut walk = git.revwalk().map_err(LocalGitBackend::map_git2_error)?;
+            walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            walk.push(tip).map_err(LocalGitBackend::map_git2_error)?;
+            walk.hide(head.id())
+                .map_err(LocalGitBackend::map_git2_error)?;
+
+            let mut count = 0_u32;
+            let mut sample = Vec::with_capacity(sample_limit.min(5) as usize);
+            for id in walk {
+                let id = id.map_err(LocalGitBackend::map_git2_error)?;
+                count = count.saturating_add(1);
+                if sample.len() >= sample_limit.min(5) as usize {
+                    continue;
+                }
+                let commit = git
+                    .find_commit(id)
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                let author = commit.author();
+                sample.push(CommitSummary {
+                    id: CommitId(id.to_string()),
+                    parent_ids: commit
+                        .parent_ids()
+                        .map(|parent| CommitId(parent.to_string()))
+                        .collect(),
+                    message: commit
+                        .summary()
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                        .chars()
+                        .take(200)
+                        .collect(),
+                    author_name: author.name().unwrap_or_default().to_string(),
+                    author_email: author.email().unwrap_or_default().to_string(),
+                    authored_at: OffsetDateTime::from_unix_timestamp(author.when().seconds())
+                        .unwrap_or(OffsetDateTime::UNIX_EPOCH),
+                    refs: Vec::new(),
+                });
+            }
+            Ok((count, sample))
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}

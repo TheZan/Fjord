@@ -841,6 +841,41 @@ async fn working_file_diff_reads_staged_and_unstaged_sides_separately() {
 }
 
 #[tokio::test]
+async fn unreachable_commit_preflight_counts_exactly_and_bounds_the_sample() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Base").await.unwrap();
+
+    let mut tip = String::new();
+    for revision in 1..=7 {
+        write_file(&repo_path, "README.md", &format!("revision {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("README.md")])
+            .await
+            .unwrap();
+        tip = backend
+            .commit(&repo_path, &format!("Remote revision {revision}"))
+            .await
+            .unwrap();
+    }
+    backend.reset(&repo_path, &base, "hard").await.unwrap();
+
+    let (count, sample) = backend
+        .commits_unreachable_from_head(&repo_path, &tip, 5)
+        .await
+        .unwrap();
+
+    assert_eq!(count, 7);
+    assert_eq!(sample.len(), 5);
+    assert_eq!(sample[0].message, "Remote revision 7");
+}
+
+#[tokio::test]
 async fn oversized_working_file_diff_returns_metadata_without_content() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();

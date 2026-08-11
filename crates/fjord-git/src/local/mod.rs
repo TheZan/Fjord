@@ -119,6 +119,15 @@ impl GitBackend for LocalGitBackend {
         history::search_commits(repo, query, limit).await
     }
 
+    async fn commits_unreachable_from_head(
+        &self,
+        repo: &RepoPath,
+        tip: &str,
+        sample_limit: u32,
+    ) -> Result<(u32, Vec<CommitSummary>), GitError> {
+        history::commits_unreachable_from_head(repo, tip, sample_limit).await
+    }
+
     async fn diff_files(
         &self,
         repo: &RepoPath,

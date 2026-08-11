@@ -160,6 +160,41 @@
     "cancel": "Annuler",
     "cancelled": "Annulé."
   },
+  "preflight": {
+    "description": "Vérifiez les conséquences concrètes calculées à partir de l’état actuel du dépôt.",
+    "loading": "Vérification du dépôt…",
+    "revalidating": "Nouvelle vérification…",
+    "changed": "Le dépôt a changé. Vérifiez les conséquences mises à jour avant de confirmer à nouveau.",
+    "error": "Les conséquences n’ont pas pu être vérifiées. Rien n’a été modifié.",
+    "blocked": "Cette action ne peut pas continuer :",
+    "commitSample": "Exemples de commits",
+    "discard": { "title": "Abandonner les modifications ?", "confirm": "Abandonner les modifications" },
+    "forceWithLease": { "title": "Forcer le push avec lease ?", "confirm": "Forcer le push", "expectedOid": "Commit distant attendu : {{oid}}" },
+    "recoverability": {
+      "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
+      "stash": "Vos modifications seront enregistrées dans le stash.",
+      "notRecoverable": "Ces modifications non commitées ne sont enregistrées nulle part et ne peuvent pas être restaurées."
+    },
+    "blockers": {
+      "binary_changes_unsupported": "Les modifications binaires ne peuvent pas être abandonnées à cette granularité.",
+      "selection_changed": "Le diff sélectionné ne correspond plus au fichier.",
+      "no_changes_selected": "La sélection ne contient aucune ligne modifiée."
+    },
+    "consequences": {
+      "modifiedFilesDiscarded_one": "Abandonner les modifications dans {{count}} fichier modifié : {{sample}}.",
+      "modifiedFilesDiscarded_other": "Abandonner les modifications dans {{count}} fichiers modifiés : {{sample}}.",
+      "modifiedLinesDiscarded_one": "Abandonner {{count}} ligne modifiée de {{path}}.",
+      "modifiedLinesDiscarded_other": "Abandonner {{count}} lignes modifiées de {{path}}.",
+      "untrackedFilesDeleted_one": "Supprimer {{count}} fichier non suivi : {{sample}}.",
+      "untrackedFilesDeleted_other": "Supprimer {{count}} fichiers non suivis : {{sample}}.",
+      "stagedChangesDiscarded": "Abandonner {{count}} modifications indexées.",
+      "commitsUnreachable_one": "Rendre {{count}} commit inaccessible depuis la référence distante.",
+      "commitsUnreachable_other": "Rendre {{count}} commits inaccessibles depuis la référence distante.",
+      "branchDeleted": "Supprimer la branche {{name}}.",
+      "stashEntryConsumed": "Appliquer et consommer le stash {{index}} : {{message}}.",
+      "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants."
+    }
+  },
   "repoActions": {
     "fetch": "Fetch",
     "fetching": "Fetch en cours…",

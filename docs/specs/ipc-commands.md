@@ -73,6 +73,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded unified-diff window; maximum 2 MB serialized response and 10 MB source-file display ceiling |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise |
+| `preflight_destructive_action` | `{ repo_id, action }` | `DestructivePreflight` | Phase 8 discard and force-with-lease consequences; includes the coherent generation stamp required at confirmation |
 
 ### Repository mutations (local)
 
@@ -139,7 +140,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
-| `preflight_destructive_action` | [`repository-safety.md`](repository-safety.md) §3 | 9 |
 | `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | [`workspace-workflows.md`](workspace-workflows.md) §1 | 10 |
 | `start_rebase` | [`workspace-workflows.md`](workspace-workflows.md) §2 | 10 |

@@ -162,6 +162,41 @@
     "cancel": "Cancel",
     "cancelled": "Cancelled."
   },
+  "preflight": {
+    "description": "Review the concrete consequences computed from the current repository state.",
+    "loading": "Checking the repository…",
+    "revalidating": "Checking again…",
+    "changed": "The repository changed. Review the updated consequences before confirming again.",
+    "error": "The consequences could not be verified. Nothing was changed.",
+    "blocked": "This action cannot continue:",
+    "commitSample": "Example commits",
+    "discard": { "title": "Discard changes?", "confirm": "Discard changes" },
+    "forceWithLease": { "title": "Force push with lease?", "confirm": "Force push", "expectedOid": "Expected remote commit: {{oid}}" },
+    "recoverability": {
+      "reflog": "The commits remain reachable through the reflog and can be restored from the Recovery Center.",
+      "stash": "Your changes will be saved to the stash.",
+      "notRecoverable": "These uncommitted changes are not stored anywhere and cannot be restored."
+    },
+    "blockers": {
+      "binary_changes_unsupported": "Binary changes cannot be discarded at this granularity.",
+      "selection_changed": "The selected diff no longer matches the file.",
+      "no_changes_selected": "The selection contains no changed lines."
+    },
+    "consequences": {
+      "modifiedFilesDiscarded_one": "Discard changes in {{count}} modified file: {{sample}}.",
+      "modifiedFilesDiscarded_other": "Discard changes in {{count}} modified files: {{sample}}.",
+      "modifiedLinesDiscarded_one": "Discard {{count}} changed line from {{path}}.",
+      "modifiedLinesDiscarded_other": "Discard {{count}} changed lines from {{path}}.",
+      "untrackedFilesDeleted_one": "Delete {{count}} untracked file: {{sample}}.",
+      "untrackedFilesDeleted_other": "Delete {{count}} untracked files: {{sample}}.",
+      "stagedChangesDiscarded": "Discard {{count}} staged changes.",
+      "commitsUnreachable_one": "Make {{count}} commit unreachable from the remote ref.",
+      "commitsUnreachable_other": "Make {{count}} commits unreachable from the remote ref.",
+      "branchDeleted": "Delete branch {{name}}.",
+      "stashEntryConsumed": "Apply and consume stash {{index}}: {{message}}.",
+      "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits."
+    }
+  },
   "repoActions": {
     "fetch": "Fetch",
     "fetching": "Fetching…",

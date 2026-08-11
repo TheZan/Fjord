@@ -61,6 +61,16 @@ conflicted: boolean, };
 
 export type WorkingChanges = { staged: Array<WorkingFile>, unstaged: Array<WorkingFile>, };
 
+export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hunk", path: string, oldStart: number, oldLines: number, newStart: number, newLines: number, } | { "kind": "lines", path: string, oldStart: number, oldLines: number, newStart: number, newLines: number, lines: Array<number>, };
+
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease", remote: string, refName: string, expectedOid: CommitId, };
+
+export type Recoverability = "reflog" | "stash" | "notRecoverable";
+
+export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, };
+
+export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, };
+
 export type DiffLineKind = "context" | "addition" | "deletion";
 
 export type DiffLine = { kind: DiffLineKind, 

@@ -160,6 +160,41 @@
     "cancel": "Cancelar",
     "cancelled": "Cancelado."
   },
+  "preflight": {
+    "description": "Revisa las consecuencias concretas calculadas a partir del estado actual del repositorio.",
+    "loading": "Comprobando el repositorio…",
+    "revalidating": "Comprobando de nuevo…",
+    "changed": "El repositorio cambió. Revisa las consecuencias actualizadas antes de confirmar de nuevo.",
+    "error": "No se pudieron verificar las consecuencias. No se cambió nada.",
+    "blocked": "Esta acción no puede continuar:",
+    "commitSample": "Commits de ejemplo",
+    "discard": { "title": "¿Descartar cambios?", "confirm": "Descartar cambios" },
+    "forceWithLease": { "title": "¿Forzar push con lease?", "confirm": "Forzar push", "expectedOid": "Commit remoto esperado: {{oid}}" },
+    "recoverability": {
+      "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
+      "stash": "Tus cambios se guardarán en el stash.",
+      "notRecoverable": "Estos cambios sin commit no están guardados en ningún lugar y no se pueden restaurar."
+    },
+    "blockers": {
+      "binary_changes_unsupported": "Los cambios binarios no se pueden descartar con esta granularidad.",
+      "selection_changed": "El diff seleccionado ya no coincide con el archivo.",
+      "no_changes_selected": "La selección no contiene líneas modificadas."
+    },
+    "consequences": {
+      "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
+      "modifiedFilesDiscarded_other": "Descartar cambios en {{count}} archivos modificados: {{sample}}.",
+      "modifiedLinesDiscarded_one": "Descartar {{count}} línea modificada de {{path}}.",
+      "modifiedLinesDiscarded_other": "Descartar {{count}} líneas modificadas de {{path}}.",
+      "untrackedFilesDeleted_one": "Eliminar {{count}} archivo sin seguimiento: {{sample}}.",
+      "untrackedFilesDeleted_other": "Eliminar {{count}} archivos sin seguimiento: {{sample}}.",
+      "stagedChangesDiscarded": "Descartar {{count}} cambios preparados.",
+      "commitsUnreachable_one": "Hacer que {{count}} commit deje de ser accesible desde la referencia remota.",
+      "commitsUnreachable_other": "Hacer que {{count}} commits dejen de ser accesibles desde la referencia remota.",
+      "branchDeleted": "Eliminar la rama {{name}}.",
+      "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
+      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos."
+    }
+  },
   "repoActions": {
     "fetch": "Fetch",
     "fetching": "Haciendo fetch…",

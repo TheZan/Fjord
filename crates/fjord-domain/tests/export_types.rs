@@ -2,16 +2,18 @@ use std::fs;
 use std::path::Path;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, CredentialHelperInfo,
-    DiffHunk, DiffLine, DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, Consequence,
+    CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
+    DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
     GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
     GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
     GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, OverviewUiState,
-    OverviewUiStatePatch, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState,
-    SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
-    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    OverviewUiStatePatch, Recoverability, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
+    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
+    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -55,6 +57,11 @@ fn generated_types() -> String {
     push::<FileDiff>(&mut output, &config);
     push::<WorkingFile>(&mut output, &config);
     push::<WorkingChanges>(&mut output, &config);
+    push::<DiscardSelection>(&mut output, &config);
+    push::<DestructiveAction>(&mut output, &config);
+    push::<Recoverability>(&mut output, &config);
+    push::<Consequence>(&mut output, &config);
+    push::<DestructivePreflight>(&mut output, &config);
     push::<DiffLineKind>(&mut output, &config);
     push::<DiffLine>(&mut output, &config);
     push::<DiffHunk>(&mut output, &config);

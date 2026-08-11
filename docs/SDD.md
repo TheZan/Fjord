@@ -296,7 +296,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
 | Phase 6 — Performance foundation | ⚠️ implementation complete through `P6-22`; only report-to-gate promotion `P6-20` remains ([`specs/performance.md`](specs/performance.md)) |
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
-| Phase 8 — Daily-driver essentials | 🚧 designed ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
+| Phase 8 — Daily-driver essentials | 🚧 underway: destructive-preflight foundation `P8-00` complete; patch, amend, push, and diff tasks remain ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
 | Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |

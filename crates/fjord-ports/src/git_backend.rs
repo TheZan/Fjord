@@ -212,6 +212,17 @@ pub trait GitBackend: Send + Sync {
         query: &str,
         limit: u32,
     ) -> Result<Vec<CommitSummary>, GitError>;
+    /// Counts commits reachable from `tip` but not from the current `HEAD`,
+    /// returning at most `sample_limit` summaries. Used by destructive
+    /// preflight; transport remains outside this local backend.
+    async fn commits_unreachable_from_head(
+        &self,
+        _repo: &RepoPath,
+        _tip: &str,
+        _sample_limit: u32,
+    ) -> Result<(u32, Vec<CommitSummary>), GitError> {
+        Err(GitError::NotImplemented("commits_unreachable_from_head"))
+    }
     /// Fast tree-only file list used to paint commit inspectors before line
     /// statistics finish. Backends may fall back to the full diff.
     async fn diff_files(

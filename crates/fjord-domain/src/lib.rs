@@ -295,6 +295,145 @@ pub struct WorkingChanges {
     pub unstaged: Vec<WorkingFile>,
 }
 
+/// The part of an unstaged file that a future discard command will reverse.
+/// Coordinates deliberately match a rendered diff hunk so confirmation can be
+/// recomputed without trusting a caller-supplied line count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DiscardSelection {
+    File {
+        path: String,
+    },
+    Hunk {
+        path: String,
+        old_start: u32,
+        old_lines: u32,
+        new_start: u32,
+        new_lines: u32,
+    },
+    Lines {
+        path: String,
+        old_start: u32,
+        old_lines: u32,
+        new_start: u32,
+        new_lines: u32,
+        // Zero-based indices in the matching hunk's complete `lines` array.
+        lines: Vec<u32>,
+    },
+}
+
+impl DiscardSelection {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::File { path } | Self::Hunk { path, .. } | Self::Lines { path, .. } => path,
+        }
+    }
+}
+
+/// Phase 8 initially owns only discard and force-with-lease. Phase 9 extends
+/// this exhaustive enum rather than introducing a second confirmation model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DestructiveAction {
+    Discard {
+        selection: DiscardSelection,
+    },
+    ForceWithLease {
+        remote: String,
+        ref_name: String,
+        expected_oid: CommitId,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum Recoverability {
+    Reflog,
+    Stash,
+    NotRecoverable,
+}
+
+/// A concrete, bounded consequence. Every sample is capped by the service at
+/// five entries while `count` remains the exact total.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Consequence {
+    ModifiedFilesDiscarded {
+        count: u32,
+        sample: Vec<String>,
+    },
+    ModifiedLinesDiscarded {
+        path: String,
+        count: u32,
+    },
+    UntrackedFilesDeleted {
+        count: u32,
+        sample: Vec<String>,
+    },
+    StagedChangesDiscarded {
+        count: u32,
+    },
+    CommitsUnreachable {
+        count: u32,
+        sample: Vec<CommitSummary>,
+    },
+    BranchDeleted {
+        name: String,
+        unmerged_into: Option<String>,
+    },
+    StashEntryConsumed {
+        index: u32,
+        message: String,
+    },
+    RemoteRefUpdated {
+        remote: String,
+        ref_name: String,
+        dropped_commits: u32,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct DestructivePreflight {
+    pub action: DestructiveAction,
+    pub consequences: Vec<Consequence>,
+    pub recoverable: Recoverability,
+    // Stable reason keys. The frontend owns their localized wording.
+    pub blockers: Vec<String>,
+    // Captured only after consequence computation completed without a
+    // generation change; confirmation must present this stamp to execution.
+    pub generations: GenerationSet,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]

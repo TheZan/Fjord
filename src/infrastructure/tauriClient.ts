@@ -6,6 +6,8 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  DestructiveAction,
+  DestructivePreflight,
   GenerationSet,
   GitAuthPrompt,
   InteractionTrace,
@@ -418,6 +420,13 @@ export function getWorkingFileDiff(
     "working",
     signal,
   );
+}
+
+export function preflightDestructiveAction(
+  repoId: string,
+  action: DestructiveAction,
+): Promise<DestructivePreflight> {
+  return invoke("preflight_destructive_action", { repoId, action });
 }
 
 export function createBranch(repoId: string, name: string, checkout = true): Promise<void> {

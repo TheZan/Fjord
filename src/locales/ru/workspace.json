@@ -162,6 +162,49 @@
     "cancel": "Отмена",
     "cancelled": "Отменено."
   },
+  "preflight": {
+    "description": "Проверьте конкретные последствия, рассчитанные по текущему состоянию репозитория.",
+    "loading": "Проверка репозитория…",
+    "revalidating": "Повторная проверка…",
+    "changed": "Репозиторий изменился. Проверьте обновлённые последствия и подтвердите действие ещё раз.",
+    "error": "Не удалось проверить последствия. Ничего не изменено.",
+    "blocked": "Действие нельзя продолжить:",
+    "commitSample": "Примеры коммитов",
+    "discard": { "title": "Отменить изменения?", "confirm": "Отменить изменения" },
+    "forceWithLease": { "title": "Принудительно отправить с lease?", "confirm": "Принудительно отправить", "expectedOid": "Ожидаемый коммит в remote: {{oid}}" },
+    "recoverability": {
+      "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
+      "stash": "Изменения будут сохранены в stash.",
+      "notRecoverable": "Эти незакоммиченные изменения нигде не сохранены, и восстановить их будет нельзя."
+    },
+    "blockers": {
+      "binary_changes_unsupported": "Двоичные изменения нельзя отменить с такой детализацией.",
+      "selection_changed": "Выбранный diff больше не соответствует файлу.",
+      "no_changes_selected": "В выбранном диапазоне нет изменённых строк."
+    },
+    "consequences": {
+      "modifiedFilesDiscarded_one": "Отменить изменения в {{count}} изменённом файле: {{sample}}.",
+      "modifiedFilesDiscarded_few": "Отменить изменения в {{count}} изменённых файлах: {{sample}}.",
+      "modifiedFilesDiscarded_many": "Отменить изменения в {{count}} изменённых файлах: {{sample}}.",
+      "modifiedFilesDiscarded_other": "Отменить изменения в {{count}} изменённого файла: {{sample}}.",
+      "modifiedLinesDiscarded_one": "Отменить {{count}} изменённую строку в {{path}}.",
+      "modifiedLinesDiscarded_few": "Отменить {{count}} изменённые строки в {{path}}.",
+      "modifiedLinesDiscarded_many": "Отменить {{count}} изменённых строк в {{path}}.",
+      "modifiedLinesDiscarded_other": "Отменить {{count}} изменённой строки в {{path}}.",
+      "untrackedFilesDeleted_one": "Удалить {{count}} неотслеживаемый файл: {{sample}}.",
+      "untrackedFilesDeleted_few": "Удалить {{count}} неотслеживаемых файла: {{sample}}.",
+      "untrackedFilesDeleted_many": "Удалить {{count}} неотслеживаемых файлов: {{sample}}.",
+      "untrackedFilesDeleted_other": "Удалить {{count}} неотслеживаемого файла: {{sample}}.",
+      "stagedChangesDiscarded": "Отменить подготовленные изменения: {{count}}.",
+      "commitsUnreachable_one": "Сделать {{count}} коммит недостижимым из remote-ссылки.",
+      "commitsUnreachable_few": "Сделать {{count}} коммита недостижимыми из remote-ссылки.",
+      "commitsUnreachable_many": "Сделать {{count}} коммитов недостижимыми из remote-ссылки.",
+      "commitsUnreachable_other": "Сделать {{count}} коммита недостижимыми из remote-ссылки.",
+      "branchDeleted": "Удалить ветку {{name}}.",
+      "stashEntryConsumed": "Применить и удалить stash {{index}}: {{message}}.",
+      "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}."
+    }
+  },
   "repoActions": {
     "fetch": "Получить",
     "fetching": "Получение…",

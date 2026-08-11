@@ -64,7 +64,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
-| Discard | 🚧 Absent at any granularity. |
+| Discard | 🚧 Mutation absent at any granularity; the P8-00 destructive-preflight contract for file/hunk/line selections is implemented. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
