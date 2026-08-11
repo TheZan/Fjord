@@ -893,6 +893,19 @@ impl RepoService {
         Ok(self.git.unstage(&RepoPath::new(repo.path), paths).await?)
     }
 
+    pub async fn unstage_patch(
+        &self,
+        repo_id: RepositoryId,
+        selection: &PatchSelection,
+        expected_generations: GenerationSet,
+    ) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .unstage_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .await?)
+    }
+
     pub async fn commit(&self, repo_id: RepositoryId, message: &str) -> Result<String, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.commit(&RepoPath::new(repo.path), message).await?)
@@ -1394,6 +1407,7 @@ mod tests {
         generation_changes_on_first_preflight: bool,
         working_diff_calls: AtomicUsize,
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
+        unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -1786,6 +1800,19 @@ mod tests {
         async fn unstage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
+        }
+        async fn unstage_patch(
+            &self,
+            repo: &RepoPath,
+            selection: &PatchSelection,
+            expected_generations: GenerationSet,
+        ) -> Result<GenerationSet, GitError> {
+            *self.unstage_patch_call.lock().unwrap() =
+                Some((repo.0.clone(), selection.clone(), expected_generations));
+            Ok(GenerationSet {
+                working_tree: expected_generations.working_tree + 1,
+                ..expected_generations
+            })
         }
         async fn commit(&self, repo: &RepoPath, _message: &str) -> Result<String, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -2520,6 +2547,40 @@ mod tests {
         assert_eq!(result.refs, 2);
         assert_eq!(
             *git.stage_patch_call.lock().unwrap(),
+            Some((repo.path, selection, expected))
+        );
+    }
+
+    #[tokio::test]
+    async fn unstage_patch_forwards_index_selection_and_expected_generation() {
+        let (repo, git, _, service) = service_with_fake_git();
+        let selection = PatchSelection {
+            path: "src/main.rs".into(),
+            source: fjord_domain::PatchSource::Index,
+            hunks: vec![fjord_domain::HunkSelection {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: Vec::new(),
+            }],
+            base_digest: "digest".into(),
+        };
+        let expected = GenerationSet {
+            working_tree: 7,
+            refs: 2,
+            ..GenerationSet::default()
+        };
+
+        let result = service
+            .unstage_patch(repo.id, &selection, expected)
+            .await
+            .unwrap();
+
+        assert_eq!(result.working_tree, 8);
+        assert_eq!(result.refs, 2);
+        assert_eq!(
+            *git.unstage_patch_call.lock().unwrap(),
             Some((repo.path, selection, expected))
         );
     }

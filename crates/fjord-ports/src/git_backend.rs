@@ -363,6 +363,16 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("stage_patch"))
     }
     async fn unstage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
+    /// Removes a verified index selection against the exact repository
+    /// generation from which it was rendered.
+    async fn unstage_patch(
+        &self,
+        _repo: &RepoPath,
+        _selection: &PatchSelection,
+        _expected_generations: GenerationSet,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("unstage_patch"))
+    }
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
     /// Returns the configured remote for the current branch's upstream.
     async fn upstream_remote(&self, _repo: &RepoPath) -> Result<String, GitError> {

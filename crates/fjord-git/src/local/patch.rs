@@ -72,6 +72,40 @@ pub(super) fn build_unified_patch(
     diff: &FileDiffDetail,
     selection: &PatchSelection,
 ) -> Result<Vec<u8>, GitError> {
+    build_unified_patch_with_direction(diff, selection, PatchDirection::Forward)
+}
+
+/// Builds a selected staged patch in the orientation required by
+/// `git apply --cached --reverse`: its context is the current index, so
+/// unrelated staged changes in the same hunk remain intact when Git reverses
+/// only the selected changes.
+pub(super) fn build_unified_reverse_patch(
+    diff: &FileDiffDetail,
+    selection: &PatchSelection,
+) -> Result<Vec<u8>, GitError> {
+    // Whole-file additions and deletions already have the required canonical
+    // `/dev/null` headers. Their forward patch is exactly what `--reverse`
+    // consumes, while a partial representation has no safe line context.
+    if matches!(
+        diff.change_type,
+        FileChangeType::Added | FileChangeType::Deleted
+    ) {
+        return build_unified_patch(diff, selection);
+    }
+    build_unified_patch_with_direction(diff, selection, PatchDirection::Reverse)
+}
+
+#[derive(Clone, Copy)]
+enum PatchDirection {
+    Forward,
+    Reverse,
+}
+
+fn build_unified_patch_with_direction(
+    diff: &FileDiffDetail,
+    selection: &PatchSelection,
+    direction: PatchDirection,
+) -> Result<Vec<u8>, GitError> {
     if base_digest(diff, selection.source) != selection.base_digest {
         return Err(GitError::PatchStale);
     }
@@ -107,7 +141,7 @@ pub(super) fn build_unified_patch(
             continue;
         };
         seen.insert(coordinates);
-        let rendered = render_hunk(hunk, hunk_selection, selected_delta)?;
+        let rendered = render_hunk(hunk, hunk_selection, selected_delta, direction)?;
         selected_delta += i64::from(rendered.new_lines) - i64::from(rendered.old_lines);
         rendered_hunks.push(rendered);
     }
@@ -202,6 +236,7 @@ fn render_hunk<'a>(
     hunk: &'a DiffHunk,
     selection: &HunkSelection,
     selected_delta_before: i64,
+    direction: PatchDirection,
 ) -> Result<RenderedHunk<'a>, GitError> {
     let selected_lines = if selection.lines.is_empty() {
         None
@@ -227,23 +262,30 @@ fn render_hunk<'a>(
         let is_selected = selected_lines
             .as_ref()
             .is_none_or(|selected| selected.contains(&(index as u32)));
-        match (line.kind, is_selected) {
-            (DiffLineKind::Context, _) => lines.push(RenderedLine { prefix: b' ', line }),
-            (DiffLineKind::Addition, true) => {
+        match (line.kind, is_selected, direction) {
+            (DiffLineKind::Context, _, _) => lines.push(RenderedLine { prefix: b' ', line }),
+            (DiffLineKind::Addition, true, _) => {
                 selected_changes += 1;
                 lines.push(RenderedLine { prefix: b'+', line });
             }
-            (DiffLineKind::Deletion, true) => {
+            (DiffLineKind::Deletion, true, _) => {
                 selected_changes += 1;
                 lines.push(RenderedLine { prefix: b'-', line });
             }
             // An unselected added line does not exist in the patch base.
-            (DiffLineKind::Addition, false) => {}
+            (DiffLineKind::Addition, false, PatchDirection::Forward) => {}
             // An unselected deletion must remain unchanged, so it becomes
             // context in the partial patch.
-            (DiffLineKind::Deletion, false) => {
+            (DiffLineKind::Deletion, false, PatchDirection::Forward) => {
                 lines.push(RenderedLine { prefix: b' ', line });
             }
+            // `--reverse` sees the patch's new side as the current index.
+            // Keep unselected additions as index context and omit deletions
+            // that are absent from both index sides.
+            (DiffLineKind::Addition, false, PatchDirection::Reverse) => {
+                lines.push(RenderedLine { prefix: b' ', line });
+            }
+            (DiffLineKind::Deletion, false, PatchDirection::Reverse) => {}
         }
     }
     if selected_changes == 0 {
@@ -254,18 +296,35 @@ fn render_hunk<'a>(
 
     let old_lines = lines.iter().filter(|line| line.prefix != b'+').count() as u32;
     let new_lines = lines.iter().filter(|line| line.prefix != b'-').count() as u32;
-    let mut new_start = i64::from(hunk.old_start) + selected_delta_before;
-    if old_lines == 0 {
-        new_start += 1;
-    } else if new_lines == 0 {
-        new_start -= 1;
-    }
-    let new_start = u32::try_from(new_start.max(0)).map_err(|_| {
-        GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
-    })?;
+    let (old_start, new_start) = match direction {
+        PatchDirection::Forward => {
+            let mut new_start = i64::from(hunk.old_start) + selected_delta_before;
+            if old_lines == 0 {
+                new_start += 1;
+            } else if new_lines == 0 {
+                new_start -= 1;
+            }
+            let new_start = u32::try_from(new_start.max(0)).map_err(|_| {
+                GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
+            })?;
+            (hunk.old_start, new_start)
+        }
+        PatchDirection::Reverse => {
+            let mut old_start = i64::from(hunk.new_start) - selected_delta_before;
+            if old_lines == 0 {
+                old_start += 1;
+            } else if new_lines == 0 {
+                old_start -= 1;
+            }
+            let old_start = u32::try_from(old_start.max(0)).map_err(|_| {
+                GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
+            })?;
+            (old_start, hunk.new_start)
+        }
+    };
 
     Ok(RenderedHunk {
-        old_start: hunk.old_start,
+        old_start,
         old_lines,
         new_start,
         new_lines,
@@ -420,6 +479,13 @@ mod tests {
         String::from_utf8(build_unified_patch(diff, &selection).unwrap()).unwrap()
     }
 
+    fn staged_selection(diff: &FileDiffDetail, lines: Vec<u32>) -> PatchSelection {
+        let mut selection = selection(diff, lines);
+        selection.source = PatchSource::Index;
+        selection.base_digest = base_digest(diff, PatchSource::Index);
+        selection
+    }
+
     #[test]
     fn whole_hunk_preserves_context_additions_and_deletions() {
         let diff = modified_diff();
@@ -435,6 +501,40 @@ mod tests {
 
         assert!(patch.contains("@@ -1,3 +1,4 @@\n before\n old\n+new\n after\n"));
         assert!(!patch.contains("-old"));
+    }
+
+    #[test]
+    fn reverse_patch_keeps_unselected_staged_additions_as_index_context() {
+        let diff = FileDiffDetail {
+            path: "file.txt".into(),
+            change_type: FileChangeType::Modified,
+            old_mode: Some(BLOB_MODE),
+            new_mode: Some(BLOB_MODE),
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_lines: 5,
+                new_start: 1,
+                new_lines: 5,
+                lines: vec![
+                    line(DiffLineKind::Context, Some(1), Some(1), "before"),
+                    line(DiffLineKind::Deletion, Some(2), None, "old one"),
+                    line(DiffLineKind::Addition, None, Some(2), "new one"),
+                    line(DiffLineKind::Context, Some(3), Some(3), "middle"),
+                    line(DiffLineKind::Deletion, Some(4), None, "old two"),
+                    line(DiffLineKind::Addition, None, Some(4), "new two"),
+                    line(DiffLineKind::Context, Some(5), Some(5), "after"),
+                ],
+            }],
+        };
+        let patch = String::from_utf8(
+            build_unified_reverse_patch(&diff, &staged_selection(&diff, vec![1, 2])).unwrap(),
+        )
+        .unwrap();
+
+        assert!(patch.contains("-old one\n+new one\n middle\n new two\n after\n"));
+        assert!(!patch.contains("-old two"));
+        assert!(!patch.contains("+new two"));
     }
 
     #[test]

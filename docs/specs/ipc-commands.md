@@ -87,6 +87,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `create_tag` / `delete_tag` | `{ repo_id, name, target? }` | — | Lightweight tags |
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
+| `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `commit_repo` | `{ repo_id, message }` | `string` | New commit id; `nothing_to_commit` when the index matches `HEAD` |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
@@ -137,7 +138,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `unstage_patch` / `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |
+| `discard_patch` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §1 | 8 |
 | `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |

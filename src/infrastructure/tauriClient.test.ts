@@ -10,6 +10,7 @@ import {
   revealLogFolder,
   setRepositoryActivity,
   stagePatch,
+  unstagePatch,
 } from "@/infrastructure/tauriClient";
 import { beginInteraction, setInteractionDiagnosticsEnabled } from "@/presentation/performance";
 
@@ -76,6 +77,27 @@ describe("abortable Tauri queries", () => {
       resultingGenerations,
     );
     expect(tauri.invoke).toHaveBeenCalledWith("stage_patch", {
+      repoId: "repo-1",
+      selection,
+      expectedGenerations,
+    });
+  });
+
+  it("sends an index patch selection for partial unstaging", async () => {
+    const selection = {
+      path: "src/main.rs",
+      source: "index" as const,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
+      baseDigest: "digest",
+    };
+    const expectedGenerations = zeroGenerations();
+    const resultingGenerations = { ...expectedGenerations, workingTree: 1 };
+    tauri.invoke.mockResolvedValue(resultingGenerations);
+
+    await expect(unstagePatch("repo-1", selection, expectedGenerations)).resolves.toEqual(
+      resultingGenerations,
+    );
+    expect(tauri.invoke).toHaveBeenCalledWith("unstage_patch", {
       repoId: "repo-1",
       selection,
       expectedGenerations,

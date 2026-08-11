@@ -507,6 +507,19 @@ export function unstageFiles(repoId: string, paths: string[]): Promise<void> {
   return invoke("unstage_files", { repoId, paths });
 }
 
+export function unstagePatch(
+  repoId: string,
+  selection: PatchSelection,
+  expectedGenerations: GenerationSet,
+): Promise<GenerationSet> {
+  return invoke<GenerationSet>("unstage_patch", { repoId, selection, expectedGenerations }).then(
+    (generations) => {
+      observeRepositoryGenerations(repoId, generations, "working");
+      return generations;
+    },
+  );
+}
+
 export function commitRepo(repoId: string, message: string): Promise<string> {
   return invoke("commit_repo", { repoId, message });
 }

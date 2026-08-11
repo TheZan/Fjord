@@ -252,40 +252,128 @@ pub(super) async fn stage_patch(
     selection: &PatchSelection,
     expected_generations: crate::GenerationSet,
 ) -> Result<crate::GenerationSet, GitError> {
+    apply_index_patch(
+        commands,
+        repo,
+        selection,
+        expected_generations,
+        IndexPatchOperation::Stage,
+    )
+    .await
+}
+
+/// Unstages one verified index selection without touching the working tree.
+pub(super) async fn unstage_patch(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: crate::GenerationSet,
+) -> Result<crate::GenerationSet, GitError> {
+    apply_index_patch(
+        commands,
+        repo,
+        selection,
+        expected_generations,
+        IndexPatchOperation::Unstage,
+    )
+    .await
+}
+
+#[derive(Clone, Copy)]
+enum IndexPatchOperation {
+    Stage,
+    Unstage,
+}
+
+impl IndexPatchOperation {
+    const fn source(self) -> PatchSource {
+        match self {
+            Self::Stage => PatchSource::Worktree,
+            Self::Unstage => PatchSource::Index,
+        }
+    }
+
+    const fn staged(self) -> bool {
+        matches!(self, Self::Unstage)
+    }
+
+    const fn reverse(self) -> bool {
+        matches!(self, Self::Unstage)
+    }
+
+    const fn mutation(self) -> MutationKind {
+        match self {
+            Self::Stage => MutationKind::Stage,
+            Self::Unstage => MutationKind::Unstage,
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Stage => "stage_patch",
+            Self::Unstage => "unstage_patch",
+        }
+    }
+}
+
+async fn apply_index_patch(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    selection: &PatchSelection,
+    expected_generations: crate::GenerationSet,
+    operation: IndexPatchOperation,
+) -> Result<crate::GenerationSet, GitError> {
     let commands = commands.clone();
     let repo = repo.clone();
     let selection = selection.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        if selection.source != PatchSource::Worktree {
-            return Err(GitError::PatchUnsupported(
-                "stage_patch requires a worktree selection".to_string(),
-            ));
+        if selection.source != operation.source() {
+            return Err(GitError::PatchUnsupported(format!(
+                "{} requires a {} selection",
+                operation.name(),
+                match operation.source() {
+                    PatchSource::Worktree => "worktree",
+                    PatchSource::Index => "index",
+                }
+            )));
         }
         ensure_expected_generations(&repo, expected_generations)?;
 
-        let detail = current_worktree_diff(&repo, &selection.path)?;
-        let patch = patch::build_unified_patch(&detail, &selection)?;
+        let detail = current_index_patch_diff(&repo, &selection.path, operation.staged())?;
+        let patch = build_index_patch(&detail, &selection, operation)?;
         ensure_expected_generations(&repo, expected_generations)?;
 
-        run_git_apply_to_index(&commands, &repo, &patch, true)?;
+        run_git_apply_to_index(&commands, &repo, &patch, true, operation.reverse())?;
 
         // `--check` is intentionally followed by a fresh diff reconstruction.
         // This closes the ordinary out-of-band-change window without trusting
         // the earlier bytes merely because Git considered them applicable.
         ensure_expected_generations(&repo, expected_generations)?;
-        let verified_detail = current_worktree_diff(&repo, &selection.path)?;
-        let verified_patch = patch::build_unified_patch(&verified_detail, &selection)?;
+        let verified_detail = current_index_patch_diff(&repo, &selection.path, operation.staged())?;
+        let verified_patch = build_index_patch(&verified_detail, &selection, operation)?;
         if verified_patch != patch {
             return Err(GitError::PatchStale);
         }
 
-        run_git_apply_to_index(&commands, &repo, &patch, false)?;
-        runtime::bump_mutation(&repo, MutationKind::Stage);
+        run_git_apply_to_index(&commands, &repo, &patch, false, operation.reverse())?;
+        runtime::bump_mutation(&repo, operation.mutation());
         runtime::generations(&repo)
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn build_index_patch(
+    detail: &FileDiffDetail,
+    selection: &PatchSelection,
+    operation: IndexPatchOperation,
+) -> Result<Vec<u8>, GitError> {
+    if operation.reverse() {
+        patch::build_unified_reverse_patch(detail, selection)
+    } else {
+        patch::build_unified_patch(detail, selection)
+    }
 }
 
 fn ensure_expected_generations(
@@ -299,7 +387,11 @@ fn ensure_expected_generations(
     }
 }
 
-fn current_worktree_diff(repo: &RepoPath, path: &str) -> Result<FileDiffDetail, GitError> {
+fn current_index_patch_diff(
+    repo: &RepoPath,
+    path: &str,
+    staged: bool,
+) -> Result<FileDiffDetail, GitError> {
     LocalGitBackend::with_runtime_git2(repo, |git| {
         let mut options = git2::DiffOptions::new();
         options
@@ -309,9 +401,17 @@ fn current_worktree_diff(repo: &RepoPath, path: &str) -> Result<FileDiffDetail, 
             .recurse_untracked_dirs(true)
             .show_untracked_content(true);
         let index = LocalGitBackend::fresh_index(git)?;
-        let diff = git
-            .diff_index_to_workdir(Some(&index), Some(&mut options))
-            .map_err(LocalGitBackend::map_git2_error)?;
+        let diff = if staged {
+            let head_tree = LocalGitBackend::current_head_commit(git)?
+                .map(|commit| commit.tree())
+                .transpose()
+                .map_err(LocalGitBackend::map_git2_error)?;
+            git.diff_tree_to_index(head_tree.as_ref(), Some(&index), Some(&mut options))
+                .map_err(LocalGitBackend::map_git2_error)?
+        } else {
+            git.diff_index_to_workdir(Some(&index), Some(&mut options))
+                .map_err(LocalGitBackend::map_git2_error)?
+        };
         let delta = diff.deltas().next();
         let change_type = delta
             .as_ref()
@@ -340,11 +440,15 @@ pub(super) fn run_git_apply_to_index(
     repo: &RepoPath,
     patch: &[u8],
     check: bool,
+    reverse: bool,
 ) -> Result<(), GitError> {
     let mut command = commands.command()?;
     command.arg("apply");
     if check {
         command.arg("--check");
+    }
+    if reverse {
+        command.arg("--reverse");
     }
     command
         .arg("--cached")
