@@ -124,6 +124,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::StashEmpty => "stash_empty",
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::Cancelled => "operation_cancelled",
+        GitError::PatchStale => "patch_stale",
+        GitError::PatchApplyFailed(_) => "patch_apply_failed",
+        GitError::PatchUnsupported(_) => "patch_unsupported",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())
@@ -169,5 +172,16 @@ mod tests {
 
         assert_eq!(repo_error.code, "git_repository_ownership");
         assert_eq!(workspace_error.code, "git_repository_ownership");
+    }
+
+    #[test]
+    fn patch_failures_have_distinct_stable_codes() {
+        let stale = git_error_to_app_error(GitError::PatchStale);
+        let apply = git_error_to_app_error(GitError::PatchApplyFailed("rejected".into()));
+        let unsupported = git_error_to_app_error(GitError::PatchUnsupported("binary".into()));
+
+        assert_eq!(stale.code, "patch_stale");
+        assert_eq!(apply.code, "patch_apply_failed");
+        assert_eq!(unsupported.code, "patch_unsupported");
     }
 }

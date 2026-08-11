@@ -6,6 +6,8 @@ function window(offset: number, contents: string[], nextOffset: number | null): 
   return {
     path: "large.txt",
     changeType: "modified",
+    oldMode: 0o100644,
+    newMode: 0o100644,
     isBinary: false,
     tooLarge: false,
     fileBytes: 100,
@@ -20,6 +22,7 @@ function window(offset: number, contents: string[], nextOffset: number | null): 
           oldLineno: offset + index + 1,
           newLineno: offset + index + 1,
           content,
+          lineEnding: "lf",
         })),
       },
     ],
@@ -27,6 +30,7 @@ function window(offset: number, contents: string[], nextOffset: number | null): 
     totalLines: 4,
     truncated: nextOffset !== null,
     nextOffset,
+    baseDigest: null,
   };
 }
 

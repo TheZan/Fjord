@@ -178,6 +178,12 @@ pub enum GitError {
     MergeToolFailed(String),
     #[error("operation cancelled")]
     Cancelled,
+    #[error("the selected patch no longer matches the current diff")]
+    PatchStale,
+    #[error("Git could not apply the selected patch: {0}")]
+    PatchApplyFailed(String),
+    #[error("the selected change cannot be represented as a line patch: {0}")]
+    PatchUnsupported(String),
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]

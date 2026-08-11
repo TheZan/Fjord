@@ -90,16 +90,24 @@ pub(super) async fn working_file_diff(
                     .map_err(LocalGitBackend::map_git2_error)?
             };
 
-            let change_type = diff
-                .deltas()
-                .next()
+            let delta = diff.deltas().next();
+            let change_type = delta
+                .as_ref()
                 .map(|delta| LocalGitBackend::classify_delta(delta.status()))
                 .unwrap_or(FileChangeType::Modified);
+            let old_mode = delta
+                .as_ref()
+                .and_then(|delta| file_mode(delta.old_file().mode()));
+            let new_mode = delta
+                .as_ref()
+                .and_then(|delta| file_mode(delta.new_file().mode()));
             let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
 
             Ok(FileDiffDetail {
                 path,
                 change_type,
+                old_mode,
+                new_mode,
                 is_binary,
                 hunks,
             })
@@ -152,6 +160,12 @@ pub(super) async fn working_file_diff_window(
                 return Ok(FileDiffWindow {
                     path,
                     change_type,
+                    old_mode: delta
+                        .as_ref()
+                        .and_then(|delta| file_mode(delta.old_file().mode())),
+                    new_mode: delta
+                        .as_ref()
+                        .and_then(|delta| file_mode(delta.new_file().mode())),
                     is_binary: false,
                     too_large: true,
                     file_bytes,
@@ -160,22 +174,43 @@ pub(super) async fn working_file_diff_window(
                     total_lines: 0,
                     truncated: false,
                     next_offset: None,
+                    base_digest: None,
                 });
             }
             let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
-            let mut window = FileDiffDetail {
+            let detail = FileDiffDetail {
                 path,
                 change_type,
+                old_mode: delta
+                    .as_ref()
+                    .and_then(|delta| file_mode(delta.old_file().mode())),
+                new_mode: delta
+                    .as_ref()
+                    .and_then(|delta| file_mode(delta.new_file().mode())),
                 is_binary,
                 hunks,
-            }
-            .into_window(offset, limit);
+            };
+            let source = if staged {
+                PatchSource::Index
+            } else {
+                PatchSource::Worktree
+            };
+            let base_digest = patch::base_digest(&detail, source);
+            let mut window = detail.into_window(offset, limit);
             window.file_bytes = file_bytes;
+            window.base_digest = Some(base_digest);
             Ok(window)
         })
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+fn file_mode(mode: git2::FileMode) -> Option<u32> {
+    match mode {
+        git2::FileMode::Unreadable => None,
+        mode => Some(u32::from(mode)),
+    }
 }
 
 pub(super) async fn stage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {

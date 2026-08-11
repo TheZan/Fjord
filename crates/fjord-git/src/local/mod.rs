@@ -16,9 +16,9 @@ use std::process::Stdio;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineKind,
-    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor, RepoStatus, StashEntry,
-    TagInfo, WorkingChanges, WorkingFile,
+    BranchInfo, CommitId, CommitPage, CommitSummary, DiffHunk, DiffLine, DiffLineEnding,
+    DiffLineKind, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, LogCursor, PatchSource,
+    RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
 use git2::build::CheckoutBuilder;
@@ -33,6 +33,7 @@ use time::OffsetDateTime;
 mod diff;
 mod history;
 mod mutations;
+mod patch;
 mod refs;
 mod repository;
 mod runtime;

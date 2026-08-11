@@ -4,7 +4,9 @@
 use super::*;
 use crate::GenerationSet;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
+use std::io::Write as _;
 use std::path::Path;
+use std::process::Stdio;
 use tempfile::TempDir;
 
 /// Runs `status`/`branches`/`log` against *this very repository* as the
@@ -41,6 +43,25 @@ fn empty_repo() -> (TempDir, RepoPath) {
 
 fn write_file(repo: &RepoPath, path: &str, content: &str) {
     std::fs::write(repo.0.join(path), content).unwrap();
+}
+
+fn assert_patch_applies_without_mutation(backend: &LocalGitBackend, repo: &RepoPath, patch: &[u8]) {
+    let mut command = backend.commands.command().unwrap();
+    command
+        .current_dir(&repo.0)
+        .args(["apply", "--check", "--cached", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    child.stdin.take().unwrap().write_all(patch).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "generated patch should pass git apply --check: {}\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(patch)
+    );
 }
 
 async fn repo_with_changed_head() -> (TempDir, RepoPath, String) {
@@ -838,6 +859,263 @@ async fn working_file_diff_reads_staged_and_unstaged_sides_separately() {
         vec!["worktree"],
         "unstaged side is worktree vs index"
     );
+}
+
+#[tokio::test]
+async fn patch_generation_is_read_only_and_bound_to_the_working_generation() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "one\ntwo\nthree\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+    write_file(&repo_path, "README.md", "one\nchanged\nthree\n");
+    let before_generation = backend.generations(&repo_path).unwrap();
+    let git = Repository::open(&repo_path.0).unwrap();
+    let index_path = git.path().join("index");
+    let index_before = std::fs::read(&index_path).unwrap();
+    let worktree_before = std::fs::read(repo_path.0.join("README.md")).unwrap();
+    drop(git);
+
+    let detail = backend
+        .working_file_diff(&repo_path, "README.md", false)
+        .await
+        .unwrap();
+    let window = backend
+        .working_file_diff_window(&repo_path, "README.md", false, 0, 1_000, u64::MAX)
+        .await
+        .unwrap();
+    let digest = patch::base_digest(&detail, PatchSource::Worktree);
+    assert_eq!(window.base_digest.as_deref(), Some(digest.as_str()));
+    let selection = fjord_domain::PatchSelection {
+        path: detail.path.clone(),
+        source: PatchSource::Worktree,
+        hunks: detail
+            .hunks
+            .iter()
+            .map(|hunk| fjord_domain::HunkSelection {
+                old_start: hunk.old_start,
+                old_lines: hunk.old_lines,
+                new_start: hunk.new_start,
+                new_lines: hunk.new_lines,
+                lines: Vec::new(),
+            })
+            .collect(),
+        base_digest: digest,
+    };
+    let generated = patch::build_unified_patch(&detail, &selection).unwrap();
+
+    assert!(generated.starts_with(b"diff --git a/README.md b/README.md\n"));
+    assert_patch_applies_without_mutation(&backend, &repo_path, &generated);
+    let addition_index = detail.hunks[0]
+        .lines
+        .iter()
+        .position(|line| line.kind == DiffLineKind::Addition)
+        .unwrap() as u32;
+    let partial = fjord_domain::PatchSelection {
+        hunks: vec![fjord_domain::HunkSelection {
+            lines: vec![addition_index],
+            ..selection.hunks[0].clone()
+        }],
+        ..selection.clone()
+    };
+    let generated_partial = patch::build_unified_patch(&detail, &partial).unwrap();
+    assert_patch_applies_without_mutation(&backend, &repo_path, &generated_partial);
+    assert_eq!(std::fs::read(&index_path).unwrap(), index_before);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("README.md")).unwrap(),
+        worktree_before
+    );
+    assert_eq!(backend.generations(&repo_path).unwrap(), before_generation);
+
+    // A real backend mutation uses the existing generation clock. The old
+    // digest then fails closed against the newly computed source diff.
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    assert!(backend.generations(&repo_path).unwrap().working_tree > before_generation.working_tree);
+    let current = backend
+        .working_file_diff(&repo_path, "README.md", false)
+        .await
+        .unwrap();
+    assert!(matches!(
+        patch::build_unified_patch(&current, &selection),
+        Err(GitError::PatchStale)
+    ));
+}
+
+#[tokio::test]
+async fn working_patch_diff_preserves_crlf_and_missing_final_newline_metadata() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "old\r\nlast");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+    write_file(&repo_path, "README.md", "new\r\nlast");
+    let detail = backend
+        .working_file_diff(&repo_path, "README.md", false)
+        .await
+        .unwrap();
+    let lines = &detail.hunks[0].lines;
+
+    assert_eq!(lines[0].kind, DiffLineKind::Deletion);
+    assert_eq!(lines[0].line_ending, Some(DiffLineEnding::Crlf));
+    assert_eq!(lines[1].kind, DiffLineKind::Addition);
+    assert_eq!(lines[1].line_ending, Some(DiffLineEnding::Crlf));
+    assert_eq!(lines.last().unwrap().content, "last");
+    assert_eq!(
+        lines.last().unwrap().line_ending,
+        Some(DiffLineEnding::None)
+    );
+    let selection = fjord_domain::PatchSelection {
+        path: detail.path.clone(),
+        source: PatchSource::Worktree,
+        hunks: detail
+            .hunks
+            .iter()
+            .map(|hunk| fjord_domain::HunkSelection {
+                old_start: hunk.old_start,
+                old_lines: hunk.old_lines,
+                new_start: hunk.new_start,
+                new_lines: hunk.new_lines,
+                lines: Vec::new(),
+            })
+            .collect(),
+        base_digest: patch::base_digest(&detail, PatchSource::Worktree),
+    };
+    let generated = patch::build_unified_patch(&detail, &selection).unwrap();
+    assert_patch_applies_without_mutation(&backend, &repo_path, &generated);
+}
+
+#[tokio::test]
+async fn added_and_deleted_working_files_produce_checkable_read_only_patches() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "deleted.txt", "remove me\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("deleted.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+    std::fs::remove_file(repo_path.0.join("deleted.txt")).unwrap();
+    write_file(&repo_path, "added.txt", "add me\n");
+    let index_path = Repository::open(&repo_path.0).unwrap().path().join("index");
+    let index_before = std::fs::read(&index_path).unwrap();
+
+    for (path, expected_change) in [
+        ("added.txt", FileChangeType::Added),
+        ("deleted.txt", FileChangeType::Deleted),
+    ] {
+        let detail = backend
+            .working_file_diff(&repo_path, path, false)
+            .await
+            .unwrap();
+        assert_eq!(detail.change_type, expected_change);
+        let digest = patch::base_digest(&detail, PatchSource::Worktree);
+        let selection = fjord_domain::PatchSelection {
+            path: path.to_string(),
+            source: PatchSource::Worktree,
+            hunks: detail
+                .hunks
+                .iter()
+                .map(|hunk| fjord_domain::HunkSelection {
+                    old_start: hunk.old_start,
+                    old_lines: hunk.old_lines,
+                    new_start: hunk.new_start,
+                    new_lines: hunk.new_lines,
+                    lines: Vec::new(),
+                })
+                .collect(),
+            base_digest: digest,
+        };
+        let generated = patch::build_unified_patch(&detail, &selection).unwrap();
+        assert_patch_applies_without_mutation(&backend, &repo_path, &generated);
+    }
+
+    assert_eq!(std::fs::read(index_path).unwrap(), index_before);
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("added.txt")).unwrap(),
+        "add me\n"
+    );
+    assert!(!repo_path.0.join("deleted.txt").exists());
+}
+
+#[tokio::test]
+async fn patch_digests_cover_multiple_hunks_and_multiple_changed_files() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = (1..=14)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    write_file(&repo_path, "first.txt", &base);
+    write_file(&repo_path, "second.txt", "base\n");
+    backend
+        .stage(
+            &repo_path,
+            &[PathBuf::from("first.txt"), PathBuf::from("second.txt")],
+        )
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Initial commit").await.unwrap();
+
+    let changed = base
+        .replace("line 2", "line two")
+        .replace("line 13", "line thirteen");
+    write_file(&repo_path, "first.txt", &changed);
+    write_file(&repo_path, "second.txt", "base\nadded\n");
+
+    let changes = backend.working_changes(&repo_path).await.unwrap();
+    let mut paths = changes
+        .unstaged
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect::<Vec<_>>();
+    paths.sort_unstable();
+    assert_eq!(paths, ["first.txt", "second.txt"]);
+
+    let first = backend
+        .working_file_diff(&repo_path, "first.txt", false)
+        .await
+        .unwrap();
+    let second = backend
+        .working_file_diff(&repo_path, "second.txt", false)
+        .await
+        .unwrap();
+    assert_eq!(first.hunks.len(), 2);
+    assert_eq!(second.hunks.len(), 1);
+    assert_ne!(
+        patch::base_digest(&first, PatchSource::Worktree),
+        patch::base_digest(&second, PatchSource::Worktree)
+    );
+    let first_selection = fjord_domain::PatchSelection {
+        path: first.path.clone(),
+        source: PatchSource::Worktree,
+        hunks: first
+            .hunks
+            .iter()
+            .map(|hunk| fjord_domain::HunkSelection {
+                old_start: hunk.old_start,
+                old_lines: hunk.old_lines,
+                new_start: hunk.new_start,
+                new_lines: hunk.new_lines,
+                lines: Vec::new(),
+            })
+            .collect(),
+        base_digest: patch::base_digest(&first, PatchSource::Worktree),
+    };
+    let generated = patch::build_unified_patch(&first, &first_selection).unwrap();
+    assert_patch_applies_without_mutation(&backend, &repo_path, &generated);
 }
 
 #[tokio::test]

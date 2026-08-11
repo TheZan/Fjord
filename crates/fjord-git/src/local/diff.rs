@@ -157,6 +157,7 @@ impl LocalGitBackend {
         // than plain `&mut` captures.
         let hunks: std::cell::RefCell<Vec<DiffHunk>> = std::cell::RefCell::new(Vec::new());
         let is_binary = std::cell::Cell::new(false);
+        let invalid_utf8 = std::cell::Cell::new(false);
 
         diff.foreach(
             &mut |_delta, _progress| true,
@@ -182,23 +183,35 @@ impl LocalGitBackend {
                 let kind = match line.origin() {
                     '+' => DiffLineKind::Addition,
                     '-' => DiffLineKind::Deletion,
-                    _ => DiffLineKind::Context,
+                    ' ' => DiffLineKind::Context,
+                    // libgit2 reports the familiar `No newline at end of
+                    // file` marker as a separate callback. The preceding
+                    // content line already carries `DiffLineEnding::None`, so
+                    // the marker must not become a selectable context row.
+                    '<' | '>' | '=' => return true,
+                    _ => return true,
                 };
-                // git2 hands back the raw line including its newline; the
-                // frontend renders one row per line and adds its own.
-                let content = String::from_utf8_lossy(line.content())
-                    .trim_end_matches(['\n', '\r'])
-                    .to_string();
+                let Some((content, line_ending)) = split_diff_line(line.content()) else {
+                    invalid_utf8.set(true);
+                    return false;
+                };
                 current.lines.push(DiffLine {
                     kind,
                     old_lineno: line.old_lineno(),
                     new_lineno: line.new_lineno(),
                     content,
+                    line_ending: Some(line_ending),
                 });
                 true
             }),
         )
         .map_err(Self::map_git2_error)?;
+
+        if invalid_utf8.get() {
+            return Err(GitError::PatchUnsupported(
+                "non-UTF-8 text cannot be represented by the rendered diff model".to_string(),
+            ));
+        }
 
         Ok((is_binary.get(), hunks.into_inner()))
     }
@@ -343,6 +356,8 @@ pub(super) async fn file_diff(
         Ok(FileDiffDetail {
             path,
             change_type,
+            old_mode: None,
+            new_mode: None,
             is_binary,
             hunks,
         })
@@ -396,6 +411,8 @@ pub(super) async fn file_diff_window(
             return Ok(FileDiffWindow {
                 path,
                 change_type,
+                old_mode: None,
+                new_mode: None,
                 is_binary: matches!(prep.operation, Operation::SourceOrDestinationIsBinary),
                 too_large: true,
                 file_bytes,
@@ -405,6 +422,7 @@ pub(super) async fn file_diff_window(
                     .max(resource_line_count(prep.new.data)),
                 truncated: false,
                 next_offset: None,
+                base_digest: None,
             });
         }
 
@@ -424,6 +442,8 @@ pub(super) async fn file_diff_window(
                 Ok(FileDiffWindow {
                     path,
                     change_type,
+                    old_mode: None,
+                    new_mode: None,
                     is_binary: false,
                     too_large: false,
                     file_bytes,
@@ -432,12 +452,15 @@ pub(super) async fn file_diff_window(
                     total_lines: collected.total_lines,
                     truncated,
                     next_offset: truncated.then_some(collected.end),
+                    base_digest: None,
                 })
             }
             Operation::ExternalCommand { .. } | Operation::SourceOrDestinationIsBinary => {
                 Ok(FileDiffWindow {
                     path,
                     change_type,
+                    old_mode: None,
+                    new_mode: None,
                     is_binary: true,
                     too_large: false,
                     file_bytes,
@@ -446,6 +469,7 @@ pub(super) async fn file_diff_window(
                     total_lines: 0,
                     truncated: false,
                     next_offset: None,
+                    base_digest: None,
                 })
             }
         }
@@ -471,6 +495,17 @@ fn resource_line_count(data: gix::diff::blob::platform::resource::Data<'_>) -> u
     }
     bytes.iter().filter(|byte| **byte == b'\n').count() as u32
         + u32::from(bytes.last() != Some(&b'\n'))
+}
+
+fn split_diff_line(content: &[u8]) -> Option<(String, DiffLineEnding)> {
+    let (content, line_ending) = if let Some(content) = content.strip_suffix(b"\r\n") {
+        (content, DiffLineEnding::Crlf)
+    } else if let Some(content) = content.strip_suffix(b"\n") {
+        (content, DiffLineEnding::Lf)
+    } else {
+        (content, DiffLineEnding::None)
+    };
+    Some((std::str::from_utf8(content).ok()?.to_string(), line_ending))
 }
 
 struct WindowedHunkCollector {
@@ -541,6 +576,7 @@ impl ConsumeHunk for WindowedHunkCollector {
                     old_lineno,
                     new_lineno,
                     content: String::from_utf8_lossy(content).into_owned(),
+                    line_ending: None,
                 });
             }
         }
@@ -613,6 +649,7 @@ impl ConsumeHunk for HunkCollector {
                 old_lineno,
                 new_lineno,
                 content,
+                line_ending: None,
             });
         }
 

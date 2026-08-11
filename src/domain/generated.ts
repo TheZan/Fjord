@@ -61,6 +61,25 @@ conflicted: boolean, };
 
 export type WorkingChanges = { staged: Array<WorkingFile>, unstaged: Array<WorkingFile>, };
 
+export type PatchSource = "worktree" | "index";
+
+export type HunkSelection = { oldStart: number, oldLines: number, newStart: number, newLines: number,
+/**
+ * Empty selects the whole hunk. Otherwise these are zero-based indices
+ * into the complete hunk `lines` array, not a window-local slice.
+ */
+lines: Array<number>, };
+
+export type PatchSelection = {
+/**
+ * Path exactly as reported by [`WorkingChanges`].
+ */
+path: string, source: PatchSource, hunks: Array<HunkSelection>,
+/**
+ * SHA-256 digest of the complete rendered diff, including source.
+ */
+baseDigest: string, };
+
 export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hunk", path: string, oldStart: number, oldLines: number, newStart: number, newLines: number, } | { "kind": "lines", path: string, oldStart: number, oldLines: number, newStart: number, newLines: number, lines: Array<number>, };
 
 export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease", remote: string, refName: string, expectedOid: CommitId, };
@@ -73,25 +92,42 @@ export type DestructivePreflight = { action: DestructiveAction, consequences: Ar
 
 export type DiffLineKind = "context" | "addition" | "deletion";
 
-export type DiffLine = { kind: DiffLineKind, 
+export type DiffLineEnding = "lf" | "crlf" | "none";
+
+export type DiffLine = { kind: DiffLineKind,
 /**
  * 1-based line number in the old (before) version, absent for added lines.
  */
-oldLineno: number | null, 
+oldLineno: number | null,
 /**
  * 1-based line number in the new (after) version, absent for removed lines.
  */
-newLineno: number | null, content: string, };
+newLineno: number | null, content: string,
+/**
+ * Exact terminator when the backend exposes it; commit-history diffs may
+ * leave this unknown, while patchable working diffs always provide it.
+ */
+lineEnding: DiffLineEnding | null, };
 
 export type DiffHunk = { oldStart: number, oldLines: number, newStart: number, newLines: number, lines: Array<DiffLine>, };
 
-export type FileDiffDetail = { path: string, changeType: FileChangeType, 
+export type FileDiffDetail = { path: string, changeType: FileChangeType,
+/**
+ * Git file modes when available. Patch generation uses these for added
+ * and deleted files; mode-only changes remain unsupported in Phase 8.
+ */
+oldMode: number | null, newMode: number | null,
 /**
  * `true` if either side of the diff was detected as binary — `hunks` is empty in that case.
  */
 isBinary: boolean, hunks: Array<DiffHunk>, };
 
-export type FileDiffWindow = { path: string, changeType: FileChangeType, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number, truncated: boolean, nextOffset: number | null, };
+export type FileDiffWindow = { path: string, changeType: FileChangeType, oldMode: number | null, newMode: number | null, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number, truncated: boolean, nextOffset: number | null,
+/**
+ * Present only for working-file diff state. It covers the full
+ * diff even when this response contains one bounded window.
+ */
+baseDigest: string | null, };
 
 export type Theme = "light" | "dark" | "system";
 

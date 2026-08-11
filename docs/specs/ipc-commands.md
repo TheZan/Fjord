@@ -72,7 +72,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_commit_files` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Fast tree-only list, painted before line counts finish |
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded unified-diff window; maximum 2 MB serialized response and 10 MB source-file display ceiling |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
-| `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise |
+| `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Patchable responses carry the full diff's `baseDigest`; the digest and existing `working_tree` generation are captured coherently. |
 | `preflight_destructive_action` | `{ repo_id, action }` | `DestructivePreflight` | Phase 8 discard and force-with-lease consequences; includes the coherent generation stamp required at confirmation |
 
 ### Repository mutations (local)
@@ -152,7 +152,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first.
 
 ## What's not a command
 

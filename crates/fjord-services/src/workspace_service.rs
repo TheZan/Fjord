@@ -481,6 +481,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![],
             })
@@ -500,6 +502,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![],
             })

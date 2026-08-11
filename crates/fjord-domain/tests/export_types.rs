@@ -4,16 +4,16 @@ use std::path::Path;
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, Consequence,
     CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
-    DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
-    GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
+    DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
+    FileDiffWindow, GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
     GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
-    GlobalSearchResult, InteractionSpan, InteractionTrace, LogCursor, OverviewUiState,
-    OverviewUiStatePatch, Recoverability, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
-    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
-    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
-    Workspace, WorkspaceId,
+    GlobalSearchResult, HunkSelection, InteractionSpan, InteractionTrace, LogCursor,
+    OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, Recoverability, RemoteRef,
+    RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings,
+    SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
+    UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -22,6 +22,17 @@ const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/domain
 fn push<T: TS>(output: &mut String, config: &Config) {
     output.push_str("export ");
     output.push_str(&T::decl(config));
+    output.push_str("\n\n");
+}
+
+fn push_without_trailing_whitespace<T: TS>(output: &mut String, config: &Config) {
+    output.push_str("export ");
+    for (index, line) in T::decl(config).lines().enumerate() {
+        if index > 0 {
+            output.push('\n');
+        }
+        output.push_str(line.trim_end());
+    }
     output.push_str("\n\n");
 }
 
@@ -57,16 +68,20 @@ fn generated_types() -> String {
     push::<FileDiff>(&mut output, &config);
     push::<WorkingFile>(&mut output, &config);
     push::<WorkingChanges>(&mut output, &config);
+    push_without_trailing_whitespace::<PatchSource>(&mut output, &config);
+    push_without_trailing_whitespace::<HunkSelection>(&mut output, &config);
+    push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);
     push::<DestructiveAction>(&mut output, &config);
     push::<Recoverability>(&mut output, &config);
     push::<Consequence>(&mut output, &config);
     push::<DestructivePreflight>(&mut output, &config);
     push::<DiffLineKind>(&mut output, &config);
-    push::<DiffLine>(&mut output, &config);
+    push_without_trailing_whitespace::<DiffLineEnding>(&mut output, &config);
+    push_without_trailing_whitespace::<DiffLine>(&mut output, &config);
     push::<DiffHunk>(&mut output, &config);
-    push::<FileDiffDetail>(&mut output, &config);
-    push::<FileDiffWindow>(&mut output, &config);
+    push_without_trailing_whitespace::<FileDiffDetail>(&mut output, &config);
+    push_without_trailing_whitespace::<FileDiffWindow>(&mut output, &config);
     push::<Theme>(&mut output, &config);
     push::<GitExecutableSource>(&mut output, &config);
     push::<GitExecutable>(&mut output, &config);

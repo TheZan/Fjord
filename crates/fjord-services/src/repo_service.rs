@@ -23,6 +23,7 @@ const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 const SNAPSHOT_CAPTURE_ATTEMPTS: usize = 3;
 const PREFLIGHT_CAPTURE_ATTEMPTS: usize = 3;
+const PATCH_DIFF_CAPTURE_ATTEMPTS: usize = 3;
 const PREFLIGHT_SAMPLE_LIMIT: usize = 5;
 pub const DIFF_WINDOW_DEFAULT_LINES: u32 = 1_000;
 pub const DIFF_WINDOW_MAX_LINES: u32 = 2_000;
@@ -601,19 +602,45 @@ impl RepoService {
         offset: u32,
         limit: u32,
     ) -> Result<FileDiffWindow, RepoError> {
+        Ok(self
+            .get_working_file_diff_versioned(repo_id, path, staged, offset, limit)
+            .await?
+            .0)
+    }
+
+    /// Captures the rendered working diff and its existing runtime generation
+    /// as one coherent read. This mirrors P8-00 preflight capture: a watcher or
+    /// mutation racing the diff causes a retry, never a stale diff stamped with
+    /// a newer generation.
+    pub async fn get_working_file_diff_versioned(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        staged: bool,
+        offset: u32,
+        limit: u32,
+    ) -> Result<(FileDiffWindow, GenerationSet), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        let window = self
-            .git
-            .working_file_diff_window(
-                &RepoPath::new(repo.path),
-                path,
-                staged,
-                offset,
-                normalized_diff_limit(limit),
-                DIFF_FILE_MAX_BYTES,
-            )
-            .await?;
-        ensure_diff_response_ceiling(window)
+        let repo = RepoPath::new(repo.path);
+        for _ in 0..PATCH_DIFF_CAPTURE_ATTEMPTS {
+            let before = self.git.generations(&repo)?;
+            let window = self
+                .git
+                .working_file_diff_window(
+                    &repo,
+                    path,
+                    staged,
+                    offset,
+                    normalized_diff_limit(limit),
+                    DIFF_FILE_MAX_BYTES,
+                )
+                .await?;
+            let after = self.git.generations(&repo)?;
+            if before == after {
+                return Ok((ensure_diff_response_ceiling(window)?, after));
+            }
+        }
+        Err(GitError::PatchStale.into())
     }
 
     /// Computes bounded, concrete consequences against one coherent generation
@@ -1215,6 +1242,8 @@ mod tests {
         let oversized = FileDiffWindow {
             path: "large.txt".to_string(),
             change_type: FileChangeType::Modified,
+            old_mode: Some(0o100644),
+            new_mode: Some(0o100644),
             is_binary: false,
             too_large: false,
             file_bytes: 0,
@@ -1228,12 +1257,14 @@ mod tests {
                     old_lineno: None,
                     new_lineno: Some(1),
                     content: "x".repeat(DIFF_RESPONSE_MAX_BYTES),
+                    line_ending: Some(fjord_domain::DiffLineEnding::Lf),
                 }],
             }],
             total_hunks: 1,
             total_lines: 1,
             truncated: false,
             next_offset: None,
+            base_digest: None,
         };
 
         assert!(matches!(
@@ -1627,6 +1658,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![],
             })
@@ -1657,6 +1690,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![fjord_domain::DiffHunk {
                     old_start: 1,
@@ -1669,18 +1704,21 @@ mod tests {
                             old_lineno: Some(1),
                             new_lineno: None,
                             content: "old".into(),
+                            line_ending: Some(fjord_domain::DiffLineEnding::Lf),
                         },
                         fjord_domain::DiffLine {
                             kind: fjord_domain::DiffLineKind::Addition,
                             old_lineno: None,
                             new_lineno: Some(1),
                             content: "new".into(),
+                            line_ending: Some(fjord_domain::DiffLineEnding::Lf),
                         },
                         fjord_domain::DiffLine {
                             kind: fjord_domain::DiffLineKind::Context,
                             old_lineno: Some(2),
                             new_lineno: Some(2),
                             content: "same".into(),
+                            line_ending: Some(fjord_domain::DiffLineEnding::Lf),
                         },
                     ],
                 }],
@@ -2423,6 +2461,38 @@ mod tests {
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn working_patch_diff_retries_until_its_generation_is_coherent() {
+        let repo = repo_entry();
+        let git = Arc::new(FakeGit {
+            seen_path: Arc::new(Mutex::new(None)),
+            generation_changes_on_first_preflight: true,
+            ..FakeGit::default()
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            git.clone(),
+            Arc::new(FakeRemoteGit::default()),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        let (diff, generations) = service
+            .get_working_file_diff_versioned(repo.id, "src/main.rs", false, 0, 1_000)
+            .await
+            .unwrap();
+
+        assert_eq!(diff.path, "src/main.rs");
+        assert_eq!(git.working_diff_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(generations.working_tree, 1);
     }
 
     #[tokio::test]

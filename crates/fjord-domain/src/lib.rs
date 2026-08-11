@@ -295,6 +295,44 @@ pub struct WorkingChanges {
     pub unstaged: Vec<WorkingFile>,
 }
 
+/// Which repository side a patch selection was rendered from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum PatchSource {
+    /// Index-to-working-tree diff, used for staging and discarding.
+    Worktree,
+    /// HEAD-to-index diff, used for unstaging.
+    Index,
+}
+
+/// Coordinates for one selected hunk in the complete rendered diff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct HunkSelection {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    /// Empty selects the whole hunk. Otherwise these are zero-based indices
+    /// into the complete hunk `lines` array, not a window-local slice.
+    pub lines: Vec<u32>,
+}
+
+/// A verified line-coordinate selection from a working-file diff.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct PatchSelection {
+    /// Path exactly as reported by [`WorkingChanges`].
+    pub path: String,
+    pub source: PatchSource,
+    pub hunks: Vec<HunkSelection>,
+    /// SHA-256 digest of the complete rendered diff, including source.
+    pub base_digest: String,
+}
+
 /// The part of an unstaged file that a future discard command will reverse.
 /// Coordinates deliberately match a rendered diff hunk so confirmation can be
 /// recomputed without trusting a caller-supplied line count.
@@ -443,6 +481,18 @@ pub enum DiffLineKind {
     Deletion,
 }
 
+/// The terminator carried by a diff line. Patch construction must preserve it:
+/// treating CRLF or a missing final newline as ordinary LF can make a selected
+/// patch apply to different bytes than the user reviewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum DiffLineEnding {
+    Lf,
+    Crlf,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
@@ -453,6 +503,9 @@ pub struct DiffLine {
     /// 1-based line number in the new (after) version, absent for removed lines.
     pub new_lineno: Option<u32>,
     pub content: String,
+    /// Exact terminator when the backend exposes it; commit-history diffs may
+    /// leave this unknown, while patchable working diffs always provide it.
+    pub line_ending: Option<DiffLineEnding>,
 }
 
 /// One `@@ -old_start,old_lines +new_start,new_lines @@` block of a unified diff.
@@ -475,6 +528,10 @@ pub struct DiffHunk {
 pub struct FileDiffDetail {
     pub path: String,
     pub change_type: FileChangeType,
+    /// Git file modes when available. Patch generation uses these for added
+    /// and deleted files; mode-only changes remain unsupported in Phase 8.
+    pub old_mode: Option<u32>,
+    pub new_mode: Option<u32>,
     /// `true` if either side of the diff was detected as binary — `hunks` is empty in that case.
     pub is_binary: bool,
     pub hunks: Vec<DiffHunk>,
@@ -488,6 +545,8 @@ pub struct FileDiffDetail {
 pub struct FileDiffWindow {
     pub path: String,
     pub change_type: FileChangeType,
+    pub old_mode: Option<u32>,
+    pub new_mode: Option<u32>,
     pub is_binary: bool,
     pub too_large: bool,
     #[ts(type = "number")]
@@ -497,6 +556,9 @@ pub struct FileDiffWindow {
     pub total_lines: u32,
     pub truncated: bool,
     pub next_offset: Option<u32>,
+    /// Present only for working-file diff state. It covers the full
+    /// diff even when this response contains one bounded window.
+    pub base_digest: Option<String>,
 }
 
 impl FileDiffDetail {
@@ -525,6 +587,8 @@ impl FileDiffDetail {
         FileDiffWindow {
             path: self.path,
             change_type: self.change_type,
+            old_mode: self.old_mode,
+            new_mode: self.new_mode,
             is_binary: self.is_binary,
             too_large: false,
             file_bytes: 0,
@@ -533,6 +597,7 @@ impl FileDiffDetail {
             total_lines,
             truncated,
             next_offset: truncated.then_some(end),
+            base_digest: None,
         }
     }
 }
@@ -899,10 +964,13 @@ mod tests {
             old_lineno: None,
             new_lineno: None,
             content: content.to_string(),
+            line_ending: Some(DiffLineEnding::Lf),
         };
         let detail = FileDiffDetail {
             path: "large.txt".to_string(),
             change_type: FileChangeType::Modified,
+            old_mode: Some(0o100644),
+            new_mode: Some(0o100644),
             is_binary: false,
             hunks: vec![
                 DiffHunk {

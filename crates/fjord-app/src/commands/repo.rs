@@ -207,11 +207,11 @@ pub async fn get_working_file_diff(
     offset: u32,
     limit: u32,
 ) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
-    let data = state
+    let (data, generations) = state
         .repos
-        .get_working_file_diff(repo_id, &path, staged, offset, limit)
+        .get_working_file_diff_versioned(repo_id, &path, staged, offset, limit)
         .await?;
-    versioned(&state, repo_id, data).await
+    Ok(GenerationEnvelope { data, generations })
 }
 
 #[tauri::command]

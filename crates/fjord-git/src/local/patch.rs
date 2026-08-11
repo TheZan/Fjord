@@ -1,0 +1,630 @@
+//! Deterministic, read-only construction of minimal unified patches.
+//!
+//! P8-01 deliberately stops at bytes: later tasks own locking and invoking
+//! `git apply`. Keeping verification and construction here lets every patch
+//! mutation share one fail-closed implementation.
+
+// P8-01 intentionally lands the constructor one task before P8-02 wires it to
+// `git apply`; keep the foundation compiled and tested without exposing patch
+// bytes through a temporary public API.
+#![cfg_attr(not(test), allow(dead_code))]
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use fjord_domain::{
+    DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, FileChangeType, FileDiffDetail,
+    HunkSelection, PatchSelection, PatchSource,
+};
+use fjord_ports::GitError;
+use sha2::{Digest, Sha256};
+
+type HunkCoordinates = (u32, u32, u32, u32);
+
+pub(super) fn base_digest(diff: &FileDiffDetail, source: PatchSource) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"fjord-rendered-patch-v1\0");
+    hash_bytes(&mut digest, diff.path.as_bytes());
+    digest.update([match source {
+        PatchSource::Worktree => 0,
+        PatchSource::Index => 1,
+    }]);
+    digest.update([match diff.change_type {
+        FileChangeType::Added => 0,
+        FileChangeType::Modified => 1,
+        FileChangeType::Deleted => 2,
+        FileChangeType::Renamed => 3,
+    }]);
+    hash_optional_u32(&mut digest, diff.old_mode);
+    hash_optional_u32(&mut digest, diff.new_mode);
+    digest.update([u8::from(diff.is_binary)]);
+    hash_u32(&mut digest, diff.hunks.len() as u32);
+
+    for hunk in &diff.hunks {
+        hash_u32(&mut digest, hunk.old_start);
+        hash_u32(&mut digest, hunk.old_lines);
+        hash_u32(&mut digest, hunk.new_start);
+        hash_u32(&mut digest, hunk.new_lines);
+        hash_u32(&mut digest, hunk.lines.len() as u32);
+        for line in &hunk.lines {
+            digest.update([match line.kind {
+                DiffLineKind::Context => 0,
+                DiffLineKind::Addition => 1,
+                DiffLineKind::Deletion => 2,
+            }]);
+            hash_optional_u32(&mut digest, line.old_lineno);
+            hash_optional_u32(&mut digest, line.new_lineno);
+            hash_bytes(&mut digest, line.content.as_bytes());
+            digest.update([match line.line_ending {
+                None => 0,
+                Some(DiffLineEnding::Lf) => 1,
+                Some(DiffLineEnding::Crlf) => 2,
+                Some(DiffLineEnding::None) => 3,
+            }]);
+        }
+    }
+
+    let bytes = digest.finalize();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    encoded
+}
+
+/// Verifies `selection` against `diff` and constructs only its selected hunks.
+/// No repository state is read or mutated by this function.
+pub(super) fn build_unified_patch(
+    diff: &FileDiffDetail,
+    selection: &PatchSelection,
+) -> Result<Vec<u8>, GitError> {
+    if base_digest(diff, selection.source) != selection.base_digest {
+        return Err(GitError::PatchStale);
+    }
+    if selection.path != diff.path {
+        return Err(GitError::PatchUnsupported(
+            "selection path does not match the rendered diff".to_string(),
+        ));
+    }
+    if diff.is_binary {
+        return Err(GitError::PatchUnsupported(
+            "binary changes have no line representation".to_string(),
+        ));
+    }
+    if diff.change_type == FileChangeType::Renamed {
+        return Err(GitError::PatchUnsupported(
+            "renamed files require old-path metadata".to_string(),
+        ));
+    }
+    if diff.hunks.is_empty() || selection.hunks.is_empty() {
+        return Err(GitError::PatchUnsupported(
+            "the change has no selected line hunks".to_string(),
+        ));
+    }
+
+    let selected = indexed_selections(&selection.hunks)?;
+    let mut seen = BTreeSet::new();
+    let mut rendered_hunks = Vec::new();
+    let mut selected_delta = 0_i64;
+
+    for hunk in &diff.hunks {
+        let coordinates = coordinates(hunk);
+        let Some(hunk_selection) = selected.get(&coordinates) else {
+            continue;
+        };
+        seen.insert(coordinates);
+        let rendered = render_hunk(hunk, hunk_selection, selected_delta)?;
+        selected_delta += i64::from(rendered.new_lines) - i64::from(rendered.old_lines);
+        rendered_hunks.push(rendered);
+    }
+
+    if seen.len() != selected.len() {
+        return Err(GitError::PatchUnsupported(
+            "one or more selected hunk coordinates are not present".to_string(),
+        ));
+    }
+
+    let old_path = match diff.change_type {
+        FileChangeType::Added => "/dev/null".to_string(),
+        _ => quote_patch_path("a/", &diff.path),
+    };
+    let new_path = match diff.change_type {
+        FileChangeType::Deleted => "/dev/null".to_string(),
+        _ => quote_patch_path("b/", &diff.path),
+    };
+    let mut patch = Vec::new();
+    extend_line(
+        &mut patch,
+        format!(
+            "diff --git {} {}",
+            quote_patch_path("a/", &diff.path),
+            quote_patch_path("b/", &diff.path)
+        )
+        .as_bytes(),
+    );
+    match diff.change_type {
+        FileChangeType::Added => {
+            let mode = diff.new_mode.ok_or_else(|| {
+                GitError::PatchUnsupported("added file mode is unavailable".to_string())
+            })?;
+            extend_line(&mut patch, format!("new file mode {mode:06o}").as_bytes());
+        }
+        FileChangeType::Deleted => {
+            let mode = diff.old_mode.ok_or_else(|| {
+                GitError::PatchUnsupported("deleted file mode is unavailable".to_string())
+            })?;
+            extend_line(
+                &mut patch,
+                format!("deleted file mode {mode:06o}").as_bytes(),
+            );
+        }
+        FileChangeType::Modified => {}
+        FileChangeType::Renamed => unreachable!("renames are rejected above"),
+    }
+    extend_line(&mut patch, format!("--- {old_path}").as_bytes());
+    extend_line(&mut patch, format!("+++ {new_path}").as_bytes());
+    for hunk in rendered_hunks {
+        extend_line(
+            &mut patch,
+            format!(
+                "@@ -{} +{} @@",
+                format_range(hunk.old_start, hunk.old_lines),
+                format_range(hunk.new_start, hunk.new_lines)
+            )
+            .as_bytes(),
+        );
+        for line in hunk.lines {
+            patch.push(line.prefix);
+            patch.extend_from_slice(line.line.content.as_bytes());
+            match line.line.line_ending.ok_or_else(|| {
+                GitError::PatchUnsupported("line-ending metadata is unavailable".to_string())
+            })? {
+                DiffLineEnding::Lf => patch.push(b'\n'),
+                DiffLineEnding::Crlf => patch.extend_from_slice(b"\r\n"),
+                DiffLineEnding::None => {
+                    patch.push(b'\n');
+                    patch.extend_from_slice(b"\\ No newline at end of file\n");
+                }
+            }
+        }
+    }
+    Ok(patch)
+}
+
+struct RenderedHunk<'a> {
+    old_start: u32,
+    old_lines: u32,
+    new_start: u32,
+    new_lines: u32,
+    lines: Vec<RenderedLine<'a>>,
+}
+
+struct RenderedLine<'a> {
+    prefix: u8,
+    line: &'a DiffLine,
+}
+
+fn render_hunk<'a>(
+    hunk: &'a DiffHunk,
+    selection: &HunkSelection,
+    selected_delta_before: i64,
+) -> Result<RenderedHunk<'a>, GitError> {
+    let selected_lines = if selection.lines.is_empty() {
+        None
+    } else {
+        let mut lines = BTreeSet::new();
+        for index in &selection.lines {
+            let line = hunk.lines.get(*index as usize).ok_or_else(|| {
+                GitError::PatchUnsupported("selected line index is outside its hunk".to_string())
+            })?;
+            if line.kind == DiffLineKind::Context {
+                return Err(GitError::PatchUnsupported(
+                    "context lines cannot be selected as changes".to_string(),
+                ));
+            }
+            lines.insert(*index);
+        }
+        Some(lines)
+    };
+
+    let mut lines = Vec::with_capacity(hunk.lines.len());
+    let mut selected_changes = 0_u32;
+    for (index, line) in hunk.lines.iter().enumerate() {
+        let is_selected = selected_lines
+            .as_ref()
+            .is_none_or(|selected| selected.contains(&(index as u32)));
+        match (line.kind, is_selected) {
+            (DiffLineKind::Context, _) => lines.push(RenderedLine { prefix: b' ', line }),
+            (DiffLineKind::Addition, true) => {
+                selected_changes += 1;
+                lines.push(RenderedLine { prefix: b'+', line });
+            }
+            (DiffLineKind::Deletion, true) => {
+                selected_changes += 1;
+                lines.push(RenderedLine { prefix: b'-', line });
+            }
+            // An unselected added line does not exist in the patch base.
+            (DiffLineKind::Addition, false) => {}
+            // An unselected deletion must remain unchanged, so it becomes
+            // context in the partial patch.
+            (DiffLineKind::Deletion, false) => {
+                lines.push(RenderedLine { prefix: b' ', line });
+            }
+        }
+    }
+    if selected_changes == 0 {
+        return Err(GitError::PatchUnsupported(
+            "the selected hunk contains no changed lines".to_string(),
+        ));
+    }
+
+    let old_lines = lines.iter().filter(|line| line.prefix != b'+').count() as u32;
+    let new_lines = lines.iter().filter(|line| line.prefix != b'-').count() as u32;
+    let mut new_start = i64::from(hunk.old_start) + selected_delta_before;
+    if old_lines == 0 {
+        new_start += 1;
+    } else if new_lines == 0 {
+        new_start -= 1;
+    }
+    let new_start = u32::try_from(new_start.max(0)).map_err(|_| {
+        GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
+    })?;
+
+    Ok(RenderedHunk {
+        old_start: hunk.old_start,
+        old_lines,
+        new_start,
+        new_lines,
+        lines,
+    })
+}
+
+fn indexed_selections(
+    selections: &[HunkSelection],
+) -> Result<BTreeMap<HunkCoordinates, &HunkSelection>, GitError> {
+    let mut indexed = BTreeMap::new();
+    for selection in selections {
+        let key = (
+            selection.old_start,
+            selection.old_lines,
+            selection.new_start,
+            selection.new_lines,
+        );
+        if indexed.insert(key, selection).is_some() {
+            return Err(GitError::PatchUnsupported(
+                "the same hunk was selected more than once".to_string(),
+            ));
+        }
+    }
+    Ok(indexed)
+}
+
+fn coordinates(hunk: &DiffHunk) -> HunkCoordinates {
+    (
+        hunk.old_start,
+        hunk.old_lines,
+        hunk.new_start,
+        hunk.new_lines,
+    )
+}
+
+fn format_range(start: u32, lines: u32) -> String {
+    if lines == 1 {
+        start.to_string()
+    } else {
+        format!("{start},{lines}")
+    }
+}
+
+fn extend_line(output: &mut Vec<u8>, value: &[u8]) {
+    output.extend_from_slice(value);
+    output.push(b'\n');
+}
+
+fn quote_patch_path(prefix: &str, path: &str) -> String {
+    let value = format!("{prefix}{path}");
+    if value
+        .bytes()
+        .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'"' | b'\\'))
+    {
+        return value;
+    }
+    let mut quoted = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            '\t' => quoted.push_str("\\t"),
+            '\n' => quoted.push_str("\\n"),
+            '\r' => quoted.push_str("\\r"),
+            character => quoted.push(character),
+        }
+    }
+    quoted.push('"');
+    quoted
+}
+
+fn hash_bytes(digest: &mut Sha256, value: &[u8]) {
+    hash_u32(digest, value.len() as u32);
+    digest.update(value);
+}
+
+fn hash_u32(digest: &mut Sha256, value: u32) {
+    digest.update(value.to_le_bytes());
+}
+
+fn hash_optional_u32(digest: &mut Sha256, value: Option<u32>) {
+    match value {
+        Some(value) => {
+            digest.update([1]);
+            hash_u32(digest, value);
+        }
+        None => digest.update([0]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLOB_MODE: u32 = 0o100644;
+
+    fn line(
+        kind: DiffLineKind,
+        old_lineno: Option<u32>,
+        new_lineno: Option<u32>,
+        content: &str,
+    ) -> DiffLine {
+        DiffLine {
+            kind,
+            old_lineno,
+            new_lineno,
+            content: content.to_string(),
+            line_ending: Some(DiffLineEnding::Lf),
+        }
+    }
+
+    fn modified_diff() -> FileDiffDetail {
+        FileDiffDetail {
+            path: "src/main.rs".to_string(),
+            change_type: FileChangeType::Modified,
+            old_mode: Some(BLOB_MODE),
+            new_mode: Some(BLOB_MODE),
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_lines: 3,
+                new_start: 1,
+                new_lines: 3,
+                lines: vec![
+                    line(DiffLineKind::Context, Some(1), Some(1), "before"),
+                    line(DiffLineKind::Deletion, Some(2), None, "old"),
+                    line(DiffLineKind::Addition, None, Some(2), "new"),
+                    line(DiffLineKind::Context, Some(3), Some(3), "after"),
+                ],
+            }],
+        }
+    }
+
+    fn selection(diff: &FileDiffDetail, lines: Vec<u32>) -> PatchSelection {
+        let hunk = &diff.hunks[0];
+        PatchSelection {
+            path: diff.path.clone(),
+            source: PatchSource::Worktree,
+            hunks: vec![HunkSelection {
+                old_start: hunk.old_start,
+                old_lines: hunk.old_lines,
+                new_start: hunk.new_start,
+                new_lines: hunk.new_lines,
+                lines,
+            }],
+            base_digest: base_digest(diff, PatchSource::Worktree),
+        }
+    }
+
+    fn patch_text(diff: &FileDiffDetail, selection: PatchSelection) -> String {
+        String::from_utf8(build_unified_patch(diff, &selection).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn whole_hunk_preserves_context_additions_and_deletions() {
+        let diff = modified_diff();
+        let patch = patch_text(&diff, selection(&diff, Vec::new()));
+
+        assert!(patch.contains("@@ -1,3 +1,3 @@\n before\n-old\n+new\n after\n"));
+    }
+
+    #[test]
+    fn selecting_one_line_keeps_unselected_deletion_as_context() {
+        let diff = modified_diff();
+        let patch = patch_text(&diff, selection(&diff, vec![2]));
+
+        assert!(patch.contains("@@ -1,3 +1,4 @@\n before\n old\n+new\n after\n"));
+        assert!(!patch.contains("-old"));
+    }
+
+    #[test]
+    fn first_and_last_changed_lines_are_addressed_by_hunk_line_index() {
+        let mut diff = modified_diff();
+        diff.hunks[0]
+            .lines
+            .insert(0, line(DiffLineKind::Addition, None, Some(1), "first"));
+        diff.hunks[0]
+            .lines
+            .push(line(DiffLineKind::Deletion, Some(4), None, "last"));
+        diff.hunks[0].old_lines = 4;
+        diff.hunks[0].new_lines = 4;
+        let last = diff.hunks[0].lines.len() as u32 - 1;
+        let patch = patch_text(&diff, selection(&diff, vec![0, last]));
+
+        assert!(patch.contains("+first"));
+        assert!(patch.contains("-last"));
+        assert!(!patch.contains("+new"));
+    }
+
+    #[test]
+    fn selection_order_does_not_change_patch_representation() {
+        let mut diff = modified_diff();
+        diff.hunks.push(DiffHunk {
+            old_start: 20,
+            old_lines: 1,
+            new_start: 20,
+            new_lines: 1,
+            lines: vec![
+                line(DiffLineKind::Deletion, Some(20), None, "old two"),
+                line(DiffLineKind::Addition, None, Some(20), "new two"),
+            ],
+        });
+        let first = &diff.hunks[0];
+        let second = &diff.hunks[1];
+        let hunk = |value: &DiffHunk| HunkSelection {
+            old_start: value.old_start,
+            old_lines: value.old_lines,
+            new_start: value.new_start,
+            new_lines: value.new_lines,
+            lines: Vec::new(),
+        };
+        let make = |hunks| PatchSelection {
+            path: diff.path.clone(),
+            source: PatchSource::Worktree,
+            hunks,
+            base_digest: base_digest(&diff, PatchSource::Worktree),
+        };
+
+        let forward = build_unified_patch(&diff, &make(vec![hunk(first), hunk(second)])).unwrap();
+        let reverse = build_unified_patch(&diff, &make(vec![hunk(second), hunk(first)])).unwrap();
+        assert_eq!(forward, reverse);
+    }
+
+    #[test]
+    fn crlf_and_missing_final_newline_are_preserved() {
+        let mut diff = modified_diff();
+        for line in &mut diff.hunks[0].lines {
+            line.line_ending = Some(DiffLineEnding::Crlf);
+        }
+        diff.hunks[0].lines.last_mut().unwrap().line_ending = Some(DiffLineEnding::None);
+        let patch = build_unified_patch(&diff, &selection(&diff, Vec::new())).unwrap();
+
+        assert!(patch
+            .windows(b" before\r\n-old\r\n+new\r\n".len())
+            .any(|window| { window == b" before\r\n-old\r\n+new\r\n" }));
+        assert!(patch.ends_with(b" after\n\\ No newline at end of file\n"));
+    }
+
+    #[test]
+    fn added_and_deleted_files_use_dev_null_and_preserve_mode() {
+        let added = FileDiffDetail {
+            path: "new.txt".to_string(),
+            change_type: FileChangeType::Added,
+            old_mode: None,
+            new_mode: Some(BLOB_MODE),
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![line(DiffLineKind::Addition, None, Some(1), "new")],
+            }],
+        };
+        let added_patch = patch_text(&added, selection(&added, Vec::new()));
+        assert!(added_patch.contains("new file mode 100644\n--- /dev/null\n+++ b/new.txt"));
+        assert!(added_patch.contains("@@ -0,0 +1 @@"));
+
+        let deleted = FileDiffDetail {
+            path: "old.txt".to_string(),
+            change_type: FileChangeType::Deleted,
+            old_mode: Some(BLOB_MODE),
+            new_mode: None,
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 0,
+                new_lines: 0,
+                lines: vec![line(DiffLineKind::Deletion, Some(1), None, "old")],
+            }],
+        };
+        let deleted_patch = patch_text(&deleted, selection(&deleted, Vec::new()));
+        assert!(deleted_patch.contains("deleted file mode 100644\n--- a/old.txt\n+++ /dev/null"));
+        assert!(deleted_patch.contains("@@ -1 +0,0 @@"));
+    }
+
+    #[test]
+    fn digest_is_stable_but_covers_source_content_and_line_endings() {
+        let diff = modified_diff();
+        assert_eq!(
+            base_digest(&diff, PatchSource::Worktree),
+            base_digest(&diff, PatchSource::Worktree)
+        );
+        assert_ne!(
+            base_digest(&diff, PatchSource::Worktree),
+            base_digest(&diff, PatchSource::Index)
+        );
+        let mut changed = diff.clone();
+        changed.hunks[0].lines[1].content.push('!');
+        assert_ne!(
+            base_digest(&diff, PatchSource::Worktree),
+            base_digest(&changed, PatchSource::Worktree)
+        );
+        changed = diff.clone();
+        changed.hunks[0].lines[1].line_ending = Some(DiffLineEnding::Crlf);
+        assert_ne!(
+            base_digest(&diff, PatchSource::Worktree),
+            base_digest(&changed, PatchSource::Worktree)
+        );
+    }
+
+    #[test]
+    fn digest_mismatch_and_unsupported_states_fail_closed() {
+        let diff = modified_diff();
+        let mut stale = selection(&diff, Vec::new());
+        stale.base_digest = "stale".to_string();
+        assert!(matches!(
+            build_unified_patch(&diff, &stale),
+            Err(GitError::PatchStale)
+        ));
+
+        let mut binary = diff.clone();
+        binary.is_binary = true;
+        let binary_selection = selection(&binary, Vec::new());
+        assert!(matches!(
+            build_unified_patch(&binary, &binary_selection),
+            Err(GitError::PatchUnsupported(_))
+        ));
+
+        let mut invalid = selection(&diff, vec![99]);
+        invalid.base_digest = base_digest(&diff, PatchSource::Worktree);
+        assert!(matches!(
+            build_unified_patch(&diff, &invalid),
+            Err(GitError::PatchUnsupported(_))
+        ));
+
+        let empty_added = FileDiffDetail {
+            path: "empty.txt".to_string(),
+            change_type: FileChangeType::Added,
+            old_mode: None,
+            new_mode: Some(BLOB_MODE),
+            is_binary: false,
+            hunks: Vec::new(),
+        };
+        let empty_selection = PatchSelection {
+            path: empty_added.path.clone(),
+            source: PatchSource::Worktree,
+            hunks: Vec::new(),
+            base_digest: base_digest(&empty_added, PatchSource::Worktree),
+        };
+        assert!(matches!(
+            build_unified_patch(&empty_added, &empty_selection),
+            Err(GitError::PatchUnsupported(_))
+        ));
+
+        let mut renamed = diff.clone();
+        renamed.change_type = FileChangeType::Renamed;
+        let renamed_selection = selection(&renamed, Vec::new());
+        assert!(matches!(
+            build_unified_patch(&renamed, &renamed_selection),
+            Err(GitError::PatchUnsupported(_))
+        ));
+    }
+}

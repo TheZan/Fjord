@@ -62,6 +62,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Whole-file stage/unstage | ✅ `stage_files` / `unstage_files`, empty list = all. `git2`-backed. |
 | Working changes listing | ✅ `WorkingChanges { staged, unstaged }`, `WorkingFile { path, changeType, conflicted }`; a partially-staged file legitimately appears in both lists. |
 | Working file diff | ✅ `working_file_diff(path, staged, offset, limit)` — index-vs-HEAD when staged, worktree-vs-index otherwise. Returns a bounded `FileDiffWindow` with exact totals, continuation cursor, and `tooLarge` metadata. |
+| Patch model/generation | ✅ `PatchSelection` uses hunk coordinates plus complete-hunk line indices and a SHA-256 `baseDigest`. Working diff windows expose a digest over path, source, modes, hunk headers, line content, and terminators; construction verifies it before emitting deterministic selected hunks. The read and existing `working_tree` generation are captured coherently. Apply remains P8-02/P8-03/P8-06. |
 | Commit | ✅ `commit_repo(message)`; the panel composes `summary\n\ndescription`. |
 | Amend | 🚧 Absent. |
 | Discard | 🚧 Mutation absent at any granularity; the P8-00 destructive-preflight contract for file/hunk/line selections is implemented. |
@@ -110,6 +111,15 @@ line contents). Applying a selection recomputes the diff and compares digests:
 - digests differ → fail with `patch_stale`, the frontend refreshes the diff and
   tells the user the file changed. Fjord never applies a patch to a file it has
   not just verified.
+
+P8-01 uses SHA-256 and also covers file modes and exact line terminators. Those
+bytes are necessary to distinguish LF from CRLF and a missing final newline;
+they do not change the line-coordinate addressing visible to the frontend.
+Working-file diff transport returns the same digest on every bounded window and
+associates it with a coherently captured existing repository generation.
+Binary, rename, mode-only, oversized/content-free, non-UTF-8 text, and empty-file
+changes with no line hunk fail with `patch_unsupported` rather than being guessed
+by the line-patch constructor. P8-15 owns the specified binary and mode-only UI.
 
 Application mechanism: build a minimal unified patch from the selection and apply
 it with `git apply --cached` (stage), `git apply --cached --reverse` (unstage), or
