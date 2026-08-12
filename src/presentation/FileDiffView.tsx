@@ -7,7 +7,7 @@ import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightD
 import { Select, Surface } from "@/presentation/ui";
 import { loadUiState, saveRepoModes } from "@/infrastructure/uiState";
 import { useDiffHighlight } from "@/presentation/useDiffHighlight";
-import type { HighlightLineInput, HighlightToken, HighlightTokenKind } from "@/presentation/diffHighlight";
+import type { HighlightLineInput, HighlightToken, HighlightTokenKind, TextRange } from "@/presentation/diffHighlight";
 import type { DestructiveAction, DiffLineKind, DiffWhitespaceMode, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 import type { UiDiffMode } from "@/domain/generated";
@@ -62,6 +62,7 @@ export function FileDiffView({
 }) {
   const { t } = useTranslation("workspace");
   const [whitespace, setWhitespace] = useState<DiffWhitespaceMode>("show");
+  const [wordDiff, setWordDiff] = useState(true);
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations, snapshotInvalid } = useFileDiff(
     repoId,
     path,
@@ -86,14 +87,15 @@ export function FileDiffView({
   const virtualRows = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualRows.at(-1)?.index ?? -1;
   const visibleRowKey = virtualRows.map((row) => row.index).join(",");
+  const wordPairKeys = useMemo(() => buildWordPairKeys(diff?.hunks ?? []), [diff?.hunks]);
   const visibleHighlightLines = useMemo(
-    () => collectHighlightLines(rows, virtualRows.map((row) => row.index)),
+    () => collectHighlightLines(rows, virtualRows.map((row) => row.index), wordPairKeys),
     // The serialized indexes make the input stable while the virtualizer
     // returns an equivalent array on unrelated renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, visibleRowKey],
+    [rows, visibleRowKey, wordPairKeys],
   );
-  const highlightTokens = useDiffHighlight(path, visibleHighlightLines);
+  const enhancements = useDiffHighlight(path, visibleHighlightLines, wordDiff);
 
   useEffect(() => {
     void loadUiState()
@@ -281,6 +283,16 @@ export function FileDiffView({
           <option value="ignoreTrailing">{t("diff.whitespace.ignoreTrailing")}</option>
           <option value="ignoreAll">{t("diff.whitespace.ignoreAll")}</option>
         </Select>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={wordDiff}
+          className="interactive-control shrink-0 rounded px-1.5 py-0.5 text-[11px]"
+          style={{ color: wordDiff ? "var(--fjord-ink)" : "var(--slate)" }}
+          onClick={() => setWordDiff((enabled) => !enabled)}
+        >
+          {t("diff.wordDiff")}
+        </button>
         {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
           <button
             type="button"
@@ -383,7 +395,8 @@ export function FileDiffView({
                       lineIndex={row.lineIndex}
                       interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
-                      tokens={highlightTokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
+                      tokens={enhancements.tokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
+                      wordChanges={enhancements.wordChanges.get(diffLineKey(row.hunkIndex, row.lineIndex))}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
                     />
@@ -392,7 +405,8 @@ export function FileDiffView({
                       row={row}
                       interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selectedLineIndices={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null}
-                      highlightTokens={highlightTokens}
+                      highlightTokens={enhancements.tokens}
+                      wordChanges={enhancements.wordChanges}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
                     />
@@ -506,7 +520,11 @@ function diffLineKey(hunkIndex: number, lineIndex: number): string {
   return `${hunkIndex}:${lineIndex}`;
 }
 
-function collectHighlightLines(rows: FlatDiffRow[], indexes: number[]): HighlightLineInput[] {
+function collectHighlightLines(
+  rows: FlatDiffRow[],
+  indexes: number[],
+  wordPairKeys: ReadonlyMap<string, string>,
+): HighlightLineInput[] {
   const visible = new Map<string, HighlightLineInput>();
   for (const index of indexes) {
     const row = rows[index];
@@ -516,10 +534,43 @@ function collectHighlightLines(rows: FlatDiffRow[], indexes: number[]): Highligh
       : [row.left, row.right].filter((reference): reference is DiffLineRef => reference !== null);
     for (const reference of references) {
       const key = diffLineKey(row.hunkIndex, reference.lineIndex);
-      visible.set(key, { key, content: reference.line.content });
+      visible.set(key, {
+        key,
+        content: reference.line.content,
+        pairKey: wordPairKeys.get(key),
+        kind: reference.line.kind,
+      });
     }
   }
   return [...visible.values()];
+}
+
+function buildWordPairKeys(hunks: DiffHunk[]): Map<string, string> {
+  const pairs = new Map<string, string>();
+  hunks.forEach((hunk, hunkIndex) => {
+    let lineIndex = 0;
+    let pairIndex = 0;
+    while (lineIndex < hunk.lines.length) {
+      if (hunk.lines[lineIndex].kind === "context") {
+        lineIndex += 1;
+        continue;
+      }
+      const deletions: number[] = [];
+      const additions: number[] = [];
+      while (lineIndex < hunk.lines.length && hunk.lines[lineIndex].kind !== "context") {
+        (hunk.lines[lineIndex].kind === "deletion" ? deletions : additions).push(lineIndex);
+        lineIndex += 1;
+      }
+      const count = Math.min(deletions.length, additions.length);
+      for (let index = 0; index < count; index += 1) {
+        const pairKey = `${hunkIndex}:${pairIndex}`;
+        pairs.set(diffLineKey(hunkIndex, deletions[index]), pairKey);
+        pairs.set(diffLineKey(hunkIndex, additions[index]), pairKey);
+        pairIndex += 1;
+      }
+    }
+  });
+  return pairs;
 }
 
 type DiffRowAnchor = { hunkIndex: number; lineIndex: number | null };
@@ -765,6 +816,7 @@ function DiffLineRow({
   interactive,
   selected,
   tokens,
+  wordChanges,
   onSelect,
   onExtendSelection,
 }: {
@@ -774,6 +826,7 @@ function DiffLineRow({
   interactive: boolean;
   selected: boolean;
   tokens?: HighlightToken[];
+  wordChanges?: TextRange[];
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -787,7 +840,7 @@ function DiffLineRow({
     </span>
     <span className="whitespace-pre px-2">
       {LINE_PREFIX[line.kind]}
-      <SyntaxContent content={line.content} tokens={tokens} />
+      <SyntaxContent content={line.content} tokens={tokens} wordChanges={wordChanges} />
     </span>
   </>;
   if (!isChangedLine(line) || !interactive) {
@@ -832,6 +885,7 @@ function SplitDiffRow({
   interactive,
   selectedLineIndices,
   highlightTokens,
+  wordChanges,
   onSelect,
   onExtendSelection,
 }: {
@@ -839,6 +893,7 @@ function SplitDiffRow({
   interactive: boolean;
   selectedLineIndices: Set<number> | null;
   highlightTokens: ReadonlyMap<string, HighlightToken[]>;
+  wordChanges: ReadonlyMap<string, TextRange[]>;
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -851,6 +906,7 @@ function SplitDiffRow({
         interactive={interactive}
         selected={row.left ? selectedLineIndices?.has(row.left.lineIndex) === true : false}
         tokens={row.left ? highlightTokens.get(diffLineKey(row.hunkIndex, row.left.lineIndex)) : undefined}
+        wordChanges={row.left ? wordChanges.get(diffLineKey(row.hunkIndex, row.left.lineIndex)) : undefined}
         onSelect={onSelect}
         onExtendSelection={onExtendSelection}
       />
@@ -861,6 +917,7 @@ function SplitDiffRow({
         interactive={interactive}
         selected={row.right ? selectedLineIndices?.has(row.right.lineIndex) === true : false}
         tokens={row.right ? highlightTokens.get(diffLineKey(row.hunkIndex, row.right.lineIndex)) : undefined}
+        wordChanges={row.right ? wordChanges.get(diffLineKey(row.hunkIndex, row.right.lineIndex)) : undefined}
         onSelect={onSelect}
         onExtendSelection={onExtendSelection}
       />
@@ -875,6 +932,7 @@ function SplitDiffCell({
   interactive,
   selected,
   tokens,
+  wordChanges,
   onSelect,
   onExtendSelection,
 }: {
@@ -884,6 +942,7 @@ function SplitDiffCell({
   interactive: boolean;
   selected: boolean;
   tokens?: HighlightToken[];
+  wordChanges?: TextRange[];
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -906,7 +965,7 @@ function SplitDiffCell({
     </span>
     <span className="min-w-0 flex-1 whitespace-pre px-2">
       {LINE_PREFIX[line.kind]}
-      <SyntaxContent content={line.content} tokens={tokens} />
+      <SyntaxContent content={line.content} tokens={tokens} wordChanges={wordChanges} />
     </span>
   </>;
   if (!isChangedLine(line) || !interactive) {
@@ -951,23 +1010,47 @@ const TOKEN_COLOR: Record<HighlightTokenKind, string> = {
   tag: "var(--rust-ink)",
 };
 
-function SyntaxContent({ content, tokens }: { content: string; tokens?: HighlightToken[] }) {
-  if (!tokens || tokens.length === 0) return content;
+function SyntaxContent({
+  content,
+  tokens = [],
+  wordChanges = [],
+}: {
+  content: string;
+  tokens?: HighlightToken[];
+  wordChanges?: TextRange[];
+}) {
+  if (tokens.length === 0 && wordChanges.length === 0) return content;
   const parts: ReactNode[] = [];
-  let cursor = 0;
-  for (const token of tokens) {
-    const start = Math.max(cursor, Math.min(content.length, token.start));
-    const end = Math.max(start, Math.min(content.length, token.start + token.length));
-    if (start > cursor) parts.push(content.slice(cursor, start));
-    if (end > start) {
-      parts.push(
-        <span key={`${start}:${end}`} data-syntax-token={token.kind} style={{ color: TOKEN_COLOR[token.kind] }}>
-          {content.slice(start, end)}
-        </span>,
-      );
-    }
-    cursor = end;
+  const boundaries = new Set([0, content.length]);
+  for (const range of [...tokens, ...wordChanges]) {
+    boundaries.add(Math.max(0, Math.min(content.length, range.start)));
+    boundaries.add(Math.max(0, Math.min(content.length, range.start + range.length)));
   }
-  if (cursor < content.length) parts.push(content.slice(cursor));
+  const points = [...boundaries].sort((left, right) => left - right);
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const start = points[index];
+    const end = points[index + 1];
+    if (end <= start) continue;
+    const token = tokens.find((candidate) => candidate.start <= start && candidate.start + candidate.length >= end);
+    const wordChange = wordChanges.some((candidate) => candidate.start <= start && candidate.start + candidate.length >= end);
+    if (!token && !wordChange) {
+      parts.push(content.slice(start, end));
+      continue;
+    }
+    parts.push(
+      <span
+        key={`${start}:${end}`}
+        data-syntax-token={token?.kind}
+        data-word-change={wordChange || undefined}
+        style={{
+          color: token ? TOKEN_COLOR[token.kind] : undefined,
+          background: wordChange ? "color-mix(in srgb, currentColor 16%, transparent)" : undefined,
+          borderRadius: wordChange ? 2 : undefined,
+        }}
+      >
+        {content.slice(start, end)}
+      </span>,
+    );
+  }
   return parts;
 }

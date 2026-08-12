@@ -122,6 +122,7 @@
     "viewMode": "Mode d’affichage du diff",
     "unified": "Unifié",
     "split": "Côte à côte",
+    "wordDiff": "Modifications de mots",
     "loadingMore": "Chargement des modifications suivantes…",
     "stageHunk": "Indexer le bloc",
     "stagingHunk": "Indexation du bloc…",

@@ -29,6 +29,7 @@ describe("diff highlight worker transport", () => {
         requestId: 7,
         language: "rust",
         lines: [{ key: "0:1", content: "let value = 42;" }],
+        wordDiff: false,
       },
     } as MessageEvent<DiffHighlightWorkerRequest>);
 
@@ -38,6 +39,7 @@ describe("diff highlight worker transport", () => {
       skipped: null,
       lines: [{
         key: "0:1",
+        wordChanges: [],
         tokens: [
           { start: 0, length: 3, kind: "keyword" },
           { start: 12, length: 2, kind: "number" },

@@ -43,10 +43,14 @@ const state = vi.hoisted(() => ({
   measure: vi.fn(),
   scrollToIndex: vi.fn(),
   highlightTokens: new Map(),
+  wordChanges: new Map(),
 }));
 
 vi.mock("@/presentation/useDiffHighlight", () => ({
-  useDiffHighlight: () => state.highlightTokens,
+  useDiffHighlight: (_path: string, _lines: unknown[], wordDiff: boolean) => ({
+    tokens: state.highlightTokens,
+    wordChanges: wordDiff ? state.wordChanges : new Map(),
+  }),
 }));
 
 vi.mock("@/infrastructure/uiState", () => ({
@@ -124,6 +128,7 @@ describe("FileDiffView windowing", () => {
     state.measure.mockReset();
     state.scrollToIndex.mockReset();
     state.highlightTokens = new Map();
+    state.wordChanges = new Map();
   });
 
   it("builds unified rows and pairs changed lines in split rows", () => {
@@ -214,6 +219,33 @@ describe("FileDiffView windowing", () => {
     const token = document.querySelector('[data-syntax-token="keyword"]');
     expect(token).toHaveTextContent("new");
     expect(token?.parentElement).toHaveTextContent("+new line");
+  });
+
+  it("renders worker word ranges and keeps the patch selection identical when toggled off", async () => {
+    state.hasMore = false;
+    state.wordChanges = new Map([["0:0", [{ start: 0, length: 3 }]]]);
+    const onApplyHunk = vi.fn().mockResolvedValue(true);
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={onApplyHunk}
+      />,
+    );
+
+    expect(document.querySelector('[data-word-change="true"]')).toHaveTextContent("old");
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageSelectedLines" }));
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("switch", { name: "diff.wordDiff" }));
+    expect(document.querySelector('[data-word-change="true"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageSelectedLines" }));
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledTimes(2));
+
+    expect(onApplyHunk.mock.calls[1]).toEqual(onApplyHunk.mock.calls[0]);
   });
 
   it("selects eligible changed lines while context lines remain non-interactive", () => {

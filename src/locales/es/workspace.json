@@ -122,6 +122,7 @@
     "viewMode": "Vista de diferencias",
     "unified": "Unificado",
     "split": "En paralelo",
+    "wordDiff": "Cambios de palabras",
     "loadingMore": "Cargando más cambios…",
     "stageHunk": "Preparar bloque",
     "stagingHunk": "Preparando bloque…",

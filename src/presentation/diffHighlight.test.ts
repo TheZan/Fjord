@@ -4,6 +4,7 @@ import {
   languageForPath,
   MAX_HIGHLIGHT_CHARACTERS,
   tokenizeLine,
+  wordDiffPair,
 } from "@/presentation/diffHighlight";
 
 describe("diff syntax highlighting", () => {
@@ -25,6 +26,29 @@ describe("diff syntax highlighting", () => {
     const result = highlightDiffLines("rust", [{ key: "0:0", content: "x".repeat(MAX_HIGHLIGHT_CHARACTERS + 1) }]);
 
     expect(result).toEqual({ lines: [], skipped: "budget" });
+  });
+
+  it("pairs similar replacements and rejects unrelated lines below the threshold", () => {
+    expect(wordDiffPair("return account.total", "return invoice.total")).toMatchObject({
+      deletion: [{ start: 7, length: 7 }],
+      addition: [{ start: 7, length: 7 }],
+      similarity: 0.75,
+    });
+    expect(wordDiffPair("alpha beta gamma", "one two three")).toBeNull();
+  });
+
+  it("computes word changes only for explicit deletion/addition pairs", () => {
+    const result = highlightDiffLines(null, [
+      { key: "0:0", pairKey: "pair-1", kind: "deletion", content: "return account.total" },
+      { key: "0:1", pairKey: "pair-1", kind: "addition", content: "return invoice.total" },
+      { key: "0:2", kind: "addition", content: "unpaired" },
+    ], true);
+
+    expect(result.lines.map((line) => line.wordChanges)).toEqual([
+      [{ start: 7, length: 7 }],
+      [{ start: 7, length: 7 }],
+      [],
+    ]);
   });
 
   it("keeps a diff-giant-sized viewport tokenization within the worker budget", () => {

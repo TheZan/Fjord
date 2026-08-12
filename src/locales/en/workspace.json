@@ -124,6 +124,7 @@
     "viewMode": "Diff layout",
     "unified": "Unified",
     "split": "Split",
+    "wordDiff": "Word changes",
       "loadingMore": "Loading more changes…",
       "stageHunk": "Stage hunk",
       "stagingHunk": "Staging hunk…",

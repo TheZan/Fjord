@@ -122,6 +122,7 @@
     "viewMode": "Diff-Darstellung",
     "unified": "Vereinheitlicht",
     "split": "Nebeneinander",
+    "wordDiff": "Wortänderungen",
     "loadingMore": "Weitere Änderungen werden geladen…",
     "stageHunk": "Hunk stagen",
     "stagingHunk": "Hunk wird gestaged…",

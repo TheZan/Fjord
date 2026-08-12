@@ -11,7 +11,7 @@ const workerScope = self as unknown as {
 
 workerScope.onmessage = ({ data }) => {
   const startedAt = performance.now();
-  const result = highlightDiffLines(data.language, data.lines);
+  const result = highlightDiffLines(data.language, data.lines, data.wordDiff);
   workerScope.postMessage({
     requestId: data.requestId,
     ...result,

@@ -49,7 +49,7 @@ describe("useDiffHighlight", () => {
     vi.spyOn(performance, "clearMarks").mockImplementation(() => undefined);
     const { result } = renderHook(() => useDiffHighlight("file.ts", [{ key: "0:0", content: "const value = 1;" }]));
 
-    expect(result.current.size).toBe(0);
+    expect(result.current.tokens.size).toBe(0);
     expect(HighlightWorkerMock.instances).toHaveLength(0);
     act(() => paintFrame?.(10));
     expect(marks).toEqual(["fjord:diff:plain-paint"]);
@@ -60,10 +60,10 @@ describe("useDiffHighlight", () => {
       requestId: 1,
       durationMs: 2,
       skipped: null,
-      lines: [{ key: "0:0", tokens: [{ start: 0, length: 5, kind: "keyword" }] }],
+      lines: [{ key: "0:0", tokens: [{ start: 0, length: 5, kind: "keyword" }], wordChanges: [] }],
     }));
 
-    expect(result.current.get("0:0")).toEqual([{ start: 0, length: 5, kind: "keyword" }]);
+    expect(result.current.tokens.get("0:0")).toEqual([{ start: 0, length: 5, kind: "keyword" }]);
     expect(marks).toEqual(["fjord:diff:plain-paint", "fjord:diff:highlight-commit"]);
   });
 

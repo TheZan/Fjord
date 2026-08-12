@@ -1,24 +1,31 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { languageForPath, type HighlightLineInput, type HighlightToken } from "@/presentation/diffHighlight";
+import { languageForPath, type HighlightLineInput, type HighlightToken, type TextRange } from "@/presentation/diffHighlight";
 import type { DiffHighlightWorkerResponse } from "@/presentation/diffHighlightWorkerProtocol";
 import { recordDuration } from "@/presentation/performance";
 
 interface HighlightResult {
   signature: string;
   tokens: Map<string, HighlightToken[]>;
+  wordChanges: Map<string, TextRange[]>;
 }
 
 const EMPTY_TOKENS = new Map<string, HighlightToken[]>();
+const EMPTY_WORD_CHANGES = new Map<string, TextRange[]>();
 
-export function useDiffHighlight(path: string, lines: HighlightLineInput[]): ReadonlyMap<string, HighlightToken[]> {
+export interface DiffEnhancements {
+  tokens: ReadonlyMap<string, HighlightToken[]>;
+  wordChanges: ReadonlyMap<string, TextRange[]>;
+}
+
+export function useDiffHighlight(path: string, lines: HighlightLineInput[], wordDiff = false): DiffEnhancements {
   const language = languageForPath(path);
-  const signature = useMemo(() => highlightSignature(path, lines), [lines, path]);
+  const signature = useMemo(() => highlightSignature(path, lines, wordDiff), [lines, path, wordDiff]);
   const requestId = useRef(0);
   const [result, setResult] = useState<HighlightResult | null>(null);
   const activeResult = result?.signature === signature ? result : null;
 
   useEffect(() => {
-    if (!language || lines.length === 0 || typeof Worker === "undefined") return;
+    if ((!language && !wordDiff) || lines.length === 0 || typeof Worker === "undefined") return;
     let active = true;
     let worker: Worker | null = null;
     let timer: number | null = null;
@@ -39,6 +46,7 @@ export function useDiffHighlight(path: string, lines: HighlightLineInput[]): Rea
           setResult({
             signature,
             tokens: new Map(event.data.lines.map((line) => [line.key, line.tokens])),
+            wordChanges: new Map(event.data.lines.map((line) => [line.key, line.wordChanges])),
           });
         };
         const onError = () => {
@@ -47,7 +55,7 @@ export function useDiffHighlight(path: string, lines: HighlightLineInput[]): Rea
         };
         worker.addEventListener("message", onMessage);
         worker.addEventListener("error", onError, { once: true });
-        worker.postMessage({ requestId: nextRequestId, language, lines });
+        worker.postMessage({ requestId: nextRequestId, language, lines, wordDiff });
       }, 0);
     });
 
@@ -57,16 +65,19 @@ export function useDiffHighlight(path: string, lines: HighlightLineInput[]): Rea
       if (timer !== null) window.clearTimeout(timer);
       worker?.terminate();
     };
-  }, [language, lines, signature]);
+  }, [language, lines, signature, wordDiff]);
 
   useLayoutEffect(() => {
     if (activeResult) mark("fjord:diff:highlight-commit", { lineCount: activeResult.tokens.size });
   }, [activeResult]);
 
-  return activeResult?.tokens ?? EMPTY_TOKENS;
+  return {
+    tokens: activeResult?.tokens ?? EMPTY_TOKENS,
+    wordChanges: activeResult?.wordChanges ?? EMPTY_WORD_CHANGES,
+  };
 }
 
-function highlightSignature(path: string, lines: HighlightLineInput[]): string {
+function highlightSignature(path: string, lines: HighlightLineInput[], wordDiff: boolean): string {
   let hash = 2_166_136_261;
   for (const line of lines) {
     const value = `${line.key}\0${line.content}\0`;
@@ -75,7 +86,7 @@ function highlightSignature(path: string, lines: HighlightLineInput[]): string {
       hash = Math.imul(hash, 16_777_619);
     }
   }
-  return `${path}\0${lines.length}\0${hash >>> 0}`;
+  return `${path}\0${wordDiff}\0${lines.length}\0${hash >>> 0}`;
 }
 
 function mark(name: string, detail: Record<string, unknown>) {
