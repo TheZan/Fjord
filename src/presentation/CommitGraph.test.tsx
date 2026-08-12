@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
 import { CommitGraph } from "@/presentation/CommitGraph";
@@ -11,6 +11,7 @@ const graphState = vi.hoisted(() => ({
   loadUntilCommit: vi.fn(),
   loadingUntilCommitId: null as string | null,
   scrollToIndex: vi.fn(),
+  searchResults: [] as CommitSummary[],
   tags: [] as TagInfo[],
 }));
 
@@ -53,7 +54,11 @@ vi.mock("@/application/useCommitLog", () => ({
 }));
 
 vi.mock("@/application/useCommitSearch", () => ({
-  useCommitSearch: () => ({ commits: [], error: null, loading: false }),
+  useCommitSearch: (_repoId: string | null, query: string) => ({
+    commits: query.trim().length > 0 ? graphState.searchResults : [],
+    error: null,
+    loading: false,
+  }),
 }));
 
 vi.mock("@/application/useTags", () => ({
@@ -69,11 +74,15 @@ describe("CommitGraph", () => {
     graphState.loadUntilCommit.mockClear();
     graphState.loadingUntilCommitId = null;
     graphState.scrollToIndex.mockClear();
+    graphState.searchResults = [];
     graphState.tags = [];
     Element.prototype.scrollTo = vi.fn();
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it("shows branch and tag badges from their target commits when log refs are empty", () => {
     graphState.commits = [
@@ -187,6 +196,56 @@ describe("CommitGraph", () => {
     expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, { align: "auto" });
   });
 
+  it("scrolls the full graph to a commit selected from search once the bar closes", () => {
+    vi.useFakeTimers();
+    const onSelectCommit = vi.fn();
+    graphState.commits = [commit("commit-1", "First"), commit("commit-2", "Second")];
+    graphState.searchResults = [commit("commit-2", "Second")];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="main"
+        openSearchRequestId={1}
+        onSelectCommit={onSelectCommit}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("commits.searchPlaceholder"), { target: { value: "second" } });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    const resultRow = screen.getByText("Second").closest<HTMLElement>("[data-commit-id]");
+    expect(resultRow).not.toBeNull();
+    fireEvent.click(resultRow!);
+    expect(onSelectCommit).toHaveBeenCalledWith(graphState.searchResults[0]);
+    // Selecting from the filtered search list doesn't touch the main graph's
+    // scroll yet — the target only exists in the (small) filtered list.
+    expect(graphState.scrollToIndex).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText("commits.closeSearch"));
+
+    expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, { align: "center", behavior: "smooth" });
+  });
+
+  it("pages the log forward to reveal a commit that search found beyond the loaded window", () => {
+    vi.useFakeTimers();
+    graphState.commits = [commit("commit-1", "First")];
+    graphState.searchResults = [commit("commit-2", "Second")];
+
+    render(<CommitGraph repoId="repo-1" currentBranch="main" openSearchRequestId={1} />);
+
+    fireEvent.change(screen.getByPlaceholderText("commits.searchPlaceholder"), { target: { value: "second" } });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    fireEvent.click(screen.getByText("Second").closest<HTMLElement>("[data-commit-id]")!);
+    fireEvent.click(screen.getByLabelText("commits.closeSearch"));
+
+    expect(graphState.loadUntilCommit).toHaveBeenCalledWith("commit-2");
+  });
 });
 
 function commit(id: string, message: string): CommitSummary {

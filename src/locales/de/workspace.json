@@ -92,6 +92,7 @@
     "searchEmpty": "Keine passenden Commits.",
     "searchCount": "Ergebnisse: {{count}}",
     "locatingBranch": "{{branch}} wird im Verlauf gesucht…",
+    "locatingCommit": "{{sha}} wird im Verlauf gesucht…",
     "updatingGraph": "Commit-Graph wird aktualisiert…",
     "rowLabel": "{{message}}, von {{author}}, Commit {{sha}}"
   },

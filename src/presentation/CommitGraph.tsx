@@ -80,6 +80,7 @@ export function CommitGraph({
   const { t, i18n } = useTranslation("workspace");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pendingSearchRevealId, setPendingSearchRevealId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
@@ -188,6 +189,34 @@ export function CommitGraph({
     searchActive,
   ]);
 
+  /**
+   * A commit picked from search results only exists in the filtered list
+   * while search stays open. Once the bar closes, the full graph is back —
+   * scroll it to that commit instead of leaving the view wherever it
+   * happened to be. The target commit may be well beyond the currently
+   * loaded page (search runs its own backend query), so this pages the
+   * main log forward the same way branch-reveal does.
+   */
+  useEffect(() => {
+    if (searchOpen || !pendingSearchRevealId) return;
+
+    const rowIndex = rows.findIndex((row) => row.commit.id === pendingSearchRevealId);
+    if (rowIndex !== -1) {
+      const currentIndex = Math.round((parentRef.current?.scrollTop ?? 0) / ROW_HEIGHT);
+      rowVirtualizer.scrollToIndex(rowIndex, {
+        align: "center",
+        behavior: Math.abs(rowIndex - currentIndex) > 40 ? "auto" : "smooth",
+      });
+      focusCommitRow(parentRef, pendingSearchRevealId);
+      setPendingSearchRevealId(null);
+      return;
+    }
+
+    if (loadingUntilCommitId !== pendingSearchRevealId) {
+      void loadUntilCommit(pendingSearchRevealId);
+    }
+  }, [loadUntilCommit, loadingUntilCommitId, pendingSearchRevealId, rows, rowVirtualizer, searchOpen]);
+
   if (visibleError) {
     return (
       <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
@@ -216,6 +245,10 @@ export function CommitGraph({
     !rows.some((row) => row.commit.id === seekingBranch.targetCommitId)
       ? displayRefName(normalizeRefName(seekingBranch.name), seekingBranch.isRemote)
       : null;
+  const seekingCommitLabel =
+    pendingSearchRevealId && loadingUntilCommitId === pendingSearchRevealId
+      ? pendingSearchRevealId.slice(0, 7)
+      : null;
 
   function navigateToCommit(currentCommit: CommitSummary, target: "previous" | "next" | "first" | "last") {
     const currentIndex = rows.findIndex((row) => row.commit.id === currentCommit.id);
@@ -227,9 +260,14 @@ export function CommitGraph({
           ? rows.length - 1
           : Math.min(Math.max(currentIndex + (target === "next" ? 1 : -1), 0), rows.length - 1);
     const commit = rows[targetIndex].commit;
-    onSelectCommit?.(commit);
+    handleSelectCommit(commit);
     rowVirtualizer.scrollToIndex(targetIndex, { align: "auto" });
     focusCommitRow(parentRef, commit.id);
+  }
+
+  function handleSelectCommit(commit: CommitSummary) {
+    if (searchActive) setPendingSearchRevealId(commit.id);
+    onSelectCommit?.(commit);
   }
 
   return (
@@ -250,7 +288,10 @@ export function CommitGraph({
         />
       )}
       {seekingBranchLabel && <BranchSeekStatus label={t("commits.locatingBranch", { branch: seekingBranchLabel })} />}
-      {!seekingBranchLabel && layoutComputing && rows.length > 0 ? (
+      {!seekingBranchLabel && seekingCommitLabel && (
+        <BranchSeekStatus label={t("commits.locatingCommit", { sha: seekingCommitLabel })} />
+      )}
+      {!seekingBranchLabel && !seekingCommitLabel && layoutComputing && rows.length > 0 ? (
         <BranchSeekStatus label={t("commits.updatingGraph")} />
       ) : null}
       <div ref={parentRef} className="h-full w-full overflow-auto">
@@ -300,7 +341,7 @@ export function CommitGraph({
                     row.commit.id === selectedCommitId ||
                     (selectedCommitId == null && virtualRow.index === 0)
                   }
-                  onSelect={onSelectCommit}
+                  onSelect={handleSelectCommit}
                   onNavigate={navigateToCommit}
                   ariaLabel={t("commits.rowLabel", {
                     message: row.commit.message.split("\n")[0],

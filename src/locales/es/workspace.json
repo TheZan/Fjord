@@ -92,6 +92,7 @@
     "searchEmpty": "No hay commits coincidentes.",
     "searchCount": "Resultados: {{count}}",
     "locatingBranch": "Buscando {{branch}} en el historial…",
+    "locatingCommit": "Buscando {{sha}} en el historial…",
     "updatingGraph": "Actualizando el gráfico de commits…",
     "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },

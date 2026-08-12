@@ -92,6 +92,7 @@
     "searchEmpty": "Подходящие коммиты не найдены.",
     "searchCount": "Найдено: {{count}}",
     "locatingBranch": "Ищем {{branch}} в истории…",
+    "locatingCommit": "Ищем {{sha}} в истории…",
     "updatingGraph": "Обновляем граф коммитов…",
     "rowLabel": "{{message}}, автор {{author}}, коммит {{sha}}"
   },
