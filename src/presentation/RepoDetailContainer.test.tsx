@@ -72,6 +72,8 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onConfirmAction,
     onApplyHunk,
     onDiscardPatch,
+    actionPending,
+    patchSnapshotInvalid,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push") => void;
@@ -84,8 +86,12 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       generations: import("@/domain/git").GenerationSet,
       confirmationToken: string,
     ) => Promise<boolean>;
+    actionPending: string | null;
+    patchSnapshotInvalid: boolean;
   }) => (
     <div>
+      <output data-testid="patch-snapshot-invalid">{String(patchSnapshotInvalid)}</output>
+      <output data-testid="action-pending">{actionPending ?? ""}</output>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
@@ -208,6 +214,23 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(stagePatch).toHaveBeenCalledOnce();
   });
 
+  it.each(["patch_stale", "patch_apply_failed"])('keeps a rejected patch snapshot disabled until refresh completes after %s', async (code) => {
+    let resolveRefresh!: () => void;
+    vi.mocked(invalidateRepoData).mockImplementationOnce(() => new Promise<void>((resolve) => { resolveRefresh = resolve; }));
+    vi.mocked(stagePatch).mockRejectedValue({ code });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "stage hunk" }));
+
+    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true"));
+    expect(screen.getByTestId("action-pending")).toHaveTextContent("stage-hunk");
+    expect(stagePatch).toHaveBeenCalledOnce();
+
+    resolveRefresh();
+    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("false"));
+    expect(stagePatch).toHaveBeenCalledOnce();
+  });
+
   it("refreshes working state after successful stage and unstage patch mutations", async () => {
     renderContainer();
 
@@ -225,7 +248,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     ));
   });
 
-  it.each(["preflight_stale", "patch_stale"])("refreshes and never retries discard after %s", async (code) => {
+  it.each(["preflight_stale", "patch_stale", "patch_apply_failed"])("refreshes and never retries discard after %s", async (code) => {
     vi.mocked(discardPatch).mockRejectedValue({ code });
     renderContainer();
 

@@ -38,6 +38,7 @@ type ActionConfirmation =
 export function RepoDetailView({
   repo,
   snapshotValidated,
+  patchSnapshotInvalid,
   snapshotCapturedAt,
   status,
   statusError,
@@ -81,6 +82,7 @@ export function RepoDetailView({
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
+  patchSnapshotInvalid: boolean;
   snapshotCapturedAt: string | null;
   status: RepoStatus | null;
   statusError: string | null;
@@ -285,7 +287,8 @@ export function RepoDetailView({
               repoId={repo.id}
               path={diffTarget.path}
               source={diffTarget.source}
-              actionDisabled={!snapshotValidated || actionPending !== null}
+              actionDisabled={!snapshotValidated || patchSnapshotInvalid || actionPending !== null}
+              snapshotInvalid={patchSnapshotInvalid}
               onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
               onDiscardPatch={
                 diffTarget.source.kind === "working" && !diffTarget.source.staged

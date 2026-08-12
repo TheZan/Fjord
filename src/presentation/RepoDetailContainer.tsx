@@ -90,6 +90,7 @@ export function RepoDetailContainer({
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
+  const [patchSnapshotInvalid, setPatchSnapshotInvalid] = useState(false);
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -98,7 +99,7 @@ export function RepoDetailContainer({
     action: string,
     run: () => Promise<void>,
     scopes: RepoDataScope[] = [],
-    handleError?: (error: unknown) => boolean,
+    handleError?: (error: unknown) => boolean | Promise<boolean>,
   ): Promise<boolean> {
     setActionError(null);
     setActionPending(action);
@@ -119,7 +120,7 @@ export function RepoDetailContainer({
       }
       return true;
     } catch (e) {
-      const handled = handleError?.(e) ?? false;
+      const handled = await (handleError?.(e) ?? false);
       if (!handled && invokeErrorCode(e) !== "operation_cancelled") {
         setActionError(userErrorMessage(e));
       }
@@ -347,12 +348,7 @@ export function RepoDetailContainer({
       action,
       () => mutate(repo.id, selection, expectedGenerations).then(() => undefined),
       ["status", "working"],
-      (error) => {
-        if (invokeErrorCode(error) !== "patch_stale") return false;
-        setActionError(t("diff.patchStale"));
-        void invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
-        return true;
-      },
+      handleRejectedPatchMutation,
     );
   }
 
@@ -372,14 +368,26 @@ export function RepoDetailContainer({
         confirmationToken,
       ).then(() => undefined),
       ["status", "working"],
-      (error) => {
-        const code = invokeErrorCode(error);
-        if (code !== "patch_stale" && code !== "preflight_stale") return false;
-        setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
-        void invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
-        return true;
-      },
+      handleRejectedPatchMutation,
     );
+  }
+
+  async function handleRejectedPatchMutation(error: unknown): Promise<boolean> {
+    const code = invokeErrorCode(error);
+    if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
+
+    // The rejected patch was derived from this rendered snapshot. Keep the
+    // mutation pending while its cache entries refetch so that snapshot cannot
+    // become interactive between the backend rejection and the fresh response.
+    setPatchSnapshotInvalid(true);
+    setActionConfirmation(null);
+    setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
+    try {
+      await invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
+    } finally {
+      setPatchSnapshotInvalid(false);
+    }
+    return true;
   }
 
   function onCommit(message: string): Promise<boolean> {
@@ -400,6 +408,7 @@ export function RepoDetailContainer({
     snapshot.ready ? <RepoDetailView
       repo={repo}
       snapshotValidated={snapshot.validated}
+      patchSnapshotInvalid={patchSnapshotInvalid}
       snapshotCapturedAt={snapshot.capturedAt}
       status={status}
       statusError={statusError}

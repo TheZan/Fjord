@@ -40,6 +40,7 @@ export function FileDiffView({
   source,
   onBack,
   actionDisabled = false,
+  snapshotInvalid = false,
   onApplyHunk,
   onDiscardPatch,
 }: {
@@ -48,6 +49,8 @@ export function FileDiffView({
   source: DiffSource;
   onBack?: () => void;
   actionDisabled?: boolean;
+  /** A rejected backend patch makes this rendered snapshot unsafe until refresh. */
+  snapshotInvalid?: boolean;
   onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onDiscardPatch?: (
     action: DestructiveAction,
@@ -67,6 +70,7 @@ export function FileDiffView({
   const [selectionPending, setSelectionPending] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
   const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
+  const actionsDisabled = actionDisabled || snapshotInvalid;
   const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -87,8 +91,15 @@ export function FileDiffView({
     setPendingDiscard(null);
   }, [snapshotKey]);
 
+  useEffect(() => {
+    if (!snapshotInvalid) return;
+    setLineSelection(null);
+    setSelectionPending(false);
+    setPendingDiscard(null);
+  }, [snapshotInvalid]);
+
   function selectLine(hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) {
-    if (selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
+    if (snapshotInvalid || selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
     setLineSelection((current) => {
       if (event.shiftKey && current?.hunkIndex === hunkIndex) {
         return rangeSelection(diff.hunks[hunkIndex], hunkIndex, current.anchorIndex, lineIndex);
@@ -103,7 +114,7 @@ export function FileDiffView({
   }
 
   function extendLineSelection(hunkIndex: number, lineIndex: number, direction: -1 | 1) {
-    if (selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
+    if (snapshotInvalid || selectionPending || pendingDiscard || source.kind !== "working" || !diff) return;
     const hunk = diff.hunks[hunkIndex];
     const targetIndex = nextChangedLineIndex(hunk, lineIndex, direction);
     if (targetIndex === null) return;
@@ -118,6 +129,7 @@ export function FileDiffView({
 
   async function applySelectedLines(hunkIndex: number, hunk: DiffHunk) {
     if (
+      snapshotInvalid ||
       selectionPending ||
       !onApplyHunk ||
       !diff?.baseDigest ||
@@ -137,7 +149,7 @@ export function FileDiffView({
   }
 
   function requestDiscard(selection: PatchSelection, discardSelection: DiscardSelection) {
-    if (selectionPending || pendingDiscard || !onDiscardPatch) return;
+    if (snapshotInvalid || selectionPending || pendingDiscard || !onDiscardPatch) return;
     setPendingDiscard({
       selection,
       action: { kind: "discard", selection: discardSelection },
@@ -191,7 +203,7 @@ export function FileDiffView({
             type="button"
             className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
             style={{ color: "var(--rust-ink)" }}
-            disabled={actionDisabled || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
+            disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
             title={hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined}
             onClick={() => requestDiscard(
               wholeFileSelection(path, diff.hunks, diff.baseDigest!),
@@ -249,7 +261,7 @@ export function FileDiffView({
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
-                      disabled={actionDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
+                      disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
                       selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
                       selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
                       onApply={
@@ -273,7 +285,7 @@ export function FileDiffView({
                       line={row.line}
                       hunkIndex={row.hunkIndex}
                       lineIndex={row.lineIndex}
-                      interactive={source.kind === "working" && !actionDisabled && !selectionPending && !pendingDiscard}
+                      interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}

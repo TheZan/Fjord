@@ -325,6 +325,43 @@ describe("FileDiffView windowing", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("makes a rejected snapshot non-actionable until its refresh completes", async () => {
+    state.hasMore = false;
+    const onApplyHunk = vi.fn();
+    const onDiscardPatch = vi.fn();
+    const view = render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={onApplyHunk}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardHunk" }));
+    await screen.findByRole("dialog", { name: "preflight.discard.title" });
+
+    view.rerender(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        snapshotInvalid
+        onApplyHunk={onApplyHunk}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "diff.stageHunk" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "diff.discardFile" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageHunk" }));
+    expect(onApplyHunk).not.toHaveBeenCalled();
+  });
+
   it("stages exactly the selected unstaged hunk using the backend digest and generations", async () => {
     state.hasMore = false;
     const onApplyHunk = vi.fn().mockResolvedValue(true);
