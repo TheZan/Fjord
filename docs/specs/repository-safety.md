@@ -67,13 +67,18 @@ resolution.
 |---|---|
 | Operation state | 🚧 Only `has_conflict`. No detection of `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, or an unborn branch. |
 | Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
-| Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard and force-with-lease, including coherent generation capture and confirmation-time recomputation. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
+| Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
 | Branch deletion | ✅ `delete_branch`, `delete_remote_branch`. No merged/unmerged check surfaced. |
 | Checkout | ⚠️ `checkout_branch`; remote branches materialize via a targeted fetch first (`remote_checkout_refspec` + `checkout_local`). No overwrite preflight, no stash-and-checkout. |
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`. |
 | Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
-| Discard | 🚧 Mutation absent; the file/hunk/line consequence preflight is implemented by P8-00. |
+| Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
+
+The implemented Phase 8 partial-patch safety scope has passed independent final
+verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Its supported
+cross-process guarantee is limited to concurrent Fjord operations, standard Git
+commands, and Git clients that respect Git's index/ref locking protocol.
 
 ## Proposed design
 

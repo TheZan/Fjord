@@ -296,7 +296,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
 | Phase 6 — Performance foundation | ⚠️ implementation complete through `P6-22`; only report-to-gate promotion `P6-20` remains ([`specs/performance.md`](specs/performance.md)) |
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
-| Phase 8 — Daily-driver essentials | 🚧 underway: destructive-preflight foundation `P8-00`, patch model/generation `P8-01`, partial stage/unstage `P8-02`–`P8-05`, and safe partial discard `P8-06` complete; amend, push, and later diff tasks remain ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
+| Phase 8 — Daily-driver essentials | ✅ partial-patch safety scope complete: `P8-00`–`P8-06` and `P8-FIX-07` passed independent final verification — **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Amend, push, and later diff capabilities remain separately open Phase 8 roadmap tasks ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)). |
 | Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
@@ -335,7 +335,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
   - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
   - Implemented: [`ui-shell.md`](specs/ui-shell.md) (Phase 7).
   - Implemented except for the explicit `P6-20` gate-promotion task: [`performance.md`](specs/performance.md) (Phase 6).
-  - Designed: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (Phase 8), [`repository-safety.md`](specs/repository-safety.md) (Phase 8 safety foundation + Phase 9), [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10), [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
+  - Implemented in its partial-patch safety scope: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (`P8-00`–`P8-06`, `P8-FIX-07`); its later Phase 8 capabilities remain designed. [`repository-safety.md`](specs/repository-safety.md) implements that Phase 8 foundation and designs its Phase 9 extensions; [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10) and [`release-hardening.md`](specs/release-hardening.md) (Phase 11) remain designed.
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
 - [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
 

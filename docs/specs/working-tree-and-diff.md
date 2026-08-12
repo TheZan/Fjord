@@ -69,11 +69,17 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Amend | 🚧 Absent. |
 | Discard | ✅ File, hunk, and selected-line discard use the shared destructive preflight. The backend holds the resolved per-worktree index lock while it reconstructs the current index-to-worktree selection, runs `git apply --check --reverse`, revalidates the diff and exact index fingerprint, then contextually applies without writing HEAD or the index. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
-| Force push | 🚧 Absent. |
+| Force push | 🚧 Absent. P8-09 is blocked on authoritative backend resolution and confirmation binding of the remote, remote ref, and expected OID; frontend-supplied lease facts are not sufficient. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
 | Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). Every page is independently stamped with the complete `GenerationSet`; working pages also carry the complete rendered-diff digest. The frontend rejects the full accumulated result unless repository/path/source, digest, generations, file/change/mode metadata, totals, and the offset/continuation chain all agree, then clears selection and refetches from offset zero. |
 | Upstream management | ⚠️ Read-only: `current_push_target` resolves it; nothing sets or changes it. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). |
+
+The implemented Phase 8 partial-patch safety scope has passed independent final
+verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. That verdict
+covers partial stage, unstage, discard, coherent diff snapshots, and rejected
+snapshot recovery; it does not represent an absolute guarantee against
+non-cooperating writers.
 
 ## Proposed design
 
@@ -301,7 +307,13 @@ through the existing operation pipeline (one operation id, progress events per
 commit reports both outcomes distinctly: the commit is not rolled back, and the
 UI says so.
 
-**Force push.** `push_repo` gains `force_with_lease: bool`. The transport appends
+**Force push.** `push_repo` gains `force_with_lease: bool`. **MUST FIX BEFORE
+P8-09:** before any force-with-lease execution or preflight is offered, the
+backend must authoritatively resolve the configured remote/upstream, actual
+remote ref, and expected OID from backend Git state (including remote-tracking
+state), compute consequences from those facts, bind all three to the destructive
+confirmation, and execute only that bound lease. Caller-supplied remote, ref,
+or expected-OID facts are never authority for the operation. The transport appends
 `--force-with-lease=<remote_ref>:<expected_oid>` where `expected_oid` is the
 locally known value of the remote-tracking ref — the explicit form, not the bare
 flag, because bare `--force-with-lease` is defeated by a background fetch having
@@ -447,9 +459,11 @@ flags keep display and patch identical, at the cost of a recomputation on toggle
    warning before the action is available.
 8. "Commit & push" with a failing push leaves the commit in place and reports the
    commit as succeeded and the push as failed, distinctly.
-9. No code path constructs a `git push --force` invocation; force push is emitted
-   only as `--force-with-lease=<ref>:<oid>` with an OID read from the local
-   remote-tracking ref, and only after a preflight naming the affected remote ref.
+9. No code path constructs a `git push --force` invocation. Before P8-09 can
+   execute force push, the backend authoritatively resolves and binds the
+   configured remote/upstream, remote ref, and expected OID to its destructive
+   confirmation; force push then emits only
+   `--force-with-lease=<ref>:<oid>` from those bound facts.
 10. A force push whose lease is stale fails with `git_force_lease_failed` and does
     not modify the remote.
 11. The diff view toggles between unified and split, and the choice survives a
