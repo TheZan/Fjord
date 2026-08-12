@@ -91,6 +91,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
 | `commit_repo` | `{ repo_id, message, amend }` | `string` | New commit id; amend preserves `HEAD`'s author and parents and permits a message-only rewrite; ordinary commit returns `nothing_to_commit` when the index matches `HEAD` |
+| `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
 | `reset_to_commit` | `{ repo_id, commit_id, mode }` | — | `soft` \| `mixed` \| `hard` |

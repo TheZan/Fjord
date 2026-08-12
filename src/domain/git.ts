@@ -2,6 +2,7 @@ export type {
   AmendInfo,
   BranchInfo,
   CommitPage,
+  CommitPushResult,
   CommitSummary,
   Consequence,
   DestructiveAction,

@@ -24,6 +24,7 @@ import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } fr
 import type {
   BranchInfo,
   CommitPage,
+  CommitPushResult,
   CommitSummary,
   FileDiff,
   FileDiffWindow,
@@ -65,7 +66,14 @@ export interface VersionedFileDiffWindow {
   generations: GenerationSet;
 }
 
-export type OperationKind = "fetch" | "pull" | "push" | "publish" | "bulk-fetch" | "bulk-pull";
+export type OperationKind =
+  | "fetch"
+  | "pull"
+  | "push"
+  | "publish"
+  | "commit-push"
+  | "bulk-fetch"
+  | "bulk-pull";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -640,6 +648,14 @@ export function getAmendInfo(repoId: string): Promise<AmendInfo> {
 
 export function commitRepo(repoId: string, message: string, amend = false): Promise<string> {
   return invoke("commit_repo", { repoId, message, amend });
+}
+
+export function runCommitAndPushRepo(
+  repoId: string,
+  message: string,
+  amend = false,
+): OperationTask<CommitPushResult> {
+  return invokeOperation("commit-push", "commit_and_push_repo", { repoId, message, amend });
 }
 
 export function fetchRepo(

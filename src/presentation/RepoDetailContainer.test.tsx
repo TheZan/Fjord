@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, discardPatch, runCommitAndPushRepo, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -65,6 +65,15 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   checkoutBranch: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
+  runCommitAndPushRepo: vi.fn(() => ({
+    operationId: "operation-commit-push",
+    promise: Promise.resolve({
+      commitId: "abc123",
+      commitSucceeded: true,
+      pushSucceeded: true,
+      pushErrorCode: null,
+    }),
+  })),
   stagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   unstagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   discardPatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
@@ -78,7 +87,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onConfirmAction,
     onApplyHunk,
     onDiscardPatch,
+    onCommit,
     actionPending,
+    actionError,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push") => void;
@@ -91,10 +102,13 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       generations: import("@/domain/git").GenerationSet,
       confirmationToken: string,
     ) => Promise<boolean>;
+    onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
     actionPending: string | null;
+    actionError: string | null;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
+      <output data-testid="action-error">{actionError ?? ""}</output>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
@@ -105,6 +119,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
         { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
         "confirmation-token",
       )}>discard lines</button>
+      <button type="button" onClick={() => void onCommit("Ship it", false, true)}>commit and push</button>
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -126,6 +141,16 @@ describe("RepoDetailContainer checkout confirmation", () => {
   beforeEach(() => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(runPushRepo).mockClear();
+    vi.mocked(runCommitAndPushRepo).mockReset();
+    vi.mocked(runCommitAndPushRepo).mockReturnValue({
+      operationId: "operation-commit-push",
+      promise: Promise.resolve({
+        commitId: "abc123",
+        commitSucceeded: true,
+        pushSucceeded: true,
+        pushErrorCode: null,
+      }),
+    });
     vi.mocked(stagePatch).mockReset();
     vi.mocked(stagePatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(unstagePatch).mockReset();
@@ -322,6 +347,27 @@ describe("RepoDetailContainer checkout confirmation", () => {
     await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
       expect.anything(), "repo-1", "workspace-1", ["status", "working"],
     ));
+  });
+
+  it("reports a surviving commit distinctly when its push fails", async () => {
+    vi.mocked(runCommitAndPushRepo).mockReturnValue({
+      operationId: "operation-commit-push",
+      promise: Promise.resolve({
+        commitId: "abc123",
+        commitSucceeded: true,
+        pushSucceeded: false,
+        pushErrorCode: "git_remote_rejected",
+      }),
+    });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "commit and push" }));
+
+    await waitFor(() => expect(runCommitAndPushRepo).toHaveBeenCalledWith("repo-1", "Ship it", false));
+    await waitFor(() => expect(screen.getByTestId("action-error")).toHaveTextContent("working.commitPushFailed"));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "workspace-1", ["status", "working", "history", "refs"],
+    );
   });
 });
 

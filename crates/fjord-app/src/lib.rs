@@ -125,6 +125,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::discard_patch,
             commands::get_amend_info,
             commands::commit_repo,
+            commands::commit_and_push_repo,
             commands::fetch_repo,
             commands::pull_repo,
             commands::push_repo,

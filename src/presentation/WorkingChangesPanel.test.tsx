@@ -119,7 +119,7 @@ describe("WorkingChangesPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Commit 1" }));
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Add coverage\n\nExplain behavior", false));
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Add coverage\n\nExplain behavior", false, false));
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("");
     expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("");
   });
@@ -137,7 +137,7 @@ describe("WorkingChangesPanel", () => {
     view.rerender(<WorkingChangesPanel {...panelProps} validated />);
     document.dispatchEvent(new CustomEvent("fjord:commit"));
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Keep me", false));
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Keep me", false, false));
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Keep me");
   });
 
@@ -165,5 +165,17 @@ describe("WorkingChangesPanel", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Draft subject");
     expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("Draft body");
+  });
+
+  it("runs commit and push as one deliberate action", async () => {
+    const onCommit = vi.fn(async () => true);
+    render(<WorkingChangesPanel {...props({ onCommit })} />);
+    fireEvent.change(screen.getByPlaceholderText("working.summaryPlaceholder"), {
+      target: { value: "Ship together" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "working.commitAndPush" }));
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Ship together", false, true));
   });
 });

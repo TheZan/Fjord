@@ -38,6 +38,7 @@ pub enum OperationKind {
     Pull,
     Push,
     Publish,
+    CommitPush,
     BulkFetch,
     BulkPull,
 }
@@ -49,6 +50,7 @@ impl OperationKind {
             Self::Pull => "pull",
             Self::Push => "push",
             Self::Publish => "publish",
+            Self::CommitPush => "commit-push",
             Self::BulkFetch => "bulk-fetch",
             Self::BulkPull => "bulk-pull",
         }

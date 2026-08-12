@@ -263,6 +263,19 @@ pub struct AmendInfo {
     pub published_upstream: Option<String>,
 }
 
+/// Composite outcome returned once commit creation has succeeded. A push
+/// failure never rolls the commit back, so it is data rather than a rejected
+/// command result and the UI can report both phases honestly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CommitPushResult {
+    pub commit_id: String,
+    pub commit_succeeded: bool,
+    pub push_succeeded: bool,
+    pub push_error_code: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]

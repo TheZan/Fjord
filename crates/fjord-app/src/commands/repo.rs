@@ -1,8 +1,8 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, DestructiveAction, DestructivePreflight,
-    FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
-    LogCursor, PatchSelection, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
+    DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
+    GlobalSearchResult, LogCursor, PatchSelection, RepoStatus, RepositoryId, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -456,6 +456,144 @@ pub async fn commit_repo(
     amend: bool,
 ) -> Result<String, AppError> {
     Ok(state.repos.commit(repo_id, &message, amend).await?)
+}
+
+#[tauri::command]
+pub async fn commit_and_push_repo(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    message: String,
+    amend: bool,
+    operation_id: Option<String>,
+) -> Result<CommitPushResult, AppError> {
+    run_commit_and_push_operation(app, state, repo_id, message, amend, operation_id).await
+}
+
+async fn run_commit_and_push_operation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    message: String,
+    amend: bool,
+    operation_id: Option<String>,
+) -> Result<CommitPushResult, AppError> {
+    let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
+    let guard = state.operations.begin(operation_id);
+    let kind = OperationKind::CommitPush;
+    let scope = OperationScope::Repo { repo_id };
+    emit_operation(
+        &app,
+        OperationProgress {
+            operation_id: guard.id().to_string(),
+            kind,
+            scope: scope.clone(),
+            status: OperationStatus::Started,
+            repo_id: Some(repo_id),
+            completed: 0,
+            total: 2,
+            message: Some("commit".to_string()),
+            error: None,
+        },
+    );
+
+    if guard.is_cancelled() {
+        emit_operation(
+            &app,
+            OperationProgress {
+                operation_id: guard.id().to_string(),
+                kind,
+                scope,
+                status: OperationStatus::Cancelled,
+                repo_id: Some(repo_id),
+                completed: 0,
+                total: 2,
+                message: Some("commit-not-started".to_string()),
+                error: None,
+            },
+        );
+        return Err(AppError::operation_cancelled());
+    }
+
+    let askpass = state.begin_askpass_operation(
+        guard.id(),
+        state.repos.repository_name(repo_id).await,
+        Some(kind.as_str().to_string()),
+    );
+    let context = guard
+        .git_context(app.clone(), kind, scope.clone(), repo_id)
+        .with_askpass(askpass);
+    let outcome = state
+        .repos
+        .commit_and_push_with_context(repo_id, &message, amend, context)
+        .await;
+    state.askpass.finish_operation(guard.id());
+
+    match outcome {
+        Err(error) => {
+            let error = AppError::from(error);
+            emit_operation(
+                &app,
+                OperationProgress {
+                    operation_id: guard.id().to_string(),
+                    kind,
+                    scope,
+                    status: if error.code == "operation_cancelled" {
+                        OperationStatus::Cancelled
+                    } else {
+                        OperationStatus::Failed
+                    },
+                    repo_id: Some(repo_id),
+                    completed: 0,
+                    total: 2,
+                    message: Some("commit-failed".to_string()),
+                    error: error
+                        .diagnostics
+                        .clone()
+                        .or_else(|| Some(error.message.clone())),
+                },
+            );
+            Err(error)
+        }
+        Ok(outcome) => {
+            let push_error = outcome.push_error.map(AppError::from);
+            let result = CommitPushResult {
+                commit_id: outcome.commit_id,
+                commit_succeeded: true,
+                push_succeeded: push_error.is_none(),
+                push_error_code: push_error.as_ref().map(|error| error.code.clone()),
+            };
+            let status = match push_error.as_ref() {
+                None => OperationStatus::Succeeded,
+                Some(error) if error.code == "operation_cancelled" => OperationStatus::Cancelled,
+                Some(_) => OperationStatus::Failed,
+            };
+            emit_operation(
+                &app,
+                OperationProgress {
+                    operation_id: guard.id().to_string(),
+                    kind,
+                    scope,
+                    status,
+                    repo_id: Some(repo_id),
+                    completed: if result.push_succeeded { 2 } else { 1 },
+                    total: 2,
+                    message: Some(if result.push_succeeded {
+                        "commit-and-push-succeeded".to_string()
+                    } else {
+                        "commit-succeeded-push-failed".to_string()
+                    }),
+                    error: push_error.as_ref().and_then(|error| {
+                        error
+                            .diagnostics
+                            .clone()
+                            .or_else(|| Some(error.message.clone()))
+                    }),
+                },
+            );
+            Ok(result)
+        }
+    }
 }
 
 #[tauri::command]

@@ -133,7 +133,7 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
-  onCommit: (message: string, amend: boolean) => Promise<boolean>;
+  onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);

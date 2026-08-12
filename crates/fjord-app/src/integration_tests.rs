@@ -17,6 +17,7 @@
 use std::path::PathBuf;
 
 use fjord_domain::{Settings, Theme};
+use fjord_ports::GitOperationContext;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use tempfile::TempDir;
 
@@ -239,6 +240,83 @@ async fn a_local_mutation_is_visible_to_the_next_read() {
     std::fs::write(repo_path.join("README.md"), b"changed\n").unwrap();
     let status = services.repos.get_status(repo.id).await.unwrap();
     assert_eq!(status.dirty_count, 1);
+}
+
+/// The composite action must never pretend that a rejected push erased the
+/// commit it already created. A non-bare checked-out remote rejects the push
+/// deterministically on every platform while the local commit remains `HEAD`.
+#[tokio::test]
+async fn commit_and_push_reports_push_failure_without_rolling_back_commit() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("api-gateway");
+    let remote_dir = TempDir::new().unwrap();
+    let remote_path = remote_dir.path().join("checked-out-remote");
+    Repository::clone(repo_path.to_str().unwrap(), &remote_path).unwrap();
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+
+    let local = Repository::open(&repo_path).unwrap();
+    let initial = local.head().unwrap().peel_to_commit().unwrap().id();
+    local
+        .remote("origin", remote_path.to_str().unwrap())
+        .unwrap();
+    local
+        .reference(
+            "refs/remotes/origin/main",
+            initial,
+            true,
+            "seed local tracking ref",
+        )
+        .unwrap();
+    local
+        .find_branch("main", git2::BranchType::Local)
+        .unwrap()
+        .set_upstream(Some("origin/main"))
+        .unwrap();
+    drop(local);
+
+    std::fs::write(repo_path.join("README.md"), b"commit survives\n").unwrap();
+    services
+        .repos
+        .stage_files(repo.id, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let outcome = services
+        .repos
+        .commit_and_push_with_context(
+            repo.id,
+            "Commit survives failed push",
+            false,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(outcome.push_error.is_some());
+    let local = Repository::open(&repo_path).unwrap();
+    let local_head = local.head().unwrap().peel_to_commit().unwrap();
+    assert_eq!(local_head.id().to_string(), outcome.commit_id);
+    assert_eq!(local_head.message().unwrap(), "Commit survives failed push");
+    let remote = Repository::open(&remote_path).unwrap();
+    assert_eq!(
+        remote
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .message()
+            .unwrap(),
+        "Initial"
+    );
 }
 
 /// A persisted generation stamp cannot prove that nothing happened while

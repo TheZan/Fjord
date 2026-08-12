@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use fjord_domain::{
-    AmendInfo, BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitSummary, Consequence,
-    CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
+    AmendInfo, BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
+    Consequence, CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
     FileDiffWindow, GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
     GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
@@ -65,6 +65,7 @@ fn generated_types() -> String {
     push::<LogCursor>(&mut output, &config);
     push::<CommitPage>(&mut output, &config);
     push::<AmendInfo>(&mut output, &config);
+    push::<CommitPushResult>(&mut output, &config);
     push::<FileChangeType>(&mut output, &config);
     push::<FileDiff>(&mut output, &config);
     push::<WorkingFile>(&mut output, &config);

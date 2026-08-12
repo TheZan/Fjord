@@ -33,6 +33,7 @@ import {
   openMergeTool,
   openTerminal,
   runFetchRepo,
+  runCommitAndPushRepo,
   runPullRepo,
   runPublishBranch,
   runPushRepo,
@@ -408,8 +409,25 @@ export function RepoDetailContainer({
     return ok ? info : null;
   }
 
-  function onCommit(message: string, amend: boolean): Promise<boolean> {
-    return runWorkingAction("commit", () => commitRepo(repo.id, message, amend).then(() => undefined), ["status", "working", "history", "refs"]);
+  function onCommit(message: string, amend: boolean, push: boolean): Promise<boolean> {
+    if (!push) {
+      return runWorkingAction("commit", () => commitRepo(repo.id, message, amend).then(() => undefined), ["status", "working", "history", "refs"]);
+    }
+
+    return runRepoAction(
+      "commit-push",
+      async () => {
+        const task = runCommitAndPushRepo(repo.id, message, amend);
+        setActionOperationId(task.operationId);
+        const outcome = await task.promise;
+        if (!outcome.pushSucceeded) {
+          setActionError(t("working.commitPushFailed", {
+            error: userErrorMessage({ code: outcome.pushErrorCode ?? "git_remote_error" }),
+          }));
+        }
+      },
+      ["status", "working", "history", "refs"],
+    );
   }
 
   function onSelectCommit(commit: CommitSummary) {

@@ -13,6 +13,7 @@ Long Git operations (`fetch`, `pull`, `push`) and workspace bulk operations can 
 | `fetch_repo` | `{ repo_id, remote?, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `pull_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `push_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
+| `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | Uses one operation id for both phases. A push failure after commit is a partial result and terminal `failed` event, not a rollback. |
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
@@ -30,7 +31,7 @@ Payload shape:
 ```ts
 type OperationProgressEvent = {
   operationId: string;
-  kind: "fetch" | "pull" | "push" | "bulk-fetch" | "bulk-pull";
+  kind: "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull";
   scope:
     | { type: "repo"; repoId: string }
     | { type: "workspace"; workspaceId: string };
@@ -47,6 +48,11 @@ type OperationProgressEvent = {
 operations and repository-count progress for bulk operations. Indeterminate phases
 use a message with `total = 0`. Carriage-return output is treated as a progress
 boundary and noisy events may be coalesced before IPC.
+
+For `commit-push`, the initial composite event uses `total = 2`. Its terminal
+event reports `completed = 2` on full success or `completed = 1` when the commit
+survived but push failed. The command then resolves `CommitPushResult` with both
+phase outcomes; only a failure before commit creation rejects the command.
 
 ## Cancellation Semantics
 

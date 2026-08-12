@@ -51,6 +51,8 @@ export type CommitPage = { commits: Array<CommitSummary>, nextCursor: LogCursor 
 
 export type AmendInfo = { message: string, publishedUpstream: string | null, };
 
+export type CommitPushResult = { commitId: string, commitSucceeded: boolean, pushSucceeded: boolean, pushErrorCode: string | null, };
+
 export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
 
 export type FileDiff = { path: string, changeType: FileChangeType, additions: number, deletions: number, };

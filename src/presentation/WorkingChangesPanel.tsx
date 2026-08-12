@@ -48,7 +48,7 @@ export function WorkingChangesPanel({
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onPrepareAmend: () => Promise<AmendInfo | null>;
-  onCommit: (message: string, amend: boolean) => Promise<boolean>;
+  onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
@@ -79,10 +79,10 @@ export function WorkingChangesPanel({
     && !busy
     && !amendLoading;
 
-  async function commit() {
+  async function commit(push = false) {
     if (!canCommit) return;
     const message = description.trim() ? `${summary.trim()}\n\n${description.trim()}` : summary.trim();
-    if (await onCommit(message, amend)) {
+    if (await onCommit(message, amend, push)) {
       setSummary("");
       setDescription("");
       setAmend(false);
@@ -225,16 +225,25 @@ export function WorkingChangesPanel({
           rows={3}
           className="mt-1.5 w-full"
         />
-        <Button
-          variant="primary"
-          disabled={!canCommit}
-          onClick={() => void commit()}
-          className="mt-1.5 w-full"
-        >
-          {amend
-            ? t("working.amendCommit")
-            : t("working.commit", { count: changes.staged.length })}
-        </Button>
+        <div className="mt-1.5 flex gap-1">
+          <Button
+            variant="primary"
+            disabled={!canCommit}
+            onClick={() => void commit()}
+            className="min-w-0 flex-1"
+          >
+            {amend
+              ? t("working.amendCommit")
+              : t("working.commit", { count: changes.staged.length })}
+          </Button>
+          <Button
+            disabled={!canCommit}
+            onClick={() => void commit(true)}
+            className="min-w-0 flex-1"
+          >
+            {amend ? t("working.amendAndPush") : t("working.commitAndPush")}
+          </Button>
+        </div>
       </div>
     </Surface>
   );

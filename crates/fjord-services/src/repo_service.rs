@@ -54,6 +54,12 @@ pub enum RepoError {
     },
 }
 
+#[derive(Debug)]
+pub struct CommitPushOutcome {
+    pub commit_id: String,
+    pub push_error: Option<RepoError>,
+}
+
 /// The remote a branch is published to when the caller does not name one.
 /// Only ever used for the explicit publish action, never for a plain push.
 const DEFAULT_PUBLISH_REMOTE: &str = "origin";
@@ -965,6 +971,24 @@ impl RepoService {
         } else {
             Ok(self.git.commit(&repo_path, message).await?)
         }
+    }
+
+    /// Creates the commit first, then attempts its push. Once commit creation
+    /// succeeds, a push failure is returned as a partial outcome and is never
+    /// used to roll local history back.
+    pub async fn commit_and_push_with_context(
+        &self,
+        repo_id: RepositoryId,
+        message: &str,
+        amend: bool,
+        context: GitOperationContext,
+    ) -> Result<CommitPushOutcome, RepoError> {
+        let commit_id = self.commit(repo_id, message, amend).await?;
+        let push_error = self.push_with_context(repo_id, context).await.err();
+        Ok(CommitPushOutcome {
+            commit_id,
+            push_error,
+        })
     }
 
     pub async fn fetch(&self, repo_id: RepositoryId, remote: &str) -> Result<(), RepoError> {
