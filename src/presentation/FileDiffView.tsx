@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
@@ -6,6 +6,8 @@ import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { Surface } from "@/presentation/ui";
 import { loadUiState, saveRepoModes } from "@/infrastructure/uiState";
+import { useDiffHighlight } from "@/presentation/useDiffHighlight";
+import type { HighlightLineInput, HighlightToken, HighlightTokenKind } from "@/presentation/diffHighlight";
 import type { DestructiveAction, DiffLineKind, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 import type { UiDiffMode } from "@/domain/generated";
@@ -81,6 +83,15 @@ export function FileDiffView({
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualRows.at(-1)?.index ?? -1;
+  const visibleRowKey = virtualRows.map((row) => row.index).join(",");
+  const visibleHighlightLines = useMemo(
+    () => collectHighlightLines(rows, virtualRows.map((row) => row.index)),
+    // The serialized indexes make the input stable while the virtualizer
+    // returns an equivalent array on unrelated renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, visibleRowKey],
+  );
+  const highlightTokens = useDiffHighlight(path, visibleHighlightLines);
 
   useEffect(() => {
     void loadUiState()
@@ -348,6 +359,7 @@ export function FileDiffView({
                       lineIndex={row.lineIndex}
                       interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
+                      tokens={highlightTokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
                     />
@@ -356,6 +368,7 @@ export function FileDiffView({
                       row={row}
                       interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selectedLineIndices={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null}
+                      highlightTokens={highlightTokens}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
                     />
@@ -463,6 +476,26 @@ function buildSplitRows(hunks: DiffHunk[]): FlatDiffRow[] {
 
 function estimateDiffRowSize(row: FlatDiffRow): number {
   return row.kind === "hunk" ? HUNK_HEADER_HEIGHT : DIFF_LINE_HEIGHT;
+}
+
+function diffLineKey(hunkIndex: number, lineIndex: number): string {
+  return `${hunkIndex}:${lineIndex}`;
+}
+
+function collectHighlightLines(rows: FlatDiffRow[], indexes: number[]): HighlightLineInput[] {
+  const visible = new Map<string, HighlightLineInput>();
+  for (const index of indexes) {
+    const row = rows[index];
+    if (!row || row.kind === "hunk") continue;
+    const references = row.kind === "line"
+      ? [{ line: row.line, lineIndex: row.lineIndex }]
+      : [row.left, row.right].filter((reference): reference is DiffLineRef => reference !== null);
+    for (const reference of references) {
+      const key = diffLineKey(row.hunkIndex, reference.lineIndex);
+      visible.set(key, { key, content: reference.line.content });
+    }
+  }
+  return [...visible.values()];
 }
 
 type DiffRowAnchor = { hunkIndex: number; lineIndex: number | null };
@@ -703,6 +736,7 @@ function DiffLineRow({
   lineIndex,
   interactive,
   selected,
+  tokens,
   onSelect,
   onExtendSelection,
 }: {
@@ -711,6 +745,7 @@ function DiffLineRow({
   lineIndex: number;
   interactive: boolean;
   selected: boolean;
+  tokens?: HighlightToken[];
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -724,7 +759,7 @@ function DiffLineRow({
     </span>
     <span className="whitespace-pre px-2">
       {LINE_PREFIX[line.kind]}
-      {line.content}
+      <SyntaxContent content={line.content} tokens={tokens} />
     </span>
   </>;
   if (!isChangedLine(line) || !interactive) {
@@ -768,12 +803,14 @@ function SplitDiffRow({
   row,
   interactive,
   selectedLineIndices,
+  highlightTokens,
   onSelect,
   onExtendSelection,
 }: {
   row: Extract<FlatDiffRow, { kind: "split" }>;
   interactive: boolean;
   selectedLineIndices: Set<number> | null;
+  highlightTokens: ReadonlyMap<string, HighlightToken[]>;
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -785,6 +822,7 @@ function SplitDiffRow({
         hunkIndex={row.hunkIndex}
         interactive={interactive}
         selected={row.left ? selectedLineIndices?.has(row.left.lineIndex) === true : false}
+        tokens={row.left ? highlightTokens.get(diffLineKey(row.hunkIndex, row.left.lineIndex)) : undefined}
         onSelect={onSelect}
         onExtendSelection={onExtendSelection}
       />
@@ -794,6 +832,7 @@ function SplitDiffRow({
         hunkIndex={row.hunkIndex}
         interactive={interactive}
         selected={row.right ? selectedLineIndices?.has(row.right.lineIndex) === true : false}
+        tokens={row.right ? highlightTokens.get(diffLineKey(row.hunkIndex, row.right.lineIndex)) : undefined}
         onSelect={onSelect}
         onExtendSelection={onExtendSelection}
       />
@@ -807,6 +846,7 @@ function SplitDiffCell({
   hunkIndex,
   interactive,
   selected,
+  tokens,
   onSelect,
   onExtendSelection,
 }: {
@@ -815,6 +855,7 @@ function SplitDiffCell({
   hunkIndex: number;
   interactive: boolean;
   selected: boolean;
+  tokens?: HighlightToken[];
   onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
   onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
 }) {
@@ -837,7 +878,7 @@ function SplitDiffCell({
     </span>
     <span className="min-w-0 flex-1 whitespace-pre px-2">
       {LINE_PREFIX[line.kind]}
-      {line.content}
+      <SyntaxContent content={line.content} tokens={tokens} />
     </span>
   </>;
   if (!isChangedLine(line) || !interactive) {
@@ -870,4 +911,35 @@ function SplitDiffCell({
       {content}
     </button>
   );
+}
+
+const TOKEN_COLOR: Record<HighlightTokenKind, string> = {
+  keyword: "var(--fjord-ink)",
+  literal: "var(--rust-ink)",
+  number: "var(--amber)",
+  string: "var(--moss-ink)",
+  comment: "var(--mist)",
+  type: "var(--amber)",
+  tag: "var(--rust-ink)",
+};
+
+function SyntaxContent({ content, tokens }: { content: string; tokens?: HighlightToken[] }) {
+  if (!tokens || tokens.length === 0) return content;
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const token of tokens) {
+    const start = Math.max(cursor, Math.min(content.length, token.start));
+    const end = Math.max(start, Math.min(content.length, token.start + token.length));
+    if (start > cursor) parts.push(content.slice(cursor, start));
+    if (end > start) {
+      parts.push(
+        <span key={`${start}:${end}`} data-syntax-token={token.kind} style={{ color: TOKEN_COLOR[token.kind] }}>
+          {content.slice(start, end)}
+        </span>,
+      );
+    }
+    cursor = end;
+  }
+  if (cursor < content.length) parts.push(content.slice(cursor));
+  return parts;
 }

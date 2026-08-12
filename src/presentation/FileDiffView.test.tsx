@@ -42,6 +42,11 @@ const state = vi.hoisted(() => ({
   firstVisibleIndex: 0,
   measure: vi.fn(),
   scrollToIndex: vi.fn(),
+  highlightTokens: new Map(),
+}));
+
+vi.mock("@/presentation/useDiffHighlight", () => ({
+  useDiffHighlight: () => state.highlightTokens,
 }));
 
 vi.mock("@/infrastructure/uiState", () => ({
@@ -118,6 +123,7 @@ describe("FileDiffView windowing", () => {
     state.firstVisibleIndex = 0;
     state.measure.mockReset();
     state.scrollToIndex.mockReset();
+    state.highlightTokens = new Map();
   });
 
   it("builds unified rows and pairs changed lines in split rows", () => {
@@ -196,6 +202,18 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText("-old line")).toBeInTheDocument();
     expect(screen.getByText("+new line")).toBeInTheDocument();
     expect(screen.getAllByText("4")).toHaveLength(2);
+  });
+
+  it("upgrades a visible row with worker tokens without replacing its content", () => {
+    state.hasMore = false;
+    state.highlightTokens = new Map([["0:1", [{ start: 0, length: 3, kind: "keyword" }]]]);
+    render(
+      <FileDiffView repoId="repo-1" path="large.ts" source={{ kind: "commit", commitId: "deadbeef" }} />,
+    );
+
+    const token = document.querySelector('[data-syntax-token="keyword"]');
+    expect(token).toHaveTextContent("new");
+    expect(token?.parentElement).toHaveTextContent("+new line");
   });
 
   it("selects eligible changed lines while context lines remain non-interactive", () => {
