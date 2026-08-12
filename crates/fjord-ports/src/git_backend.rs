@@ -7,14 +7,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, DestructiveAction, FileDiff, FileDiffDetail,
-    FileDiffWindow, GenerationSet, LogCursor, PatchSelection, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, DestructiveAction, DiffWhitespaceMode,
+    FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor, PatchSelection, RepoStatus,
+    StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoPath(pub PathBuf);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffWindowOptions {
+    pub offset: u32,
+    pub limit: u32,
+    pub max_file_bytes: u64,
+    pub whitespace: DiffWhitespaceMode,
+}
 
 impl RepoPath {
     pub fn new(path: PathBuf) -> Self {
@@ -264,14 +272,12 @@ pub trait GitBackend: Send + Sync {
         repo: &RepoPath,
         commit_id: &str,
         path: &str,
-        offset: u32,
-        limit: u32,
-        _max_file_bytes: u64,
+        options: DiffWindowOptions,
     ) -> Result<FileDiffWindow, GitError> {
         Ok(self
             .file_diff(repo, commit_id, path)
             .await?
-            .into_window(offset, limit))
+            .into_window(options.offset, options.limit))
     }
 
     /// Uncommitted work, split into staged and unstaged — what the commit
@@ -290,14 +296,12 @@ pub trait GitBackend: Send + Sync {
         repo: &RepoPath,
         path: &str,
         staged: bool,
-        offset: u32,
-        limit: u32,
-        _max_file_bytes: u64,
+        options: DiffWindowOptions,
     ) -> Result<FileDiffWindow, GitError> {
         Ok(self
             .working_file_diff(repo, path, staged)
             .await?
-            .into_window(offset, limit))
+            .into_window(options.offset, options.limit))
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;

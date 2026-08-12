@@ -157,10 +157,11 @@ pub async fn get_file_diff(
     path: String,
     offset: u32,
     limit: u32,
+    whitespace: fjord_domain::DiffWhitespaceMode,
 ) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let data = state
         .repos
-        .get_file_diff(repo_id, &commit_id, &path, offset, limit)
+        .get_file_diff(repo_id, &commit_id, &path, offset, limit, whitespace)
         .await?;
     versioned(&state, repo_id, data).await
 }
@@ -206,10 +207,11 @@ pub async fn get_working_file_diff(
     staged: bool,
     offset: u32,
     limit: u32,
+    whitespace: fjord_domain::DiffWhitespaceMode,
 ) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let (data, generations) = state
         .repos
-        .get_working_file_diff_versioned(repo_id, &path, staged, offset, limit)
+        .get_working_file_diff_versioned(repo_id, &path, staged, offset, limit, whitespace)
         .await?;
     Ok(GenerationEnvelope { data, generations })
 }

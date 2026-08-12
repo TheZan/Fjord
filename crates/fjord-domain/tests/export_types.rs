@@ -4,16 +4,17 @@ use std::path::Path;
 use fjord_domain::{
     AmendInfo, BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
     Consequence, CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
-    DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
-    FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitAuthPrompt, GitAuthPromptKind,
-    GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo, GitExecutable,
-    GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan, InteractionTrace,
-    LogCursor, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, Recoverability,
-    RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
-    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
-    UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
+    FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitAuthPrompt,
+    GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo,
+    GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan,
+    InteractionTrace, LogCursor, OverviewUiState, OverviewUiStatePatch, PatchSelection,
+    PatchSource, Recoverability, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
+    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
+    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -84,6 +85,7 @@ fn generated_types() -> String {
     push_without_trailing_whitespace::<DiffLine>(&mut output, &config);
     push::<DiffHunk>(&mut output, &config);
     push_without_trailing_whitespace::<FileDiffDetail>(&mut output, &config);
+    push::<DiffWhitespaceMode>(&mut output, &config);
     push_without_trailing_whitespace::<FileDiffWindow>(&mut output, &config);
     push::<Theme>(&mut output, &config);
     push::<GitExecutableSource>(&mut output, &config);

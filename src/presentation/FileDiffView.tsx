@@ -4,11 +4,11 @@ import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
-import { Surface } from "@/presentation/ui";
+import { Select, Surface } from "@/presentation/ui";
 import { loadUiState, saveRepoModes } from "@/infrastructure/uiState";
 import { useDiffHighlight } from "@/presentation/useDiffHighlight";
 import type { HighlightLineInput, HighlightToken, HighlightTokenKind } from "@/presentation/diffHighlight";
-import type { DestructiveAction, DiffLineKind, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
+import type { DestructiveAction, DiffLineKind, DiffWhitespaceMode, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
 import type { UiDiffMode } from "@/domain/generated";
 
@@ -61,10 +61,12 @@ export function FileDiffView({
   ) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
+  const [whitespace, setWhitespace] = useState<DiffWhitespaceMode>("show");
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations, snapshotInvalid } = useFileDiff(
     repoId,
     path,
     source,
+    whitespace,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const pendingModeAnchor = useRef<DiffRowAnchor | null>(null);
@@ -74,7 +76,7 @@ export function FileDiffView({
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
   const rows = useMemo(() => buildDiffRows(diff?.hunks ?? [], diffMode), [diff?.hunks, diffMode]);
   const actionsDisabled = actionDisabled || snapshotInvalid;
-  const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
+  const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${whitespace}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -269,13 +271,27 @@ export function FileDiffView({
             </button>
           ))}
         </div>
+        <Select
+          aria-label={t("diff.whitespace.label")}
+          className="h-6 w-auto shrink-0 px-1.5 py-0 text-[11px]"
+          value={whitespace}
+          onChange={(event) => setWhitespace(event.target.value as DiffWhitespaceMode)}
+        >
+          <option value="show">{t("diff.whitespace.show")}</option>
+          <option value="ignoreTrailing">{t("diff.whitespace.ignoreTrailing")}</option>
+          <option value="ignoreAll">{t("diff.whitespace.ignoreAll")}</option>
+        </Select>
         {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
           <button
             type="button"
             className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
             style={{ color: "var(--rust-ink)" }}
-            disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
-            title={hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined}
+            disabled={actionsDisabled || whitespace !== "show" || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
+            title={
+              whitespace !== "show"
+                ? t("diff.whitespace.partialActionsDisabled")
+                : hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined
+            }
             onClick={() => requestDiscard(
               wholeFileSelection(path, diff.hunks, diff.baseDigest!),
               { kind: "file", path },
@@ -332,7 +348,15 @@ export function FileDiffView({
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
-                      partialApplyUnsupported={source.kind === "working" && source.staged && diff.changeType === "deleted"}
+                      partialApplyUnsupported={
+                        whitespace !== "show"
+                        || (source.kind === "working" && source.staged && diff.changeType === "deleted")
+                      }
+                      partialApplyUnsupportedReason={
+                        whitespace !== "show"
+                          ? t("diff.whitespace.partialActionsDisabled")
+                          : t("diff.partialDeletedUnstageUnsupported")
+                      }
                       disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
                       selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
                       selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
@@ -357,7 +381,7 @@ export function FileDiffView({
                       line={row.line}
                       hunkIndex={row.hunkIndex}
                       lineIndex={row.lineIndex}
-                      interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
+                      interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
                       tokens={highlightTokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
                       onSelect={selectLine}
@@ -366,7 +390,7 @@ export function FileDiffView({
                   ) : (
                     <SplitDiffRow
                       row={row}
-                      interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
+                      interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selectedLineIndices={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null}
                       highlightTokens={highlightTokens}
                       onSelect={selectLine}
@@ -629,6 +653,7 @@ function HunkRow({
   hunk,
   source,
   partialApplyUnsupported,
+  partialApplyUnsupportedReason,
   disabled,
   selectedLineCount,
   selectionPending,
@@ -640,6 +665,7 @@ function HunkRow({
   hunk: DiffHunk;
   source: DiffSource;
   partialApplyUnsupported: boolean;
+  partialApplyUnsupportedReason: string;
   disabled: boolean;
   selectedLineCount: number;
   selectionPending: boolean;
@@ -665,7 +691,7 @@ function HunkRow({
         type="button"
         className="interactive-control ml-auto rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || partialApplyUnsupported || selectedLineCount === 0 || !onApplySelected}
-        title={partialApplyUnsupported ? t("diff.partialDeletedUnstageUnsupported") : undefined}
+        title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
         aria-label={t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
         onClick={() => void onApplySelected?.()}
       >
@@ -678,7 +704,8 @@ function HunkRow({
           type="button"
           className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
           style={{ color: "var(--rust-ink)" }}
-          disabled={disabled || selectedLineCount === 0}
+          disabled={disabled || partialApplyUnsupported || selectedLineCount === 0}
+          title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
           aria-label={t("diff.discardSelectedLines")}
           onClick={onDiscardSelected}
         >
@@ -689,7 +716,7 @@ function HunkRow({
         type="button"
         className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
         disabled={disabled || partialApplyUnsupported || pending || !onApply}
-        title={partialApplyUnsupported ? t("diff.partialDeletedUnstageUnsupported") : undefined}
+        title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
         aria-label={actionLabel}
         onClick={() => {
           if (pending || !onApply) return;
@@ -704,7 +731,8 @@ function HunkRow({
           type="button"
           className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
           style={{ color: "var(--rust-ink)" }}
-          disabled={disabled}
+          disabled={disabled || partialApplyUnsupported}
+          title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
           aria-label={t("diff.discardHunk")}
           onClick={onDiscard}
         >

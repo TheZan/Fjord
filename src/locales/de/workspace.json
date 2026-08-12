@@ -146,6 +146,7 @@
       "addition": "Auswahl der hinzugefügten Zeile {{line}} aufheben",
       "deletion": "Auswahl der gelöschten Zeile {{line}} aufheben"
     },
+    "whitespace": { "label": "Leerzeichenbehandlung", "show": "Leerzeichen anzeigen", "ignoreTrailing": "Nachgestellte ignorieren", "ignoreAll": "Alle Leerzeichen ignorieren", "partialActionsDisabled": "Hunk- und Zeilenaktionen sind beim Ignorieren von Leerzeichen nicht verfügbar, da der angezeigte Diff nicht dem Git-Patch entspricht." },
     "tooLarge": "Diese Datei ist {{size}} groß und überschreitet das Anzeigelimit von 10 MB. Der Inhalt wurde nicht geladen."
   },
   "fileView": {

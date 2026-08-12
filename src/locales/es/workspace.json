@@ -146,6 +146,7 @@
       "addition": "Deseleccionar línea añadida {{line}}",
       "deletion": "Deseleccionar línea eliminada {{line}}"
     },
+    "whitespace": { "label": "Tratamiento de espacios", "show": "Mostrar espacios", "ignoreTrailing": "Ignorar espacios finales", "ignoreAll": "Ignorar todos los espacios", "partialActionsDisabled": "Las acciones por bloque y línea no están disponibles al ignorar espacios porque la diferencia mostrada no coincide con el parche de Git." },
     "tooLarge": "Este archivo ocupa {{size}} y supera el límite de visualización de 10 MB. No se cargó su contenido."
   },
   "fileView": {

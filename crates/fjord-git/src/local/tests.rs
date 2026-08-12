@@ -988,7 +988,17 @@ async fn file_diff_window_returns_a_bounded_page_with_a_cursor() {
     let backend = LocalGitBackend::new();
 
     let window = backend
-        .file_diff_window(&repo_path, &head, "README.md", 0, 1, 10 * 1024 * 1024)
+        .file_diff_window(
+            &repo_path,
+            &head,
+            "README.md",
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1,
+                max_file_bytes: 10 * 1024 * 1024,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
         .await
         .unwrap();
 
@@ -1026,7 +1036,17 @@ async fn oversized_file_diff_returns_metadata_without_content() {
     let head = backend.commit(&repo_path, "Large change").await.unwrap();
 
     let window = backend
-        .file_diff_window(&repo_path, &head, "large.txt", 0, 1_000, 10 * 1024 * 1024)
+        .file_diff_window(
+            &repo_path,
+            &head,
+            "large.txt",
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: 10 * 1024 * 1024,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
         .await
         .unwrap();
 
@@ -1402,7 +1422,17 @@ async fn patch_generation_is_read_only_and_bound_to_the_working_generation() {
         .await
         .unwrap();
     let window = backend
-        .working_file_diff_window(&repo_path, "README.md", false, 0, 1_000, u64::MAX)
+        .working_file_diff_window(
+            &repo_path,
+            "README.md",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
         .await
         .unwrap();
     let digest = patch::base_digest(&detail, PatchSource::Worktree);
@@ -2759,6 +2789,103 @@ async fn the_same_generated_patch_has_identical_checked_and_applied_bytes_across
 }
 
 #[tokio::test]
+async fn whitespace_modes_change_the_backend_hunk_structure() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("whitespace-mode.txt", b"alpha\nbeta\ngamma\n")],
+    )
+    .await;
+    write_bytes(
+        &repo_path,
+        "whitespace-mode.txt",
+        b"alpha   \nb e t a\ngamma\n",
+    );
+
+    let show = backend
+        .working_file_diff_window(
+            &repo_path,
+            "whitespace-mode.txt",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
+        .await
+        .unwrap();
+    let ignore_trailing = backend
+        .working_file_diff_window(
+            &repo_path,
+            "whitespace-mode.txt",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::IgnoreTrailing,
+            },
+        )
+        .await
+        .unwrap();
+    let ignore_all = backend
+        .working_file_diff_window(
+            &repo_path,
+            "whitespace-mode.txt",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::IgnoreAll,
+            },
+        )
+        .await
+        .unwrap();
+
+    let changed_lines = |window: &FileDiffWindow| {
+        window
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .filter(|line| line.kind != DiffLineKind::Context)
+            .count()
+    };
+    assert_eq!(changed_lines(&show), 4);
+    assert_eq!(changed_lines(&ignore_trailing), 2);
+    assert_eq!(changed_lines(&ignore_all), 0);
+    assert!(ignore_all.hunks.is_empty());
+
+    backend
+        .stage(&repo_path, &[PathBuf::from("whitespace-mode.txt")])
+        .await
+        .unwrap();
+    let commit_id = backend
+        .commit(&repo_path, "whitespace modes")
+        .await
+        .unwrap();
+    let committed_ignore_all = backend
+        .file_diff_window(
+            &repo_path,
+            &commit_id,
+            "whitespace-mode.txt",
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::IgnoreAll,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(committed_ignore_all.hunks.is_empty());
+}
+
+#[tokio::test]
 async fn discard_patch_discards_one_hunk_and_preserves_everything_else() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();
@@ -3562,7 +3689,17 @@ async fn oversized_working_file_diff_returns_metadata_without_content() {
     write_file(&repo_path, "large.txt", &content);
 
     let window = backend
-        .working_file_diff_window(&repo_path, "large.txt", false, 0, 1_000, 10 * 1024 * 1024)
+        .working_file_diff_window(
+            &repo_path,
+            "large.txt",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: 10 * 1024 * 1024,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
         .await
         .unwrap();
 

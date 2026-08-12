@@ -128,6 +128,8 @@ oldMode: number | null, newMode: number | null,
  */
 isBinary: boolean, hunks: Array<DiffHunk>, };
 
+export type DiffWhitespaceMode = "show" | "ignoreTrailing" | "ignoreAll";
+
 export type FileDiffWindow = { path: string, changeType: FileChangeType, oldMode: number | null, newMode: number | null, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number,
 /**
  * Authoritative zero-based diff-line offset served by this response.

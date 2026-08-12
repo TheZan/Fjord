@@ -146,6 +146,7 @@
       "addition": "Désélectionner la ligne ajoutée {{line}}",
       "deletion": "Désélectionner la ligne supprimée {{line}}"
     },
+    "whitespace": { "label": "Gestion des espaces", "show": "Afficher les espaces", "ignoreTrailing": "Ignorer les espaces finaux", "ignoreAll": "Ignorer tous les espaces", "partialActionsDisabled": "Les actions par bloc ou ligne sont indisponibles lorsque les espaces sont ignorés, car le diff affiché ne correspond pas au patch Git." },
     "tooLarge": "Ce fichier fait {{size}} et dépasse la limite d’affichage de 10 Mo. Son contenu n’a pas été chargé."
   },
   "fileView": {

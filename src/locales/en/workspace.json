@@ -148,6 +148,7 @@
         "addition": "Deselect added line {{line}}",
         "deletion": "Deselect deleted line {{line}}"
       },
+    "whitespace": { "label": "Whitespace handling", "show": "Show whitespace", "ignoreTrailing": "Ignore trailing", "ignoreAll": "Ignore all whitespace", "partialActionsDisabled": "Hunk and line actions are unavailable while whitespace is ignored because the displayed diff is not the patch Git would apply." },
     "tooLarge": "This file is {{size}}, above the 10 MB display limit. Its contents were not loaded."
   },
   "fileView": {

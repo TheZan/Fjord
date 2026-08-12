@@ -18,12 +18,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
-    DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
-    FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource, RepoStatus, StashEntry,
-    TagInfo, WorkingChanges, WorkingFile,
+    DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
+    FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource,
+    RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
-    ForcePushPlan, GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath,
+    DiffWindowOptions, ForcePushPlan, GitBackend, GitError, GitExecutableResolution, PushTarget,
+    RepoPath,
 };
 use git2::build::CheckoutBuilder;
 use git2::{ErrorCode, IndexAddOption, StashFlags};
@@ -184,11 +185,18 @@ impl GitBackend for LocalGitBackend {
         repo: &RepoPath,
         commit_id: &str,
         path: &str,
-        offset: u32,
-        limit: u32,
-        max_file_bytes: u64,
+        options: DiffWindowOptions,
     ) -> Result<FileDiffWindow, GitError> {
-        diff::file_diff_window(repo, commit_id, path, offset, limit, max_file_bytes).await
+        diff::file_diff_window(
+            repo,
+            commit_id,
+            path,
+            options.offset,
+            options.limit,
+            options.max_file_bytes,
+            options.whitespace,
+        )
+        .await
     }
 
     async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
@@ -209,12 +217,18 @@ impl GitBackend for LocalGitBackend {
         repo: &RepoPath,
         path: &str,
         staged: bool,
-        offset: u32,
-        limit: u32,
-        max_file_bytes: u64,
+        options: DiffWindowOptions,
     ) -> Result<FileDiffWindow, GitError> {
-        working_tree::working_file_diff_window(repo, path, staged, offset, limit, max_file_bytes)
-            .await
+        working_tree::working_file_diff_window(
+            repo,
+            path,
+            staged,
+            options.offset,
+            options.limit,
+            options.max_file_bytes,
+            options.whitespace,
+        )
+        .await
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {

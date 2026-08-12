@@ -14,7 +14,7 @@ import {
   observeDiffPage,
   type VersionedFileDiffWindow,
 } from "@/infrastructure/tauriClient";
-import type { DiffHunk, FileDiffWindow, GenerationSet } from "@/domain/git";
+import type { DiffHunk, DiffWhitespaceMode, FileDiffWindow, GenerationSet } from "@/domain/git";
 
 export type DiffSource =
   | { kind: "commit"; commitId: string }
@@ -51,6 +51,7 @@ export function useFileDiff(
   repoId: string | null,
   path: string | null,
   source: DiffSource | null,
+  whitespace: DiffWhitespaceMode = "show",
 ): UseFileDiffResult {
   const queryClient = useQueryClient();
   const rejectedData = useRef<unknown>(null);
@@ -59,12 +60,15 @@ export function useFileDiff(
       ? `commit:${source.commitId}`
       : workingDiffSourceKey(source.staged ? "index" : "worktree")
     : null;
+  const querySourceKey = sourceKey
+    ? whitespace === "show" ? sourceKey : `${sourceKey}:whitespace:${whitespace}`
+    : null;
 
   const queryKey = useMemo(
-    () => repoId && path && sourceKey
-      ? queryKeys.repos.fileDiff(repoId, path, sourceKey)
+    () => repoId && path && querySourceKey
+      ? queryKeys.repos.fileDiff(repoId, path, querySourceKey)
       : queryKeys.repos.all,
-    [path, repoId, sourceKey],
+    [path, querySourceKey, repoId],
   );
   const query = useInfiniteQuery({
     queryKey,
@@ -79,6 +83,7 @@ export function useFileDiff(
             path!,
             pageParam,
             DIFF_WINDOW_LINES,
+            whitespace,
             signal,
           )
         : await getWorkingFileDiffPage(
@@ -87,6 +92,7 @@ export function useFileDiff(
             source!.staged,
             pageParam,
             DIFF_WINDOW_LINES,
+            whitespace,
             signal,
           );
       return {
@@ -94,7 +100,7 @@ export function useFileDiff(
         requestedOffset: pageParam,
         repoId: repoId!,
         requestedPath: path!,
-        sourceKey: sourceKey!,
+        sourceKey: querySourceKey!,
         fetchSequence,
       };
     },

@@ -10,6 +10,7 @@ export type {
   DiffHunk,
   DiffLine,
   DiffLineKind,
+  DiffWhitespaceMode,
   DiscardSelection,
   FileChangeType,
   FileDiff,

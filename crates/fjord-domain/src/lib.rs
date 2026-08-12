@@ -529,6 +529,16 @@ pub enum DiffLineEnding {
     None,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum DiffWhitespaceMode {
+    #[default]
+    Show,
+    IgnoreTrailing,
+    IgnoreAll,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]

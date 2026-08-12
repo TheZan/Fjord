@@ -373,7 +373,20 @@ pub(super) async fn file_diff_window(
     offset: u32,
     limit: u32,
     max_file_bytes: u64,
+    whitespace: DiffWhitespaceMode,
 ) -> Result<FileDiffWindow, GitError> {
+    if whitespace != DiffWhitespaceMode::Show {
+        return file_diff_window_with_whitespace(
+            repo,
+            commit_id,
+            path,
+            offset,
+            limit,
+            max_file_bytes,
+            whitespace,
+        )
+        .await;
+    }
     let repo = repo.clone();
     let commit_id = commit_id.to_string();
     let path = path.to_string();
@@ -479,6 +492,88 @@ pub(super) async fn file_diff_window(
     })
     .await
     .map_err(|e| GitError::Gix(e.to_string()))?
+}
+
+async fn file_diff_window_with_whitespace(
+    repo: &RepoPath,
+    commit_id: &str,
+    path: &str,
+    offset: u32,
+    limit: u32,
+    max_file_bytes: u64,
+    whitespace: DiffWhitespaceMode,
+) -> Result<FileDiffWindow, GitError> {
+    let repo = repo.clone();
+    let commit_id = commit_id.to_string();
+    let path = path.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let oid = git2::Oid::from_str(&commit_id).map_err(LocalGitBackend::map_git2_error)?;
+            let commit = git
+                .find_commit(oid)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let new_tree = commit.tree().map_err(LocalGitBackend::map_git2_error)?;
+            let old_tree = if commit.parent_count() > 0 {
+                Some(
+                    commit
+                        .parent(0)
+                        .map_err(LocalGitBackend::map_git2_error)?
+                        .tree()
+                        .map_err(LocalGitBackend::map_git2_error)?,
+                )
+            } else {
+                None
+            };
+            let mut options = git2::DiffOptions::new();
+            options.pathspec(&path).disable_pathspec_match(true);
+            super::working_tree::apply_whitespace_mode(&mut options, whitespace);
+            let diff = git
+                .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options))
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let delta = diff.deltas().next();
+            let change_type = delta
+                .as_ref()
+                .map(|delta| LocalGitBackend::classify_delta(delta.status()))
+                .unwrap_or(FileChangeType::Modified);
+            let file_bytes = delta
+                .as_ref()
+                .map(|delta| delta.old_file().size().max(delta.new_file().size()))
+                .unwrap_or(0);
+            if file_bytes > max_file_bytes {
+                return Ok(FileDiffWindow {
+                    path,
+                    change_type,
+                    old_mode: None,
+                    new_mode: None,
+                    is_binary: false,
+                    too_large: true,
+                    file_bytes,
+                    hunks: Vec::new(),
+                    total_hunks: 0,
+                    total_lines: 0,
+                    offset: 0,
+                    truncated: false,
+                    next_offset: None,
+                    base_digest: None,
+                });
+            }
+            let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
+            let mut window = FileDiffDetail {
+                path,
+                change_type,
+                old_mode: None,
+                new_mode: None,
+                is_binary,
+                hunks,
+            }
+            .into_window(offset, limit);
+            window.file_bytes = file_bytes;
+            Ok(window)
+        })
+    })
+    .await
+    .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
 fn resource_size(data: gix::diff::blob::platform::resource::Data<'_>) -> u64 {

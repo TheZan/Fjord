@@ -126,6 +126,7 @@ pub(super) async fn working_file_diff_window(
     offset: u32,
     limit: u32,
     max_file_bytes: u64,
+    whitespace: DiffWhitespaceMode,
 ) -> Result<FileDiffWindow, GitError> {
     let repo = repo.clone();
     let path = path.to_string();
@@ -139,6 +140,7 @@ pub(super) async fn working_file_diff_window(
                 .include_untracked(true)
                 .recurse_untracked_dirs(true)
                 .show_untracked_content(true);
+            apply_whitespace_mode(&mut options, whitespace);
             let diff = if staged {
                 let head_tree = LocalGitBackend::current_head_commit(git)?
                     .map(|commit| commit.tree())
@@ -208,6 +210,21 @@ pub(super) async fn working_file_diff_window(
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+pub(super) fn apply_whitespace_mode(
+    options: &mut git2::DiffOptions,
+    whitespace: DiffWhitespaceMode,
+) {
+    match whitespace {
+        DiffWhitespaceMode::Show => {}
+        DiffWhitespaceMode::IgnoreTrailing => {
+            options.ignore_whitespace_eol(true);
+        }
+        DiffWhitespaceMode::IgnoreAll => {
+            options.ignore_whitespace(true);
+        }
+    }
 }
 
 fn file_mode(mode: git2::FileMode) -> Option<u32> {

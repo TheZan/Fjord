@@ -2,16 +2,17 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, Consequence, DestructiveAction,
-    DestructivePreflight, DiffHunk, DiffLineKind, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult,
-    GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection, Recoverability, RepoStatus,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
+    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
+    Recoverability, RepoStatus, RepositoryEntry, RepositoryId, RepositorySnapshot,
+    SearchResultKind, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
-    GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitExecutableResolution,
-    GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher, LaunchError, RepoPath,
-    SettingsStore, StoreError, WorkspaceStore,
+    DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
+    GitExecutableResolution, GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher,
+    LaunchError, RepoPath, SettingsStore, StoreError, WorkspaceStore,
 };
 use std::path::PathBuf;
 use thiserror::Error;
@@ -543,6 +544,7 @@ impl RepoService {
         path: &str,
         offset: u32,
         limit: u32,
+        whitespace: DiffWhitespaceMode,
     ) -> Result<FileDiffWindow, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let window = self
@@ -551,9 +553,12 @@ impl RepoService {
                 &RepoPath::new(repo.path),
                 commit_id,
                 path,
-                offset,
-                normalized_diff_limit(limit),
-                DIFF_FILE_MAX_BYTES,
+                DiffWindowOptions {
+                    offset,
+                    limit: normalized_diff_limit(limit),
+                    max_file_bytes: DIFF_FILE_MAX_BYTES,
+                    whitespace,
+                },
             )
             .await?;
         ensure_diff_response_ceiling(window)
@@ -607,9 +612,10 @@ impl RepoService {
         staged: bool,
         offset: u32,
         limit: u32,
+        whitespace: DiffWhitespaceMode,
     ) -> Result<FileDiffWindow, RepoError> {
         Ok(self
-            .get_working_file_diff_versioned(repo_id, path, staged, offset, limit)
+            .get_working_file_diff_versioned(repo_id, path, staged, offset, limit, whitespace)
             .await?
             .0)
     }
@@ -625,6 +631,7 @@ impl RepoService {
         staged: bool,
         offset: u32,
         limit: u32,
+        whitespace: DiffWhitespaceMode,
     ) -> Result<(FileDiffWindow, GenerationSet), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let repo = RepoPath::new(repo.path);
@@ -636,9 +643,12 @@ impl RepoService {
                     &repo,
                     path,
                     staged,
-                    offset,
-                    normalized_diff_limit(limit),
-                    DIFF_FILE_MAX_BYTES,
+                    DiffWindowOptions {
+                        offset,
+                        limit: normalized_diff_limit(limit),
+                        max_file_bytes: DIFF_FILE_MAX_BYTES,
+                        whitespace,
+                    },
                 )
                 .await?;
             let after = self.git.generations(&repo)?;
@@ -2232,7 +2242,14 @@ mod tests {
         let (repo, git, _, service) = service_with_fake_git();
 
         let detail = service
-            .get_file_diff(repo.id, "deadbeef", "src/main.rs", 0, 1_000)
+            .get_file_diff(
+                repo.id,
+                "deadbeef",
+                "src/main.rs",
+                0,
+                1_000,
+                DiffWhitespaceMode::Show,
+            )
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
@@ -2777,7 +2794,14 @@ mod tests {
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
         let detail = service
-            .get_working_file_diff(repo.id, "src/main.rs", false, 0, 1_000)
+            .get_working_file_diff(
+                repo.id,
+                "src/main.rs",
+                false,
+                0,
+                1_000,
+                DiffWhitespaceMode::Show,
+            )
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
@@ -2925,7 +2949,14 @@ mod tests {
         );
 
         let (diff, generations) = service
-            .get_working_file_diff_versioned(repo.id, "src/main.rs", false, 0, 1_000)
+            .get_working_file_diff_versioned(
+                repo.id,
+                "src/main.rs",
+                false,
+                0,
+                1_000,
+                DiffWhitespaceMode::Show,
+            )
             .await
             .unwrap();
 

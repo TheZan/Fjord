@@ -238,6 +238,31 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText("unchanged").closest("button")).toBeNull();
   });
 
+  it("disables hunk and line actions with a reason when whitespace is ignored", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "diff.whitespace.label" }), {
+      target: { value: "ignoreAll" },
+    });
+
+    expect(screen.getByRole("button", { name: "diff.stageHunk" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "diff.stageHunk" })).toHaveAttribute(
+      "title",
+      "diff.whitespace.partialActionsDisabled",
+    );
+    expect(screen.queryByRole("button", { name: "diff.select.deletion" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "diff.discardHunk" })).toBeDisabled();
+  });
+
   it("selects and deselects a changed line and updates the selected-lines action", () => {
     state.hasMore = false;
     render(

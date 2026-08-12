@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use fjord_db::{SqliteSettingsStore, SqliteWorkspaceStore};
 use fjord_fs::{RepoEventWatcher, RepositoryWatchScope};
 use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBackend};
-use fjord_ports::{GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore};
+use fjord_ports::{
+    DiffWindowOptions, GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore,
+};
 use fjord_services::RepoService;
 use git2::{Repository, RepositoryInitOptions, Signature};
 
@@ -840,9 +842,12 @@ async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Res
                     &repo,
                     &head,
                     fixtures::DIFF_WINDOW_TARGET,
-                    0,
-                    1_000,
-                    10 * 1024 * 1024,
+                    DiffWindowOptions {
+                        offset: 0,
+                        limit: 1_000,
+                        max_file_bytes: 10 * 1024 * 1024,
+                        whitespace: fjord_domain::DiffWhitespaceMode::Show,
+                    },
                 )
                 .await
                 .map_err(|e| e.to_string())?,
@@ -854,9 +859,12 @@ async fn measure_file_diff(root: &Path, args: &Args, record: &mut Report) -> Res
                     &repo,
                     &head,
                     fixtures::DIFF_TARGET,
-                    0,
-                    1_000,
-                    10 * 1024 * 1024,
+                    DiffWindowOptions {
+                        offset: 0,
+                        limit: 1_000,
+                        max_file_bytes: 10 * 1024 * 1024,
+                        whitespace: fjord_domain::DiffWhitespaceMode::Show,
+                    },
                 )
                 .await
                 .map_err(|e| e.to_string())?,
