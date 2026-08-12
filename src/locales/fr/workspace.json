@@ -117,6 +117,12 @@
   },
   "diff": {
     "binary": "Le fichier binaire n'est pas affiché.",
+    "counts": "{{hunks}} blocs · {{lines}} lignes",
+    "loaded": "{{loaded}} lignes chargées sur {{total}}",
+    "loadAnyway": "Charger quand même",
+    "modeOnly": "Le mode du fichier est passé de {{oldMode}} à {{newMode}}.",
+    "stageFile": "Indexer le fichier",
+    "unstageFile": "Désindexer le fichier",
     "empty": "Aucun changement à afficher.",
     "back": "Retour au graphe",
     "viewMode": "Mode d’affichage du diff",

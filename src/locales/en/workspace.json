@@ -119,6 +119,12 @@
   },
   "diff": {
     "binary": "Binary file not shown.",
+    "counts": "{{hunks}} hunks · {{lines}} lines",
+    "loaded": "Loaded {{loaded}} of {{total}} lines",
+    "loadAnyway": "Load anyway",
+    "modeOnly": "File mode changed from {{oldMode}} to {{newMode}}.",
+    "stageFile": "Stage file",
+    "unstageFile": "Unstage file",
     "empty": "No changes to display.",
     "back": "Back to graph",
     "viewMode": "Diff layout",

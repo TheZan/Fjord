@@ -149,6 +149,9 @@ pub async fn get_commit_files(
     versioned(&state, repo_id, data).await
 }
 
+// Keep the documented IPC payload flat; grouping only these fields would make
+// the frontend contract nested without simplifying the adapter.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn get_file_diff(
     state: State<'_, AppState>,
@@ -158,10 +161,21 @@ pub async fn get_file_diff(
     offset: u32,
     limit: u32,
     whitespace: fjord_domain::DiffWhitespaceMode,
+    load_anyway: bool,
 ) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let data = state
         .repos
-        .get_file_diff(repo_id, &commit_id, &path, offset, limit, whitespace)
+        .get_file_diff(
+            repo_id,
+            &commit_id,
+            &path,
+            fjord_services::DiffRequestOptions {
+                offset,
+                limit,
+                whitespace,
+                load_anyway,
+            },
+        )
         .await?;
     versioned(&state, repo_id, data).await
 }
@@ -199,6 +213,9 @@ pub async fn get_working_changes(
     versioned(&state, repo_id, data).await
 }
 
+// This mirrors `get_file_diff` so committed and working windows keep one flat
+// transport shape.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn get_working_file_diff(
     state: State<'_, AppState>,
@@ -208,10 +225,21 @@ pub async fn get_working_file_diff(
     offset: u32,
     limit: u32,
     whitespace: fjord_domain::DiffWhitespaceMode,
+    load_anyway: bool,
 ) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
     let (data, generations) = state
         .repos
-        .get_working_file_diff_versioned(repo_id, &path, staged, offset, limit, whitespace)
+        .get_working_file_diff_versioned(
+            repo_id,
+            &path,
+            staged,
+            fjord_services::DiffRequestOptions {
+                offset,
+                limit,
+                whitespace,
+                load_anyway,
+            },
+        )
         .await?;
     Ok(GenerationEnvelope { data, generations })
 }

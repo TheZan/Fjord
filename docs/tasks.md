@@ -233,15 +233,14 @@ Goal: a dense, quiet, keyboard-first shell where content beats chrome, app utili
 - [x] **P7-FIX-06** — Remove the Phase 8/9 dependency cycle by placing the minimal destructive-preflight backend/UI/generation contract in `P8-00`; Phase 9 extends that foundation to its remaining destructive and recovery actions.
 - [x] **P7-PERF-01** — Add and run a focused release profile for cold runtime opens at 1/8/32 repositories, sequential versus current concurrent callers. The global mutex does cover open, but the alternating median profile found no concurrent speedup and no production synchronization change is justified; methodology/results: [`benchmarks/p7-runtime-open-contention.md`](benchmarks/p7-runtime-open-contention.md).
 
-## Phase 8 — Daily-driver essentials (partial-patch safety scope closed)
+## Phase 8 — Daily-driver essentials (complete)
 
 Goal: ordinary Git work never sends the user to another GUI or a terminal — partial staging, amend, safe force push, upstream management, and a diff that is actually comparable. Spec: [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md).
 
-The implemented partial staging/unstaging/discard scope (`P8-00`–`P8-06` and
-`P8-FIX-07`) is complete. Its independent final safety verification concluded
-**SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. The remaining Phase 8 tasks
-are later roadmap capabilities, not open safety work for the completed
-partial-patch scope.
+Phase 8 is complete. The partial staging/unstaging/discard scope (`P8-00`–`P8-06`
+and `P8-FIX-07`) independently concluded **SAFE TO PROCEED WITH DOCUMENTED
+LIMITATIONS**; the later daily-driver and comparable-diff capabilities are also
+implemented through `P8-15`.
 
 - [x] **P8-00** — Safety foundation required before any Phase 8 destructive action: the bounded `DestructivePreflight` domain/IPC contract, consequence computation for discard and force-with-lease, the shared preflight dialog, and execution-time revalidation. Discard confirmations are short-lived, one-use backend tokens bound to the repository, exact action, complete patch selection/digest, and `GenerationSet`; generation alone is not proof of confirmation. This is deliberately the first Phase 8 task; it implements [`specs/repository-safety.md`](specs/repository-safety.md) §3 only for Phase 8 actions. Verification: backend consequence/sampling tests, dialog accessibility tests, and adversarial regressions for scope escalation, digest/generation/repository substitution, expiry, replay, and exact success.
 
@@ -260,7 +259,7 @@ partial-patch scope.
 - [x] **P8-12** — Syntax highlighting runs in a dedicated Web Worker over only the virtualizer's visible rows. The plain diff paints before worker creation, rows upgrade in place, stale/offscreen work is terminated, and unknown languages or windows beyond the line/character budget stay plain. Performance marks prove `fjord:diff:plain-paint` precedes `fjord:diff:highlight-commit`; unit/worker/hook/component tests cover tokenization, transport, ordering, and in-place rendering. A warm 20-sample tokenization of 120 visible lines from `diff-giant/huge/long.txt` measured P50/P95/max **0.073/0.403/0.417 ms** on the recorded Windows host ([benchmark](benchmarks/p8-12-diff-highlighting.md); spec §5).
 - [x] **P8-13** — The diff header offers show / ignore trailing / ignore all. Both working and committed diff IPC pass the mode to backend diff options, the mode participates in query/snapshot identity, and ignored-whitespace hunk/line/discard actions fail closed with a localized reason because that presentation is not the patch Git would apply. Real-repository coverage proves trailing and all-whitespace modes change backend hunk structure (including committed diffs); existing exact-byte patch tests cover the actionable `show` structure, and component coverage asserts the disabled state and reason (spec §5).
 - [x] **P8-14** — The visible-window diff worker pairs deletion/addition runs and computes word-level LCS only when line similarity is at least 0.45; unrelated replacements remain plain. Word ranges are a toggleable rendering layer combined with syntax spans and never alter line indexes, hunk coordinates, digests, or patch selection. Unit tests cover pairing and the threshold; the component test submits byte-for-byte identical `PatchSelection` and generations with word diff on and off (spec §5).
-- [ ] **P8-15** — Huge-diff UX on top of P6-16: total counts from the first window, progressive window loading, and an explicit "load anyway" for files above the size limit, plus binary and mode-only states with whole-file actions retained (spec §5). Verification: component tests per state; SLO-10 re-measured with the UI in the loop.
+- [x] **P8-15** — Huge-diff UX on top of P6-16 shows authoritative totals from the first window and loaded/total progress while scrolling, offers an explicit `load anyway` that bypasses only the 10 MB source ceiling, and describes binary and mode-only states while retaining whole-file stage/unstage. Component tests cover every state and the override path. On packed `diff-giant`, the release backend P95 was **41.788 ms** and a React/jsdom metadata-viewport loop measured **1.268 ms** P95 after 3 warmups + 20 repetitions; their conservative sum is **43.056 ms** against SLO-10's 600 ms target. The packaged-WebView gate remains P11-01 ([benchmark](benchmarks/p8-15-huge-diff-ui.md); spec §5).
 
 ## Phase 9 — Safety & recovery
 

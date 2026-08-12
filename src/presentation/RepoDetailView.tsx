@@ -192,6 +192,11 @@ export function RepoDetailView({
     : selectedCommit && selectedCommitFile
       ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
       : null;
+  const applyDiffFile = diffTarget?.source.kind === "working"
+    ? diffTarget.source.staged
+      ? () => onUnstage([diffTarget.path])
+      : () => onStage([diffTarget.path])
+    : undefined;
 
   const inspector = workingSelected ? (
     <WorkingChangesPanel
@@ -297,6 +302,7 @@ export function RepoDetailView({
               path={diffTarget.path}
               source={diffTarget.source}
               actionDisabled={!snapshotValidated || actionPending !== null}
+              onApplyFile={applyDiffFile}
               onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
               onDiscardPatch={
                 diffTarget.source.kind === "working" && !diffTarget.source.staged

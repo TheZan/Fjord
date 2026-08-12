@@ -44,6 +44,7 @@ export function FileDiffView({
   source,
   onBack,
   actionDisabled = false,
+  onApplyFile,
   onApplyHunk,
   onDiscardPatch,
 }: {
@@ -52,6 +53,7 @@ export function FileDiffView({
   source: DiffSource;
   onBack?: () => void;
   actionDisabled?: boolean;
+  onApplyFile?: () => void;
   onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onDiscardPatch?: (
     action: DestructiveAction,
@@ -63,11 +65,13 @@ export function FileDiffView({
   const { t } = useTranslation("workspace");
   const [whitespace, setWhitespace] = useState<DiffWhitespaceMode>("show");
   const [wordDiff, setWordDiff] = useState(true);
+  const [loadAnyway, setLoadAnyway] = useState(false);
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations, snapshotInvalid } = useFileDiff(
     repoId,
     path,
     source,
     whitespace,
+    loadAnyway,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const pendingModeAnchor = useRef<DiffRowAnchor | null>(null);
@@ -75,9 +79,10 @@ export function FileDiffView({
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
   const [selectionPending, setSelectionPending] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
+  const sourceIdentity = diffSourceKey(source);
   const rows = useMemo(() => buildDiffRows(diff?.hunks ?? [], diffMode), [diff?.hunks, diffMode]);
   const actionsDisabled = actionDisabled || snapshotInvalid;
-  const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${whitespace}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
+  const snapshotKey = `${repoId}\0${path}\0${sourceIdentity}\0${whitespace}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -96,6 +101,21 @@ export function FileDiffView({
     [rows, visibleRowKey, wordPairKeys],
   );
   const enhancements = useDiffHighlight(path, visibleHighlightLines, wordDiff);
+  const loadedLines = diff?.hunks.reduce(
+    (count, hunk) => count + hunk.lines.length,
+    0,
+  ) ?? 0;
+  const modeOnly = Boolean(
+    diff
+    && !diff.isBinary
+    && !diff.tooLarge
+    && diff.hunks.length === 0
+    && diff.oldMode !== diff.newMode,
+  );
+
+  useEffect(() => {
+    setLoadAnyway(false);
+  }, [repoId, path, sourceIdentity]);
 
   useEffect(() => {
     void loadUiState()
@@ -293,6 +313,17 @@ export function FileDiffView({
         >
           {t("diff.wordDiff")}
         </button>
+        {source.kind === "working" && onApplyFile ? (
+          <button
+            type="button"
+            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+            style={{ color: "var(--fjord-ink)" }}
+            disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard)}
+            onClick={onApplyFile}
+          >
+            {t(source.staged ? "diff.unstageFile" : "diff.stageFile")}
+          </button>
+        ) : null}
         {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
           <button
             type="button"
@@ -314,6 +345,18 @@ export function FileDiffView({
         ) : null}
       </div>
 
+      {diff ? (
+        <div
+          className="flex items-center gap-3 border-b px-3 py-1 text-[11px]"
+          style={{ borderColor: "var(--hairline)", color: "var(--mist)" }}
+        >
+          <span>{t("diff.counts", { hunks: diff.totalHunks, lines: diff.totalLines })}</span>
+          {!diff.isBinary && !diff.tooLarge && (hasMore || loadingMore) ? (
+            <span>{t("diff.loaded", { loaded: loadedLines, total: diff.totalLines })}</span>
+          ) : null}
+        </div>
+      ) : null}
+
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         {loading && (
           <p className="p-3 text-xs" style={{ color: "var(--mist)" }}>
@@ -331,11 +374,27 @@ export function FileDiffView({
           </p>
         )}
         {!loading && !error && diff?.tooLarge && !diff.isBinary && (
+          <div className="p-3 text-xs" style={{ color: "var(--slate)" }}>
+            <p>{t("diff.tooLarge", { size: formatFileBytes(diff.fileBytes) })}</p>
+            <button
+              type="button"
+              className="interactive-control mt-2 rounded px-2 py-1 text-[11px]"
+              style={{ color: "var(--fjord-ink)" }}
+              onClick={() => setLoadAnyway(true)}
+            >
+              {t("diff.loadAnyway")}
+            </button>
+          </div>
+        )}
+        {!loading && !error && modeOnly && diff && (
           <p className="p-3 text-xs" style={{ color: "var(--slate)" }}>
-            {t("diff.tooLarge", { size: formatFileBytes(diff.fileBytes) })}
+            {t("diff.modeOnly", {
+              oldMode: formatFileMode(diff.oldMode),
+              newMode: formatFileMode(diff.newMode),
+            })}
           </p>
         )}
-        {!loading && !error && diff && !diff.isBinary && !diff.tooLarge && diff.hunks.length === 0 && (
+        {!loading && !error && diff && !diff.isBinary && !diff.tooLarge && !modeOnly && diff.hunks.length === 0 && (
           <p className="p-3 text-xs" style={{ color: "var(--slate)" }}>
             {t("diff.empty")}
           </p>
@@ -449,6 +508,10 @@ export function FileDiffView({
 function formatFileBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatFileMode(mode: number | null): string {
+  return mode === null ? "—" : mode.toString(8).padStart(6, "0");
 }
 
 type DiffLineRef = { line: DiffLine; lineIndex: number };

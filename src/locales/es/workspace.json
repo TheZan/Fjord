@@ -117,6 +117,12 @@
   },
   "diff": {
     "binary": "No se muestra el archivo binario.",
+    "counts": "{{hunks}} bloques · {{lines}} líneas",
+    "loaded": "Cargadas {{loaded}} de {{total}} líneas",
+    "loadAnyway": "Cargar de todos modos",
+    "modeOnly": "El modo del archivo cambió de {{oldMode}} a {{newMode}}.",
+    "stageFile": "Preparar archivo",
+    "unstageFile": "Quitar archivo del área de preparación",
     "empty": "No hay cambios para mostrar.",
     "back": "Volver al grafo",
     "viewMode": "Vista de diferencias",

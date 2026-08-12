@@ -52,6 +52,7 @@ export function useFileDiff(
   path: string | null,
   source: DiffSource | null,
   whitespace: DiffWhitespaceMode = "show",
+  loadAnyway = false,
 ): UseFileDiffResult {
   const queryClient = useQueryClient();
   const rejectedData = useRef<unknown>(null);
@@ -61,7 +62,7 @@ export function useFileDiff(
       : workingDiffSourceKey(source.staged ? "index" : "worktree")
     : null;
   const querySourceKey = sourceKey
-    ? whitespace === "show" ? sourceKey : `${sourceKey}:whitespace:${whitespace}`
+    ? whitespace === "show" && !loadAnyway ? sourceKey : `${sourceKey}:whitespace:${whitespace}:load:${loadAnyway}`
     : null;
 
   const queryKey = useMemo(
@@ -84,6 +85,7 @@ export function useFileDiff(
             pageParam,
             DIFF_WINDOW_LINES,
             whitespace,
+            loadAnyway,
             signal,
           )
         : await getWorkingFileDiffPage(
@@ -93,6 +95,7 @@ export function useFileDiff(
             pageParam,
             DIFF_WINDOW_LINES,
             whitespace,
+            loadAnyway,
             signal,
           );
       return {

@@ -7,6 +7,8 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 import {
   getBranches,
+  getFileDiffPage,
+  getWorkingFileDiffPage,
   revealLogFolder,
   setRepositoryActivity,
   stagePatch,
@@ -60,6 +62,38 @@ describe("abortable Tauri queries", () => {
     tauri.invoke.mockResolvedValue(undefined);
     await revealLogFolder();
     expect(tauri.invoke).toHaveBeenCalledWith("reveal_log_folder", {});
+  });
+
+  it("sends the explicit large-file override for commit diff windows", async () => {
+    tauri.invoke.mockResolvedValue({ data: {}, generations: zeroGenerations() });
+
+    await getFileDiffPage("repo-1", "deadbeef", "large.txt", 0, 1_000, "show", true);
+
+    expect(tauri.invoke).toHaveBeenCalledWith("get_file_diff", {
+      repoId: "repo-1",
+      commitId: "deadbeef",
+      path: "large.txt",
+      offset: 0,
+      limit: 1_000,
+      whitespace: "show",
+      loadAnyway: true,
+    });
+  });
+
+  it("sends the explicit large-file override for working diff windows", async () => {
+    tauri.invoke.mockResolvedValue({ data: {}, generations: zeroGenerations() });
+
+    await getWorkingFileDiffPage("repo-1", "large.txt", false, 0, 1_000, "show", true);
+
+    expect(tauri.invoke).toHaveBeenCalledWith("get_working_file_diff", {
+      repoId: "repo-1",
+      path: "large.txt",
+      staged: false,
+      offset: 0,
+      limit: 1_000,
+      whitespace: "show",
+      loadAnyway: true,
+    });
   });
 
   it("sends a stage patch selection with its coherent generation stamp", async () => {

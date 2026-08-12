@@ -433,7 +433,7 @@ export function getFileDiffWithGenerations(
   limit: number,
   signal?: AbortSignal,
 ): Promise<VersionedFileDiffWindow> {
-  return getFileDiffPage(repoId, commitId, path, offset, limit, "show", signal).then((response) =>
+  return getFileDiffPage(repoId, commitId, path, offset, limit, "show", false, signal).then((response) =>
     observedDiffPage(repoId, response, "history"),
   );
 }
@@ -445,11 +445,12 @@ export function getFileDiffPage(
   offset: number,
   limit: number,
   whitespace: DiffWhitespaceMode,
+  loadAnyway: boolean,
   signal?: AbortSignal,
 ): Promise<VersionedFileDiffWindow> {
   return invokeAbortable<VersionedFileDiffWindow>(
     "get_file_diff",
-    { repoId, commitId, path, offset, limit, whitespace },
+    { repoId, commitId, path, offset, limit, whitespace, loadAnyway },
     signal,
   );
 }
@@ -461,11 +462,12 @@ export function getWorkingFileDiffPage(
   offset: number,
   limit: number,
   whitespace: DiffWhitespaceMode,
+  loadAnyway: boolean,
   signal?: AbortSignal,
 ): Promise<VersionedFileDiffWindow> {
   return invokeAbortable<VersionedFileDiffWindow>(
     "get_working_file_diff",
-    { repoId, path, staged, offset, limit, whitespace },
+    { repoId, path, staged, offset, limit, whitespace, loadAnyway },
     signal,
   );
 }
@@ -521,7 +523,7 @@ export function getWorkingFileDiffWithGenerations(
   limit: number,
   signal?: AbortSignal,
 ): Promise<VersionedFileDiffWindow> {
-  return getWorkingFileDiffPage(repoId, path, staged, offset, limit, "show", signal).then((response) =>
+  return getWorkingFileDiffPage(repoId, path, staged, offset, limit, "show", false, signal).then((response) =>
     observedDiffPage(repoId, response, "working"),
   );
 }

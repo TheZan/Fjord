@@ -3685,7 +3685,7 @@ async fn oversized_working_file_diff_returns_metadata_without_content() {
         .await
         .unwrap();
     backend.commit(&repo_path, "Initial commit").await.unwrap();
-    let content = "x".repeat(11 * 1024 * 1024);
+    let content = "xxxxxxxxxxxxxxxxxxxx\n".repeat(550_000);
     write_file(&repo_path, "large.txt", &content);
 
     let window = backend
@@ -3706,6 +3706,33 @@ async fn oversized_working_file_diff_returns_metadata_without_content() {
     assert!(window.too_large);
     assert!(window.file_bytes > 10 * 1024 * 1024);
     assert!(window.hunks.is_empty());
+
+    let loaded = backend
+        .working_file_diff_window(
+            &repo_path,
+            "large.txt",
+            false,
+            DiffWindowOptions {
+                offset: 0,
+                limit: 1_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(!loaded.too_large);
+    assert_eq!(loaded.total_lines, 550_001);
+    assert_eq!(
+        loaded
+            .hunks
+            .iter()
+            .map(|hunk| hunk.lines.len())
+            .sum::<usize>(),
+        1_000
+    );
+    assert_eq!(loaded.next_offset, Some(1_000));
 }
 
 #[tokio::test]

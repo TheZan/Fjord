@@ -28,6 +28,14 @@ const PATCH_DIFF_CAPTURE_ATTEMPTS: usize = 3;
 const PREFLIGHT_SAMPLE_LIMIT: usize = 5;
 pub const DIFF_WINDOW_DEFAULT_LINES: u32 = 1_000;
 pub const DIFF_WINDOW_MAX_LINES: u32 = 2_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffRequestOptions {
+    pub offset: u32,
+    pub limit: u32,
+    pub whitespace: DiffWhitespaceMode,
+    pub load_anyway: bool,
+}
 pub const DIFF_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const DIFF_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const DIFF_RESPONSE_ENVELOPE_RESERVE_BYTES: usize = 4 * 1024;
@@ -542,9 +550,7 @@ impl RepoService {
         repo_id: RepositoryId,
         commit_id: &str,
         path: &str,
-        offset: u32,
-        limit: u32,
-        whitespace: DiffWhitespaceMode,
+        options: DiffRequestOptions,
     ) -> Result<FileDiffWindow, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let window = self
@@ -554,10 +560,14 @@ impl RepoService {
                 commit_id,
                 path,
                 DiffWindowOptions {
-                    offset,
-                    limit: normalized_diff_limit(limit),
-                    max_file_bytes: DIFF_FILE_MAX_BYTES,
-                    whitespace,
+                    offset: options.offset,
+                    limit: normalized_diff_limit(options.limit),
+                    max_file_bytes: if options.load_anyway {
+                        u64::MAX
+                    } else {
+                        DIFF_FILE_MAX_BYTES
+                    },
+                    whitespace: options.whitespace,
                 },
             )
             .await?;
@@ -610,12 +620,10 @@ impl RepoService {
         repo_id: RepositoryId,
         path: &str,
         staged: bool,
-        offset: u32,
-        limit: u32,
-        whitespace: DiffWhitespaceMode,
+        options: DiffRequestOptions,
     ) -> Result<FileDiffWindow, RepoError> {
         Ok(self
-            .get_working_file_diff_versioned(repo_id, path, staged, offset, limit, whitespace)
+            .get_working_file_diff_versioned(repo_id, path, staged, options)
             .await?
             .0)
     }
@@ -629,9 +637,7 @@ impl RepoService {
         repo_id: RepositoryId,
         path: &str,
         staged: bool,
-        offset: u32,
-        limit: u32,
-        whitespace: DiffWhitespaceMode,
+        options: DiffRequestOptions,
     ) -> Result<(FileDiffWindow, GenerationSet), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let repo = RepoPath::new(repo.path);
@@ -644,10 +650,14 @@ impl RepoService {
                     path,
                     staged,
                     DiffWindowOptions {
-                        offset,
-                        limit: normalized_diff_limit(limit),
-                        max_file_bytes: DIFF_FILE_MAX_BYTES,
-                        whitespace,
+                        offset: options.offset,
+                        limit: normalized_diff_limit(options.limit),
+                        max_file_bytes: if options.load_anyway {
+                            u64::MAX
+                        } else {
+                            DIFF_FILE_MAX_BYTES
+                        },
+                        whitespace: options.whitespace,
                     },
                 )
                 .await?;
@@ -1580,6 +1590,7 @@ mod tests {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
         generation_changes_on_first_preflight: bool,
         working_diff_calls: AtomicUsize,
+        diff_window_options: Mutex<Vec<DiffWindowOptions>>,
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         discard_patch_call: Mutex<Option<RecordedDiscard>>,
@@ -1738,6 +1749,25 @@ mod tests {
                 lines,
             }],
             base_digest: "digest".into(),
+        }
+    }
+
+    fn fake_diff_window(path: &str) -> FileDiffWindow {
+        FileDiffWindow {
+            path: path.to_string(),
+            change_type: FileChangeType::Modified,
+            old_mode: Some(0o100644),
+            new_mode: Some(0o100644),
+            is_binary: false,
+            too_large: false,
+            file_bytes: 8,
+            hunks: vec![],
+            total_hunks: 0,
+            total_lines: 0,
+            offset: 0,
+            truncated: false,
+            next_offset: None,
+            base_digest: Some("digest".into()),
         }
     }
 
@@ -1904,6 +1934,17 @@ mod tests {
                 hunks: vec![],
             })
         }
+        async fn file_diff_window(
+            &self,
+            repo: &RepoPath,
+            _commit_id: &str,
+            path: &str,
+            options: DiffWindowOptions,
+        ) -> Result<FileDiffWindow, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.diff_window_options.lock().unwrap().push(options);
+            Ok(fake_diff_window(path))
+        }
         async fn checkout(&self, repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
@@ -1963,6 +2004,18 @@ mod tests {
                     ],
                 }],
             })
+        }
+        async fn working_file_diff_window(
+            &self,
+            repo: &RepoPath,
+            path: &str,
+            _staged: bool,
+            options: DiffWindowOptions,
+        ) -> Result<FileDiffWindow, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.diff_window_options.lock().unwrap().push(options);
+            self.working_diff_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(fake_diff_window(path))
         }
         async fn create_branch(
             &self,
@@ -2246,14 +2299,46 @@ mod tests {
                 repo.id,
                 "deadbeef",
                 "src/main.rs",
-                0,
-                1_000,
-                DiffWhitespaceMode::Show,
+                DiffRequestOptions {
+                    offset: 0,
+                    limit: 1_000,
+                    whitespace: DiffWhitespaceMode::Show,
+                    load_anyway: false,
+                },
             )
             .await
             .unwrap();
         assert_eq!(detail.path, "src/main.rs");
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+        assert_eq!(
+            git.diff_window_options.lock().unwrap()[0].max_file_bytes,
+            DIFF_FILE_MAX_BYTES
+        );
+    }
+
+    #[tokio::test]
+    async fn load_anyway_bypasses_only_the_source_file_ceiling() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let detail = service
+            .get_file_diff(
+                repo.id,
+                "deadbeef",
+                "src/main.rs",
+                DiffRequestOptions {
+                    offset: 0,
+                    limit: u32::MAX,
+                    whitespace: DiffWhitespaceMode::Show,
+                    load_anyway: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(detail.path, "src/main.rs");
+        let options = git.diff_window_options.lock().unwrap()[0];
+        assert_eq!(options.max_file_bytes, u64::MAX);
+        assert_eq!(options.limit, DIFF_WINDOW_MAX_LINES);
     }
 
     #[tokio::test]
@@ -2798,9 +2883,12 @@ mod tests {
                 repo.id,
                 "src/main.rs",
                 false,
-                0,
-                1_000,
-                DiffWhitespaceMode::Show,
+                DiffRequestOptions {
+                    offset: 0,
+                    limit: 1_000,
+                    whitespace: DiffWhitespaceMode::Show,
+                    load_anyway: false,
+                },
             )
             .await
             .unwrap();
@@ -2953,9 +3041,12 @@ mod tests {
                 repo.id,
                 "src/main.rs",
                 false,
-                0,
-                1_000,
-                DiffWhitespaceMode::Show,
+                DiffRequestOptions {
+                    offset: 0,
+                    limit: 1_000,
+                    whitespace: DiffWhitespaceMode::Show,
+                    load_anyway: false,
+                },
             )
             .await
             .unwrap();

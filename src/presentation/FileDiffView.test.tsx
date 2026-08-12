@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   diff: null as null | {
     path: string;
     changeType: "modified" | "deleted";
+    oldMode: number | null;
+    newMode: number | null;
     isBinary: boolean;
     tooLarge: boolean;
     fileBytes: number;
@@ -44,6 +46,7 @@ const state = vi.hoisted(() => ({
   scrollToIndex: vi.fn(),
   highlightTokens: new Map(),
   wordChanges: new Map(),
+  useFileDiff: vi.fn(),
 }));
 
 vi.mock("@/presentation/useDiffHighlight", () => ({
@@ -63,7 +66,9 @@ vi.mock("@/infrastructure/tauriClient", () => ({
 }));
 
 vi.mock("@/application/useFileDiff", () => ({
-  useFileDiff: () => ({
+  useFileDiff: (...args: unknown[]) => {
+    state.useFileDiff(...args);
+    return {
     diff: state.diff,
     loading: state.loading,
     loadingMore: state.loadingMore,
@@ -72,7 +77,8 @@ vi.mock("@/application/useFileDiff", () => ({
     error: state.error,
     generations: state.generations,
     snapshotInvalid: state.snapshotInvalid,
-  }),
+    };
+  },
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -129,6 +135,7 @@ describe("FileDiffView windowing", () => {
     state.scrollToIndex.mockReset();
     state.highlightTokens = new Map();
     state.wordChanges = new Map();
+    state.useFileDiff.mockReset();
   });
 
   it("builds unified rows and pairs changed lines in split rows", () => {
@@ -765,7 +772,6 @@ describe("FileDiffView windowing", () => {
 
   it.each([
     [{ isBinary: true }, "diff.binary"],
-    [{ tooLarge: true, fileBytes: 2 * 1024 * 1024 }, "too large: 2.0 MB"],
     [{ hunks: [], totalHunks: 0, totalLines: 0 }, "diff.empty"],
   ])("renders a non-text state without diff rows", (overrides, message) => {
     state.hasMore = false;
@@ -776,6 +782,85 @@ describe("FileDiffView windowing", () => {
 
     expect(screen.getByText(message)).toBeInTheDocument();
     expect(screen.queryByText("@@ -4,2 +4,2 @@")).not.toBeInTheDocument();
+  });
+
+  it("shows authoritative totals and progressively loaded line counts", () => {
+    state.hasMore = true;
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} />,
+    );
+
+    expect(screen.getByText("diff.counts")).toBeInTheDocument();
+    expect(screen.getByText("diff.loaded")).toBeInTheDocument();
+  });
+
+  it("requires an explicit load-anyway action above the display ceiling", () => {
+    state.hasMore = false;
+    state.diff = { ...textDiff(), tooLarge: true, fileBytes: 12 * 1024 * 1024, hunks: [] };
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} />,
+    );
+
+    expect(screen.getByText("too large: 12.0 MB")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "diff.loadAnyway" }));
+    expect(state.useFileDiff).toHaveBeenLastCalledWith(
+      "repo-1",
+      "large.txt",
+      { kind: "commit", commitId: "deadbeef" },
+      "show",
+      true,
+    );
+  });
+
+  it.each([
+    ["binary", { isBinary: true }, "diff.binary"],
+    ["mode-only", { hunks: [], totalHunks: 0, totalLines: 0, oldMode: 0o100644, newMode: 0o100755 }, "diff.modeOnly"],
+  ])("keeps the whole-file action for the %s state", (_name, overrides, message) => {
+    state.hasMore = false;
+    state.diff = { ...textDiff(), ...overrides };
+    const onApplyFile = vi.fn();
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyFile={onApplyFile}
+      />,
+    );
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageFile" }));
+    expect(onApplyFile).toHaveBeenCalledOnce();
+  });
+
+  it("measures the giant-file metadata viewport with React in the loop", () => {
+    state.hasMore = false;
+    state.diff = {
+      ...textDiff(),
+      tooLarge: true,
+      fileBytes: 50 * 1024 * 1024,
+      hunks: [],
+      totalHunks: 42_000,
+      totalLines: 500_000,
+    };
+    const samples: number[] = [];
+
+    for (let iteration = 0; iteration < 23; iteration += 1) {
+      const started = performance.now();
+      const view = render(
+        <FileDiffView repoId="repo-1" path="huge/long.txt" source={{ kind: "commit", commitId: "deadbeef" }} />,
+      );
+      const elapsed = performance.now() - started;
+      view.unmount();
+      if (iteration >= 3) samples.push(elapsed);
+    }
+
+    samples.sort((left, right) => left - right);
+    const p50 = samples[Math.ceil(samples.length * 0.50) - 1];
+    const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
+    const max = samples.at(-1)!;
+    console.info(`p8-15-ui-ms p50=${p50.toFixed(3)} p95=${p95.toFixed(3)} max=${max.toFixed(3)}`);
+    expect(p95).toBeLessThan(600);
   });
 
   it("reports errors and dispatches the optional back action", () => {
@@ -797,6 +882,8 @@ function textDiff() {
   return {
     path: "large.txt",
     changeType: "modified" as const,
+    oldMode: 0o100644,
+    newMode: 0o100644,
     isBinary: false,
     tooLarge: false,
     fileBytes: 100,

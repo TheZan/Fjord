@@ -117,6 +117,12 @@
   },
   "diff": {
     "binary": "Binärdatei wird nicht angezeigt.",
+    "counts": "{{hunks}} Blöcke · {{lines}} Zeilen",
+    "loaded": "{{loaded}} von {{total}} Zeilen geladen",
+    "loadAnyway": "Trotzdem laden",
+    "modeOnly": "Der Dateimodus wurde von {{oldMode}} auf {{newMode}} geändert.",
+    "stageFile": "Datei stagen",
+    "unstageFile": "Datei aus dem Index nehmen",
     "empty": "Keine Änderungen zum Anzeigen.",
     "back": "Zurück zum Graphen",
     "viewMode": "Diff-Darstellung",
