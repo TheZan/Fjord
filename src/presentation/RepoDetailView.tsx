@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { AuthoritativeDiffSnapshot, DiffSource } from "@/application/useFileDiff";
+import type { DiffSource } from "@/application/useFileDiff";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -38,7 +38,6 @@ type ActionConfirmation =
 export function RepoDetailView({
   repo,
   snapshotValidated,
-  patchSnapshotInvalid,
   snapshotCapturedAt,
   status,
   statusError,
@@ -78,12 +77,10 @@ export function RepoDetailView({
   onUnstage,
   onApplyHunk,
   onDiscardPatch,
-  onAuthoritativeWorkingDiff,
   onCommit,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
-  patchSnapshotInvalid: boolean;
   snapshotCapturedAt: string | null;
   status: RepoStatus | null;
   statusError: string | null;
@@ -133,7 +130,6 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
-  onAuthoritativeWorkingDiff: (snapshot: AuthoritativeDiffSnapshot) => void;
   onCommit: (message: string) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
@@ -289,9 +285,7 @@ export function RepoDetailView({
               repoId={repo.id}
               path={diffTarget.path}
               source={diffTarget.source}
-              actionDisabled={!snapshotValidated || patchSnapshotInvalid || actionPending !== null}
-              snapshotInvalid={patchSnapshotInvalid}
-              onAuthoritativeSnapshot={onAuthoritativeWorkingDiff}
+              actionDisabled={!snapshotValidated || actionPending !== null}
               onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
               onDiscardPatch={
                 diffTarget.source.kind === "working" && !diffTarget.source.staged

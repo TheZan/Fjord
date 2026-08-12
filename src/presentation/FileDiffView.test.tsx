@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   loading: false,
   loadingMore: false,
   error: null as string | null,
+  snapshotInvalid: false,
   generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 } as GenerationSet | null,
   diff: null as null | {
     path: string;
@@ -51,6 +52,7 @@ vi.mock("@/application/useFileDiff", () => ({
     loadMore: state.loadMore,
     error: state.error,
     generations: state.generations,
+    snapshotInvalid: state.snapshotInvalid,
   }),
 }));
 
@@ -82,6 +84,7 @@ describe("FileDiffView windowing", () => {
     state.loading = false;
     state.loadingMore = false;
     state.error = null;
+    state.snapshotInvalid = false;
     state.generations = { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 };
     state.diff = textDiff();
     state.preflight.mockReset();
@@ -327,7 +330,7 @@ describe("FileDiffView windowing", () => {
 
   it("makes a rejected snapshot non-actionable until its refresh completes", async () => {
     state.hasMore = false;
-    const onApplyHunk = vi.fn();
+    const onApplyHunk = vi.fn().mockResolvedValue(true);
     const onDiscardPatch = vi.fn();
     const view = render(
       <FileDiffView
@@ -343,12 +346,12 @@ describe("FileDiffView windowing", () => {
     fireEvent.click(screen.getByRole("button", { name: "diff.discardHunk" }));
     await screen.findByRole("dialog", { name: "preflight.discard.title" });
 
+    state.snapshotInvalid = true;
     view.rerender(
       <FileDiffView
         repoId="repo-1"
         path="large.txt"
         source={{ kind: "working", staged: false }}
-        snapshotInvalid
         onApplyHunk={onApplyHunk}
         onDiscardPatch={onDiscardPatch}
       />,
@@ -360,6 +363,38 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByRole("button", { name: "diff.discardFile" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "diff.stageHunk" }));
     expect(onApplyHunk).not.toHaveBeenCalled();
+    expect(onDiscardPatch).not.toHaveBeenCalled();
+
+    view.unmount();
+    const reopened = render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={onApplyHunk}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "diff.stageHunk" })).toBeDisabled();
+    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+
+    state.diff = { ...textDiff(), baseDigest: "digest-b" };
+    state.generations = { ...state.generations!, workingTree: 5 };
+    state.snapshotInvalid = false;
+    reopened.rerender(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={onApplyHunk}
+        onDiscardPatch={onDiscardPatch}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.stageHunk" }));
+    await waitFor(() => expect(onApplyHunk).toHaveBeenCalledWith(
+      expect.objectContaining({ baseDigest: "digest-b", source: "worktree" }),
+      expect.objectContaining({ workingTree: 5 }),
+    ));
   });
 
   it("stages exactly the selected unstaged hunk using the backend digest and generations", async () => {

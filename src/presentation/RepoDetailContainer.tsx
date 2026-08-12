@@ -5,12 +5,15 @@ import { userErrorMessage } from "@/application/errorMessage";
 import { useAutoFetch } from "@/application/useAutoFetch";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
+import {
+  isWorkingDiffSnapshotRejected,
+  rejectWorkingDiffSnapshot,
+} from "@/application/diffSnapshotAuthority";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
-import type { AuthoritativeDiffSnapshot } from "@/application/useFileDiff";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -92,7 +95,6 @@ export function RepoDetailContainer({
   const actionInFlight = useRef(false);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
-  const [patchSnapshotInvalid, setPatchSnapshotInvalid] = useState(false);
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -347,14 +349,16 @@ export function RepoDetailContainer({
   }
 
   function onApplyHunk(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
-    if (patchSnapshotInvalid) return Promise.resolve(false);
+    if (isWorkingDiffSnapshotRejected(queryClient, repo.id, selection.path, selection.source)) {
+      return Promise.resolve(false);
+    }
     const action = selection.source === "worktree" ? "stage-hunk" : "unstage-hunk";
     const mutate = selection.source === "worktree" ? stagePatch : unstagePatch;
     return runRepoAction(
       action,
       () => mutate(repo.id, selection, expectedGenerations).then(() => undefined),
       ["status", "working"],
-      handleRejectedPatchMutation,
+      (error) => handleRejectedPatchMutation(error, selection),
     );
   }
 
@@ -364,7 +368,9 @@ export function RepoDetailContainer({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ): Promise<boolean> {
-    if (patchSnapshotInvalid) return Promise.resolve(false);
+    if (isWorkingDiffSnapshotRejected(queryClient, repo.id, selection.path, selection.source)) {
+      return Promise.resolve(false);
+    }
     return runRepoAction(
       "discard-patch",
       () => discardPatch(
@@ -375,18 +381,18 @@ export function RepoDetailContainer({
         confirmationToken,
       ).then(() => undefined),
       ["status", "working"],
-      handleRejectedPatchMutation,
+      (error) => handleRejectedPatchMutation(error, selection),
     );
   }
 
-  async function handleRejectedPatchMutation(error: unknown): Promise<boolean> {
+  async function handleRejectedPatchMutation(error: unknown, selection: PatchSelection): Promise<boolean> {
     const code = invokeErrorCode(error);
     if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
 
     // A rejected patch invalidates the rendered snapshot. TanStack Query can
     // retain that data after a failed refetch, so only a later successful,
     // authoritative working-diff result may release this latch.
-    setPatchSnapshotInvalid(true);
+    rejectWorkingDiffSnapshot(queryClient, repo.id, selection.path, selection.source);
     setActionConfirmation(null);
     setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
     try {
@@ -397,10 +403,6 @@ export function RepoDetailContainer({
       // result arrives.
     }
     return true;
-  }
-
-  function handleAuthoritativeWorkingDiff(_snapshot: AuthoritativeDiffSnapshot) {
-    setPatchSnapshotInvalid(false);
   }
 
   function onCommit(message: string): Promise<boolean> {
@@ -421,8 +423,6 @@ export function RepoDetailContainer({
     snapshot.ready ? <RepoDetailView
       repo={repo}
       snapshotValidated={snapshot.validated}
-      patchSnapshotInvalid={patchSnapshotInvalid}
-      onAuthoritativeWorkingDiff={handleAuthoritativeWorkingDiff}
       snapshotCapturedAt={snapshot.capturedAt}
       status={status}
       statusError={statusError}

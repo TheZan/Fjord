@@ -269,7 +269,12 @@ Selection lives in the diff view, which becomes interactive:
   the rendered diff non-actionable and clears selections/preflight. Completion
   or failure of invalidation is not validation: only a successful authoritative
   working-diff response may release the latch; mutation is never retried
-  automatically.
+  automatically. The latch and a monotonic fetch-sequence boundary live in the
+  QueryClient under the exact repository/path/source identity. Every working-diff
+  request receives a deterministic sequence when it starts, and all accepted
+  windows must have sequences strictly beyond the rejection boundary before the
+  latch clears. Cached success state, historical `dataUpdatedAt`, remount, and a
+  successful response for another file or source cannot establish freshness.
 - Discard always routes through the preflight dialog
   ([`repository-safety.md`](repository-safety.md) §3) showing line counts and the
   file path — never a bare "are you sure".

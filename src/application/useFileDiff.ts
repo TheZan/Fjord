@@ -3,6 +3,12 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { userErrorMessage } from "@/application/errorMessage";
 import { queryKeys } from "@/application/queryKeys";
 import {
+  acceptWorkingDiffSnapshot,
+  beginWorkingDiffFetch,
+  useWorkingDiffSnapshotRejected,
+  workingDiffSourceKey,
+} from "@/application/diffSnapshotAuthority";
+import {
   getFileDiffPage,
   getWorkingFileDiffPage,
   observeDiffPage,
@@ -22,11 +28,7 @@ export interface UseFileDiffResult {
   loadMore: () => void;
   error: string | null;
   generations: GenerationSet | null;
-}
-
-export type AuthoritativeDiffSnapshot = {
-  diff: FileDiffWindow;
-  generations: GenerationSet;
+  snapshotInvalid: boolean;
 };
 
 export const DIFF_WINDOW_LINES = 1_000;
@@ -36,6 +38,7 @@ export interface DiffWindowPage extends VersionedFileDiffWindow {
   repoId: string;
   requestedPath: string;
   sourceKey: string;
+  fetchSequence: number;
 }
 
 export type DiffWindowMergeResult =
@@ -48,16 +51,13 @@ export function useFileDiff(
   repoId: string | null,
   path: string | null,
   source: DiffSource | null,
-  onAuthoritativeSnapshot?: (snapshot: AuthoritativeDiffSnapshot) => void,
 ): UseFileDiffResult {
   const queryClient = useQueryClient();
   const rejectedData = useRef<unknown>(null);
-  const onAuthoritativeSnapshotRef = useRef(onAuthoritativeSnapshot);
-  onAuthoritativeSnapshotRef.current = onAuthoritativeSnapshot;
   const sourceKey = source
     ? source.kind === "commit"
       ? `commit:${source.commitId}`
-      : `working:${source.staged}`
+      : workingDiffSourceKey(source.staged ? "index" : "worktree")
     : null;
 
   const queryKey = useMemo(
@@ -69,6 +69,9 @@ export function useFileDiff(
   const query = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam, signal }): Promise<DiffWindowPage> => {
+      const fetchSequence = source!.kind === "working"
+        ? beginWorkingDiffFetch(queryClient, repoId!, path!, sourceKey!)
+        : 0;
       const response = source!.kind === "commit"
         ? await getFileDiffPage(
             repoId!,
@@ -92,6 +95,7 @@ export function useFileDiff(
         repoId: repoId!,
         requestedPath: path!,
         sourceKey: sourceKey!,
+        fetchSequence,
       };
     },
     initialPageParam: 0,
@@ -106,6 +110,7 @@ export function useFileDiff(
     [query.data?.pages],
   );
   const snapshotMismatch = merge.status === "invalid";
+  const snapshotInvalid = useWorkingDiffSnapshotRejected(repoId, path, sourceKey);
 
   useEffect(() => {
     if (!snapshotMismatch || !query.data || rejectedData.current === query.data) return;
@@ -122,13 +127,11 @@ export function useFileDiff(
     observeDiffPage(repoId, { data: merge.diff, generations: merge.generations }, source?.kind === "working" ? "working" : "history");
   }, [merge, repoId, source?.kind]);
 
-  // `dataUpdatedAt` advances only when TanStack Query accepts a successful
-  // query result. An invalidation attempt that fails leaves cached data in
-  // place but does not advance it, so it cannot re-authorize that cache.
   useEffect(() => {
-    if (source?.kind !== "working" || merge.status !== "valid" || query.dataUpdatedAt === 0) return;
-    onAuthoritativeSnapshotRef.current?.({ diff: merge.diff, generations: merge.generations });
-  }, [merge, query.dataUpdatedAt, source?.kind]);
+    if (source?.kind !== "working" || merge.status !== "valid" || !query.data || !sourceKey) return;
+    const successfulFetchSequence = Math.min(...query.data.pages.map((page) => page.fetchSequence));
+    acceptWorkingDiffSnapshot(queryClient, repoId!, path!, sourceKey, successfulFetchSequence);
+  }, [merge, path, query.data, queryClient, repoId, source?.kind, sourceKey]);
 
   const loadMore = useCallback(() => {
     if (!snapshotMismatch && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
@@ -142,6 +145,7 @@ export function useFileDiff(
     loadMore,
     error: query.error ? userErrorMessage(query.error) : null,
     generations: merge.status === "valid" ? merge.generations : null,
+    snapshotInvalid,
   };
 }
 

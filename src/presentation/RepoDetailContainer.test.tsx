@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkoutBranch, discardPatch, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
+import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
 import type { RepositoryEntry } from "@/domain/workspace";
 
@@ -9,6 +10,7 @@ const snapshotMock = vi.hoisted(() => ({
   validated: true,
   ensureValidated: vi.fn<() => Promise<boolean>>(async () => true),
 }));
+const authorityMock = vi.hoisted(() => ({ rejected: false }));
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
@@ -52,6 +54,10 @@ vi.mock("@/application/useWorkingChanges", () => ({
 vi.mock("@/application/invalidateRepoData", () => ({
   invalidateRepoData: vi.fn(async () => undefined),
 }));
+vi.mock("@/application/diffSnapshotAuthority", () => ({
+  isWorkingDiffSnapshotRejected: vi.fn(() => authorityMock.rejected),
+  rejectWorkingDiffSnapshot: vi.fn(() => { authorityMock.rejected = true; }),
+}));
 vi.mock("@/presentation/performance", () => ({
   useInteractionCommit: vi.fn(),
 }));
@@ -72,9 +78,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onConfirmAction,
     onApplyHunk,
     onDiscardPatch,
-    onAuthoritativeWorkingDiff,
     actionPending,
-    patchSnapshotInvalid,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push") => void;
@@ -88,11 +92,8 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       confirmationToken: string,
     ) => Promise<boolean>;
     actionPending: string | null;
-    patchSnapshotInvalid: boolean;
-    onAuthoritativeWorkingDiff: (snapshot: unknown) => void;
   }) => (
     <div>
-      <output data-testid="patch-snapshot-invalid">{String(patchSnapshotInvalid)}</output>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
@@ -104,7 +105,6 @@ vi.mock("@/presentation/RepoDetailView", () => ({
         { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
         "confirmation-token",
       )}>discard lines</button>
-      <button type="button" onClick={() => onAuthoritativeWorkingDiff({})}>authoritative diff</button>
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -133,6 +133,8 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(discardPatch).mockReset();
     vi.mocked(discardPatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(invalidateRepoData).mockClear();
+    vi.mocked(rejectWorkingDiffSnapshot).mockClear();
+    authorityMock.rejected = false;
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
@@ -237,14 +239,13 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "stage hunk" }));
 
-    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true"));
+    await waitFor(() => expect(rejectWorkingDiffSnapshot).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "file.txt", "worktree",
+    ));
     expect(stagePatch).toHaveBeenCalledOnce();
     await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledOnce());
-    expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true");
+    fireEvent.click(screen.getByRole("button", { name: "stage hunk" }));
     expect(stagePatch).toHaveBeenCalledOnce();
-
-    fireEvent.click(screen.getByRole("button", { name: "authoritative diff" }));
-    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("false"));
   });
 
   it("does not reopen a preflight on the rejected snapshot after refresh failure", async () => {
@@ -255,7 +256,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     fireEvent.click(screen.getByRole("button", { name: "discard lines" }));
 
     await waitFor(() => expect(discardPatch).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true"));
+    await waitFor(() => expect(rejectWorkingDiffSnapshot).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "discard lines" }));
     expect(discardPatch).toHaveBeenCalledOnce();
   });

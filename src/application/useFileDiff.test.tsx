@@ -11,6 +11,7 @@ import {
 import type { FileDiffWindow, GenerationSet } from "@/domain/git";
 import * as tauriClient from "@/infrastructure/tauriClient";
 import { queryKeys } from "@/application/queryKeys";
+import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   getFileDiffPage: vi.fn(),
@@ -84,6 +85,7 @@ function page(
     repoId: overrides.repoId ?? "repo-1",
     requestedPath: overrides.requestedPath ?? "large.txt",
     sourceKey: overrides.sourceKey ?? "working:false",
+    fetchSequence: 1,
   };
 }
 
@@ -193,7 +195,7 @@ describe("useFileDiff mixed-snapshot recovery", () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it("reports only successful authoritative responses when an invalidated working diff refetch fails then succeeds", async () => {
+  it("keeps a rejected cached diff invalid until a post-rejection fetch succeeds", async () => {
     let attempt = 0;
     vi.mocked(tauriClient.getWorkingFileDiffPage).mockImplementation(async () => {
       attempt += 1;
@@ -206,28 +208,169 @@ describe("useFileDiff mixed-snapshot recovery", () => {
       };
     });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const onAuthoritativeSnapshot = vi.fn();
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const { result } = renderHook(
-      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }, onAuthoritativeSnapshot),
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
       { wrapper },
     );
 
     await waitFor(() => expect(result.current.diff?.baseDigest).toBe("digest-old"));
-    await waitFor(() => expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(1));
+    expect(result.current.snapshotInvalid).toBe(false);
+
+    act(() => rejectWorkingDiffSnapshot(queryClient, "repo-1", "large.txt", "worktree"));
+    await waitFor(() => expect(result.current.snapshotInvalid).toBe(true));
 
     await act(async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.repos.fileDiffs("repo-1") });
     });
     expect(result.current.diff?.baseDigest).toBe("digest-old");
-    expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(1);
+    expect(result.current.snapshotInvalid).toBe(true);
 
     await act(async () => {
       await queryClient.refetchQueries({ queryKey: queryKeys.repos.fileDiffs("repo-1") });
     });
     await waitFor(() => expect(result.current.diff?.baseDigest).toBe("digest-new"));
-    expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(result.current.snapshotInvalid).toBe(false));
+  });
+
+  it("survives failed refreshes and remount cache replay, then accepts only fresh snapshot B", async () => {
+    const requests = [
+      deferred<tauriClient.VersionedFileDiffWindow>(),
+      deferred<tauriClient.VersionedFileDiffWindow>(),
+      deferred<tauriClient.VersionedFileDiffWindow>(),
+      deferred<tauriClient.VersionedFileDiffWindow>(),
+    ];
+    let attempt = 0;
+    vi.mocked(tauriClient.getWorkingFileDiffPage).mockImplementation(
+      () => requests[attempt++].promise,
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const queryKey = queryKeys.repos.fileDiff("repo-1", "large.txt", "working:false");
+
+    const first = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    await waitFor(() => expect(attempt).toBe(1));
+    await act(async () => requests[0].resolve(diffResponse("digest-a", 1)));
+    await waitFor(() => expect(first.result.current.diff?.baseDigest).toBe("digest-a"));
+
+    act(() => rejectWorkingDiffSnapshot(queryClient, "repo-1", "large.txt", "worktree"));
+    await waitFor(() => expect(first.result.current.snapshotInvalid).toBe(true));
+    const failedRefresh = queryClient.invalidateQueries({ queryKey, exact: true });
+    await waitFor(() => expect(attempt).toBe(2));
+    await act(async () => {
+      requests[1].reject(new Error("refresh failed"));
+      await failedRefresh;
+    });
+    expect(first.result.current.diff?.baseDigest).toBe("digest-a");
+    expect(first.result.current.snapshotInvalid).toBe(true);
+    expect(queryClient.getQueryState(queryKey)?.dataUpdatedAt).toBeGreaterThan(0);
+
+    first.unmount();
+    const reopened = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    expect(reopened.result.current.diff?.baseDigest).toBe("digest-a");
+    expect(reopened.result.current.snapshotInvalid).toBe(true);
+    await waitFor(() => expect(attempt).toBe(3));
+    await act(async () => requests[2].reject(new Error("automatic retry failed")));
+    expect(reopened.result.current.snapshotInvalid).toBe(true);
+
+    const successfulRetry = queryClient.refetchQueries({ queryKey, exact: true });
+    await waitFor(() => expect(attempt).toBe(4));
+    await act(async () => {
+      requests[3].resolve(diffResponse("digest-b", 2));
+      await successfulRetry;
+    });
+    await waitFor(() => expect(reopened.result.current.diff?.baseDigest).toBe("digest-b"));
+    await waitFor(() => expect(reopened.result.current.snapshotInvalid).toBe(false));
+    expect(reopened.result.current.generations?.workingTree).toBe(2);
+  });
+
+  it("does not let a successful fetch for another file release a rejected snapshot", async () => {
+    vi.mocked(tauriClient.getWorkingFileDiffPage).mockImplementation(async (_repoId, path) => (
+      diffResponse(path === "other.txt" ? "digest-other" : "digest-a", 1, path)
+    ));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const fileA = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fileA.result.current.diff?.baseDigest).toBe("digest-a"));
+    act(() => rejectWorkingDiffSnapshot(queryClient, "repo-1", "large.txt", "worktree"));
+    await waitFor(() => expect(fileA.result.current.snapshotInvalid).toBe(true));
+
+    const fileB = renderHook(
+      () => useFileDiff("repo-1", "other.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fileB.result.current.diff?.baseDigest).toBe("digest-other"));
+    const otherSource = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: true }),
+      { wrapper },
+    );
+    await waitFor(() => expect(otherSource.result.current.diff?.baseDigest).toBe("digest-a"));
+    expect(fileB.result.current.snapshotInvalid).toBe(false);
+    expect(otherSource.result.current.snapshotInvalid).toBe(false);
+    expect(fileA.result.current.snapshotInvalid).toBe(true);
+  });
+
+  it("keeps an unrejected cached diff actionable on remount", async () => {
+    const remountFetch = deferred<tauriClient.VersionedFileDiffWindow>();
+    let attempt = 0;
+    vi.mocked(tauriClient.getWorkingFileDiffPage).mockImplementation(async () => {
+      attempt += 1;
+      if (attempt === 1) return diffResponse("digest-a", 1);
+      return remountFetch.promise;
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const first = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    await waitFor(() => expect(first.result.current.diff?.baseDigest).toBe("digest-a"));
+    first.unmount();
+
+    const reopened = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }),
+      { wrapper },
+    );
+    expect(reopened.result.current.diff?.baseDigest).toBe("digest-a");
+    expect(reopened.result.current.snapshotInvalid).toBe(false);
+    remountFetch.resolve(diffResponse("digest-a", 1));
   });
 });
+
+function diffResponse(
+  baseDigest: string,
+  workingTree: number,
+  path = "large.txt",
+): tauriClient.VersionedFileDiffWindow {
+  return {
+    data: window(0, ["one", "two", "three", "four"], null, { baseDigest, path }),
+    generations: { ...generationsA, workingTree },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
