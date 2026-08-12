@@ -30,6 +30,7 @@ export function useGraphLayout(commits: CommitSummary[]) {
   const sentCommitsRef = useRef<CommitSummary[]>([]);
   const requestIdRef = useRef(0);
   const [workerResult, setWorkerResult] = useState<WorkerLayoutResult | null>(null);
+  const lastLayoutRef = useRef<{ layout: GraphLayout; headId: string | null } | null>(null);
 
   useEffect(() => {
     if (!shouldUseWorker) return;
@@ -90,19 +91,36 @@ export function useGraphLayout(commits: CommitSummary[]) {
     [],
   );
 
-  if (synchronousLayout) return { ...synchronousLayout, computing: false, incremental: false };
+  const headId = commits[0]?.id ?? null;
+
+  if (synchronousLayout) {
+    lastLayoutRef.current = { layout: synchronousLayout, headId };
+    return { ...synchronousLayout, computing: false, incremental: false };
+  }
 
   const reusableResult =
     workerResult &&
-    workerResult.headId === (commits[0]?.id ?? null) &&
+    workerResult.headId === headId &&
     workerResult.commitCount <= commits.length &&
     workerResult.layout.rows.every((row, index) => row.commit.id === commits[index]?.id)
       ? workerResult
       : null;
 
-  return {
-    ...(reusableResult?.layout ?? EMPTY_LAYOUT),
-    computing: reusableResult?.commitCount !== commits.length,
-    incremental: reusableResult?.incremental ?? false,
-  };
+  if (reusableResult) {
+    lastLayoutRef.current = { layout: reusableResult.layout, headId };
+    return {
+      ...reusableResult.layout,
+      computing: reusableResult.commitCount !== commits.length,
+      incremental: reusableResult.incremental,
+    };
+  }
+
+  // No worker result usable yet — e.g. the commit count just crossed
+  // WORKER_THRESHOLD for the first time, so the worker hasn't replied at
+  // all. Falling back to EMPTY_LAYOUT here would collapse the virtualized
+  // list's height to zero mid-scroll, and the browser immediately clamps
+  // scrollTop to fit, yanking the view back to the top. Keep showing the
+  // last good layout (for the same HEAD) until the worker catches up.
+  const fallback = lastLayoutRef.current?.headId === headId ? lastLayoutRef.current.layout : EMPTY_LAYOUT;
+  return { ...fallback, computing: true, incremental: false };
 }
