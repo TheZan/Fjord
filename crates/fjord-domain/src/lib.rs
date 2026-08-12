@@ -415,14 +415,19 @@ impl DiscardSelection {
     rename_all_fields = "camelCase"
 )]
 pub enum DestructiveAction {
-    Discard {
-        selection: DiscardSelection,
-    },
-    ForceWithLease {
-        remote: String,
-        ref_name: String,
-        expected_oid: CommitId,
-    },
+    Discard { selection: DiscardSelection },
+    ForceWithLease,
+}
+
+/// Authoritative lease facts resolved by the backend. These are display-only
+/// over IPC; force-push execution accepts only the backend confirmation token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ForceWithLeaseDetails {
+    pub remote: String,
+    pub ref_name: String,
+    pub expected_oid: CommitId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -494,6 +499,8 @@ pub struct DestructivePreflight {
     // Captured only after consequence computation completed without a
     // generation change; confirmation must present this stamp to execution.
     pub generations: GenerationSet,
+    // Present only for force-with-lease and resolved from backend Git state.
+    pub force_with_lease: Option<ForceWithLeaseDetails>,
     // Backend-issued bearer proof for this exact destructive scope. Blocked
     // preflights do not receive a confirmation.
     pub confirmation_token: Option<String>,

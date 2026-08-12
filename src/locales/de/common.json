@@ -32,6 +32,7 @@
     "git_environment_error": "Die Git-Umgebung konnte nicht geprüft werden.",
     "git_executable_invalid": "Die ausgewählte Git-Datei ist ungültig.",
     "git_executable_not_found": "Git wurde nicht gefunden. Wähle die installierte Git-Datei aus.",
+    "git_force_lease_failed": "Jemand anderes hat diesen Branch aktualisiert. Lade und prüfe die neuen Remote-Commits vor einem erneuten Versuch.",
     "git_host_key_verification_failed": "Die SSH-Hostschlüsselprüfung ist fehlgeschlagen.",
     "git_network_unavailable": "Der Git-Server ist nicht erreichbar. Prüfe Netzwerk oder VPN.",
     "git_non_fast_forward": "Der Push wurde wegen neuerer Remote-Commits abgelehnt.",

@@ -526,7 +526,7 @@ export function getWorkingFileDiffWithGenerations(
 export function preflightDestructiveAction(
   repoId: string,
   action: DestructiveAction,
-  patchSelection: PatchSelection,
+  patchSelection: PatchSelection | null = null,
 ): Promise<DestructivePreflight> {
   return invoke("preflight_destructive_action", { repoId, action, patchSelection });
 }
@@ -679,11 +679,16 @@ export function runPullRepo(repoId: string): OperationTask<void> {
 }
 
 export function pushRepo(repoId: string, operationId: string | null = null): Promise<void> {
-  return invoke("push_repo", { repoId, operationId });
+  return invoke("push_repo", { repoId, forceWithLease: false, expectedGenerations: null, confirmationToken: null, operationId });
 }
 
-export function runPushRepo(repoId: string): OperationTask<void> {
-  return invokeOperation("push", "push_repo", { repoId });
+export function runPushRepo(
+  repoId: string,
+  forceWithLease = false,
+  expectedGenerations: GenerationSet | null = null,
+  confirmationToken: string | null = null,
+): OperationTask<void> {
+  return invokeOperation("push", "push_repo", { repoId, forceWithLease, expectedGenerations, confirmationToken });
 }
 
 // Publishes the current branch and sets its upstream. The remote is chosen by

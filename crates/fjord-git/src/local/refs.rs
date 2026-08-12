@@ -539,6 +539,53 @@ pub(super) async fn current_push_target(repo: &RepoPath) -> Result<PushTarget, G
     .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
+pub(super) async fn force_push_plan(
+    repo: &RepoPath,
+) -> Result<fjord_ports::ForcePushPlan, GitError> {
+    let repo = repo.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let local_ref = LocalGitBackend::current_branch_refname(git)?;
+            let remote = git
+                .branch_upstream_remote(&local_ref)
+                .map_err(upstream_error)?
+                .as_str()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .to_string();
+            let upstream = git
+                .branch_upstream_name(&local_ref)
+                .map_err(upstream_error)?
+                .as_str()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .to_string();
+            let expected_oid = git
+                .find_reference(&upstream)
+                .map_err(LocalGitBackend::map_git2_error)?
+                .peel_to_commit()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .id()
+                .to_string();
+            let source_oid = git
+                .find_reference(&local_ref)
+                .map_err(LocalGitBackend::map_git2_error)?
+                .peel_to_commit()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .id()
+                .to_string();
+
+            Ok(fjord_ports::ForcePushPlan {
+                remote_ref: remote_ref_for_upstream(git, &remote, &upstream),
+                remote,
+                expected_oid,
+                source_oid,
+            })
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
 fn upstream_error(error: git2::Error) -> GitError {
     match error.code() {
         ErrorCode::NotFound => GitError::NoUpstream,

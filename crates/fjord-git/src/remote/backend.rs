@@ -88,6 +88,21 @@ impl SystemGitRemoteBackend {
     }
 }
 
+fn force_push_arguments(
+    remote: &str,
+    source_oid: &str,
+    remote_ref: &str,
+    expected_oid: &str,
+) -> Vec<OsString> {
+    vec![
+        "push".into(),
+        "--progress".into(),
+        format!("--force-with-lease={remote_ref}:{expected_oid}").into(),
+        remote.into(),
+        format!("{source_oid}:{remote_ref}").into(),
+    ]
+}
+
 #[async_trait]
 impl GitRemoteBackend for SystemGitRemoteBackend {
     async fn fetch(
@@ -131,6 +146,27 @@ impl GitRemoteBackend for SystemGitRemoteBackend {
         self.run(
             repo,
             args,
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
+            context,
+        )
+        .await?;
+        bump_repository_mutation(repo, MutationKind::Push);
+        Ok(())
+    }
+
+    async fn force_push_with_lease(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        source_oid: &str,
+        remote_ref: &str,
+        expected_oid: &str,
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        let _guard = locking::write(repo).await;
+        self.run(
+            repo,
+            force_push_arguments(remote, source_oid, remote_ref, expected_oid),
             OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
             context,
         )
@@ -244,6 +280,26 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].name, "HEAD");
         assert_eq!(refs[0].symbolic_target.as_deref(), Some("refs/heads/main"));
+    }
+
+    #[test]
+    fn force_push_constructs_only_an_explicit_lease() {
+        let args = force_push_arguments("company", "local123", "refs/heads/trunk", "remote456");
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("push"),
+                OsString::from("--progress"),
+                OsString::from("--force-with-lease=refs/heads/trunk:remote456"),
+                OsString::from("company"),
+                OsString::from("local123:refs/heads/trunk"),
+            ]
+        );
+        let source = include_str!("backend.rs");
+        assert!(
+            !source.contains("\"--force\""),
+            "bare force must never be constructed"
+        );
     }
 
     /// Guards the assumption the progress parser depends on: Git only writes
@@ -395,6 +451,65 @@ mod tests {
             &remote,
             &["show-ref", "--verify", "refs/heads/main"]
         ));
+    }
+
+    #[tokio::test]
+    async fn explicit_force_lease_rejects_a_stale_remote_tip() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        let peer = temp.path().join("peer");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        std::fs::write(source.join("README.md"), "initial\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "initial"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&source, &["push", "-u", "origin", "main"]);
+        let stale_expected = git_output(&source, &["rev-parse", "origin/main"]);
+
+        run_git(
+            temp.path(),
+            &[
+                "clone",
+                "-b",
+                "main",
+                remote.to_str().unwrap(),
+                peer.to_str().unwrap(),
+            ],
+        );
+        configure_identity(&peer);
+        std::fs::write(peer.join("peer.txt"), "peer\n").unwrap();
+        run_git(&peer, &["add", "."]);
+        run_git(&peer, &["commit", "-m", "peer update"]);
+        run_git(&peer, &["push", "origin", "HEAD:refs/heads/main"]);
+
+        std::fs::write(source.join("local.txt"), "local\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "local rewrite"]);
+        let source_oid = git_output(&source, &["rev-parse", "HEAD"]);
+        let error = SystemGitRemoteBackend::new()
+            .force_push_with_lease(
+                &RepoPath::new(source),
+                "origin",
+                &source_oid,
+                "refs/heads/main",
+                &stale_expected,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code(), "git_force_lease_failed");
+        assert_eq!(
+            git_output(&remote, &["rev-parse", "refs/heads/main"]),
+            git_output(&peer, &["rev-parse", "HEAD"])
+        );
     }
 
     #[tokio::test]

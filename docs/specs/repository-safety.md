@@ -169,6 +169,8 @@ pub struct DestructivePreflight {
     pub recoverable: Recoverability,      // Reflog | Stash | NotRecoverable
     pub blockers: Vec<String>,            // conditions that make the action refuse
     pub generations: GenerationSet,       // coherent stamp required at confirmation
+    pub force_with_lease: Option<ForceWithLeaseDetails>, // backend facts for display only
+    pub confirmation_token: Option<String>, // opaque, short-lived, one-use
 }
 
 pub enum Consequence {
@@ -212,6 +214,13 @@ validates and consumes that token under the repository write lock before doing
 any Git work. Tokens expire after two minutes, are one-use even after a failed
 binding attempt, and cannot be substituted across scopes or repositories.
 Generation equality by itself is never confirmation.
+
+For force-with-lease, the caller supplies only `ForceWithLease` intent. The
+backend resolves the configured upstream remote, actual remote ref, locally
+known remote-tracking OID, and immutable local source commit. It computes dropped
+commits from that plan and binds the complete plan to the same short-lived,
+one-use confirmation model. Execution consumes the token and re-resolves the
+plan; it never accepts remote/ref/OID facts from IPC.
 
 Discard execution additionally holds Git's resolved per-worktree `index.lock`
 from repository reconstruction through the final contextual worktree apply.

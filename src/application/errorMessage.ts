@@ -11,6 +11,7 @@ const USER_ERROR_CODES = new Set([
   "git_environment_error",
   "git_executable_invalid",
   "git_executable_not_found",
+  "git_force_lease_failed",
   "git_host_key_verification_failed",
   "git_network_unavailable",
   "git_non_fast_forward",

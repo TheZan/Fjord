@@ -642,15 +642,32 @@ pub async fn push_repo(
     app: AppHandle,
     state: State<'_, AppState>,
     repo_id: RepositoryId,
+    force_with_lease: bool,
+    expected_generations: Option<GenerationSet>,
+    confirmation_token: Option<String>,
     operation_id: Option<String>,
 ) -> Result<(), AppError> {
+    let repos = state.repos.clone();
     run_repo_operation(
         &app,
         &state,
         operation_id,
         OperationKind::Push,
         repo_id,
-        |context| state.repos.push_with_context(repo_id, context),
+        |context| async move {
+            if force_with_lease {
+                let generations =
+                    expected_generations.ok_or(fjord_ports::GitError::PreflightStale)?;
+                let token = confirmation_token
+                    .as_deref()
+                    .ok_or(fjord_ports::GitError::PreflightStale)?;
+                repos
+                    .force_push_with_context(repo_id, generations, token, context)
+                    .await
+            } else {
+                repos.push_with_context(repo_id, context).await
+            }
+        },
     )
     .await
 }

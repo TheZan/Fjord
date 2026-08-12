@@ -32,6 +32,7 @@
     "git_environment_error": "Impossible d’inspecter l’environnement Git.",
     "git_executable_invalid": "L’exécutable Git sélectionné est invalide.",
     "git_executable_not_found": "Git est introuvable. Sélectionnez l’exécutable Git installé.",
+    "git_force_lease_failed": "Quelqu’un d’autre a mis à jour cette branche. Récupérez et examinez les nouveaux commits distants avant de réessayer.",
     "git_host_key_verification_failed": "La vérification de la clé d’hôte SSH a échoué.",
     "git_network_unavailable": "Le serveur Git est inaccessible. Vérifiez le réseau ou le VPN.",
     "git_non_fast_forward": "Le push a été refusé car la branche distante contient de nouveaux commits.",

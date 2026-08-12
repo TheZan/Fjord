@@ -127,6 +127,17 @@ pub struct PushTarget {
     pub remote_ref: String,
 }
 
+/// Exact source and lease facts captured for one force-push confirmation.
+/// The source is an immutable object id so a moving local branch cannot widen
+/// the operation after confirmation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForcePushPlan {
+    pub remote: String,
+    pub remote_ref: String,
+    pub expected_oid: String,
+    pub source_oid: String,
+}
+
 impl PushTarget {
     /// The explicit refspec passed to system Git.
     pub fn refspec(&self) -> String {
@@ -416,6 +427,32 @@ pub trait GitBackend: Send + Sync {
     /// publish deliberately instead of inheriting `push.default`.
     async fn current_push_target(&self, _repo: &RepoPath) -> Result<PushTarget, GitError> {
         Err(GitError::NotImplemented("current_push_target"))
+    }
+    /// Resolves the configured push target, remote-tracking oid, and exact
+    /// local source commit from authoritative repository state.
+    async fn force_push_plan(&self, _repo: &RepoPath) -> Result<ForcePushPlan, GitError> {
+        Err(GitError::NotImplemented("force_push_plan"))
+    }
+    /// Issues a short-lived confirmation bound to the exact force-push plan.
+    async fn issue_force_push_confirmation(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _plan: &ForcePushPlan,
+        _generations: GenerationSet,
+    ) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("issue_force_push_confirmation"))
+    }
+    /// Atomically consumes a force-push confirmation and returns only its
+    /// backend-bound plan after revalidating current local state.
+    async fn consume_force_push_confirmation(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _expected_generations: GenerationSet,
+        _confirmation_token: &str,
+    ) -> Result<ForcePushPlan, GitError> {
+        Err(GitError::NotImplemented("consume_force_push_confirmation"))
     }
     /// Returns the current branch's ref name, used when publishing a branch
     /// that has no upstream yet.

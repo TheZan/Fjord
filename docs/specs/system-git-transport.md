@@ -135,6 +135,7 @@ Frontend behavior depends only on these stable codes:
 | `git_proxy_failed` | Proxy resolution/authentication/connect failed. |
 | `git_network_unavailable` | DNS, routing, connection, or offline failure. |
 | `git_non_fast_forward` | Push would not be a fast-forward. |
+| `git_force_lease_failed` | The explicit force-with-lease expectation is stale; fetch and review before retrying. |
 | `git_remote_rejected` | The server rejected the update. |
 | `git_operation_timeout` | The configured process timeout elapsed. |
 | `operation_cancelled` | The user/application cancelled the operation. |

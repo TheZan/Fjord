@@ -5,13 +5,13 @@ use fjord_domain::{
     AmendInfo, BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
     Consequence, CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
-    FileDiffWindow, GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
-    GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
-    GlobalSearchResult, HunkSelection, InteractionSpan, InteractionTrace, LogCursor,
-    OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, Recoverability, RemoteRef,
-    RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings,
-    SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
+    FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitAuthPrompt, GitAuthPromptKind,
+    GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo, GitExecutable,
+    GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan, InteractionTrace,
+    LogCursor, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, Recoverability,
+    RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
+    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
     UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
@@ -75,6 +75,7 @@ fn generated_types() -> String {
     push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);
     push::<DestructiveAction>(&mut output, &config);
+    push::<ForceWithLeaseDetails>(&mut output, &config);
     push::<Recoverability>(&mut output, &config);
     push::<Consequence>(&mut output, &config);
     push::<DestructivePreflight>(&mut output, &config);

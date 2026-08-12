@@ -74,7 +74,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Every page independently carries its served `offset`, the full diff's `baseDigest`, and complete `GenerationSet`; the digest and existing `working_tree` generation are captured coherently and retained for cross-page validation. |
 | `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
-| `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Phase 8 consequences; discard requires its exact `PatchSelection` and returns a short-lived backend confirmation token bound to repository, action, selection/digest, and coherent generation stamp |
+| `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Phase 8 consequences. Discard binds the exact `PatchSelection`; force-with-lease accepts only the action intent and returns display facts resolved from backend Git state. Both return a short-lived token bound to repository, action, authoritative facts, and coherent generation stamp. |
 
 ### Repository mutations (local)
 
@@ -105,7 +105,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 |---|---|---|---|
 | `fetch_repo` | `{ repo_id, remote?, operation_id? }` | — | `--progress --prune` |
 | `pull_repo` | `{ repo_id, operation_id? }` | — | System fetch + local integration; never `git pull` |
-| `push_repo` | `{ repo_id, operation_id? }` | — | Target resolved from the branch's upstream; `no_upstream` → publish |
+| `push_repo` | `{ repo_id, force_with_lease, expected_generations?, confirmation_token?, operation_id? }` | — | Normal target is resolved from the branch's upstream; `no_upstream` → publish. Force mode requires the one-use preflight token and executes only its backend-bound remote/ref/OIDs. |
 | `publish_branch` | `{ repo_id, remote?, operation_id? }` | — | The only operation allowed to name a default remote |
 | `delete_remote_branch` | `{ repo_id, name }` | — | `git push <remote> --delete` |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Bounded worker pool; per-repo results, one failure does not abort the batch |
@@ -141,7 +141,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
 | `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |

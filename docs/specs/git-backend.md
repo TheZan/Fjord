@@ -99,6 +99,12 @@ upstream configuration and returns the remote plus both refs, or `NoUpstream`.
 Resolving that locally keeps the decision out of the transport and out of the
 user's `push.default`.
 
+For force-with-lease, `force_push_plan` additionally resolves the locally known
+remote-tracking OID and exact local source commit. The local backend issues and
+consumes a short-lived confirmation bound to that complete plan. The service
+passes the consumed plan to `GitRemoteBackend`; IPC callers never supply remote,
+ref, expected OID, or source OID authority.
+
 ## Adapter layout
 
 `fjord-git` mirrors that split on disk:

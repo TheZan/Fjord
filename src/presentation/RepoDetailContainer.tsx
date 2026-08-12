@@ -50,6 +50,7 @@ import {
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
+import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
@@ -97,6 +98,7 @@ export function RepoDetailContainer({
   const actionInFlight = useRef(false);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
+  const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -227,7 +229,7 @@ export function RepoDetailContainer({
         // A branch with no upstream is not a failure to report — it is a
         // branch that has never been published. Offer to publish it instead
         // of pushing somewhere the user never configured.
-        action === "push" ? offerToPublishBranch : undefined,
+        action === "push" ? offerPushRecovery : undefined,
       );
       return;
     }
@@ -254,10 +256,17 @@ export function RepoDetailContainer({
     }
   }
 
-  function offerToPublishBranch(error: unknown): boolean {
-    if (invokeErrorCode(error) !== "no_upstream") return false;
-    setActionConfirmation({ kind: "publish", branch: status?.branch ?? "" });
-    return true;
+  function offerPushRecovery(error: unknown): boolean {
+    const code = invokeErrorCode(error);
+    if (code === "no_upstream") {
+      setActionConfirmation({ kind: "publish", branch: status?.branch ?? "" });
+      return true;
+    }
+    if (code === "git_non_fast_forward") {
+      setForcePushPreflight(true);
+      return true;
+    }
+    return false;
   }
 
   function publishCurrentBranch() {
@@ -441,7 +450,8 @@ export function RepoDetailContainer({
   }
 
   return (
-    snapshot.ready ? <RepoDetailView
+    snapshot.ready ? <>
+    <RepoDetailView
       repo={repo}
       snapshotValidated={snapshot.validated}
       snapshotCapturedAt={snapshot.capturedAt}
@@ -500,7 +510,27 @@ export function RepoDetailContainer({
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
       onCommit={onCommit}
-    /> : (
+    />
+    {forcePushPreflight ? (
+      <DestructivePreflightDialog
+        repoId={repo.id}
+        action={FORCE_WITH_LEASE_ACTION}
+        onClose={() => setForcePushPreflight(false)}
+        onConfirm={async (generations, confirmationToken) => {
+          const ok = await runRepoAction(
+            "force-push",
+            async () => {
+              const task = runPushRepo(repo.id, true, generations, confirmationToken);
+              setActionOperationId(task.operationId);
+              await task.promise;
+            },
+            ["status", "refs"],
+          );
+          if (ok) setForcePushPreflight(false);
+        }}
+      />
+    ) : null}
+    </> : (
       <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <span className="text-[13px]" style={{ color: "var(--mist)" }}>
           {t("snapshot.loading")}
@@ -511,6 +541,7 @@ export function RepoDetailContainer({
 }
 
 type ConfirmableAction = "fetch" | "pull" | "push" | "stash-pop";
+const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }

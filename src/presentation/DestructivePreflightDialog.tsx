@@ -14,20 +14,20 @@ import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 type PreflightLoader = (
   repoId: string,
   action: DestructiveAction,
-  patchSelection: PatchSelection,
+  patchSelection: PatchSelection | null,
 ) => Promise<DestructivePreflight>;
 
 export function DestructivePreflightDialog({
   repoId,
   action,
-  patchSelection,
+  patchSelection = null,
   onConfirm,
   onClose,
   loadPreflight = preflightDestructiveAction,
 }: {
   repoId: string;
   action: DestructiveAction;
-  patchSelection: PatchSelection;
+  patchSelection?: PatchSelection | null;
   onConfirm: (generations: GenerationSet, confirmationToken: string) => Promise<void> | void;
   onClose: () => void;
   loadPreflight?: PreflightLoader;
@@ -120,9 +120,9 @@ export function DestructivePreflightDialog({
               ))}
             </ul>
 
-            {action.kind === "forceWithLease" ? (
+            {preflight.forceWithLease ? (
               <p className="font-mono text-[11px]" style={{ color: "var(--mist)" }}>
-                {t("preflight.forceWithLease.expectedOid", { oid: action.expectedOid })}
+                {t("preflight.forceWithLease.expectedOid", { oid: preflight.forceWithLease.expectedOid })}
               </p>
             ) : null}
 

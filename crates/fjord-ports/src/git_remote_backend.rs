@@ -34,6 +34,8 @@ pub enum GitRemoteError {
     NetworkUnavailable { stderr_tail: String },
     #[error("push is not a fast-forward")]
     NonFastForward { stderr_tail: String },
+    #[error("force-with-lease failed because the remote ref changed")]
+    ForceLeaseFailed { stderr_tail: String },
     #[error("remote rejected the update: {summary}")]
     RemoteRejected {
         summary: String,
@@ -66,6 +68,7 @@ impl GitRemoteError {
             Self::ProxyFailed { .. } => "git_proxy_failed",
             Self::NetworkUnavailable { .. } => "git_network_unavailable",
             Self::NonFastForward { .. } => "git_non_fast_forward",
+            Self::ForceLeaseFailed { .. } => "git_force_lease_failed",
             Self::RemoteRejected { .. } => "git_remote_rejected",
             Self::Timeout => "git_operation_timeout",
             Self::Cancelled => "operation_cancelled",
@@ -85,6 +88,7 @@ impl GitRemoteError {
             | Self::ProxyFailed { stderr_tail }
             | Self::NetworkUnavailable { stderr_tail }
             | Self::NonFastForward { stderr_tail }
+            | Self::ForceLeaseFailed { stderr_tail }
             | Self::RemoteRejected { stderr_tail, .. }
             | Self::ProcessFailed { stderr_tail, .. } => Some(stderr_tail),
             _ => None,
@@ -107,6 +111,18 @@ pub trait GitRemoteBackend: Send + Sync {
         repo: &RepoPath,
         remote: &str,
         refspecs: &[String],
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError>;
+
+    /// Pushes one exact source object to one exact remote ref using the
+    /// explicit expected oid form of force-with-lease.
+    async fn force_push_with_lease(
+        &self,
+        repo: &RepoPath,
+        remote: &str,
+        source_oid: &str,
+        remote_ref: &str,
+        expected_oid: &str,
         context: GitOperationContext,
     ) -> Result<(), GitRemoteError>;
 

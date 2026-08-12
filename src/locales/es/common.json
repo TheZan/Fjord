@@ -32,6 +32,7 @@
     "git_environment_error": "No se pudo inspeccionar el entorno de Git.",
     "git_executable_invalid": "El ejecutable de Git seleccionado no es válido.",
     "git_executable_not_found": "No se encontró Git. Selecciona el ejecutable instalado.",
+    "git_force_lease_failed": "Otra persona actualizó esta rama. Obtén y revisa los nuevos commits remotos antes de intentarlo de nuevo.",
     "git_host_key_verification_failed": "Falló la verificación de la clave de host SSH.",
     "git_network_unavailable": "El servidor Git no está disponible. Comprueba la red o VPN.",
     "git_non_fast_forward": "El push fue rechazado porque la rama remota tiene commits nuevos.",

@@ -34,6 +34,7 @@ function preflight(
     recoverable: "notRecoverable",
     blockers,
     generations: { workingTree, refs: 0, history: 0, stash: 0, config: 0 },
+    forceWithLease: null,
     confirmationToken,
   };
 }

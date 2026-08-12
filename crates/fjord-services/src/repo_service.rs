@@ -3,10 +3,10 @@ use std::sync::Arc;
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DestructivePreflight, DiffHunk, DiffLineKind, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
-    GlobalSearchResult, LogCursor, PatchSelection, Recoverability, RepoStatus, RepositoryEntry,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult,
+    GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection, Recoverability, RepoStatus,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError, GitExecutableResolution,
@@ -663,6 +663,7 @@ impl RepoService {
 
         for _ in 0..PREFLIGHT_CAPTURE_ATTEMPTS {
             let before = self.git.generations(&path)?;
+            let mut force_plan = None;
             let (consequences, recoverable, blockers) = match &action {
                 DestructiveAction::Discard { selection } => {
                     let diff = self
@@ -671,35 +672,33 @@ impl RepoService {
                         .await?;
                     discard_consequences(selection, &diff)
                 }
-                DestructiveAction::ForceWithLease {
-                    remote,
-                    ref_name,
-                    expected_oid,
-                } => {
+                DestructiveAction::ForceWithLease => {
+                    let plan = self.git.force_push_plan(&path).await?;
                     let (count, mut sample) = self
                         .git
                         .commits_unreachable_from_head(
                             &path,
-                            &expected_oid.0,
+                            &plan.expected_oid,
                             PREFLIGHT_SAMPLE_LIMIT as u32,
                         )
                         .await?;
                     sample.truncate(PREFLIGHT_SAMPLE_LIMIT);
                     let mut consequences = vec![Consequence::RemoteRefUpdated {
-                        remote: remote.clone(),
-                        ref_name: ref_name.clone(),
+                        remote: plan.remote.clone(),
+                        ref_name: plan.remote_ref.clone(),
                         dropped_commits: count,
                     }];
                     if count > 0 {
                         consequences.push(Consequence::CommitsUnreachable { count, sample });
                     }
+                    force_plan = Some(plan);
                     (consequences, Recoverability::Reflog, Vec::new())
                 }
             };
             let after = self.git.generations(&path)?;
             if before == after {
-                let confirmation_token =
-                    if blockers.is_empty() && matches!(action, DestructiveAction::Discard { .. }) {
+                let confirmation_token = if blockers.is_empty() {
+                    if matches!(action, DestructiveAction::Discard { .. }) {
                         let selection = patch_selection.as_ref().ok_or(GitError::PreflightStale)?;
                         match self
                             .git
@@ -711,14 +710,32 @@ impl RepoService {
                             Err(error) => return Err(error.into()),
                         }
                     } else {
-                        None
-                    };
+                        let plan = force_plan.as_ref().ok_or(GitError::PreflightStale)?;
+                        match self
+                            .git
+                            .issue_force_push_confirmation(&path, &action, plan, after)
+                            .await
+                        {
+                            Ok(token) => Some(token),
+                            Err(GitError::PreflightStale | GitError::PatchStale) => continue,
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+                } else {
+                    None
+                };
+                let force_with_lease = force_plan.as_ref().map(|plan| ForceWithLeaseDetails {
+                    remote: plan.remote.clone(),
+                    ref_name: plan.remote_ref.clone(),
+                    expected_oid: fjord_domain::CommitId(plan.expected_oid.clone()),
+                });
                 return Ok(DestructivePreflight {
                     action,
                     consequences,
                     recoverable,
                     blockers,
                     generations: after,
+                    force_with_lease,
                     confirmation_token,
                 });
             }
@@ -1059,6 +1076,39 @@ impl RepoService {
             .await?)
     }
 
+    pub async fn force_push_with_context(
+        &self,
+        repo_id: RepositoryId,
+        expected_generations: GenerationSet,
+        confirmation_token: &str,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let plan = self
+            .git
+            .consume_force_push_confirmation(
+                &repo_path,
+                &DestructiveAction::ForceWithLease,
+                expected_generations,
+                confirmation_token,
+            )
+            .await?;
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        Ok(self
+            .remote
+            .force_push_with_lease(
+                &repo_path,
+                &plan.remote,
+                &plan.source_oid,
+                &plan.remote_ref,
+                &plan.expected_oid,
+                context,
+            )
+            .await?)
+    }
+
     pub async fn publish_branch(
         &self,
         repo_id: RepositoryId,
@@ -1337,7 +1387,7 @@ mod tests {
         RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
         WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
-    use fjord_ports::PushTarget;
+    use fjord_ports::{ForcePushPlan, PushTarget};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
@@ -1572,6 +1622,26 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((remote.to_string(), refspecs.to_vec()));
+            Ok(())
+        }
+
+        async fn force_push_with_lease(
+            &self,
+            repo: &RepoPath,
+            remote: &str,
+            source_oid: &str,
+            remote_ref: &str,
+            expected_oid: &str,
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.pushes.lock().unwrap().push((
+                remote.to_string(),
+                vec![
+                    format!("{source_oid}:{remote_ref}"),
+                    expected_oid.to_string(),
+                ],
+            ));
             Ok(())
         }
 
@@ -1972,6 +2042,33 @@ mod tests {
                 local_ref: "refs/heads/develop".into(),
                 remote_ref: "refs/heads/trunk".into(),
             })
+        }
+        async fn force_push_plan(&self, repo: &RepoPath) -> Result<ForcePushPlan, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(ForcePushPlan {
+                remote: "company".into(),
+                remote_ref: "refs/heads/trunk".into(),
+                expected_oid: "deadbeef".into(),
+                source_oid: "feedface".into(),
+            })
+        }
+        async fn issue_force_push_confirmation(
+            &self,
+            _repo: &RepoPath,
+            _action: &DestructiveAction,
+            _plan: &ForcePushPlan,
+            _generations: GenerationSet,
+        ) -> Result<String, GitError> {
+            Ok("force-confirmation-token".into())
+        }
+        async fn consume_force_push_confirmation(
+            &self,
+            _repo: &RepoPath,
+            _action: &DestructiveAction,
+            _expected_generations: GenerationSet,
+            _confirmation_token: &str,
+        ) -> Result<ForcePushPlan, GitError> {
+            self.force_push_plan(_repo).await
         }
         async fn current_branch_ref(&self, repo: &RepoPath) -> Result<String, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -2845,15 +2942,7 @@ mod tests {
             }));
 
         let force = service
-            .preflight_destructive_action(
-                repo.id,
-                DestructiveAction::ForceWithLease {
-                    remote: "origin".into(),
-                    ref_name: "refs/heads/main".into(),
-                    expected_oid: CommitId("deadbeef".into()),
-                },
-                None,
-            )
+            .preflight_destructive_action(repo.id, DestructiveAction::ForceWithLease, None)
             .await
             .unwrap();
         let sample = force
@@ -2864,7 +2953,15 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        assert_eq!(force.confirmation_token, None);
+        assert_eq!(
+            force.confirmation_token.as_deref(),
+            Some("force-confirmation-token")
+        );
+        assert_eq!(force.force_with_lease.as_ref().unwrap().remote, "company");
+        assert_eq!(
+            force.force_with_lease.as_ref().unwrap().ref_name,
+            "refs/heads/trunk"
+        );
         assert_eq!(sample.0, 7);
         assert_eq!(sample.1.len(), PREFLIGHT_SAMPLE_LIMIT);
     }

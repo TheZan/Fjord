@@ -32,6 +32,7 @@
     "git_environment_error": "Fjord could not inspect the Git environment.",
     "git_executable_invalid": "The selected Git executable is invalid.",
     "git_executable_not_found": "Git was not found. Select the installed Git executable.",
+    "git_force_lease_failed": "Someone else pushed to this branch. Fetch and review the new remote commits before trying again.",
     "git_host_key_verification_failed": "SSH host key verification failed.",
     "git_network_unavailable": "The Git server is unreachable. Check the network or VPN.",
     "git_non_fast_forward": "The push was rejected because the remote branch has newer commits.",

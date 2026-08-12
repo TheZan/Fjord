@@ -32,6 +32,7 @@
     "git_environment_error": "Не удалось проверить окружение Git.",
     "git_executable_invalid": "Выбран некорректный исполняемый файл Git.",
     "git_executable_not_found": "Git не найден. Выберите установленный исполняемый файл Git.",
+    "git_force_lease_failed": "Кто-то обновил эту ветку. Выполните fetch и проверьте новые удалённые коммиты перед повторной попыткой.",
     "git_host_key_verification_failed": "Не удалось проверить SSH host key.",
     "git_network_unavailable": "Git-сервер недоступен. Проверьте сеть или VPN.",
     "git_non_fast_forward": "Push отклонён: в удалённой ветке есть более новые коммиты.",

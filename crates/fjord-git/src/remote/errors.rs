@@ -24,6 +24,11 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
         ],
     ) {
         GitRemoteError::HostKeyVerificationFailed { stderr_tail }
+    } else if contains_any(&lowered, &["stale info", "force-with-lease"])
+        && contains_any(&lowered, &["[rejected]", "failed to push"])
+    {
+        // Must precede generic rejected/non-fast-forward classification.
+        GitRemoteError::ForceLeaseFailed { stderr_tail }
     } else if contains_any(
         &lowered,
         &[
@@ -226,6 +231,10 @@ mod tests {
             (
                 "! [rejected] main -> main (non-fast-forward)",
                 "git_non_fast_forward",
+            ),
+            (
+                "! [rejected] main -> main (stale info)",
+                "git_force_lease_failed",
             ),
             (
                 "! [remote rejected] main -> main (hook declined)",

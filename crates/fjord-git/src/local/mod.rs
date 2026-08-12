@@ -22,7 +22,9 @@ use fjord_domain::{
     FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource, RepoStatus, StashEntry,
     TagInfo, WorkingChanges, WorkingFile,
 };
-use fjord_ports::{GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath};
+use fjord_ports::{
+    ForcePushPlan, GitBackend, GitError, GitExecutableResolution, PushTarget, RepoPath,
+};
 use git2::build::CheckoutBuilder;
 use git2::{ErrorCode, IndexAddOption, StashFlags};
 use gix::diff::blob::platform::prepare_diff::Operation;
@@ -421,6 +423,41 @@ impl GitBackend for LocalGitBackend {
 
     async fn current_push_target(&self, repo: &RepoPath) -> Result<PushTarget, GitError> {
         refs::current_push_target(repo).await
+    }
+
+    async fn force_push_plan(&self, repo: &RepoPath) -> Result<ForcePushPlan, GitError> {
+        refs::force_push_plan(repo).await
+    }
+
+    async fn issue_force_push_confirmation(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        plan: &ForcePushPlan,
+        generations: crate::GenerationSet,
+    ) -> Result<String, GitError> {
+        self.destructive_confirmations
+            .issue_force_push(repo, action, plan, generations)
+    }
+
+    async fn consume_force_push_confirmation(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        expected_generations: crate::GenerationSet,
+        confirmation_token: &str,
+    ) -> Result<ForcePushPlan, GitError> {
+        if runtime::generations(repo)? != expected_generations {
+            return Err(GitError::PreflightStale);
+        }
+        let current_plan = refs::force_push_plan(repo).await?;
+        self.destructive_confirmations.consume_force_push(
+            confirmation_token,
+            repo,
+            action,
+            &current_plan,
+            expected_generations,
+        )
     }
 
     async fn current_branch_ref(&self, repo: &RepoPath) -> Result<String, GitError> {

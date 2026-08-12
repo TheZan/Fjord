@@ -606,6 +606,32 @@ async fn push_target_follows_the_configured_upstream() {
     assert_eq!(target.local_ref, "refs/heads/main");
     assert_eq!(target.remote_ref, "refs/heads/trunk");
     assert_eq!(target.refspec(), "refs/heads/main:refs/heads/trunk");
+
+    let plan = backend.force_push_plan(&repo_path).await.unwrap();
+    assert_eq!(plan.remote, "company");
+    assert_eq!(plan.remote_ref, "refs/heads/trunk");
+    assert_eq!(plan.expected_oid, base);
+    assert_eq!(plan.source_oid, base);
+
+    let action = DestructiveAction::ForceWithLease;
+    let generations = backend.generations(&repo_path).unwrap();
+    let token = backend
+        .issue_force_push_confirmation(&repo_path, &action, &plan, generations)
+        .await
+        .unwrap();
+    assert_eq!(
+        backend
+            .consume_force_push_confirmation(&repo_path, &action, generations, &token)
+            .await
+            .unwrap(),
+        plan
+    );
+    assert!(matches!(
+        backend
+            .consume_force_push_confirmation(&repo_path, &action, generations, &token)
+            .await,
+        Err(GitError::PreflightStale)
+    ));
 }
 
 #[tokio::test]

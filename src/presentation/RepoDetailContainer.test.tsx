@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, runCommitAndPushRepo, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -77,6 +77,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   stagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   unstagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   discardPatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
+  preflightDestructiveAction: vi.fn(),
 }));
 
 vi.mock("@/presentation/RepoDetailView", () => ({
@@ -157,6 +158,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(unstagePatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(discardPatch).mockReset();
     vi.mocked(discardPatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
+    vi.mocked(preflightDestructiveAction).mockReset();
     vi.mocked(invalidateRepoData).mockClear();
     vi.mocked(rejectWorkingDiffSnapshot).mockClear();
     authorityMock.rejected = false;
@@ -229,6 +231,47 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     await waitFor(() => expect(runPushRepo).toHaveBeenCalledOnce());
     expect(order).toEqual(["validated", "operation-created"]);
+  });
+
+  it("offers force-with-lease only after a non-fast-forward push and executes the confirmed lease", async () => {
+    vi.mocked(runPushRepo)
+      .mockImplementationOnce(() => ({ operationId: "push-1", promise: Promise.reject({ code: "git_non_fast_forward" }) }))
+      .mockReturnValueOnce({ operationId: "push-2", promise: Promise.resolve() });
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(forcePreflight("token-1"))
+      .mockResolvedValueOnce(forcePreflight("token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "push" }));
+    fireEvent.click(screen.getByRole("button", { name: /^confirm origin/ }));
+
+    expect(await screen.findByText("preflight.forceWithLease.title")).toBeInTheDocument();
+    expect(preflightDestructiveAction).toHaveBeenCalledWith("repo-1", { kind: "forceWithLease" }, null);
+    await waitFor(() => expect(screen.getByTestId("action-pending").textContent).toBe(""));
+    fireEvent.click(screen.getByRole("button", { name: "preflight.forceWithLease.confirm" }));
+
+    await waitFor(() => expect(runPushRepo).toHaveBeenLastCalledWith(
+      "repo-1",
+      true,
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "token-2",
+    ));
+  });
+
+  it("does not offer force-with-lease for other push failures", async () => {
+    vi.mocked(runPushRepo).mockImplementationOnce(() => ({
+      operationId: "push-1",
+      promise: Promise.reject({ code: "git_remote_rejected" }),
+    }));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "push" }));
+    fireEvent.click(screen.getByRole("button", { name: /^confirm origin/ }));
+
+    await waitFor(() => expect(runPushRepo).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("action-pending").textContent).toBe(""));
+    expect(screen.queryByText("preflight.forceWithLease.title")).not.toBeInTheDocument();
+    expect(preflightDestructiveAction).not.toHaveBeenCalled();
   });
 
   it("refreshes rather than retrying a stale hunk selection", async () => {
@@ -381,4 +424,25 @@ function renderContainer() {
       utilities={<div data-testid="shell-utilities" />}
     />,
   );
+}
+
+function forcePreflight(confirmationToken: string) {
+  return {
+    action: { kind: "forceWithLease" as const },
+    consequences: [{
+      kind: "remoteRefUpdated" as const,
+      remote: "origin",
+      refName: "refs/heads/main",
+      droppedCommits: 1,
+    }],
+    recoverable: "reflog" as const,
+    blockers: [],
+    generations: { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+    forceWithLease: {
+      remote: "origin",
+      refName: "refs/heads/main",
+      expectedOid: "abc123",
+    },
+    confirmationToken,
+  };
 }
