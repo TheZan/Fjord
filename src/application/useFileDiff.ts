@@ -24,6 +24,11 @@ export interface UseFileDiffResult {
   generations: GenerationSet | null;
 }
 
+export type AuthoritativeDiffSnapshot = {
+  diff: FileDiffWindow;
+  generations: GenerationSet;
+};
+
 export const DIFF_WINDOW_LINES = 1_000;
 
 export interface DiffWindowPage extends VersionedFileDiffWindow {
@@ -43,9 +48,12 @@ export function useFileDiff(
   repoId: string | null,
   path: string | null,
   source: DiffSource | null,
+  onAuthoritativeSnapshot?: (snapshot: AuthoritativeDiffSnapshot) => void,
 ): UseFileDiffResult {
   const queryClient = useQueryClient();
   const rejectedData = useRef<unknown>(null);
+  const onAuthoritativeSnapshotRef = useRef(onAuthoritativeSnapshot);
+  onAuthoritativeSnapshotRef.current = onAuthoritativeSnapshot;
   const sourceKey = source
     ? source.kind === "commit"
       ? `commit:${source.commitId}`
@@ -113,6 +121,14 @@ export function useFileDiff(
     if (merge.status !== "valid" || !repoId) return;
     observeDiffPage(repoId, { data: merge.diff, generations: merge.generations }, source?.kind === "working" ? "working" : "history");
   }, [merge, repoId, source?.kind]);
+
+  // `dataUpdatedAt` advances only when TanStack Query accepts a successful
+  // query result. An invalidation attempt that fails leaves cached data in
+  // place but does not advance it, so it cannot re-authorize that cache.
+  useEffect(() => {
+    if (source?.kind !== "working" || merge.status !== "valid" || query.dataUpdatedAt === 0) return;
+    onAuthoritativeSnapshotRef.current?.({ diff: merge.diff, generations: merge.generations });
+  }, [merge, query.dataUpdatedAt, source?.kind]);
 
   const loadMore = useCallback(() => {
     if (!snapshotMismatch && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();

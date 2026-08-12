@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
+import { useFileDiff, type AuthoritativeDiffSnapshot, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { Surface } from "@/presentation/ui";
@@ -41,6 +41,7 @@ export function FileDiffView({
   onBack,
   actionDisabled = false,
   snapshotInvalid = false,
+  onAuthoritativeSnapshot,
   onApplyHunk,
   onDiscardPatch,
 }: {
@@ -51,6 +52,8 @@ export function FileDiffView({
   actionDisabled?: boolean;
   /** A rejected backend patch makes this rendered snapshot unsafe until refresh. */
   snapshotInvalid?: boolean;
+  /** Called only after TanStack Query accepts a valid working-diff response. */
+  onAuthoritativeSnapshot?: (snapshot: AuthoritativeDiffSnapshot) => void;
   onApplyHunk?: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onDiscardPatch?: (
     action: DestructiveAction,
@@ -64,6 +67,7 @@ export function FileDiffView({
     repoId,
     path,
     source,
+    onAuthoritativeSnapshot,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);

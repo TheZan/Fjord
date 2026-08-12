@@ -265,6 +265,11 @@ Selection lives in the diff view, which becomes interactive:
   snapshot or an operation in progress.
 - After a successful apply, the diff refetches and the selection clears; the
   scroll position is preserved.
+- A `patch_stale`, `patch_apply_failed`, or `preflight_stale` rejection latches
+  the rendered diff non-actionable and clears selections/preflight. Completion
+  or failure of invalidation is not validation: only a successful authoritative
+  working-diff response may release the latch; mutation is never retried
+  automatically.
 - Discard always routes through the preflight dialog
   ([`repository-safety.md`](repository-safety.md) §3) showing line counts and the
   file path — never a bare "are you sure".

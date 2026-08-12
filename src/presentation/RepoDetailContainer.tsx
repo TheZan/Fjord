@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
@@ -10,6 +10,7 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
+import type { AuthoritativeDiffSnapshot } from "@/application/useFileDiff";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -88,6 +89,7 @@ export function RepoDetailContainer({
   const [commitSearchRequestId, setCommitSearchRequestId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const actionInFlight = useRef(false);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [patchSnapshotInvalid, setPatchSnapshotInvalid] = useState(false);
@@ -101,6 +103,8 @@ export function RepoDetailContainer({
     scopes: RepoDataScope[] = [],
     handleError?: (error: unknown) => boolean | Promise<boolean>,
   ): Promise<boolean> {
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
     setActionError(null);
     setActionPending(action);
     try {
@@ -126,6 +130,7 @@ export function RepoDetailContainer({
       }
       return false;
     } finally {
+      actionInFlight.current = false;
       setActionPending(null);
       setActionOperationId(null);
     }
@@ -342,6 +347,7 @@ export function RepoDetailContainer({
   }
 
   function onApplyHunk(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
+    if (patchSnapshotInvalid) return Promise.resolve(false);
     const action = selection.source === "worktree" ? "stage-hunk" : "unstage-hunk";
     const mutate = selection.source === "worktree" ? stagePatch : unstagePatch;
     return runRepoAction(
@@ -358,6 +364,7 @@ export function RepoDetailContainer({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ): Promise<boolean> {
+    if (patchSnapshotInvalid) return Promise.resolve(false);
     return runRepoAction(
       "discard-patch",
       () => discardPatch(
@@ -376,18 +383,24 @@ export function RepoDetailContainer({
     const code = invokeErrorCode(error);
     if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
 
-    // The rejected patch was derived from this rendered snapshot. Keep the
-    // mutation pending while its cache entries refetch so that snapshot cannot
-    // become interactive between the backend rejection and the fresh response.
+    // A rejected patch invalidates the rendered snapshot. TanStack Query can
+    // retain that data after a failed refetch, so only a later successful,
+    // authoritative working-diff result may release this latch.
     setPatchSnapshotInvalid(true);
     setActionConfirmation(null);
     setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
     try {
       await invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["status", "working"]);
-    } finally {
-      setPatchSnapshotInvalid(false);
+    } catch {
+      // Query errors remain visible through the normal query error UI. The
+      // rejected snapshot deliberately stays latched until a successful diff
+      // result arrives.
     }
     return true;
+  }
+
+  function handleAuthoritativeWorkingDiff(_snapshot: AuthoritativeDiffSnapshot) {
+    setPatchSnapshotInvalid(false);
   }
 
   function onCommit(message: string): Promise<boolean> {
@@ -409,6 +422,7 @@ export function RepoDetailContainer({
       repo={repo}
       snapshotValidated={snapshot.validated}
       patchSnapshotInvalid={patchSnapshotInvalid}
+      onAuthoritativeWorkingDiff={handleAuthoritativeWorkingDiff}
       snapshotCapturedAt={snapshot.capturedAt}
       status={status}
       statusError={statusError}

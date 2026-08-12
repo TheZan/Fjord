@@ -10,6 +10,7 @@ import {
 } from "@/application/useFileDiff";
 import type { FileDiffWindow, GenerationSet } from "@/domain/git";
 import * as tauriClient from "@/infrastructure/tauriClient";
+import { queryKeys } from "@/application/queryKeys";
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   getFileDiffPage: vi.fn(),
@@ -190,5 +191,43 @@ describe("useFileDiff mixed-snapshot recovery", () => {
     expect(result.current.diff?.hunks[0].lines.some((line) => line.content.startsWith("B"))).toBe(false);
     expect(result.current.generations).toEqual(generationsA);
     expect(result.current.hasMore).toBe(false);
+  });
+
+  it("reports only successful authoritative responses when an invalidated working diff refetch fails then succeeds", async () => {
+    let attempt = 0;
+    vi.mocked(tauriClient.getWorkingFileDiffPage).mockImplementation(async () => {
+      attempt += 1;
+      if (attempt === 2) throw new Error("refresh failed");
+      return {
+        data: window(0, attempt === 1 ? ["old-1", "old-2", "old-3", "old-4"] : ["new-1", "new-2", "new-3", "new-4"], null, {
+          baseDigest: attempt === 1 ? "digest-old" : "digest-new",
+        }),
+        generations: generationsA,
+      };
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onAuthoritativeSnapshot = vi.fn();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "working", staged: false }, onAuthoritativeSnapshot),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.diff?.baseDigest).toBe("digest-old"));
+    await waitFor(() => expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos.fileDiffs("repo-1") });
+    });
+    expect(result.current.diff?.baseDigest).toBe("digest-old");
+    expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: queryKeys.repos.fileDiffs("repo-1") });
+    });
+    await waitFor(() => expect(result.current.diff?.baseDigest).toBe("digest-new"));
+    expect(onAuthoritativeSnapshot).toHaveBeenCalledTimes(2);
   });
 });

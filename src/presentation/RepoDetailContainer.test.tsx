@@ -72,6 +72,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onConfirmAction,
     onApplyHunk,
     onDiscardPatch,
+    onAuthoritativeWorkingDiff,
     actionPending,
     patchSnapshotInvalid,
   }: {
@@ -88,6 +89,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     ) => Promise<boolean>;
     actionPending: string | null;
     patchSnapshotInvalid: boolean;
+    onAuthoritativeWorkingDiff: (snapshot: unknown) => void;
   }) => (
     <div>
       <output data-testid="patch-snapshot-invalid">{String(patchSnapshotInvalid)}</output>
@@ -102,6 +104,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
         { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
         "confirmation-token",
       )}>discard lines</button>
+      <button type="button" onClick={() => onAuthoritativeWorkingDiff({})}>authoritative diff</button>
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -214,21 +217,47 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(stagePatch).toHaveBeenCalledOnce();
   });
 
-  it.each(["patch_stale", "patch_apply_failed"])('keeps a rejected patch snapshot disabled until refresh completes after %s', async (code) => {
-    let resolveRefresh!: () => void;
-    vi.mocked(invalidateRepoData).mockImplementationOnce(() => new Promise<void>((resolve) => { resolveRefresh = resolve; }));
+  it("does not submit a second patch mutation from rapid clicks", async () => {
+    let resolveMutation!: () => void;
+    vi.mocked(stagePatch).mockImplementationOnce(() => new Promise((resolve) => { resolveMutation = () => resolve({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 }); }));
+    renderContainer();
+
+    const stage = screen.getByRole("button", { name: "stage hunk" });
+    fireEvent.click(stage);
+    fireEvent.click(stage);
+    expect(stagePatch).toHaveBeenCalledOnce();
+
+    resolveMutation();
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledOnce());
+  });
+
+  it.each(["patch_stale", "patch_apply_failed"])('keeps a rejected patch snapshot disabled when refresh completes without a new diff after %s', async (code) => {
     vi.mocked(stagePatch).mockRejectedValue({ code });
     renderContainer();
 
     fireEvent.click(screen.getByRole("button", { name: "stage hunk" }));
 
     await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true"));
-    expect(screen.getByTestId("action-pending")).toHaveTextContent("stage-hunk");
+    expect(stagePatch).toHaveBeenCalledOnce();
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true");
     expect(stagePatch).toHaveBeenCalledOnce();
 
-    resolveRefresh();
+    fireEvent.click(screen.getByRole("button", { name: "authoritative diff" }));
     await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("false"));
-    expect(stagePatch).toHaveBeenCalledOnce();
+  });
+
+  it("does not reopen a preflight on the rejected snapshot after refresh failure", async () => {
+    vi.mocked(invalidateRepoData).mockRejectedValueOnce(new Error("refresh failed"));
+    vi.mocked(discardPatch).mockRejectedValue({ code: "preflight_stale" });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "discard lines" }));
+
+    await waitFor(() => expect(discardPatch).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("patch-snapshot-invalid")).toHaveTextContent("true"));
+    fireEvent.click(screen.getByRole("button", { name: "discard lines" }));
+    expect(discardPatch).toHaveBeenCalledOnce();
   });
 
   it("refreshes working state after successful stage and unstage patch mutations", async () => {
