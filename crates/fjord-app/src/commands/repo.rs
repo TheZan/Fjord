@@ -441,12 +441,21 @@ pub async fn discard_patch(
 }
 
 #[tauri::command]
+pub async fn get_amend_info(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<fjord_domain::AmendInfo, AppError> {
+    Ok(state.repos.amend_info(repo_id).await?)
+}
+
+#[tauri::command]
 pub async fn commit_repo(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     message: String,
+    amend: bool,
 ) -> Result<String, AppError> {
-    Ok(state.repos.commit(repo_id, &message).await?)
+    Ok(state.repos.commit(repo_id, &message, amend).await?)
 }
 
 #[tauri::command]

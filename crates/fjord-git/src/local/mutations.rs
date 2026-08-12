@@ -189,7 +189,11 @@ pub(super) async fn stash_pop(repo: &RepoPath) -> Result<(), GitError> {
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn commit(repo: &RepoPath, message: &str) -> Result<String, GitError> {
+pub(super) async fn commit(
+    repo: &RepoPath,
+    message: &str,
+    amend: bool,
+) -> Result<String, GitError> {
     let repo = repo.clone();
     let message = message.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
@@ -208,27 +212,61 @@ pub(super) async fn commit(repo: &RepoPath, message: &str) -> Result<String, Git
             let tree = git
                 .find_tree(tree_oid)
                 .map_err(LocalGitBackend::map_git2_error)?;
-            let parent_commit = LocalGitBackend::current_head_commit(git)?;
+            let head_commit = LocalGitBackend::current_head_commit(git)?;
 
-            if parent_commit
-                .as_ref()
-                .is_some_and(|parent| parent.tree_id() == tree_oid)
+            if !amend
+                && head_commit
+                    .as_ref()
+                    .is_some_and(|parent| parent.tree_id() == tree_oid)
             {
                 return Err(GitError::NothingToCommit);
             }
 
-            let signature = git.signature().map_err(LocalGitBackend::map_git2_error)?;
-            let parent_refs = parent_commit.iter().collect::<Vec<_>>();
+            let committer = git.signature().map_err(LocalGitBackend::map_git2_error)?;
+            let author = if amend {
+                head_commit
+                    .as_ref()
+                    .ok_or(GitError::NothingToCommit)?
+                    .author()
+            } else {
+                committer.clone()
+            };
+            let parent_commits = if amend {
+                head_commit
+                    .as_ref()
+                    .expect("amend HEAD checked above")
+                    .parents()
+                    .collect::<Vec<_>>()
+            } else {
+                head_commit.iter().cloned().collect::<Vec<_>>()
+            };
+            let parent_refs = parent_commits.iter().collect::<Vec<_>>();
+            let update_ref = (!amend).then_some("HEAD");
             let oid = git
                 .commit(
-                    Some("HEAD"),
-                    &signature,
-                    &signature,
+                    update_ref,
+                    &author,
+                    &committer,
                     &message,
                     &tree,
                     &parent_refs,
                 )
                 .map_err(LocalGitBackend::map_git2_error)?;
+            if amend {
+                // libgit2's convenience update rejects an amend because the
+                // old HEAD is deliberately not the new commit's first parent.
+                // Create the object first, then compare-and-update the resolved
+                // branch (or detached HEAD) against the exact commit amended.
+                let old_oid = head_commit.as_ref().expect("amend HEAD checked above").id();
+                let head_ref = git.head().map_err(LocalGitBackend::map_git2_error)?;
+                let refname = head_ref
+                    .name()
+                    .map_err(LocalGitBackend::map_git2_error)?
+                    .to_string();
+                drop(head_ref);
+                git.reference_matching(&refname, oid, true, old_oid, "commit (amend)")
+                    .map_err(LocalGitBackend::map_git2_error)?;
+            }
             Ok(oid.to_string())
         })
     })

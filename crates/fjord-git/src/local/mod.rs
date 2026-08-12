@@ -393,8 +393,18 @@ impl GitBackend for LocalGitBackend {
         .await
     }
 
+    async fn amend_info(&self, repo: &RepoPath) -> Result<fjord_domain::AmendInfo, GitError> {
+        refs::amend_info(repo).await
+    }
+
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
-        let commit_id = mutations::commit(repo, message).await?;
+        let commit_id = mutations::commit(repo, message, false).await?;
+        runtime::bump_mutation(repo, MutationKind::Commit);
+        Ok(commit_id)
+    }
+
+    async fn amend(&self, repo: &RepoPath, message: &str) -> Result<String, GitError> {
+        let commit_id = mutations::commit(repo, message, true).await?;
         runtime::bump_mutation(repo, MutationKind::Commit);
         Ok(commit_id)
     }

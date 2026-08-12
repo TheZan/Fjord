@@ -446,6 +446,57 @@ pub(super) async fn upstream_remote(repo: &RepoPath) -> Result<String, GitError>
     .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
+pub(super) async fn amend_info(repo: &RepoPath) -> Result<fjord_domain::AmendInfo, GitError> {
+    let repo = repo.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let head =
+                LocalGitBackend::current_head_commit(git)?.ok_or(GitError::NothingToCommit)?;
+            let message = head.message().unwrap_or_default().to_string();
+            let published_upstream = published_upstream_containing_head(git, head.id())?;
+            Ok(fjord_domain::AmendInfo {
+                message,
+                published_upstream,
+            })
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn published_upstream_containing_head(
+    git: &git2::Repository,
+    head_oid: git2::Oid,
+) -> Result<Option<String>, GitError> {
+    let head_refname = LocalGitBackend::current_branch_refname(git)?;
+    let upstream_name = match git.branch_upstream_name(&head_refname) {
+        Ok(name) => name,
+        Err(error) if error.code() == ErrorCode::NotFound => return Ok(None),
+        Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+    };
+    let upstream = upstream_name
+        .as_str()
+        .map_err(LocalGitBackend::map_git2_error)?
+        .to_string();
+    let upstream_oid = git
+        .find_reference(&upstream)
+        .and_then(|reference| reference.peel_to_commit())
+        .map_err(LocalGitBackend::map_git2_error)?
+        .id();
+    let contains_head = upstream_oid == head_oid
+        || git
+            .graph_descendant_of(upstream_oid, head_oid)
+            .map_err(LocalGitBackend::map_git2_error)?;
+
+    Ok(contains_head.then_some(
+        upstream
+            .strip_prefix("refs/remotes/")
+            .unwrap_or(&upstream)
+            .to_string(),
+    ))
+}
+
 pub(super) async fn current_branch_ref(repo: &RepoPath) -> Result<String, GitError> {
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;

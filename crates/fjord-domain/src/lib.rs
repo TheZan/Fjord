@@ -252,6 +252,17 @@ pub struct CommitPage {
     pub next_cursor: Option<LogCursor>,
 }
 
+/// Data required before the commit panel can offer an amend action.
+/// `published_upstream` is present only when the current `HEAD` is reachable
+/// from the current branch's locally known upstream ref.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct AmendInfo {
+    pub message: String,
+    pub published_upstream: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(rename_all = "lowercase")]

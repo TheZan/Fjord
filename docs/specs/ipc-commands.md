@@ -73,6 +73,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded unified-diff window; every page echoes its authoritative served `offset` and retains its generation envelope for snapshot/continuation validation; maximum 2 MB serialized response and 10 MB source-file display ceiling |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Every page independently carries its served `offset`, the full diff's `baseDigest`, and complete `GenerationSet`; the digest and existing `working_tree` generation are captured coherently and retained for cross-page validation. |
+| `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
 | `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Phase 8 consequences; discard requires its exact `PatchSelection` and returns a short-lived backend confirmation token bound to repository, action, selection/digest, and coherent generation stamp |
 
 ### Repository mutations (local)
@@ -89,7 +90,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
-| `commit_repo` | `{ repo_id, message }` | `string` | New commit id; `nothing_to_commit` when the index matches `HEAD` |
+| `commit_repo` | `{ repo_id, message, amend }` | `string` | New commit id; amend preserves `HEAD`'s author and parents and permits a message-only rewrite; ordinary commit returns `nothing_to_commit` when the index matches `HEAD` |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
 | `reset_to_commit` | `{ repo_id, commit_id, mode }` | — | `soft` \| `mixed` \| `hard` |
@@ -139,7 +140,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `commit_repo` `amend` flag, `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
+| `push_repo` `force_with_lease` flag | [`working-tree-and-diff.md`](working-tree-and-diff.md) §3 | 8 |
 | `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
 | `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |

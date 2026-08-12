@@ -6,6 +6,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AmendInfo,
   DestructiveAction,
   DestructivePreflight,
   GenerationSet,
@@ -633,8 +634,12 @@ export function discardPatch(
   );
 }
 
-export function commitRepo(repoId: string, message: string): Promise<string> {
-  return invoke("commit_repo", { repoId, message });
+export function getAmendInfo(repoId: string): Promise<AmendInfo> {
+  return invoke("get_amend_info", { repoId });
+}
+
+export function commitRepo(repoId: string, message: string, amend = false): Promise<string> {
+  return invoke("commit_repo", { repoId, message, amend });
 }
 
 export function fetchRepo(

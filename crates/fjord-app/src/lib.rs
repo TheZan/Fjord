@@ -123,6 +123,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::unstage_files,
             commands::unstage_patch,
             commands::discard_patch,
+            commands::get_amend_info,
             commands::commit_repo,
             commands::fetch_repo,
             commands::pull_repo,

@@ -255,7 +255,7 @@ export function CommitGraph({
       ) : null}
       <div ref={parentRef} className="h-full w-full overflow-auto">
         <GraphHeader gutterWidth={gutterWidth} />
-        {workingFileCount > 0 && onSelectWorking && (
+        {onSelectWorking && (
           <WorkingRow
             gutterWidth={gutterWidth}
             fileCount={workingFileCount}

@@ -13,8 +13,11 @@ vi.mock("@/infrastructure/uiState", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, number>) =>
-      key === "working.commit" ? `Commit ${values?.count ?? 0}` : key,
+    t: (key: string, values?: Record<string, unknown>) => {
+      if (key === "working.commit") return `Commit ${values?.count ?? 0}`;
+      if (key === "working.amendPublishedWarning") return `Published on ${values?.upstream}`;
+      return key;
+    },
   }),
 }));
 
@@ -49,6 +52,7 @@ function props(overrides: Partial<React.ComponentProps<typeof WorkingChangesPane
     onSelectFile: vi.fn(),
     onStage: vi.fn(),
     onUnstage: vi.fn(),
+    onPrepareAmend: vi.fn(async () => ({ message: "Previous commit", publishedUpstream: null })),
     onCommit: vi.fn(async () => true),
     ...overrides,
   };
@@ -115,7 +119,7 @@ describe("WorkingChangesPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Commit 1" }));
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Add coverage\n\nExplain behavior"));
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Add coverage\n\nExplain behavior", false));
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("");
     expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("");
   });
@@ -133,7 +137,33 @@ describe("WorkingChangesPanel", () => {
     view.rerender(<WorkingChangesPanel {...panelProps} validated />);
     document.dispatchEvent(new CustomEvent("fjord:commit"));
 
-    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Keep me"));
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith("Keep me", false));
     expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Keep me");
+  });
+
+  it("prefills amend, warns for a published HEAD, and restores the draft when disabled", async () => {
+    const onPrepareAmend = vi.fn(async () => ({
+      message: "Published subject\n\nPublished body",
+      publishedUpstream: "origin/main",
+    }));
+    render(<WorkingChangesPanel {...props({ onPrepareAmend })} />);
+    fireEvent.change(screen.getByPlaceholderText("working.summaryPlaceholder"), {
+      target: { value: "Draft subject" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("working.descriptionPlaceholder"), {
+      target: { value: "Draft body" },
+    });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "working.amend" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Published on origin/main"));
+    expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Published subject");
+    expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("Published body");
+    expect(screen.getByRole("button", { name: "working.amendCommit" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "working.amend" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Draft subject");
+    expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("Draft body");
   });
 });

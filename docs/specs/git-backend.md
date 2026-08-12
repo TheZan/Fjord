@@ -31,6 +31,8 @@ pub trait GitBackend: Send + Sync {
     async fn checkout(&self, repo: &RepoPath, branch: &BranchName) -> Result<(), GitError>;
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<CommitId, GitError>;
+    async fn amend_info(&self, repo: &RepoPath) -> Result<AmendInfo, GitError>;
+    async fn amend(&self, repo: &RepoPath, message: &str) -> Result<CommitId, GitError>;
     async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError>;
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
 }
@@ -63,7 +65,7 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `unstage_patch` | `git2` diff + system `git apply --cached --reverse` | Uses the same index transaction and additionally prepares a verify-only `git update-ref` transaction for HEAD, holding HEAD and its target ref stable until index publication. It preserves unselected index-side context, never writes the worktree, and advances `working_tree` only on success under the deterministic apply profile. |
 | `discard_patch` | `git2` diff + system `git apply --reverse` | Holds the resolved per-worktree index lock across final reconstruction and contextual worktree apply, preventing standard external Git index/worktree operations from changing the discard base. It never publishes an index write. |
 | `checkout` | `git2` | Working-tree writes are already proven in libgit2 and share error handling with the other mutation paths. |
-| `stage` / `unstage` / `commit` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories. |
+| `stage` / `unstage` / `commit` / `amend` | `git2` | Index writes and commit creation are mature and easy to validate against temporary repositories; amend reuses `HEAD`'s author and parents. |
 | `fetch` | system Git | Uses the user's credential helpers, SSH configuration, proxy, and certificates. |
 | `pull` network phase | system Git | Fetch through `GitRemoteBackend`, then local fast-forward/merge through `git2`; never delegated to configurable `git pull`. |
 | `push` / remote branch deletion | system Git | Same user Git environment; no libgit2 credential callbacks in the final path. |

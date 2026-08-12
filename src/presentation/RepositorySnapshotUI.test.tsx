@@ -45,6 +45,7 @@ describe("repository snapshot UI", () => {
       onSelectFile: vi.fn(),
       onStage: vi.fn(),
       onUnstage: vi.fn(),
+      onPrepareAmend: vi.fn(async () => null),
       onCommit: vi.fn(async () => true),
     };
     const { rerender } = render(<WorkingChangesPanel {...props} validated={false} />);

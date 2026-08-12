@@ -944,9 +944,27 @@ impl RepoService {
             .await?)
     }
 
-    pub async fn commit(&self, repo_id: RepositoryId, message: &str) -> Result<String, RepoError> {
+    pub async fn amend_info(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<fjord_domain::AmendInfo, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.commit(&RepoPath::new(repo.path), message).await?)
+        Ok(self.git.amend_info(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn commit(
+        &self,
+        repo_id: RepositoryId,
+        message: &str,
+        amend: bool,
+    ) -> Result<String, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        if amend {
+            Ok(self.git.amend(&repo_path, message).await?)
+        } else {
+            Ok(self.git.commit(&repo_path, message).await?)
+        }
     }
 
     pub async fn fetch(&self, repo_id: RepositoryId, remote: &str) -> Result<(), RepoError> {
@@ -1911,6 +1929,10 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok("deadbeef".into())
         }
+        async fn amend(&self, repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok("feedface".into())
+        }
         async fn upstream_remote(&self, repo: &RepoPath) -> Result<String, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok("origin".into())
@@ -2088,8 +2110,12 @@ mod tests {
             .unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
-        let oid = service.commit(repo.id, "Update").await.unwrap();
+        let oid = service.commit(repo.id, "Update", false).await.unwrap();
         assert_eq!(oid, "deadbeef");
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+
+        let amended_oid = service.commit(repo.id, "Corrected", true).await.unwrap();
+        assert_eq!(amended_oid, "feedface");
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
         service.fetch(repo.id, "origin").await.unwrap();

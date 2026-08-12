@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitPage, CommitSummary, DestructiveAction, FileDiff, FileDiffDetail,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, DestructiveAction, FileDiff, FileDiffDetail,
     FileDiffWindow, GenerationSet, LogCursor, PatchSelection, RepoStatus, StashEntry, TagInfo,
     WorkingChanges,
 };
@@ -398,7 +398,15 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("discard_patch"))
     }
+    /// Returns the current commit message and whether the current branch's
+    /// locally known upstream already contains `HEAD`.
+    async fn amend_info(&self, _repo: &RepoPath) -> Result<AmendInfo, GitError> {
+        Err(GitError::NotImplemented("amend_info"))
+    }
     async fn commit(&self, repo: &RepoPath, message: &str) -> Result<String, GitError>;
+    async fn amend(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("amend"))
+    }
     /// Returns the configured remote for the current branch's upstream.
     async fn upstream_remote(&self, _repo: &RepoPath) -> Result<String, GitError> {
         Err(GitError::NotImplemented("upstream_remote"))

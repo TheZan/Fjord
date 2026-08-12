@@ -13,7 +13,7 @@ import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
+import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -27,6 +27,7 @@ import {
   deleteRemoteBranch,
   deleteTag,
   discardPatch,
+  getAmendInfo,
   invokeErrorCode,
   openInIde,
   openMergeTool,
@@ -190,12 +191,6 @@ export function RepoDetailContainer({
     }
 
     if (commitsLoading) return;
-
-    if (workingSelected) {
-      setWorkingSelected(false);
-      setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
-      return;
-    }
 
     if (!selectedCommit) {
       setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
@@ -405,8 +400,16 @@ export function RepoDetailContainer({
     return true;
   }
 
-  function onCommit(message: string): Promise<boolean> {
-    return runWorkingAction("commit", () => commitRepo(repo.id, message).then(() => undefined), ["status", "working", "history", "refs"]);
+  async function onPrepareAmend(): Promise<AmendInfo | null> {
+    let info: AmendInfo | null = null;
+    const ok = await runRepoAction("amend-info", async () => {
+      info = await getAmendInfo(repo.id);
+    });
+    return ok ? info : null;
+  }
+
+  function onCommit(message: string, amend: boolean): Promise<boolean> {
+    return runWorkingAction("commit", () => commitRepo(repo.id, message, amend).then(() => undefined), ["status", "working", "history", "refs"]);
   }
 
   function onSelectCommit(commit: CommitSummary) {
@@ -475,6 +478,7 @@ export function RepoDetailContainer({
       }}
       onStage={onStage}
       onUnstage={onUnstage}
+      onPrepareAmend={onPrepareAmend}
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
       onCommit={onCommit}

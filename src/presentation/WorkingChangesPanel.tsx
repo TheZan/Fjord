@@ -12,7 +12,7 @@ import {
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
-import type { WorkingChanges, WorkingFile } from "@/domain/git";
+import type { AmendInfo, WorkingChanges, WorkingFile } from "@/domain/git";
 
 export interface SelectedWorkingFile {
   path: string;
@@ -35,6 +35,7 @@ export function WorkingChangesPanel({
   onSelectFile,
   onStage,
   onUnstage,
+  onPrepareAmend,
   onCommit,
 }: {
   changes: WorkingChanges;
@@ -46,11 +47,16 @@ export function WorkingChangesPanel({
   onSelectFile: (file: SelectedWorkingFile) => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
-  onCommit: (message: string) => Promise<boolean>;
+  onPrepareAmend: () => Promise<AmendInfo | null>;
+  onCommit: (message: string, amend: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
+  const [amend, setAmend] = useState(false);
+  const [amendLoading, setAmendLoading] = useState(false);
+  const [amendInfo, setAmendInfo] = useState<AmendInfo | null>(null);
+  const [savedDraft, setSavedDraft] = useState<{ summary: string; description: string } | null>(null);
   const [viewMode, setViewMode] = useState<FileViewMode>("path");
   // Both sections fold together, so the one pair of controls in the header
   // means what it says. Each list collapses differently, hence the union.
@@ -67,14 +73,49 @@ export function WorkingChangesPanel({
   }, []);
 
   const total = changes.staged.length + changes.unstaged.length;
-  const canCommit = validated && changes.staged.length > 0 && summary.trim().length > 0 && !busy;
+  const canCommit = validated
+    && (amend || changes.staged.length > 0)
+    && summary.trim().length > 0
+    && !busy
+    && !amendLoading;
 
   async function commit() {
     if (!canCommit) return;
     const message = description.trim() ? `${summary.trim()}\n\n${description.trim()}` : summary.trim();
-    if (await onCommit(message)) {
+    if (await onCommit(message, amend)) {
       setSummary("");
       setDescription("");
+      setAmend(false);
+      setAmendInfo(null);
+      setSavedDraft(null);
+    }
+  }
+
+  async function toggleAmend(enabled: boolean) {
+    if (!enabled) {
+      setAmend(false);
+      setAmendInfo(null);
+      if (savedDraft) {
+        setSummary(savedDraft.summary);
+        setDescription(savedDraft.description);
+      }
+      setSavedDraft(null);
+      return;
+    }
+
+    setAmendLoading(true);
+    const draft = { summary, description };
+    try {
+      const info = await onPrepareAmend();
+      if (!info) return;
+      const message = splitCommitMessage(info.message);
+      setSavedDraft(draft);
+      setSummary(message.summary);
+      setDescription(message.description);
+      setAmendInfo(info);
+      setAmend(true);
+    } finally {
+      setAmendLoading(false);
     }
   }
 
@@ -153,6 +194,24 @@ export function WorkingChangesPanel({
       </div>
 
       <div className="border-t p-2" style={{ borderColor: "var(--hairline)" }}>
+        <label className="mb-2 flex items-center gap-2 text-xs" style={{ color: "var(--slate)" }}>
+          <input
+            type="checkbox"
+            checked={amend}
+            disabled={busy || !validated || amendLoading}
+            onChange={(event) => void toggleAmend(event.target.checked)}
+          />
+          <span>{amendLoading ? t("working.loadingAmend") : t("working.amend")}</span>
+        </label>
+        {amendInfo?.publishedUpstream ? (
+          <p
+            role="alert"
+            className="mb-2 rounded px-2 py-1.5 text-xs"
+            style={{ background: "var(--rust-tint)", color: "var(--rust-ink)" }}
+          >
+            {t("working.amendPublishedWarning", { upstream: amendInfo.publishedUpstream })}
+          </p>
+        ) : null}
         <Input
           value={summary}
           onChange={(event) => setSummary(event.target.value)}
@@ -172,11 +231,23 @@ export function WorkingChangesPanel({
           onClick={() => void commit()}
           className="mt-1.5 w-full"
         >
-          {t("working.commit", { count: changes.staged.length })}
+          {amend
+            ? t("working.amendCommit")
+            : t("working.commit", { count: changes.staged.length })}
         </Button>
       </div>
     </Surface>
   );
+}
+
+function splitCommitMessage(message: string) {
+  const normalized = message.replace(/\r\n/g, "\n").trimEnd();
+  const newline = normalized.indexOf("\n");
+  if (newline < 0) return { summary: normalized, description: "" };
+  return {
+    summary: normalized.slice(0, newline),
+    description: normalized.slice(newline + 1).replace(/^\n/, ""),
+  };
 }
 
 function FileSection({

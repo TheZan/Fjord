@@ -15,6 +15,7 @@ import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/Wo
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
+  AmendInfo,
   DestructiveAction,
   GenerationSet,
   PatchSelection,
@@ -75,6 +76,7 @@ export function RepoDetailView({
   onSelectWorking,
   onStage,
   onUnstage,
+  onPrepareAmend,
   onApplyHunk,
   onDiscardPatch,
   onCommit,
@@ -123,6 +125,7 @@ export function RepoDetailView({
   onSelectWorking: () => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
+  onPrepareAmend: () => Promise<AmendInfo | null>;
   onApplyHunk: (selection: PatchSelection, expectedGenerations: GenerationSet) => Promise<boolean>;
   onDiscardPatch: (
     action: DestructiveAction,
@@ -130,7 +133,7 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
-  onCommit: (message: string) => Promise<boolean>;
+  onCommit: (message: string, amend: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
@@ -195,6 +198,7 @@ export function RepoDetailView({
       onSelectFile={setSelectedWorkingFile}
       onStage={onStage}
       onUnstage={onUnstage}
+      onPrepareAmend={onPrepareAmend}
       onCommit={onCommit}
     />
   ) : selectedCommit ? (

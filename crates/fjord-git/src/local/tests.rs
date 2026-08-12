@@ -992,6 +992,148 @@ async fn stage_and_commit_create_head_commit() {
 }
 
 #[tokio::test]
+async fn amend_allows_message_only_change_and_preserves_tree_and_parents() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "# Fjord\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend
+        .commit(&repo_path, "Original message")
+        .await
+        .unwrap();
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    let original = repo.head().unwrap().peel_to_commit().unwrap();
+    let original_tree = original.tree_id();
+    let original_parents = original.parent_ids().collect::<Vec<_>>();
+    drop(original);
+    drop(repo);
+
+    backend
+        .amend(&repo_path, "Corrected message")
+        .await
+        .unwrap();
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    let amended = repo.head().unwrap().peel_to_commit().unwrap();
+    assert_eq!(amended.message().unwrap(), "Corrected message");
+    assert_eq!(amended.tree_id(), original_tree);
+    assert_eq!(amended.parent_ids().collect::<Vec<_>>(), original_parents);
+}
+
+#[tokio::test]
+async fn amend_preserves_original_author_and_uses_current_committer() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+
+    write_file(&repo_path, "README.md", "original\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let repo = Repository::open(&repo_path.0).unwrap();
+    let mut index = repo.index().unwrap();
+    let tree_oid = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_oid).unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    let author = git2::Signature::new(
+        "Original Author",
+        "original@example.com",
+        &git2::Time::new(1_700_000_000, 120),
+    )
+    .unwrap();
+    let committer = git2::Signature::new(
+        "Old Committer",
+        "old@example.com",
+        &git2::Time::new(1_700_000_100, 120),
+    )
+    .unwrap();
+    repo.commit(
+        Some("HEAD"),
+        &author,
+        &committer,
+        "Original authored commit",
+        &tree,
+        &[&parent],
+    )
+    .unwrap();
+    let original = repo.head().unwrap().peel_to_commit().unwrap();
+    let original_parent_ids = original.parent_ids().collect::<Vec<_>>();
+    drop(original);
+    drop(parent);
+    drop(tree);
+    drop(index);
+    let mut config = repo.config().unwrap();
+    config.set_str("user.name", "Current Committer").unwrap();
+    config.set_str("user.email", "current@example.com").unwrap();
+    drop(config);
+    drop(repo);
+
+    write_file(&repo_path, "README.md", "amended\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.amend(&repo_path, "Amended commit").await.unwrap();
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    let amended = repo.head().unwrap().peel_to_commit().unwrap();
+    assert_eq!(amended.author().name().unwrap(), "Original Author");
+    assert_eq!(amended.author().email().unwrap(), "original@example.com");
+    assert_eq!(amended.author().when().seconds(), 1_700_000_000);
+    assert_eq!(
+        amended.parent_ids().collect::<Vec<_>>(),
+        original_parent_ids
+    );
+    assert_eq!(amended.committer().name().unwrap(), "Current Committer");
+    assert_eq!(amended.committer().email().unwrap(), "current@example.com");
+}
+
+#[tokio::test]
+async fn amend_info_reports_when_upstream_contains_head() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let head = backend
+        .commit(&repo_path, "Published subject\n\nBody")
+        .await
+        .unwrap();
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    repo.remote("origin", "https://example.invalid/repo.git")
+        .unwrap();
+    repo.reference(
+        "refs/remotes/origin/main",
+        Oid::from_str(&head).unwrap(),
+        true,
+        "test published ref",
+    )
+    .unwrap();
+    repo.find_branch("main", BranchType::Local)
+        .unwrap()
+        .set_upstream(Some("origin/main"))
+        .unwrap();
+    drop(repo);
+
+    let info = backend.amend_info(&repo_path).await.unwrap();
+    assert_eq!(info.message, "Published subject\n\nBody");
+    assert_eq!(info.published_upstream.as_deref(), Some("origin/main"));
+}
+
+#[tokio::test]
 async fn unstage_removes_index_change_without_touching_worktree() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();
