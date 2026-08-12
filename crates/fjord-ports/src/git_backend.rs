@@ -341,6 +341,18 @@ pub trait GitBackend: Send + Sync {
     async fn delete_branch(&self, _repo: &RepoPath, _name: &str) -> Result<(), GitError> {
         Err(GitError::NotImplemented("delete_branch"))
     }
+    /// Sets a local branch's upstream to an existing remote-tracking branch.
+    async fn set_branch_upstream(
+        &self,
+        _repo: &RepoPath,
+        _branch: &str,
+        _upstream: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("set_branch_upstream"))
+    }
+    async fn unset_branch_upstream(&self, _repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("unset_branch_upstream"))
+    }
     async fn create_tag(
         &self,
         _repo: &RepoPath,

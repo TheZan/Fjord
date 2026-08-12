@@ -93,6 +93,8 @@ describe("CommitGraph", () => {
         isCurrent: true,
         isRemote: false,
         upstream: null,
+        ahead: 0,
+        behind: 0,
         targetCommitId: "commit-1",
       },
     ];
@@ -116,6 +118,8 @@ describe("CommitGraph", () => {
         isCurrent: false,
         isRemote: false,
         upstream: null,
+        ahead: 0,
+        behind: 0,
         targetCommitId: "commit-2",
       },
     ];
@@ -143,6 +147,8 @@ describe("CommitGraph", () => {
         isCurrent: false,
         isRemote: false,
         upstream: null,
+        ahead: 0,
+        behind: 0,
         targetCommitId: "commit-99",
       },
     ];

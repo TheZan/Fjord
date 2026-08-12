@@ -274,6 +274,28 @@ pub async fn delete_branch(
 }
 
 #[tauri::command]
+pub async fn set_branch_upstream(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    branch: String,
+    upstream: String,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .set_branch_upstream(repo_id, &branch, &upstream)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn unset_branch_upstream(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    branch: String,
+) -> Result<(), AppError> {
+    Ok(state.repos.unset_branch_upstream(repo_id, &branch).await?)
+}
+
+#[tauri::command]
 pub async fn delete_remote_branch(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

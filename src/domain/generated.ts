@@ -33,7 +33,7 @@ export type SearchResultKind = "repository" | "branch" | "commit";
 
 export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId, workspaceId: WorkspaceId, repoName: string, repoPath: string, branch: string | null, commit: CommitSummary | null, };
 
-export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, targetCommitId: CommitId, };
+export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, ahead: number, behind: number, targetCommitId: CommitId, };
 
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 

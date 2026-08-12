@@ -73,7 +73,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Force push | 🚧 Absent. P8-09 is blocked on authoritative backend resolution and confirmation binding of the remote, remote ref, and expected OID; frontend-supplied lease facts are not sufficient. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
 | Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). Every page is independently stamped with the complete `GenerationSet`; working pages also carry the complete rendered-diff digest. The frontend rejects the full accumulated result unless repository/path/source, digest, generations, file/change/mode metadata, totals, and the offset/continuation chain all agree, then clears selection and refetches from offset zero. |
-| Upstream management | ⚠️ Read-only: `current_push_target` resolves it; nothing sets or changes it. |
+| Upstream management | ✅ Local set/unset commands, branch-context selection, persistent publish affordance, and per-branch upstream/divergence display. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final

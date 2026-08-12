@@ -249,6 +249,43 @@ export function TextActionDialog({
   );
 }
 
+export function SelectActionDialog({
+  title,
+  description,
+  label,
+  options,
+  confirmLabel,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  label: string;
+  options: string[];
+  confirmLabel: string;
+  onConfirm: (value: string) => void;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState(options[0] ?? "");
+
+  return (
+    <DialogFrame title={title} description={description} onClose={onClose}>
+      <label className="flex flex-col gap-1.5 text-[13px]" style={{ color: "var(--slate)" }}>
+        <span>{label}</span>
+        <Select value={value} onChange={(event) => setValue(event.target.value)}>
+          {options.map((option) => <option key={option} value={option}>{option}</option>)}
+        </Select>
+      </label>
+      <DialogActions
+        confirmLabel={confirmLabel}
+        disabled={!value}
+        onConfirm={() => onConfirm(value)}
+        onClose={onClose}
+      />
+    </DialogFrame>
+  );
+}
+
 export function ConfirmActionDialog({
   title,
   description,

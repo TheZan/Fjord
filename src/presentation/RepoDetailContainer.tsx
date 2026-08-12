@@ -37,6 +37,7 @@ import {
   runPullRepo,
   runPublishBranch,
   runPushRepo,
+  setBranchUpstream,
   renameBranch,
   resetToCommit,
   revertCommit,
@@ -46,6 +47,7 @@ import {
   stashPush,
   unstageFiles,
   unstagePatch,
+  unsetBranchUpstream,
   type OperationProgressEvent,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
@@ -353,6 +355,22 @@ export function RepoDetailContainer({
     void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
+  function onSetBranchUpstream(branch: string, upstream: string) {
+    void runRepoAction(
+      "set-upstream",
+      () => setBranchUpstream(repo.id, branch, upstream),
+      ["status", "refs"],
+    );
+  }
+
+  function onUnsetBranchUpstream(branch: string) {
+    void runRepoAction(
+      "unset-upstream",
+      () => unsetBranchUpstream(repo.id, branch),
+      ["status", "refs"],
+    );
+  }
+
   function onApplyHunk(selection: PatchSelection, expectedGenerations: GenerationSet): Promise<boolean> {
     if (isWorkingDiffSnapshotRejected(queryClient, repo.id, selection.path, selection.source)) {
       return Promise.resolve(false);
@@ -491,6 +509,9 @@ export function RepoDetailContainer({
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
       onDeleteBranch={onDeleteBranch}
+      onSetBranchUpstream={onSetBranchUpstream}
+      onUnsetBranchUpstream={onUnsetBranchUpstream}
+      onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
       onDeleteRemoteBranch={onDeleteRemoteBranch}
       onCreateTag={onCreateTag}
       onDeleteTag={onDeleteTag}

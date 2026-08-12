@@ -9,7 +9,7 @@ import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
-import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
@@ -64,6 +64,9 @@ export function RepoDetailView({
   onCreateBranchAt,
   onRenameBranch,
   onDeleteBranch,
+  onSetBranchUpstream,
+  onUnsetBranchUpstream,
+  onPublishBranch,
   onDeleteRemoteBranch,
   onCreateTag,
   onDeleteTag,
@@ -113,6 +116,9 @@ export function RepoDetailView({
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
   onDeleteBranch: (name: string) => void;
+  onSetBranchUpstream: (branch: string, upstream: string) => void;
+  onUnsetBranchUpstream: (branch: string) => void;
+  onPublishBranch: (branch: string) => void;
   onDeleteRemoteBranch: (name: string) => void;
   onCreateTag: (name: string, target: string) => void;
   onDeleteTag: (name: string) => void;
@@ -276,6 +282,7 @@ export function RepoDetailView({
               focusedBranch={branchScrollRequest?.branch ?? null}
               onSelectBranch={onSelectBranch}
               onCheckout={onCheckout}
+              onPublishBranch={onPublishBranch}
               onBranchContextAction={handleBranchContextAction}
               onTagContextAction={handleTagContextAction}
             />
@@ -365,6 +372,20 @@ export function RepoDetailView({
           }}
         />
       )}
+      {dialog?.kind === "setUpstream" && (
+        <SelectActionDialog
+          title={t("context.setUpstream")}
+          description={t("context.setUpstreamDescription", { branch: dialog.branch })}
+          label={t("context.upstreamBranch")}
+          options={dialog.options}
+          confirmLabel={t("context.setUpstream")}
+          onClose={() => setDialog(null)}
+          onConfirm={(upstream) => {
+            setDialog(null);
+            onSetBranchUpstream(dialog.branch, upstream);
+          }}
+        />
+      )}
       {dialog?.kind === "confirm" && (
         <ConfirmActionDialog
           title={t(`context.confirm.${dialog.action}.title`)}
@@ -406,11 +427,18 @@ export function RepoDetailView({
     </ScreenSurface>
   );
 
-  function handleBranchContextAction(action: BranchContextAction, branch: import("@/domain/git").BranchInfo) {
+  function handleBranchContextAction(
+    action: BranchContextAction,
+    branch: import("@/domain/git").BranchInfo,
+    upstreamChoices: string[],
+  ) {
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
       case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
+      case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;
+      case "unsetUpstream": onUnsetBranchUpstream(branch.name); break;
+      case "publish": onPublishBranch(branch.name); break;
       case "delete": setDialog({ kind: "confirm", action: "deleteBranch", target: branch.name }); break;
       case "deleteRemote": setDialog({ kind: "confirm", action: "deleteRemoteBranch", target: branch.name }); break;
       case "copy": void copyText(branch.name); break;
@@ -480,6 +508,7 @@ type ContextDialog =
   | { kind: "createBranch"; target: string }
   | { kind: "renameBranch"; branch: string }
   | { kind: "createTag"; target: string }
+  | { kind: "setUpstream"; branch: string; options: string[] }
   | { kind: "confirm"; action: "deleteBranch" | "deleteRemoteBranch" | "deleteTag" | "cherryPick" | "revert" | "reset"; target: string };
 
 async function copyText(value: string) {

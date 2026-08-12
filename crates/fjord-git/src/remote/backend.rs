@@ -513,6 +513,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn push_uses_the_newly_configured_upstream() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        std::fs::write(source.join("README.md"), "initial\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "initial"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&source, &["push", "-u", "origin", "main"]);
+        let initial = git_output(&source, &["rev-parse", "HEAD"]);
+        run_git(&source, &["push", "origin", "main:refs/heads/release"]);
+        run_git(
+            &source,
+            &[
+                "fetch",
+                "origin",
+                "refs/heads/release:refs/remotes/origin/release",
+            ],
+        );
+
+        let repo_path = RepoPath::new(source.clone());
+        let local = LocalGitBackend::new();
+        local
+            .set_branch_upstream(&repo_path, "main", "origin/release")
+            .await
+            .unwrap();
+        std::fs::write(source.join("release.txt"), "release\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "release update"]);
+        let expected = git_output(&source, &["rev-parse", "HEAD"]);
+        let target = local.current_push_target(&repo_path).await.unwrap();
+
+        SystemGitRemoteBackend::new()
+            .push(
+                &repo_path,
+                &target.remote,
+                &[target.refspec()],
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            git_output(&remote, &["rev-parse", "refs/heads/release"]),
+            expected
+        );
+        assert_eq!(
+            git_output(&remote, &["rev-parse", "refs/heads/main"]),
+            initial
+        );
+    }
+
+    #[tokio::test]
     async fn composed_pull_fast_forwards_merges_and_reports_conflicts() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");

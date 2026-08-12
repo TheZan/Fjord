@@ -792,6 +792,31 @@ impl RepoService {
             .await?)
     }
 
+    pub async fn set_branch_upstream(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+        upstream: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .set_branch_upstream(&RepoPath::new(repo.path), branch, upstream)
+            .await?)
+    }
+
+    pub async fn unset_branch_upstream(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .unset_branch_upstream(&RepoPath::new(repo.path), branch)
+            .await?)
+    }
+
     pub async fn delete_remote_branch(
         &self,
         repo_id: RepositoryId,
@@ -1769,6 +1794,8 @@ mod tests {
                 is_current: true,
                 is_remote: false,
                 upstream: None,
+                ahead: 0,
+                behind: 0,
                 target_commit_id: CommitId("abc123".into()),
             }])
         }

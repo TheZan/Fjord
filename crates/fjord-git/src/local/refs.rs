@@ -189,9 +189,41 @@ pub(super) async fn branches(repo: &RepoPath) -> Result<Vec<BranchInfo>, GitErro
                 name,
                 is_remote: false,
                 upstream: None,
+                ahead: 0,
+                behind: 0,
                 target_commit_id: CommitId(target.id().to_string()),
             });
         }
+
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            for branch in &mut out {
+                let local_ref = format!("refs/heads/{}", branch.name);
+                let upstream_ref = match git.branch_upstream_name(&local_ref) {
+                    Ok(name) => name
+                        .as_str()
+                        .map_err(LocalGitBackend::map_git2_error)?
+                        .to_string(),
+                    Err(error) if error.code() == ErrorCode::NotFound => continue,
+                    Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+                };
+                branch.upstream = Some(short_upstream_name(&upstream_ref));
+                let Ok(upstream) = git.find_reference(&upstream_ref) else {
+                    continue;
+                };
+                let upstream_oid = upstream
+                    .peel_to_commit()
+                    .map_err(LocalGitBackend::map_git2_error)?
+                    .id();
+                let local_oid = git2::Oid::from_str(&branch.target_commit_id.0)
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                let (ahead, behind) = git
+                    .graph_ahead_behind(local_oid, upstream_oid)
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                branch.ahead = ahead as u32;
+                branch.behind = behind as u32;
+            }
+            Ok(())
+        })?;
 
         for branch in platform
             .remote_branches()
@@ -213,6 +245,8 @@ pub(super) async fn branches(repo: &RepoPath) -> Result<Vec<BranchInfo>, GitErro
                 is_current: false,
                 is_remote: true,
                 upstream: None,
+                ahead: 0,
+                behind: 0,
                 target_commit_id: CommitId(target.id().to_string()),
             });
         }
@@ -221,6 +255,14 @@ pub(super) async fn branches(repo: &RepoPath) -> Result<Vec<BranchInfo>, GitErro
     })
     .await
     .map_err(|e| GitError::Gix(e.to_string()))?
+}
+
+fn short_upstream_name(upstream_ref: &str) -> String {
+    upstream_ref
+        .strip_prefix("refs/remotes/")
+        .or_else(|| upstream_ref.strip_prefix("refs/heads/"))
+        .unwrap_or(upstream_ref)
+        .to_string()
 }
 
 pub(super) async fn tags(repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
@@ -390,6 +432,49 @@ pub(super) async fn delete_branch(
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+pub(super) async fn set_branch_upstream(
+    repo: &RepoPath,
+    branch: &str,
+    upstream: &str,
+) -> Result<(), GitError> {
+    let repo = repo.clone();
+    let branch = branch.to_string();
+    let upstream = upstream.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            git.find_branch(&upstream, git2::BranchType::Remote)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let mut local = git
+                .find_branch(&branch, git2::BranchType::Local)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            local
+                .set_upstream(Some(&upstream))
+                .map_err(LocalGitBackend::map_git2_error)
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+pub(super) async fn unset_branch_upstream(repo: &RepoPath, branch: &str) -> Result<(), GitError> {
+    let repo = repo.clone();
+    let branch = branch.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let mut local = git
+                .find_branch(&branch, git2::BranchType::Local)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            local
+                .set_upstream(None)
+                .map_err(LocalGitBackend::map_git2_error)
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
 pub(super) async fn create_tag(

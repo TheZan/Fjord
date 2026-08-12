@@ -27,10 +27,10 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 const branches: BranchInfo[] = [
-  { name: "main", isCurrent: true, isRemote: false, upstream: "origin/main", targetCommitId: "aaa" },
-  { name: "feature/ui", isCurrent: false, isRemote: false, upstream: null, targetCommitId: "bbb" },
-  { name: "origin/release", isCurrent: false, isRemote: true, upstream: null, targetCommitId: "ccc" },
-  { name: "origin/HEAD", isCurrent: false, isRemote: true, upstream: null, targetCommitId: "aaa" },
+  { name: "main", isCurrent: true, isRemote: false, upstream: "origin/main", ahead: 2, behind: 1, targetCommitId: "aaa" },
+  { name: "feature/ui", isCurrent: false, isRemote: false, upstream: null, ahead: 0, behind: 0, targetCommitId: "bbb" },
+  { name: "origin/release", isCurrent: false, isRemote: true, upstream: null, ahead: 0, behind: 0, targetCommitId: "ccc" },
+  { name: "origin/HEAD", isCurrent: false, isRemote: true, upstream: null, ahead: 0, behind: 0, targetCommitId: "aaa" },
 ];
 const tags: TagInfo[] = [{ name: "v1.0", targetCommitId: "abcdef012345" }];
 
@@ -57,6 +57,23 @@ describe("RepoTree", () => {
     expect(screen.getByRole("button", { name: "release" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "tree.clearFilter" }));
     expect(screen.queryByText("1/4")).not.toBeInTheDocument();
+  });
+
+  it("shows upstream divergence and a persistent publish action when the current branch is untracked", () => {
+    const onPublishBranch = vi.fn();
+    const { rerender } = render(<RepoTree repoId="repo-1" onPublishBranch={onPublishBranch} />);
+
+    expect(screen.getByText(/origin\/main.*↑2.*↓1/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "context.publishBranch" })).not.toBeInTheDocument();
+
+    vi.mocked(useBranches).mockReturnValue({
+      branches: [{ ...branches[0], upstream: null, ahead: 0, behind: 0 }],
+      loading: false,
+      error: null,
+    });
+    rerender(<RepoTree repoId="repo-1" onPublishBranch={onPublishBranch} />);
+    fireEvent.click(screen.getByRole("button", { name: "context.publishBranch" }));
+    expect(onPublishBranch).toHaveBeenCalledWith("main");
   });
 
   it("selects, checks out, and moves keyboard focus between visible branches", () => {
@@ -94,11 +111,24 @@ describe("RepoTree", () => {
 
     fireEvent.contextMenu(screen.getByRole("button", { name: "feature/ui" }), { clientX: 12, clientY: 34 });
     fireEvent.click(screen.getByRole("menuitem", { name: "context.deleteBranch" }));
-    expect(onBranchContextAction).toHaveBeenCalledWith("delete", branches[1]);
+    expect(onBranchContextAction).toHaveBeenCalledWith("delete", branches[1], ["origin/release"]);
 
     fireEvent.click(screen.getByRole("button", { name: /tree.tags/ }));
     fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!, { clientX: 8, clientY: 16 });
     fireEvent.click(screen.getByRole("menuitem", { name: "context.deleteTag" }));
     expect(onTagContextAction).toHaveBeenCalledWith("delete", tags[0]);
+  });
+
+  it("exposes upstream management from a local branch context menu", () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "feature/ui" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "context.setUpstream" }));
+    expect(onBranchContextAction).toHaveBeenCalledWith(
+      "setUpstream",
+      branches[1],
+      ["origin/release"],
+    );
   });
 });

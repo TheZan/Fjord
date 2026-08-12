@@ -9,6 +9,7 @@ import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu
 import type { BranchInfo, TagInfo } from "@/domain/git";
 
 type SectionKey = "local" | "remote" | "tags";
+const TREE_ROW_HEIGHT = 40;
 
 /**
  * Branches + tags, GitKraken-style: collapsible sections with a filter box,
@@ -22,13 +23,15 @@ export function RepoTree({
   onSelectBranch,
   onCheckout,
   onBranchContextAction,
+  onPublishBranch,
   onTagContextAction,
 }: {
   repoId: string;
   focusedBranch?: string | null;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
-  onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo) => void;
+  onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo, upstreamChoices: string[]) => void;
+  onPublishBranch?: (branch: string) => void;
   onTagContextAction?: (action: TagContextAction, tag: TagInfo) => void;
 }) {
   const { t } = useTranslation("workspace");
@@ -134,9 +137,11 @@ export function RepoTree({
                 <BranchRow
                   branch={branch}
                   currentLabel={t("branches.current")}
+                  publishLabel={t("context.publishBranch")}
                   focused={branch.name === focusedBranch}
                   onSelectBranch={onSelectBranch}
                   onCheckout={onCheckout}
+                  onPublishBranch={onPublishBranch}
                   onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
                 />
               );
@@ -160,9 +165,11 @@ export function RepoTree({
                   <BranchRow
                     branch={branch}
                     currentLabel={t("branches.current")}
+                    publishLabel={t("context.publishBranch")}
                     focused={branch.name === focusedBranch}
                     onSelectBranch={onSelectBranch}
                     onCheckout={onCheckout}
+                    onPublishBranch={onPublishBranch}
                     onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
                   />
                 );
@@ -192,12 +199,18 @@ export function RepoTree({
       {menu && (
         <ContextMenu
           position={menu}
-          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t) : tagMenuItems(menu.tag, t)}
+          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t, visibleRemoteBranches.length > 0) : tagMenuItems(menu.tag, t)}
           onClose={() => setMenu(null)}
           onSelect={(action) => {
             const selection = menu;
             setMenu(null);
-            if (selection.kind === "branch") onBranchContextAction?.(action as BranchContextAction, selection.branch);
+            if (selection.kind === "branch") {
+              onBranchContextAction?.(
+                action as BranchContextAction,
+                selection.branch,
+                visibleRemoteBranches.map((branch) => branch.name),
+              );
+            }
             else onTagContextAction?.(action as TagContextAction, selection.tag);
           }}
         />
@@ -270,23 +283,27 @@ function TreeSection({
 function BranchRow({
   branch,
   currentLabel,
+  publishLabel,
   focused,
   onSelectBranch,
   onCheckout,
+  onPublishBranch,
   onContextMenu,
 }: {
   branch: BranchInfo;
   currentLabel: string;
+  publishLabel: string;
   focused: boolean;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
+  onPublishBranch?: (branch: string) => void;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
   if (displayName === null) return null;
 
   return (
-    <li>
+    <li className="flex items-center gap-1">
       <button
         data-tree-item
         type="button"
@@ -306,16 +323,30 @@ function BranchRow({
         }}
         data-selected={branch.isCurrent}
         data-focused={focused}
-        className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left"
+        className="interactive-row flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1 text-left"
         style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
       >
-        <code className="min-w-0 truncate font-mono text-xs">{displayName}</code>
-        {branch.isCurrent && (
-          <span className="shrink-0 text-xs" style={{ color: "var(--fjord-ink)" }}>
-            {currentLabel}
-          </span>
-        )}
+        <span className="flex min-w-0 flex-col">
+          <code className="truncate font-mono text-xs">{displayName}</code>
+          {!branch.isRemote && branch.upstream ? (
+            <span className="truncate text-[10px]" style={{ color: "var(--mist)" }}>
+              {branch.upstream} {branch.ahead ? `↑${branch.ahead}` : ""} {branch.behind ? `↓${branch.behind}` : ""}
+            </span>
+          ) : null}
+        </span>
+        {branch.isCurrent ? <span className="shrink-0 text-xs" style={{ color: "var(--fjord-ink)" }}>{currentLabel}</span> : null}
       </button>
+      {branch.isCurrent && !branch.upstream && onPublishBranch ? (
+        <button
+          type="button"
+          className="interactive-control shrink-0 rounded px-1.5 py-1 text-[10px]"
+          style={{ color: "var(--fjord-ink)" }}
+          aria-label={publishLabel}
+          onClick={() => onPublishBranch(branch.name)}
+        >
+          {publishLabel}
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -355,7 +386,7 @@ function VirtualTreeItems({
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 30,
+    estimateSize: () => TREE_ROW_HEIGHT,
     overscan: 6,
   });
 
@@ -364,7 +395,7 @@ function VirtualTreeItems({
       ref={scrollRef}
       role="list"
       className="overflow-y-auto"
-      style={{ height: Math.min(count * 30, 256) }}
+      style={{ height: Math.min(count * TREE_ROW_HEIGHT, 256) }}
     >
       <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualRow) => (
@@ -384,14 +415,21 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "createBranch" | "rename" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "delete" | "copy";
 
-function branchMenuItems(branch: BranchInfo, t: (key: string) => string): ContextMenuItem[] {
+function branchMenuItems(
+  branch: BranchInfo,
+  t: (key: string) => string,
+  hasRemoteBranches: boolean,
+): ContextMenuItem[] {
   return [
     { id: "checkout", label: t("context.checkout"), icon: "checkout", shortcut: "Ctrl+Enter", disabled: branch.isCurrent },
     { id: "createBranch", label: t("context.createBranchHere"), icon: "branch", separatorBefore: true },
     { id: "rename", label: t("context.renameBranch"), icon: "branch", disabled: branch.isRemote },
+    { id: "setUpstream", label: t("context.setUpstream"), icon: "branch", disabled: branch.isRemote || !hasRemoteBranches },
+    { id: "unsetUpstream", label: t("context.unsetUpstream"), icon: "branch", disabled: branch.isRemote || !branch.upstream },
+    { id: "publish", label: t("context.publishBranch"), icon: "branch", disabled: branch.isRemote || !branch.isCurrent || Boolean(branch.upstream) },
     {
       id: branch.isRemote ? "deleteRemote" : "delete",
       label: branch.isRemote ? t("context.deleteRemoteBranch") : t("context.deleteBranch"),

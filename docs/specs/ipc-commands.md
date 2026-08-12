@@ -85,6 +85,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |
 | `delete_branch` | `{ repo_id, name }` | — | Local branch |
+| `set_branch_upstream` | `{ repo_id, branch, upstream }` | — | Local config write; `upstream` must name an existing remote-tracking branch |
+| `unset_branch_upstream` | `{ repo_id, branch }` | — | Local config write; no network operation |
 | `create_tag` / `delete_tag` | `{ repo_id, name, target? }` | — | Lightweight tags |
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
@@ -141,7 +143,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `set_branch_upstream` / `unset_branch_upstream` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §4 | 8 |
 | `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
 | `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | [`workspace-workflows.md`](workspace-workflows.md) §1 | 10 |

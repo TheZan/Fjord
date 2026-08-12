@@ -22,6 +22,7 @@ impl GenerationMask {
     pub const WORKING_REFS_HISTORY: Self = Self::new(true, true, true, false, false);
     pub const WORKING_STASH: Self = Self::new(true, false, false, true, false);
     pub const CONFIG: Self = Self::new(false, false, false, false, true);
+    pub const REFS_CONFIG: Self = Self::new(false, true, false, false, true);
     pub const REFS_HISTORY_CONFIG: Self = Self::new(false, true, true, false, true);
 
     pub const fn new(
@@ -123,6 +124,7 @@ pub(crate) enum MutationKind {
     CreateBranchAt { checkout: bool },
     RenameBranch,
     DeleteBranch,
+    SetUpstream,
     CreateTag,
     DeleteTag,
     CherryPick,
@@ -149,6 +151,7 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::CreateBranchAt { checkout: false } => GenerationMask::REFS_HISTORY,
         MutationKind::CreateBranchAt { checkout: true } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::RenameBranch => GenerationMask::REFS,
+        MutationKind::SetUpstream => GenerationMask::REFS_CONFIG,
         MutationKind::DeleteBranch | MutationKind::CreateTag | MutationKind::DeleteTag => {
             GenerationMask::REFS_HISTORY
         }
@@ -198,6 +201,7 @@ mod tests {
                 GenerationMask::WORKING_REFS_HISTORY,
             ),
             (MutationKind::RenameBranch, GenerationMask::REFS),
+            (MutationKind::SetUpstream, GenerationMask::REFS_CONFIG),
             (MutationKind::DeleteBranch, GenerationMask::REFS_HISTORY),
             (MutationKind::CreateTag, GenerationMask::REFS_HISTORY),
             (MutationKind::DeleteTag, GenerationMask::REFS_HISTORY),

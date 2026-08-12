@@ -575,6 +575,14 @@ export function getStashes(repoId: string, signal?: AbortSignal): Promise<StashE
   return invokeVersioned("get_stashes", { repoId }, repoId, "stashes", signal);
 }
 
+export function setBranchUpstream(repoId: string, branch: string, upstream: string): Promise<void> {
+  return invoke("set_branch_upstream", { repoId, branch, upstream });
+}
+
+export function unsetBranchUpstream(repoId: string, branch: string): Promise<void> {
+  return invoke("unset_branch_upstream", { repoId, branch });
+}
+
 export function stashPush(repoId: string, message: string | null = null): Promise<void> {
   return invoke("stash_push", { repoId, message });
 }

@@ -108,6 +108,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::create_branch_at,
             commands::rename_branch,
             commands::delete_branch,
+            commands::set_branch_upstream,
+            commands::unset_branch_upstream,
             commands::delete_remote_branch,
             commands::create_tag,
             commands::delete_tag,

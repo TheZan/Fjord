@@ -64,7 +64,7 @@ most are the ones still missing:
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
-| Remotes | ⚠️ Read paths only: `current_push_target`, `upstream_remote`, `ls_remote`, `delete_remote_branch`, and `publish_branch`'s default `origin`. No CRUD. |
+| Remotes | ⚠️ Read paths plus local upstream selection: `current_push_target`, `upstream_remote`, `set_branch_upstream`, `unset_branch_upstream`, `ls_remote`, `delete_remote_branch`, and `publish_branch`'s default `origin`. No remote CRUD. |
 | Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
 | Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |

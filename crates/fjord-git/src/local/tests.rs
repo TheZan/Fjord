@@ -632,6 +632,48 @@ async fn push_target_follows_the_configured_upstream() {
             .await,
         Err(GitError::PreflightStale)
     ));
+
+    let repo = Repository::open(&repo_path.0).unwrap();
+    repo.reference(
+        "refs/remotes/company/release",
+        Oid::from_str(&base).unwrap(),
+        true,
+        "test alternate upstream",
+    )
+    .unwrap();
+    drop(repo);
+    backend
+        .set_branch_upstream(&repo_path, "main", "company/release")
+        .await
+        .unwrap();
+    let target = backend.current_push_target(&repo_path).await.unwrap();
+    assert_eq!(target.remote, "company");
+    assert_eq!(target.remote_ref, "refs/heads/release");
+
+    write_file(&repo_path, "ahead.txt", "ahead\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("ahead.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Ahead").await.unwrap();
+    let main = backend
+        .branches(&repo_path)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|branch| branch.name == "main")
+        .unwrap();
+    assert_eq!(main.upstream.as_deref(), Some("company/release"));
+    assert_eq!((main.ahead, main.behind), (1, 0));
+
+    backend
+        .unset_branch_upstream(&repo_path, "main")
+        .await
+        .unwrap();
+    assert!(matches!(
+        backend.current_push_target(&repo_path).await,
+        Err(GitError::NoUpstream)
+    ));
 }
 
 #[tokio::test]

@@ -188,6 +188,8 @@ pub struct BranchInfo {
     pub is_current: bool,
     pub is_remote: bool,
     pub upstream: Option<String>,
+    pub ahead: u32,
+    pub behind: u32,
     pub target_commit_id: CommitId,
 }
 

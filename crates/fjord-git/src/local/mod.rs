@@ -277,6 +277,23 @@ impl GitBackend for LocalGitBackend {
         Ok(())
     }
 
+    async fn set_branch_upstream(
+        &self,
+        repo: &RepoPath,
+        branch: &str,
+        upstream: &str,
+    ) -> Result<(), GitError> {
+        refs::set_branch_upstream(repo, branch, upstream).await?;
+        runtime::bump_mutation(repo, MutationKind::SetUpstream);
+        Ok(())
+    }
+
+    async fn unset_branch_upstream(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
+        refs::unset_branch_upstream(repo, branch).await?;
+        runtime::bump_mutation(repo, MutationKind::SetUpstream);
+        Ok(())
+    }
+
     async fn create_tag(&self, repo: &RepoPath, name: &str, target: &str) -> Result<(), GitError> {
         refs::create_tag(&self.commands, repo, name, target).await?;
         runtime::bump_mutation(repo, MutationKind::CreateTag);

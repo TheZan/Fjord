@@ -296,7 +296,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 5 — System Git transport and authentication | ⚠️ implementation complete; residual stabilization items and manual provider/OS sign-off open ([`manual-git-compatibility.md`](manual-git-compatibility.md)) |
 | Phase 6 — Performance foundation | ⚠️ implementation complete through `P6-22`; only report-to-gate promotion `P6-20` remains ([`specs/performance.md`](specs/performance.md)) |
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
-| Phase 8 — Daily-driver essentials | ⚠️ partial-patch safety scope, amend, commit-and-push, and authoritative force-with-lease are complete (`P8-00`–`P8-09`, `P8-FIX-07`). Upstream management and later diff capabilities remain open ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)). |
+| Phase 8 — Daily-driver essentials | ⚠️ partial-patch safety scope, amend, commit-and-push, authoritative force-with-lease, and upstream management are complete (`P8-00`–`P8-10`, `P8-FIX-07`). Later diff capabilities remain open ([`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)). |
 | Phase 9 — Safety & recovery | 🚧 designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |

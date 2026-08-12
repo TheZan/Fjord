@@ -28,6 +28,8 @@ function snapshot(branch: string, message: string): RepositorySnapshot {
         isCurrent: true,
         isRemote: false,
         upstream: null,
+        ahead: 0,
+        behind: 0,
         targetCommitId: `${message}-id`,
       },
     ],
