@@ -433,7 +433,8 @@ may run before the first usable paint. Bootstrap already avoids panics
 ### 9. Bounded transport for large payloads
 
 `get_file_diff` exposes a window: `{ repo_id, path, source, offset, limit }` →
-`{ hunks, total_hunks, total_lines, truncated, next_offset }`. The frontend
+`{ hunks, total_hunks, total_lines, offset, truncated, next_offset }`, where the
+returned `offset` authoritatively identifies the served range. The frontend
 virtualizer requests windows as it scrolls, exactly as the commit log already
 does. A hard per-response ceiling (default 2 MB serialized) applies to every diff
 response; exceeding it is reported as a typed condition

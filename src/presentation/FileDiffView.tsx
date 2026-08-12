@@ -141,6 +141,7 @@ export function FileDiffView({
     setPendingDiscard({
       selection,
       action: { kind: "discard", selection: discardSelection },
+      snapshotKey,
     });
   }
 
@@ -290,7 +291,7 @@ export function FileDiffView({
         )}
       </div>
     </Surface>
-    {pendingDiscard ? (
+    {pendingDiscard?.snapshotKey === snapshotKey && diff?.baseDigest && generations ? (
       <DestructivePreflightDialog
         repoId={repoId}
         action={pendingDiscard.action}
@@ -344,6 +345,7 @@ interface LineSelection {
 interface PendingDiscard {
   selection: PatchSelection;
   action: DestructiveAction;
+  snapshotKey: string;
 }
 
 function diffSourceKey(source: DiffSource) {

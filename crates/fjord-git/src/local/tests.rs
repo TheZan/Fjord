@@ -933,6 +933,7 @@ async fn file_diff_window_returns_a_bounded_page_with_a_cursor() {
         1
     );
     assert!(window.total_lines > 1);
+    assert_eq!(window.offset, 0);
     assert!(window.truncated);
     assert_eq!(window.next_offset, Some(1));
 }

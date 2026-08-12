@@ -71,7 +71,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. |
 | Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
-| Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). |
+| Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). Every page is independently stamped with the complete `GenerationSet`; working pages also carry the complete rendered-diff digest. The frontend rejects the full accumulated result unless repository/path/source, digest, generations, file/change/mode metadata, totals, and the offset/continuation chain all agree, then clears selection and refetches from offset zero. |
 | Upstream management | ⚠️ Read-only: `current_push_target` resolves it; nothing sets or changes it. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). |
 
@@ -119,6 +119,14 @@ bytes are necessary to distinguish LF from CRLF and a missing final newline;
 they do not change the line-coordinate addressing visible to the frontend.
 Working-file diff transport returns the same digest on every bounded window and
 associates it with a coherently captured existing repository generation.
+The frontend treats the complete generation envelope, digest, requested
+repository/path/source, file identity and modes, structural totals, and exact
+`requested offset -> returned line count -> next offset` chain as one snapshot
+identity. A mismatch invalidates every accumulated page; no partial result,
+selection, or whole-file eligibility survives while the existing infinite query
+is reset and refetched from offset zero. Commit-diff pages use the immutable
+commit source plus their generation envelope and the same structural continuity
+checks.
 Binary, rename, mode-only, oversized/content-free, non-UTF-8 text, and empty-file
 changes with no line hunk fail with `patch_unsupported` rather than being guessed
 by the line-patch constructor. P8-15 owns the specified binary and mode-only UI.

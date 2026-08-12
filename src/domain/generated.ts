@@ -122,7 +122,11 @@ oldMode: number | null, newMode: number | null,
  */
 isBinary: boolean, hunks: Array<DiffHunk>, };
 
-export type FileDiffWindow = { path: string, changeType: FileChangeType, oldMode: number | null, newMode: number | null, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number, truncated: boolean, nextOffset: number | null,
+export type FileDiffWindow = { path: string, changeType: FileChangeType, oldMode: number | null, newMode: number | null, isBinary: boolean, tooLarge: boolean, fileBytes: number, hunks: Array<DiffHunk>, totalHunks: number, totalLines: number,
+/**
+ * Authoritative zero-based diff-line offset served by this response.
+ */
+offset: number, truncated: boolean, nextOffset: number | null,
 /**
  * Present only for working-file diff state. It covers the full
  * diff even when this response contains one bounded window.

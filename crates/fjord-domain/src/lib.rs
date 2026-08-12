@@ -557,6 +557,8 @@ pub struct FileDiffWindow {
     pub hunks: Vec<DiffHunk>,
     pub total_hunks: u32,
     pub total_lines: u32,
+    /// Authoritative zero-based diff-line offset served by this response.
+    pub offset: u32,
     pub truncated: bool,
     pub next_offset: Option<u32>,
     /// Present only for working-file diff state. It covers the full
@@ -598,6 +600,7 @@ impl FileDiffDetail {
             hunks,
             total_hunks,
             total_lines,
+            offset: start,
             truncated,
             next_offset: truncated.then_some(end),
             base_digest: None,
@@ -1000,6 +1003,7 @@ mod tests {
         assert_eq!(window.hunks.len(), 2);
         assert_eq!(window.hunks[0].lines[0].content, "c");
         assert_eq!(window.hunks[1].lines[0].content, "d");
+        assert_eq!(window.offset, 2);
         assert!(window.truncated);
         assert_eq!(window.next_offset, Some(4));
     }

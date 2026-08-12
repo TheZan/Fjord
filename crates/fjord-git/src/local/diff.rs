@@ -420,6 +420,7 @@ pub(super) async fn file_diff_window(
                 total_hunks: 0,
                 total_lines: resource_line_count(prep.old.data)
                     .max(resource_line_count(prep.new.data)),
+                offset: 0,
                 truncated: false,
                 next_offset: None,
                 base_digest: None,
@@ -450,6 +451,7 @@ pub(super) async fn file_diff_window(
                     hunks: collected.hunks,
                     total_hunks: collected.total_hunks,
                     total_lines: collected.total_lines,
+                    offset: offset.min(collected.total_lines),
                     truncated,
                     next_offset: truncated.then_some(collected.end),
                     base_digest: None,
@@ -467,6 +469,7 @@ pub(super) async fn file_diff_window(
                     hunks: Vec::new(),
                     total_hunks: 0,
                     total_lines: 0,
+                    offset: 0,
                     truncated: false,
                     next_offset: None,
                     base_digest: None,

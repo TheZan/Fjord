@@ -175,6 +175,7 @@ pub(super) async fn working_file_diff_window(
                     hunks: Vec::new(),
                     total_hunks: 0,
                     total_lines: 0,
+                    offset: 0,
                     truncated: false,
                     next_offset: None,
                     base_digest: None,

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileDiffView } from "@/presentation/FileDiffView";
+import type { GenerationSet } from "@/domain/git";
 
 const state = vi.hoisted(() => ({
   hasMore: true,
@@ -8,7 +9,7 @@ const state = vi.hoisted(() => ({
   loading: false,
   loadingMore: false,
   error: null as string | null,
-  generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
+  generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 } as GenerationSet | null,
   diff: null as null | {
     path: string;
     changeType: "modified";
@@ -29,6 +30,7 @@ const state = vi.hoisted(() => ({
     }>;
     totalHunks: number;
     totalLines: number;
+    offset: number;
     truncated: boolean;
     nextOffset: number | null;
     baseDigest: string | null;
@@ -255,12 +257,72 @@ describe("FileDiffView windowing", () => {
     expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
 
     state.diff = { ...textDiff(), baseDigest: "digest-2" };
-    state.generations = { ...state.generations, workingTree: 5 };
+    state.generations = { ...state.generations!, workingTree: 5 };
     view.rerender(
       <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} onApplyHunk={vi.fn()} />,
     );
 
     await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
+  });
+
+  it("clears line selection and every action when window validation invalidates the diff", async () => {
+    state.hasMore = false;
+    const view = render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.select.deletion" }));
+    expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
+
+    state.diff = null;
+    state.generations = null;
+    state.loading = true;
+    view.rerender(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0));
+    expect(screen.queryByRole("button", { name: "diff.stageHunk" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.discardFile" })).not.toBeInTheDocument();
+  });
+
+  it("immediately hides an open discard preflight when window validation invalidates the snapshot", async () => {
+    state.hasMore = false;
+    const view = render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "diff.discardHunk" }));
+    await screen.findByRole("dialog", { name: "preflight.discard.title" });
+
+    state.diff = null;
+    state.generations = null;
+    state.loading = true;
+    view.rerender(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("stages exactly the selected unstaged hunk using the backend digest and generations", async () => {
@@ -519,6 +581,7 @@ function textDiff() {
     }],
     totalHunks: 1,
     totalLines: 2_000,
+    offset: 0,
     truncated: state.hasMore,
     nextOffset: state.hasMore ? 1_000 : null,
     baseDigest: "digest-1",

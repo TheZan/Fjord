@@ -61,7 +61,7 @@ interface GenerationEnvelope<T> {
 
 export interface VersionedFileDiffWindow {
   data: FileDiffWindow;
-  generations: GenerationSet | null;
+  generations: GenerationSet;
 }
 
 export type OperationKind = "fetch" | "pull" | "push" | "publish" | "bulk-fetch" | "bulk-pull";
@@ -410,13 +410,74 @@ export function getFileDiff(
   limit: number,
   signal?: AbortSignal,
 ): Promise<FileDiffWindow> {
-  return invokeVersioned(
+  return getFileDiffWithGenerations(repoId, commitId, path, offset, limit, signal).then(
+    (response) => response.data,
+  );
+}
+
+export function getFileDiffWithGenerations(
+  repoId: string,
+  commitId: string,
+  path: string,
+  offset: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<VersionedFileDiffWindow> {
+  return getFileDiffPage(repoId, commitId, path, offset, limit, signal).then((response) =>
+    observedDiffPage(repoId, response, "history"),
+  );
+}
+
+export function getFileDiffPage(
+  repoId: string,
+  commitId: string,
+  path: string,
+  offset: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<VersionedFileDiffWindow> {
+  return invokeAbortable<VersionedFileDiffWindow>(
     "get_file_diff",
     { repoId, commitId, path, offset, limit },
-    repoId,
-    "history",
     signal,
   );
+}
+
+export function getWorkingFileDiffPage(
+  repoId: string,
+  path: string,
+  staged: boolean,
+  offset: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<VersionedFileDiffWindow> {
+  return invokeAbortable<VersionedFileDiffWindow>(
+    "get_working_file_diff",
+    { repoId, path, staged, offset, limit },
+    signal,
+  );
+}
+
+function observedDiffPage(
+  repoId: string,
+  response: VersionedFileDiffWindow,
+  scope: RepositoryGenerationScope,
+) {
+  observeRepositoryGenerations(repoId, response.generations, scope);
+  return response;
+}
+
+/*
+ * The page variants deliberately defer generation observation. A caller that
+ * accumulates windows must first prove they belong to one snapshot; rejected
+ * pages must not advance the repository generation observer.
+ */
+export function observeDiffPage(
+  repoId: string,
+  response: VersionedFileDiffWindow,
+  scope: "working" | "history",
+) {
+  return observedDiffPage(repoId, response, scope);
 }
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
@@ -448,13 +509,8 @@ export function getWorkingFileDiffWithGenerations(
   limit: number,
   signal?: AbortSignal,
 ): Promise<VersionedFileDiffWindow> {
-  return invokeVersioned<FileDiffWindow>(
-    "get_working_file_diff",
-    { repoId, path, staged, offset, limit },
-    repoId,
-    "working",
-    signal,
-    true,
+  return getWorkingFileDiffPage(repoId, path, staged, offset, limit, signal).then((response) =>
+    observedDiffPage(repoId, response, "working"),
   );
 }
 

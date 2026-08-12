@@ -1326,6 +1326,7 @@ mod tests {
             }],
             total_hunks: 1,
             total_lines: 1,
+            offset: 0,
             truncated: false,
             next_offset: None,
             base_digest: None,
