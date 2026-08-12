@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type UIEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
@@ -74,8 +74,14 @@ export function FileDiffView({
     loadAnyway,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const leftSplitScrollRef = useRef<HTMLDivElement>(null);
+  const rightSplitScrollRef = useRef<HTMLDivElement>(null);
+  const suppressLeftSplitScroll = useRef(false);
+  const suppressRightSplitScroll = useRef(false);
   const pendingModeAnchor = useRef<DiffRowAnchor | null>(null);
   const [diffMode, setDiffMode] = useState<UiDiffMode>("unified");
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
   const [selectionPending, setSelectionPending] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
@@ -121,6 +127,15 @@ export function FileDiffView({
     void loadUiState()
       .then((state) => setDiffMode(state.repo.diffMode))
       .catch(() => undefined);
+  }, []);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    setViewportHeight(element.clientHeight);
+    const observer = new ResizeObserver((entries) => setViewportHeight(entries[0].contentRect.height));
+    observer.observe(element);
+    return () => observer.disconnect();
   }, []);
 
   useLayoutEffect(() => {
@@ -223,6 +238,30 @@ export function FileDiffView({
   }
 
   const canDiscard = source.kind === "working" && !source.staged && Boolean(onDiscardPatch);
+
+  function handleLeftSplitScroll(event: UIEvent<HTMLDivElement>) {
+    if (suppressLeftSplitScroll.current) {
+      suppressLeftSplitScroll.current = false;
+      return;
+    }
+    const target = rightSplitScrollRef.current;
+    const nextScrollLeft = event.currentTarget.scrollLeft;
+    if (!target || target.scrollLeft === nextScrollLeft) return;
+    suppressRightSplitScroll.current = true;
+    target.scrollLeft = nextScrollLeft;
+  }
+
+  function handleRightSplitScroll(event: UIEvent<HTMLDivElement>) {
+    if (suppressRightSplitScroll.current) {
+      suppressRightSplitScroll.current = false;
+      return;
+    }
+    const target = leftSplitScrollRef.current;
+    const nextScrollLeft = event.currentTarget.scrollLeft;
+    if (!target || target.scrollLeft === nextScrollLeft) return;
+    suppressLeftSplitScroll.current = true;
+    target.scrollLeft = nextScrollLeft;
+  }
 
   function changeDiffMode(mode: UiDiffMode) {
     if (mode === diffMode) return;
@@ -357,7 +396,11 @@ export function FileDiffView({
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+      <div
+        ref={scrollRef}
+        className={`min-h-0 flex-1 ${diffMode === "split" ? "overflow-y-auto overflow-x-hidden" : "overflow-auto"}`}
+        onScroll={diffMode === "split" ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
+      >
         {loading && (
           <p className="p-3 text-xs" style={{ color: "var(--mist)" }}>
             {t("commits.loading")}
@@ -400,22 +443,99 @@ export function FileDiffView({
           </p>
         )}
         {diff && !diff.isBinary && !diff.tooLarge && rows.length > 0 && (
-          <div
-            className="selectable-text relative w-max min-w-full font-mono text-xs"
-            style={{ height: rowVirtualizer.getTotalSize() }}
-          >
-            {virtualRows.map((virtualRow) => {
-              const row = rows[virtualRow.index];
-              return (
+          diffMode === "split" ? (
+            <div
+              className="selectable-text relative w-full font-mono text-xs"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {/*
+                The columns are pinned to the visible viewport (not the full
+                virtualized height) so their native horizontal scrollbar sits
+                at the bottom of the screen instead of the bottom of the
+                entire (mostly off-screen) row list. Row offsets inside them
+                are translated relative to the current scrollTop instead of
+                the list top, since the pinned box no longer scrolls with it.
+              */}
+              <div className="sticky top-0 flex w-full" style={{ height: viewportHeight || undefined }}>
                 <div
-                  key={row.key}
-                  className="absolute left-0 top-0 min-w-full"
-                  style={{
-                    height: virtualRow.size,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  ref={leftSplitScrollRef}
+                  data-testid="split-scroll-old"
+                  className="h-full w-1/2 overflow-x-auto overflow-y-hidden border-r"
+                  style={{ borderColor: "var(--hairline)" }}
+                  onScroll={handleLeftSplitScroll}
                 >
-                  {row.kind === "hunk" ? (
+                  <div className="relative w-max min-w-full" style={{ height: viewportHeight }}>
+                    {virtualRows.map((virtualRow) => {
+                      const row = rows[virtualRow.index];
+                      if (row.kind !== "split") return null;
+                      return (
+                        <div
+                          key={row.key}
+                          className="absolute left-0 top-0 min-w-full"
+                          style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start - scrollTop}px)` }}
+                        >
+                          <SplitDiffCell
+                            {...splitCellProps(
+                              "old",
+                              row.left,
+                              row.hunkIndex,
+                              whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard,
+                              lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null,
+                              enhancements.tokens,
+                              enhancements.wordChanges,
+                              selectLine,
+                              extendLineSelection,
+                            )}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div
+                  ref={rightSplitScrollRef}
+                  data-testid="split-scroll-new"
+                  className="h-full w-1/2 overflow-x-auto overflow-y-hidden"
+                  onScroll={handleRightSplitScroll}
+                >
+                  <div className="relative w-max min-w-full" style={{ height: viewportHeight }}>
+                    {virtualRows.map((virtualRow) => {
+                      const row = rows[virtualRow.index];
+                      if (row.kind !== "split") return null;
+                      return (
+                        <div
+                          key={row.key}
+                          className="absolute left-0 top-0 min-w-full"
+                          style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start - scrollTop}px)` }}
+                        >
+                          <SplitDiffCell
+                            {...splitCellProps(
+                              "new",
+                              row.right,
+                              row.hunkIndex,
+                              whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard,
+                              lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null,
+                              enhancements.tokens,
+                              enhancements.wordChanges,
+                              selectLine,
+                              extendLineSelection,
+                            )}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              {virtualRows.map((virtualRow) => {
+                const row = rows[virtualRow.index];
+                if (row.kind !== "hunk") return null;
+                return (
+                  <div
+                    key={row.key}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ height: virtualRow.size, transform: `translateY(${virtualRow.start}px)` }}
+                  >
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
@@ -447,33 +567,76 @@ export function FileDiffView({
                       }
                       onDiscardSelected={canDiscard ? () => discardSelectedLines(row.hunkIndex, row.hunk) : undefined}
                     />
-                  ) : row.kind === "line" ? (
-                    <DiffLineRow
-                      line={row.line}
-                      hunkIndex={row.hunkIndex}
-                      lineIndex={row.lineIndex}
-                      interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
-                      selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
-                      tokens={enhancements.tokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
-                      wordChanges={enhancements.wordChanges.get(diffLineKey(row.hunkIndex, row.lineIndex))}
-                      onSelect={selectLine}
-                      onExtendSelection={extendLineSelection}
-                    />
-                  ) : (
-                    <SplitDiffRow
-                      row={row}
-                      interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
-                      selectedLineIndices={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null}
-                      highlightTokens={enhancements.tokens}
-                      wordChanges={enhancements.wordChanges}
-                      onSelect={selectLine}
-                      onExtendSelection={extendLineSelection}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div
+              className="selectable-text relative w-max min-w-full font-mono text-xs"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {virtualRows.map((virtualRow) => {
+                const row = rows[virtualRow.index];
+                return (
+                  <div
+                    key={row.key}
+                    className="absolute left-0 top-0 min-w-full"
+                    style={{
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {row.kind === "hunk" ? (
+                      <HunkRow
+                        hunk={row.hunk}
+                        source={source}
+                        partialApplyUnsupported={
+                          whitespace !== "show"
+                          || (source.kind === "working" && source.staged && diff.changeType === "deleted")
+                        }
+                        partialApplyUnsupportedReason={
+                          whitespace !== "show"
+                            ? t("diff.whitespace.partialActionsDisabled")
+                            : t("diff.partialDeletedUnstageUnsupported")
+                        }
+                        disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
+                        selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
+                        selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
+                        onApply={
+                          diff.baseDigest && generations && onApplyHunk
+                            ? () => onApplyHunk(wholeHunkSelection(path, source, row.hunk, diff.baseDigest!), generations)
+                            : undefined
+                        }
+                        onApplySelected={onApplyHunk ? () => applySelectedLines(row.hunkIndex, row.hunk) : undefined}
+                        onDiscard={
+                          canDiscard && diff.baseDigest
+                            ? () => requestDiscard(
+                              wholeHunkSelection(path, source, row.hunk, diff.baseDigest!),
+                              hunkDiscardSelection(path, row.hunk),
+                            )
+                            : undefined
+                        }
+                        onDiscardSelected={canDiscard ? () => discardSelectedLines(row.hunkIndex, row.hunk) : undefined}
+                      />
+                    ) : row.kind === "line" ? (
+                      <DiffLineRow
+                        line={row.line}
+                        hunkIndex={row.hunkIndex}
+                        lineIndex={row.lineIndex}
+                        interactive={whitespace === "show" && source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
+                        selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
+                        tokens={enhancements.tokens.get(diffLineKey(row.hunkIndex, row.lineIndex))}
+                        wordChanges={enhancements.wordChanges.get(diffLineKey(row.hunkIndex, row.lineIndex))}
+                        onSelect={selectLine}
+                        onExtendSelection={extendLineSelection}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
         {loadingMore && (
           <p className="p-2 text-center text-xs" style={{ color: "var(--mist)" }}>
@@ -943,49 +1106,28 @@ function DiffLineRow({
   );
 }
 
-function SplitDiffRow({
-  row,
-  interactive,
-  selectedLineIndices,
-  highlightTokens,
-  wordChanges,
-  onSelect,
-  onExtendSelection,
-}: {
-  row: Extract<FlatDiffRow, { kind: "split" }>;
-  interactive: boolean;
-  selectedLineIndices: Set<number> | null;
-  highlightTokens: ReadonlyMap<string, HighlightToken[]>;
-  wordChanges: ReadonlyMap<string, TextRange[]>;
-  onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
-  onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
-}) {
-  return (
-    <div className="flex h-full min-w-[56rem]">
-      <SplitDiffCell
-        side="old"
-        reference={row.left}
-        hunkIndex={row.hunkIndex}
-        interactive={interactive}
-        selected={row.left ? selectedLineIndices?.has(row.left.lineIndex) === true : false}
-        tokens={row.left ? highlightTokens.get(diffLineKey(row.hunkIndex, row.left.lineIndex)) : undefined}
-        wordChanges={row.left ? wordChanges.get(diffLineKey(row.hunkIndex, row.left.lineIndex)) : undefined}
-        onSelect={onSelect}
-        onExtendSelection={onExtendSelection}
-      />
-      <SplitDiffCell
-        side="new"
-        reference={row.right}
-        hunkIndex={row.hunkIndex}
-        interactive={interactive}
-        selected={row.right ? selectedLineIndices?.has(row.right.lineIndex) === true : false}
-        tokens={row.right ? highlightTokens.get(diffLineKey(row.hunkIndex, row.right.lineIndex)) : undefined}
-        wordChanges={row.right ? wordChanges.get(diffLineKey(row.hunkIndex, row.right.lineIndex)) : undefined}
-        onSelect={onSelect}
-        onExtendSelection={onExtendSelection}
-      />
-    </div>
-  );
+function splitCellProps(
+  side: "old" | "new",
+  reference: DiffLineRef | null,
+  hunkIndex: number,
+  interactive: boolean,
+  selectedLineIndices: Set<number> | null,
+  highlightTokens: ReadonlyMap<string, HighlightToken[]>,
+  wordChanges: ReadonlyMap<string, TextRange[]>,
+  onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void,
+  onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void,
+) {
+  return {
+    side,
+    reference,
+    hunkIndex,
+    interactive,
+    selected: reference ? selectedLineIndices?.has(reference.lineIndex) === true : false,
+    tokens: reference ? highlightTokens.get(diffLineKey(hunkIndex, reference.lineIndex)) : undefined,
+    wordChanges: reference ? wordChanges.get(diffLineKey(hunkIndex, reference.lineIndex)) : undefined,
+    onSelect,
+    onExtendSelection,
+  } as const;
 }
 
 function SplitDiffCell({
@@ -1011,9 +1153,8 @@ function SplitDiffCell({
 }) {
   const { t } = useTranslation("workspace");
   const line = reference?.line;
-  const baseClass = "flex h-full min-w-0 w-1/2 border-r text-left last:border-r-0";
+  const baseClass = "flex h-full min-w-full text-left";
   const style = {
-    borderColor: "var(--hairline)",
     background: line ? LINE_BG[line.kind] : "var(--canvas)",
     color: line ? LINE_COLOR[line.kind] : "var(--mist)",
     boxShadow: selected ? "inset 3px 0 var(--fjord)" : undefined,
@@ -1026,7 +1167,7 @@ function SplitDiffCell({
     <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
       {side === "old" ? line.oldLineno ?? "" : line.newLineno ?? ""}
     </span>
-    <span className="min-w-0 flex-1 whitespace-pre px-2">
+    <span className="whitespace-pre px-2">
       {LINE_PREFIX[line.kind]}
       <SyntaxContent content={line.content} tokens={tokens} wordChanges={wordChanges} />
     </span>

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDiffRows, FileDiffView } from "@/presentation/FileDiffView";
 import type { GenerationSet } from "@/domain/git";
 
@@ -109,6 +109,10 @@ vi.mock("react-i18next", async (importOriginal) => ({
 
 describe("FileDiffView windowing", () => {
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
     state.hasMore = true;
     state.loadMore.mockClear();
     state.loading = false;
@@ -136,6 +140,10 @@ describe("FileDiffView windowing", () => {
     state.highlightTokens = new Map();
     state.wordChanges = new Map();
     state.useFileDiff.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("builds unified rows and pairs changed lines in split rows", () => {
@@ -180,6 +188,34 @@ describe("FileDiffView windowing", () => {
 
     await waitFor(() => expect(screen.getByRole("radio", { name: "diff.split" })).toHaveAttribute("aria-checked", "true"));
     expect(state.saveRepoModes).not.toHaveBeenCalled();
+  });
+
+  it("mirrors horizontal scroll between the split panes", async () => {
+    state.hasMore = false;
+    state.loadUiState.mockResolvedValue({ repo: { diffMode: "split" } });
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} />,
+    );
+    await waitFor(() => expect(screen.getByRole("radio", { name: "diff.split" })).toHaveAttribute("aria-checked", "true"));
+
+    const oldPane = screen.getByTestId("split-scroll-old");
+    const newPane = screen.getByTestId("split-scroll-new");
+
+    // Scrolling the left pane mirrors into the right pane. A real browser
+    // fires the mirrored 'scroll' event on newPane asynchronously once its
+    // scrollLeft is set programmatically; fireEvent.scroll simulates that echo.
+    oldPane.scrollLeft = 42;
+    fireEvent.scroll(oldPane);
+    expect(newPane.scrollLeft).toBe(42);
+    fireEvent.scroll(newPane);
+    expect(oldPane.scrollLeft).toBe(42);
+
+    // Scrolling the right pane mirrors back into the left pane.
+    newPane.scrollLeft = 90;
+    fireEvent.scroll(newPane);
+    expect(oldPane.scrollLeft).toBe(90);
+    fireEvent.scroll(oldPane);
+    expect(newPane.scrollLeft).toBe(90);
   });
 
   it("loads the next window near the virtualized end and stops when complete", async () => {
