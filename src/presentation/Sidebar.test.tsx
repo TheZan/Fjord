@@ -122,4 +122,41 @@ describe("Sidebar", () => {
     fireEvent.drop(source, { dataTransfer });
     expect(sidebarProps.onMoveWorkspaceTo).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps the workspace menu button on its own row instead of the expanded repository list", () => {
+    const sidebarProps = props();
+    render(<Sidebar {...sidebarProps} />);
+
+    const headerRow = screen.getByText("One").closest('[data-selected]')!;
+    const menuButton = screen.getAllByRole("button", { name: "workspaces.rename" })[0];
+    expect(headerRow.contains(menuButton)).toBe(true);
+  });
+
+  it("closes the workspace menu on an outside click and on Escape", () => {
+    const sidebarProps = props();
+    render(<Sidebar {...sidebarProps} />);
+    const menuButton = screen.getAllByRole("button", { name: "workspaces.rename" })[0];
+
+    fireEvent.click(menuButton);
+    expect(screen.getByText("workspaces.rename")).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText("workspaces.rename")).not.toBeInTheDocument();
+
+    fireEvent.click(menuButton);
+    expect(screen.getByText("workspaces.rename")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("workspaces.rename")).not.toBeInTheDocument();
+  });
+
+  it("keeps the workspace menu open when clicking inside it", () => {
+    const sidebarProps = props();
+    render(<Sidebar {...sidebarProps} />);
+    const menuButton = screen.getAllByRole("button", { name: "workspaces.rename" })[0];
+
+    fireEvent.click(menuButton);
+    fireEvent.mouseDown(screen.getByText("workspaces.moveUp"));
+    expect(screen.getByText("workspaces.rename")).toBeInTheDocument();
+  });
 });

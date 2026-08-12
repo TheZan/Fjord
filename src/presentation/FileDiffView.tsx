@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode, type UIEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
@@ -32,6 +32,34 @@ const LINE_PREFIX: Record<DiffLineKind, string> = {
   deletion: "-",
   context: " ",
 };
+
+/**
+ * Bare-text `interactive-control` buttons only reveal themselves on hover,
+ * so a disabled "stage selected lines" and an actionable one look identical
+ * at rest. These give diff actions real button chrome (border + fill) so
+ * enabled/disabled and stage/discard read at a glance without hovering.
+ */
+const DIFF_ACTION_BUTTON_CLASS =
+  "interactive-control rounded border px-2 py-0.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45";
+
+function toolbarActionStyle(tone: "stage" | "discard"): CSSProperties {
+  return {
+    borderWidth: "0.5px",
+    ...(tone === "stage"
+      ? { background: "var(--fjord-tint)", borderColor: "var(--fjord)", color: "var(--fjord-ink)" }
+      : { background: "transparent", borderColor: "var(--hairline-strong)", color: "var(--rust-ink)" }),
+  };
+}
+
+function hunkActionStyle(tone: "stage" | "discard"): CSSProperties {
+  return {
+    borderWidth: "0.5px",
+    background: "var(--paper)",
+    ...(tone === "stage"
+      ? { borderColor: "var(--fjord)", color: "var(--fjord-ink)" }
+      : { borderColor: "var(--hairline-strong)", color: "var(--rust-ink)" }),
+  };
+}
 
 /**
  * Full-detail diff for one file, meant to take over the center column when a
@@ -355,8 +383,8 @@ export function FileDiffView({
         {source.kind === "working" && onApplyFile ? (
           <button
             type="button"
-            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ color: "var(--fjord-ink)" }}
+            className={DIFF_ACTION_BUTTON_CLASS}
+            style={toolbarActionStyle("stage")}
             disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard)}
             onClick={onApplyFile}
           >
@@ -366,8 +394,8 @@ export function FileDiffView({
         {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
           <button
             type="button"
-            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-            style={{ color: "var(--rust-ink)" }}
+            className={DIFF_ACTION_BUTTON_CLASS}
+            style={toolbarActionStyle("discard")}
             disabled={actionsDisabled || whitespace !== "show" || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
             title={
               whitespace !== "show"
@@ -966,7 +994,8 @@ function HunkRow({
       <HunkCoordinates hunk={hunk} />
       <button
         type="button"
-        className="interactive-control ml-auto rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+        className={`${DIFF_ACTION_BUTTON_CLASS} ml-auto`}
+        style={hunkActionStyle("stage")}
         disabled={disabled || partialApplyUnsupported || selectedLineCount === 0 || !onApplySelected}
         title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
         aria-label={t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
@@ -979,8 +1008,8 @@ function HunkRow({
       {!staged && onDiscardSelected ? (
         <button
           type="button"
-          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ color: "var(--rust-ink)" }}
+          className={DIFF_ACTION_BUTTON_CLASS}
+          style={hunkActionStyle("discard")}
           disabled={disabled || partialApplyUnsupported || selectedLineCount === 0}
           title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
           aria-label={t("diff.discardSelectedLines")}
@@ -991,7 +1020,8 @@ function HunkRow({
       ) : null}
       <button
         type="button"
-        className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
+        className={DIFF_ACTION_BUTTON_CLASS}
+        style={hunkActionStyle("stage")}
         disabled={disabled || partialApplyUnsupported || pending || !onApply}
         title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
         aria-label={actionLabel}
@@ -1006,8 +1036,8 @@ function HunkRow({
       {!staged && onDiscard ? (
         <button
           type="button"
-          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-          style={{ color: "var(--rust-ink)" }}
+          className={DIFF_ACTION_BUTTON_CLASS}
+          style={hunkActionStyle("discard")}
           disabled={disabled || partialApplyUnsupported}
           title={partialApplyUnsupported ? partialApplyUnsupportedReason : undefined}
           aria-label={t("diff.discardHunk")}

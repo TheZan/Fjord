@@ -56,6 +56,23 @@ export function Sidebar({
   const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const uiStateRestoredRef = useRef(false);
+  const menuRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuId) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!menuRootRef.current?.contains(event.target as Node)) setMenuId(null);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuId(null);
+    }
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuId]);
 
   useEffect(() => {
     if (uiStateRestoredRef.current || workspaces.length === 0) return;
@@ -223,7 +240,7 @@ export function Sidebar({
                 setDraggedWorkspaceId(null);
                 setDropTargetId(null);
               }}
-              className="group relative rounded-md"
+              className="rounded-md"
               style={{
                 opacity: dragging ? 0.55 : 1,
                 outline: dropTarget ? "1px solid var(--fjord)" : "none",
@@ -231,8 +248,11 @@ export function Sidebar({
               }}
             >
               <div
+                ref={(element) => {
+                  if (menuId === workspace.id) menuRootRef.current = element;
+                }}
                 data-selected={isSelected}
-                className={`interactive-row flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left active:cursor-grabbing ${TYPOGRAPHY.body}`}
+                className={`group interactive-row relative flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left active:cursor-grabbing ${TYPOGRAPHY.body}`}
                 style={{
                   color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                 }}
@@ -270,66 +290,66 @@ export function Sidebar({
                   {repoCountByWorkspace[workspace.id] ?? 0}
                 </span>
                 </button>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setMenuId(menuId === workspace.id ? null : workspace.id)}
-                className="interactive-control absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
-                style={{ color: "var(--slate)" }}
-                aria-label={tw("workspaces.rename")}
-              >
-                •••
-              </button>
-
-              {menuId === workspace.id && (
-                <div
-                  className="desktop-popover absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-md border py-1"
-                  style={{
-                    borderWidth: "0.5px",
-                    borderColor: "var(--hairline-strong)",
-                    background: "var(--paper)",
-                  }}
+                <button
+                  type="button"
+                  onClick={() => setMenuId(menuId === workspace.id ? null : workspace.id)}
+                  className="interactive-control absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
+                  style={{ color: "var(--slate)" }}
+                  aria-label={tw("workspaces.rename")}
                 >
-                  <MenuItem
-                    onClick={() => {
-                      setEditingId(workspace.id);
-                      setEditingName(workspace.name);
-                      setMenuId(null);
+                  •••
+                </button>
+
+                {menuId === workspace.id && (
+                  <div
+                    className="desktop-popover absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-md border py-1"
+                    style={{
+                      borderWidth: "0.5px",
+                      borderColor: "var(--hairline-strong)",
+                      background: "var(--paper)",
                     }}
                   >
-                    {tw("workspaces.rename")}
-                  </MenuItem>
-                  <MenuItem
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onMoveWorkspace(workspace.id, -1);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.moveUp")}
-                  </MenuItem>
-                  <MenuItem
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onMoveWorkspace(workspace.id, 1);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.moveDown")}
-                  </MenuItem>
-                  <MenuItem
-                    danger
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onDeleteWorkspace(workspace.id);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.delete")}
-                  </MenuItem>
-                </div>
-              )}
+                    <MenuItem
+                      onClick={() => {
+                        setEditingId(workspace.id);
+                        setEditingName(workspace.name);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.rename")}
+                    </MenuItem>
+                    <MenuItem
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onMoveWorkspace(workspace.id, -1);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.moveUp")}
+                    </MenuItem>
+                    <MenuItem
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onMoveWorkspace(workspace.id, 1);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.moveDown")}
+                    </MenuItem>
+                    <MenuItem
+                      danger
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onDeleteWorkspace(workspace.id);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.delete")}
+                    </MenuItem>
+                  </div>
+                )}
+              </div>
 
               {expanded && (
                 <div className="flex flex-col gap-0.5 pb-1 pl-7 pr-1 pt-1">

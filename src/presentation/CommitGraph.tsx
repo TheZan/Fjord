@@ -82,6 +82,8 @@ export function CommitGraph({
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingSearchRevealId, setPendingSearchRevealId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
+  const [refFlyout, setRefFlyout] = useState<{ anchorRect: DOMRect; refs: CommitRef[] } | null>(null);
+  const refFlyoutCloseTimeout = useRef<number | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
   const { commits, loading, error, hasMore, loadMore, loadingUntilCommitId, loadUntilCommit } =
@@ -140,6 +142,13 @@ export function CommitGraph({
     if (!searchOpen) return;
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [searchOpen]);
+
+  useEffect(
+    () => () => {
+      if (refFlyoutCloseTimeout.current !== null) window.clearTimeout(refFlyoutCloseTimeout.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (searchActive || !hasMore) return;
@@ -270,6 +279,23 @@ export function CommitGraph({
     onSelectCommit?.(commit);
   }
 
+  function cancelRefFlyoutClose() {
+    if (refFlyoutCloseTimeout.current !== null) {
+      window.clearTimeout(refFlyoutCloseTimeout.current);
+      refFlyoutCloseTimeout.current = null;
+    }
+  }
+
+  function openRefFlyout(anchorRect: DOMRect, refs: CommitRef[]) {
+    cancelRefFlyoutClose();
+    setRefFlyout({ anchorRect, refs });
+  }
+
+  function scheduleRefFlyoutClose() {
+    cancelRefFlyoutClose();
+    refFlyoutCloseTimeout.current = window.setTimeout(() => setRefFlyout(null), 150);
+  }
+
   return (
     <div
       className="relative h-full w-full overflow-hidden rounded-lg border text-sm"
@@ -350,6 +376,8 @@ export function CommitGraph({
                   })}
                   onCheckout={onCheckout}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
+                  onOpenRefFlyout={openRefFlyout}
+                  onCloseRefFlyoutSoon={scheduleRefFlyoutClose}
                 />
               </div>
             );
@@ -379,6 +407,15 @@ export function CommitGraph({
           )}
         </div>
       </div>
+      {refFlyout && (
+        <RefBadgeFlyout
+          anchorRect={refFlyout.anchorRect}
+          refs={refFlyout.refs}
+          onCheckout={onCheckout}
+          onMouseEnter={cancelRefFlyoutClose}
+          onMouseLeave={scheduleRefFlyoutClose}
+        />
+      )}
       {menu && (
         <ContextMenu
           position={menu}
@@ -591,6 +628,8 @@ function CommitRow({
   ariaLabel,
   onCheckout,
   onContextMenu,
+  onOpenRefFlyout,
+  onCloseRefFlyoutSoon,
 }: {
   row: GraphRow;
   gutterWidth: number;
@@ -610,6 +649,8 @@ function CommitRow({
   ariaLabel: string;
   onCheckout?: (branch: string) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
+  onOpenRefFlyout: (anchorRect: DOMRect, refs: CommitRef[]) => void;
+  onCloseRefFlyoutSoon: () => void;
 }) {
   const { commit, lane } = row;
   const midY = ROW_HEIGHT / 2;
@@ -670,16 +711,12 @@ function CommitRow({
         cursor: onSelect ? "pointer" : undefined,
       }}
     >
-      <span className="flex min-w-0 items-center gap-1">
-        {refs.slice(0, 3).map((ref) => (
-          <RefBadge key={ref.original} refInfo={ref} onCheckout={onCheckout} />
-        ))}
-        {refs.length > 3 && (
-          <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px]" style={{ color: "var(--mist)" }}>
-            +{refs.length - 3}
-          </span>
-        )}
-      </span>
+      <RefBadgeGroup
+        refs={refs}
+        onCheckout={onCheckout}
+        onOpen={onOpenRefFlyout}
+        onCloseSoon={onCloseRefFlyoutSoon}
+      />
 
       <svg
         width={gutterWidth}
@@ -797,6 +834,120 @@ function RefBadge({
       <Icon />
       <span className="truncate">{refInfo.label}</span>
     </span>
+  );
+}
+
+/**
+ * A commit can carry a dozen branches/tags at once (long-lived integration
+ * branches, release tags). Rendering them all inline used to spill the badge
+ * row into the graph gutter. Show only the front-most ref (already sorted
+ * active-branch-first) plus a "+N" count, and reveal the rest on hover —
+ * GitKraken's treatment for the same problem.
+ */
+function RefBadgeGroup({
+  refs,
+  onCheckout,
+  onOpen,
+  onCloseSoon,
+}: {
+  refs: CommitRef[];
+  onCheckout?: (branch: string) => void;
+  onOpen: (anchorRect: DOMRect, refs: CommitRef[]) => void;
+  onCloseSoon: () => void;
+}) {
+  const rootRef = useRef<HTMLSpanElement>(null);
+  if (refs.length === 0) return <span className="min-w-0" />;
+
+  const [first, ...rest] = refs;
+
+  return (
+    <span
+      ref={rootRef}
+      className="flex min-w-0 items-center gap-1"
+      onMouseEnter={() => {
+        if (rest.length === 0) return;
+        const rect = rootRef.current?.getBoundingClientRect();
+        if (rect) onOpen(rect, refs);
+      }}
+      onMouseLeave={() => {
+        if (rest.length > 0) onCloseSoon();
+      }}
+    >
+      {/*
+        RefBadge is `shrink-0` so it stays legible in the flyout list where
+        it isn't competing for space. Here it must give way to the "+N"
+        counter instead of claiming the whole column and pushing it out —
+        wrapping it in a `min-w-0 flex-1` box lets the flex algorithm size
+        it down first, and RefBadge's own `max-w-full` + inner `truncate`
+        take it from there.
+      */}
+      <span className="min-w-0 flex-1 overflow-hidden">
+        <RefBadge refInfo={first} onCheckout={onCheckout} />
+      </span>
+      {rest.length > 0 && (
+        <span
+          className="flex h-[22px] shrink-0 items-center justify-center rounded px-1.5 text-[11px] font-semibold tabular-nums"
+          style={{
+            background: "var(--fjord-tint)",
+            color: "var(--fjord-ink)",
+            borderWidth: "0.5px",
+            borderStyle: "solid",
+            borderColor: "var(--fjord)",
+          }}
+        >
+          +{rest.length}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Rendered as a sibling of the scrollable commit list (like ContextMenu),
+ * not nested inside it — a virtualized row's `translateY` transform would
+ * otherwise become the containing block for `position: fixed`, anchoring
+ * this to the wrong place as soon as the list scrolls.
+ */
+function RefBadgeFlyout({
+  anchorRect,
+  refs,
+  onCheckout,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  anchorRect: DOMRect;
+  refs: CommitRef[];
+  onCheckout?: (branch: string) => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}) {
+  const width = 224;
+  const top = Math.min(anchorRect.bottom + 4, window.innerHeight - 8);
+  const left = Math.min(Math.max(8, anchorRect.left), window.innerWidth - width - 8);
+
+  return (
+    <div className="fixed inset-0 z-40 pointer-events-none">
+      <div
+        role="menu"
+        className="desktop-popover pointer-events-auto absolute flex max-h-64 flex-col gap-1 overflow-auto rounded-md border p-1.5"
+        style={{
+          top,
+          left,
+          width,
+          borderWidth: "0.5px",
+          borderColor: "var(--hairline-strong)",
+          background: "var(--paper)",
+        }}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        {refs.map((ref) => (
+          <div key={ref.original} className="min-w-0">
+            <RefBadge refInfo={ref} onCheckout={onCheckout} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

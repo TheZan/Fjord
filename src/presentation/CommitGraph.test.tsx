@@ -111,7 +111,14 @@ describe("CommitGraph", () => {
 
     render(<CommitGraph repoId="repo-1" currentBranch="develop" />);
 
+    // Only the front-most ref (the active branch) shows inline; the rest
+    // collapse behind a "+N" count instead of overflowing into the graph.
     expect(screen.getByText("develop")).toBeInTheDocument();
+    expect(screen.getByText("+1")).toBeInTheDocument();
+    expect(screen.queryByText("v1.0.0")).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
   });
 
@@ -245,6 +252,58 @@ describe("CommitGraph", () => {
     fireEvent.click(screen.getByLabelText("commits.closeSearch"));
 
     expect(graphState.loadUntilCommit).toHaveBeenCalledWith("commit-2");
+  });
+
+  it("expands the ref flyout on hover, keeps it open while hovered, and stays interactive", () => {
+    vi.useFakeTimers();
+    const onCheckout = vi.fn();
+    graphState.commits = [commit("commit-1", "Feature tip")];
+    graphState.branches = [
+      {
+        name: "develop",
+        isCurrent: true,
+        isRemote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        targetCommitId: "commit-1",
+      },
+      {
+        name: "feature/x",
+        isCurrent: false,
+        isRemote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        targetCommitId: "commit-1",
+      },
+    ];
+
+    render(<CommitGraph repoId="repo-1" currentBranch="develop" onCheckout={onCheckout} />);
+
+    expect(screen.queryByText("feature/x")).not.toBeInTheDocument();
+    const trigger = screen.getByText("+1").parentElement!;
+    fireEvent.mouseEnter(trigger);
+    expect(screen.getByText("feature/x")).toBeInTheDocument();
+
+    // Leaving the trigger for the flyout itself must not close it.
+    fireEvent.mouseLeave(trigger);
+    const flyout = screen.getByText("feature/x").closest('[role="menu"]') as HTMLElement;
+    fireEvent.mouseEnter(flyout);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.getByText("feature/x")).toBeInTheDocument();
+
+    // Refs inside the flyout remain checkoutable.
+    fireEvent.doubleClick(screen.getByText("feature/x"));
+    expect(onCheckout).toHaveBeenCalledWith("feature/x");
+
+    fireEvent.mouseLeave(flyout);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(screen.queryByText("feature/x")).not.toBeInTheDocument();
   });
 });
 
