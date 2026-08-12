@@ -213,10 +213,16 @@ from repository reconstruction through the final contextual worktree apply.
 This is the lock standard index/worktree Git mutations honor, so an external
 `git add`, commit, reset, checkout, or switch cannot change the confirmed index
 base between validation and discard. The complete original index is
-fingerprinted and rechecked; lock contention or a changed fingerprint/diff fails
-as `patch_stale`, and no index content is published by discard. Editors and
-worktree-only Git commands do not necessarily honor this lock; the exact
-residual interval is documented in
+fingerprinted and rechecked; lock contention or a change completed before that
+check fails as `patch_stale`, and no index content is published by discard.
+
+This guarantee covers concurrent Fjord operations, standard Git commands, and
+Git clients that respect Git's index/ref locking protocol. Direct raw index
+modification or replacement by a process that intentionally ignores
+`index.lock` is unsupported concurrent modification: the fingerprint is not a
+portable compare-and-swap and cannot promise detection after its final check.
+Editors and worktree-only Git commands are a separate limitation because they do
+not necessarily honor this lock; both residual intervals are documented in
 [`working-tree-and-diff.md`](working-tree-and-diff.md) §1.
 
 `blockers` covers cases where Fjord refuses outright — for example, deleting the

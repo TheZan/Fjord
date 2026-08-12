@@ -3863,11 +3863,13 @@ async fn unstage_patch_serializes_external_commit_at_the_mutation_boundary() {
     assert_head_locks_cleaned(&backend, &repo_path);
 }
 
-/// Even a writer that ignores Git's index.lock is detected by the exact raw
-/// index fingerprint before publication. The external index bytes survive and
-/// both the index and prepared HEAD/ref locks are cleaned on the stale failure.
+/// The final raw-index fingerprint detects a nonconforming replacement that is
+/// completed before verification. This is a bounded defensive check, not a CAS
+/// guarantee against a writer that ignores `index.lock` after verification.
+/// The external index bytes survive and both index and prepared ref locks clean
+/// up on this stale failure.
 #[tokio::test]
-async fn unstage_patch_rejects_nonconforming_index_replacement_without_partial_mutation() {
+async fn unstage_patch_detects_nonconforming_index_replacement_before_final_verification() {
     let (_dir, repo_path) = empty_repo();
     let backend = std::sync::Arc::new(LocalGitBackend::new());
     commit_fixture(

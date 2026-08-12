@@ -69,6 +69,23 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 | `push` / remote branch deletion | system Git | Same user Git environment; no libgit2 credential callbacks in the final path. |
 | `open_merge_tool` | system `git mergetool` | Explicit escape hatch for P1-08 conflict flow; launches the user's configured external merge tool and is not used in hot-path status/log/diff operations. |
 
+For patch mutations, Git-native locking is the cross-process transaction
+boundary. Fjord's per-repository write lock serializes operations within the
+process; the resolved per-worktree `index.lock` serializes index-dependent work
+with standard Git commands and conforming Git clients; and unstage's prepared
+`update-ref` transaction additionally serializes the HEAD and symbolic target
+refs that define its base. This preserves normal Git guarantees without
+inventing a second locking protocol.
+
+A process that directly modifies or atomically replaces the real index while
+ignoring `index.lock` is outside the supported concurrency model. The final
+index fingerprint can detect a replacement that finishes before verification,
+but cross-platform filesystem replacement APIs provide no portable
+compare-and-swap that makes verification and publication indivisible. Editors
+and other worktree-only writers are separately outside Git's index/ref locking
+protocol and may race the final worktree replacement as described in
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §1.
+
 The local/remote split is deliberate: maturing local engines can change behind
 `GitBackend`, while authentication and transport stay delegated to the installed
 Git through `GitRemoteBackend`.
