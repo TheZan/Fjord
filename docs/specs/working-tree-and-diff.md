@@ -131,6 +131,26 @@ Binary, rename, mode-only, oversized/content-free, non-UTF-8 text, and empty-fil
 changes with no line hunk fail with `patch_unsupported` rather than being guessed
 by the line-patch constructor. P8-15 owns the specified binary and mode-only UI.
 
+### Added/deleted-file selection matrix
+
+Whole-file selections retain canonical new-file/deleted-file patches. Partial
+selections must use a representation proven against Git rather than reusing
+whole-file headers:
+
+| File state | Operation | Whole file | Hunk / selected lines |
+|---|---|---|---|
+| Added | Stage | supported | supported: new-file patch stages exactly the selected content |
+| Added | Unstage | supported | supported: modified-file reverse patch removes only selected index lines |
+| Added | Discard | supported | supported: modified-file reverse patch removes only selected worktree lines |
+| Deleted | Stage | supported | supported: modified-file patch removes only selected index lines |
+| Deleted | Unstage | supported | `patch_unsupported`: reverse application cannot restore only the requested deletion without changing unselected content under the current selection model |
+| Deleted | Discard | supported | supported: deleted-file reverse patch restores exactly the selected worktree content |
+
+The backend enforces this before its mutating `git apply` invocation and before
+any index publication.
+The frontend disables the known unsupported deleted-file unstage hunk and line
+controls, but that is only UX alignment; backend rejection remains the boundary.
+
 Application mechanism: build a minimal unified patch from the selection and apply
 it with `git apply --cached` (stage), `git apply --cached --reverse` (unstage), or
 `git apply --reverse` against the worktree (discard), through the shared

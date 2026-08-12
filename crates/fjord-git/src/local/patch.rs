@@ -83,22 +83,28 @@ pub(super) fn build_unified_reverse_patch(
     diff: &FileDiffDetail,
     selection: &PatchSelection,
 ) -> Result<Vec<u8>, GitError> {
-    // Whole-file additions and deletions already have the required canonical
-    // `/dev/null` headers. Their forward patch is exactly what `--reverse`
-    // consumes, while a partial representation has no safe line context.
-    if matches!(
-        diff.change_type,
-        FileChangeType::Added | FileChangeType::Deleted
-    ) {
-        return build_unified_patch(diff, selection);
-    }
-    build_unified_patch_with_direction(diff, selection, PatchDirection::Reverse)
+    let direction = if diff.change_type == FileChangeType::Deleted {
+        PatchDirection::ReverseDeletedWorktree
+    } else {
+        PatchDirection::Reverse
+    };
+    build_unified_patch_with_direction(diff, selection, direction)
 }
 
 #[derive(Clone, Copy)]
 enum PatchDirection {
     Forward,
     Reverse,
+    /// A worktree deletion reversal starts from an absent file and materializes
+    /// only the selected old-side lines.
+    ReverseDeletedWorktree,
+}
+
+#[derive(Clone, Copy)]
+enum FilePatchKind {
+    New,
+    Deleted,
+    Modified,
 }
 
 fn build_unified_patch_with_direction(
@@ -131,6 +137,8 @@ fn build_unified_patch_with_direction(
     }
 
     let selected = indexed_selections(&selection.hunks)?;
+    let whole_file = is_whole_file_selection(diff, &selected);
+    let patch_kind = patch_kind(diff.change_type, direction, whole_file);
     let mut seen = BTreeSet::new();
     let mut rendered_hunks = Vec::new();
     let mut selected_delta = 0_i64;
@@ -152,12 +160,12 @@ fn build_unified_patch_with_direction(
         ));
     }
 
-    let old_path = match diff.change_type {
-        FileChangeType::Added => "/dev/null".to_string(),
+    let old_path = match patch_kind {
+        FilePatchKind::New => "/dev/null".to_string(),
         _ => quote_patch_path("a/", &diff.path),
     };
-    let new_path = match diff.change_type {
-        FileChangeType::Deleted => "/dev/null".to_string(),
+    let new_path = match patch_kind {
+        FilePatchKind::Deleted => "/dev/null".to_string(),
         _ => quote_patch_path("b/", &diff.path),
     };
     let mut patch = Vec::new();
@@ -170,14 +178,14 @@ fn build_unified_patch_with_direction(
         )
         .as_bytes(),
     );
-    match diff.change_type {
-        FileChangeType::Added => {
+    match patch_kind {
+        FilePatchKind::New => {
             let mode = diff.new_mode.ok_or_else(|| {
                 GitError::PatchUnsupported("added file mode is unavailable".to_string())
             })?;
             extend_line(&mut patch, format!("new file mode {mode:06o}").as_bytes());
         }
-        FileChangeType::Deleted => {
+        FilePatchKind::Deleted => {
             let mode = diff.old_mode.ok_or_else(|| {
                 GitError::PatchUnsupported("deleted file mode is unavailable".to_string())
             })?;
@@ -186,8 +194,7 @@ fn build_unified_patch_with_direction(
                 format!("deleted file mode {mode:06o}").as_bytes(),
             );
         }
-        FileChangeType::Modified => {}
-        FileChangeType::Renamed => unreachable!("renames are rejected above"),
+        FilePatchKind::Modified => {}
     }
     extend_line(&mut patch, format!("--- {old_path}").as_bytes());
     extend_line(&mut patch, format!("+++ {new_path}").as_bytes());
@@ -217,6 +224,67 @@ fn build_unified_patch_with_direction(
         }
     }
     Ok(patch)
+}
+
+fn is_whole_file_selection(
+    diff: &FileDiffDetail,
+    selected: &BTreeMap<HunkCoordinates, &HunkSelection>,
+) -> bool {
+    selected.len() == diff.hunks.len()
+        && diff.hunks.iter().all(|hunk| {
+            selected
+                .get(&coordinates(hunk))
+                .is_some_and(|selection| selection.lines.is_empty())
+        })
+        && match diff.change_type {
+            FileChangeType::Added => diff
+                .hunks
+                .iter()
+                .flat_map(|hunk| &hunk.lines)
+                .all(|line| line.kind == DiffLineKind::Addition),
+            FileChangeType::Deleted => diff
+                .hunks
+                .iter()
+                .flat_map(|hunk| &hunk.lines)
+                .all(|line| line.kind == DiffLineKind::Deletion),
+            FileChangeType::Modified | FileChangeType::Renamed => true,
+        }
+}
+
+fn patch_kind(
+    change_type: FileChangeType,
+    direction: PatchDirection,
+    whole_file: bool,
+) -> FilePatchKind {
+    match (change_type, direction, whole_file) {
+        // A new-file patch can safely stage a selected subset from an
+        // untracked file: the index contains just that subset and Git leaves
+        // the worktree alone.
+        (FileChangeType::Added, PatchDirection::Forward, _) => FilePatchKind::New,
+        // Reversing an added-file selection runs against a populated index or
+        // worktree. Only the complete selection may use `/dev/null`; a partial
+        // one must be a modified-file patch so it removes only selected lines.
+        (FileChangeType::Added, PatchDirection::Reverse, true) => FilePatchKind::New,
+        (FileChangeType::Added, PatchDirection::Reverse, false) => FilePatchKind::Modified,
+        (FileChangeType::Added, PatchDirection::ReverseDeletedWorktree, _) => {
+            unreachable!("reverse-deleted direction is only used for deleted files")
+        }
+        // A whole deleted file is represented canonically. Staging only part
+        // of its deletion runs against a populated index, so use normal file
+        // headers and preserve unselected lines as context.
+        (FileChangeType::Deleted, PatchDirection::Forward, true) => FilePatchKind::Deleted,
+        (FileChangeType::Deleted, PatchDirection::Forward, false) => FilePatchKind::Modified,
+        // Reverse deleted-file application begins at an absent target. The
+        // selected old-side lines form the exact file content to restore.
+        (FileChangeType::Deleted, PatchDirection::ReverseDeletedWorktree, _) => {
+            FilePatchKind::Deleted
+        }
+        (FileChangeType::Deleted, PatchDirection::Reverse, _) => {
+            unreachable!("deleted files select an explicit reverse direction")
+        }
+        (FileChangeType::Modified, _, _) => FilePatchKind::Modified,
+        (FileChangeType::Renamed, _, _) => unreachable!("renames are rejected above"),
+    }
 }
 
 struct RenderedHunk<'a> {
@@ -268,7 +336,7 @@ fn render_hunk<'a>(
                 selected_changes += 1;
                 lines.push(RenderedLine { prefix: b'+', line });
             }
-            (DiffLineKind::Deletion, true, _) => {
+            (DiffLineKind::Deletion, true, PatchDirection::Forward | PatchDirection::Reverse) => {
                 selected_changes += 1;
                 lines.push(RenderedLine { prefix: b'-', line });
             }
@@ -286,6 +354,20 @@ fn render_hunk<'a>(
                 lines.push(RenderedLine { prefix: b' ', line });
             }
             (DiffLineKind::Deletion, false, PatchDirection::Reverse) => {}
+            // The new side of a deleted-file patch is `/dev/null`; omitted
+            // deletion lines cannot be context. Keeping them would make
+            // `git apply --reverse` require bytes that are intentionally
+            // absent and would turn this known case into an apply failure.
+            (DiffLineKind::Addition, _, PatchDirection::ReverseDeletedWorktree) => {
+                return Err(GitError::PatchUnsupported(
+                    "deleted-file diff contains an added line".to_string(),
+                ));
+            }
+            (DiffLineKind::Deletion, true, PatchDirection::ReverseDeletedWorktree) => {
+                selected_changes += 1;
+                lines.push(RenderedLine { prefix: b'-', line });
+            }
+            (DiffLineKind::Deletion, false, PatchDirection::ReverseDeletedWorktree) => {}
         }
     }
     if selected_changes == 0 {
@@ -320,6 +402,18 @@ fn render_hunk<'a>(
                 GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
             })?;
             (old_start, hunk.new_start)
+        }
+        PatchDirection::ReverseDeletedWorktree => {
+            let mut new_start = i64::from(hunk.old_start) + selected_delta_before;
+            if old_lines == 0 {
+                new_start += 1;
+            } else if new_lines == 0 {
+                new_start -= 1;
+            }
+            let new_start = u32::try_from(new_start.max(0)).map_err(|_| {
+                GitError::PatchUnsupported("selected hunk coordinates overflow".to_string())
+            })?;
+            (hunk.old_start, new_start)
         }
     };
 
@@ -642,6 +736,66 @@ mod tests {
         let deleted_patch = patch_text(&deleted, selection(&deleted, Vec::new()));
         assert!(deleted_patch.contains("deleted file mode 100644\n--- a/old.txt\n+++ /dev/null"));
         assert!(deleted_patch.contains("@@ -1 +0,0 @@"));
+    }
+
+    #[test]
+    fn partial_added_and_deleted_file_patches_use_safe_headers_per_direction() {
+        let added = FileDiffDetail {
+            path: "added.txt".to_string(),
+            change_type: FileChangeType::Added,
+            old_mode: None,
+            new_mode: Some(BLOB_MODE),
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 3,
+                lines: vec![
+                    line(DiffLineKind::Addition, None, Some(1), "one"),
+                    line(DiffLineKind::Addition, None, Some(2), "two"),
+                    line(DiffLineKind::Addition, None, Some(3), "three"),
+                ],
+            }],
+        };
+        let added_partial = selection(&added, vec![1]);
+        let forward =
+            String::from_utf8(build_unified_patch(&added, &added_partial).unwrap()).unwrap();
+        assert!(forward.contains("new file mode 100644\n--- /dev/null\n+++ b/added.txt"));
+        let reverse =
+            String::from_utf8(build_unified_reverse_patch(&added, &added_partial).unwrap())
+                .unwrap();
+        assert!(!reverse.contains("new file mode"));
+        assert!(reverse.contains("--- a/added.txt\n+++ b/added.txt"));
+
+        let deleted = FileDiffDetail {
+            path: "deleted.txt".to_string(),
+            change_type: FileChangeType::Deleted,
+            old_mode: Some(BLOB_MODE),
+            new_mode: None,
+            is_binary: false,
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_lines: 3,
+                new_start: 0,
+                new_lines: 0,
+                lines: vec![
+                    line(DiffLineKind::Deletion, Some(1), None, "one"),
+                    line(DiffLineKind::Deletion, Some(2), None, "two"),
+                    line(DiffLineKind::Deletion, Some(3), None, "three"),
+                ],
+            }],
+        };
+        let deleted_partial = selection(&deleted, vec![1]);
+        let forward =
+            String::from_utf8(build_unified_patch(&deleted, &deleted_partial).unwrap()).unwrap();
+        assert!(!forward.contains("deleted file mode"));
+        assert!(forward.contains("--- a/deleted.txt\n+++ b/deleted.txt"));
+        let reverse =
+            String::from_utf8(build_unified_reverse_patch(&deleted, &deleted_partial).unwrap())
+                .unwrap();
+        assert!(reverse.contains("deleted file mode 100644\n--- a/deleted.txt\n+++ /dev/null"));
+        assert!(reverse.contains("-two\n"));
     }
 
     #[test]

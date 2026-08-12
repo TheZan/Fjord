@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({
   generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 } as GenerationSet | null,
   diff: null as null | {
     path: string;
-    changeType: "modified";
+    changeType: "modified" | "deleted";
     isBinary: boolean;
     tooLarge: boolean;
     fileBytes: number;
@@ -403,6 +403,24 @@ describe("FileDiffView windowing", () => {
     resolve(true);
     await waitFor(() => expect(screen.getByRole("button", { name: "diff.unstageHunk" })).toBeEnabled());
     expect(onApplyHunk.mock.calls[0][0].source).toBe("index");
+  });
+
+  it("disables partial unstage controls for deleted files", () => {
+    state.hasMore = false;
+    state.diff = { ...textDiff(), changeType: "deleted" as const };
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: true }}
+        onApplyHunk={vi.fn()}
+      />,
+    );
+
+    const hunk = screen.getByRole("button", { name: "diff.unstageHunk" });
+    expect(hunk).toBeDisabled();
+    expect(hunk).toHaveAttribute("title", "diff.partialDeletedUnstageUnsupported");
+    expect(screen.getByRole("button", { name: "diff.unstageSelectedLines" })).toBeDisabled();
   });
 
   it("routes hunk discard through preflight and cancel performs no mutation", async () => {

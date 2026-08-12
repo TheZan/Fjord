@@ -134,6 +134,7 @@
     "stagingSelectedLines": "Indexation des lignes sélectionnées…",
     "unstageSelectedLines": "Retirer les lignes sélectionnées de l’index",
     "unstagingSelectedLines": "Retrait des lignes sélectionnées…",
+    "partialDeletedUnstageUnsupported": "Le retrait partiel d’un fichier supprimé de l’index n’est pas pris en charge.",
     "select": {
       "addition": "Sélectionner la ligne ajoutée {{line}}",
       "deletion": "Sélectionner la ligne supprimée {{line}}"

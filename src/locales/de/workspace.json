@@ -134,6 +134,7 @@
     "stagingSelectedLines": "Ausgewählte Zeilen werden gestaged…",
     "unstageSelectedLines": "Ausgewählte Zeilen aus Staging entfernen",
     "unstagingSelectedLines": "Ausgewählte Zeilen werden entfernt…",
+    "partialDeletedUnstageUnsupported": "Das teilweise Entfernen einer gelöschten Datei aus dem Staging wird nicht unterstützt.",
     "select": {
       "addition": "Hinzugefügte Zeile {{line}} auswählen",
       "deletion": "Gelöschte Zeile {{line}} auswählen"

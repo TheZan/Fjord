@@ -567,11 +567,43 @@ fn build_index_patch(
     selection: &PatchSelection,
     operation: IndexPatchOperation,
 ) -> Result<Vec<u8>, GitError> {
+    if matches!(operation, IndexPatchOperation::Unstage)
+        && detail.change_type == FileChangeType::Deleted
+        && !is_complete_file_selection(detail, selection)?
+    {
+        return Err(GitError::PatchUnsupported(
+            "partial unstage of a deleted file has no safe representation".to_string(),
+        ));
+    }
     if operation.reverse() {
         patch::build_unified_reverse_patch(detail, selection)
     } else {
         patch::build_unified_patch(detail, selection)
     }
+}
+
+fn is_complete_file_selection(
+    detail: &FileDiffDetail,
+    selection: &PatchSelection,
+) -> Result<bool, GitError> {
+    if selection.hunks.len() != detail.hunks.len() {
+        return Ok(false);
+    }
+
+    for hunk in &detail.hunks {
+        let Some(selected) = selection
+            .hunks
+            .iter()
+            .find(|selected| hunk_coordinates_match(selected, hunk))
+        else {
+            return Ok(false);
+        };
+        if !selected.lines.is_empty() {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 fn ensure_expected_generations(

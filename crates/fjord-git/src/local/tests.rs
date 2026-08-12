@@ -1790,6 +1790,166 @@ async fn stage_patch_stages_added_and_deleted_files() {
     assert!(cached.contains("D\tdeleted.txt"));
 }
 
+/// P8 audit finding #7. Added/deleted files use file creation/deletion headers
+/// only when the requested operation has whole-file semantics. Partial
+/// selections must preserve every unselected byte instead of depending on
+/// `git apply` to reject an invalid whole-file patch.
+#[tokio::test]
+async fn partial_added_and_deleted_patch_operations_preserve_exact_file_state() {
+    // Added: stage the middle line only.
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("base.txt", b"base\n")]).await;
+    write_bytes(&repo_path, "added.txt", b"one\ntwo\nthree\n");
+    let detail = backend
+        .working_file_diff(&repo_path, "added.txt", false)
+        .await
+        .unwrap();
+    let mut selection = whole_patch_selection(&detail, [0]);
+    selection.hunks[0].lines = vec![1];
+    let before = backend.generations(&repo_path).unwrap();
+    let after = backend
+        .stage_patch(&repo_path, &selection, before)
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo_path, "added.txt").unwrap(), b"two\n");
+    assert_eq!(
+        std::fs::read(repo_path.0.join("added.txt")).unwrap(),
+        b"one\ntwo\nthree\n"
+    );
+    assert_eq!(git_output(&backend, &repo_path, &["diff", "--cached", "--", "added.txt"]), b"diff --git a/added.txt b/added.txt\nnew file mode 100644\nindex 0000000..f719efd\n--- /dev/null\n+++ b/added.txt\n@@ -0,0 +1 @@\n+two\n");
+    assert_eq!(after.working_tree, before.working_tree + 1);
+
+    // Added: unstage and discard the middle line without removing the file.
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("base.txt", b"base\n")]).await;
+    write_bytes(&repo_path, "added.txt", b"one\ntwo\nthree\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("added.txt")])
+        .await
+        .unwrap();
+    let staged = backend
+        .working_file_diff(&repo_path, "added.txt", true)
+        .await
+        .unwrap();
+    let mut unstage = staged_patch_selection(&staged, [0]);
+    unstage.hunks[0].lines = vec![1];
+    let before = backend.generations(&repo_path).unwrap();
+    let after = backend
+        .unstage_patch(&repo_path, &unstage, before)
+        .await
+        .unwrap();
+    assert_eq!(
+        index_blob(&repo_path, "added.txt").unwrap(),
+        b"one\nthree\n"
+    );
+    assert_eq!(
+        std::fs::read(repo_path.0.join("added.txt")).unwrap(),
+        b"one\ntwo\nthree\n"
+    );
+    assert_eq!(after.working_tree, before.working_tree + 1);
+    let detail = backend
+        .working_file_diff(&repo_path, "added.txt", false)
+        .await
+        .unwrap();
+    let mut discard = whole_patch_selection(&detail, [0]);
+    discard.hunks[0].lines = vec![1];
+    let before = backend.generations(&repo_path).unwrap();
+    let after = discard_confirmed(&backend, &repo_path, &discard, before)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(repo_path.0.join("added.txt")).unwrap(),
+        b"one\nthree\n"
+    );
+    assert_eq!(
+        index_blob(&repo_path, "added.txt").unwrap(),
+        b"one\nthree\n"
+    );
+    assert_eq!(after.working_tree, before.working_tree + 1);
+
+    // Deleted: stage the middle deletion only.
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("deleted.txt", b"one\ntwo\nthree\n")],
+    )
+    .await;
+    std::fs::remove_file(repo_path.0.join("deleted.txt")).unwrap();
+    let detail = backend
+        .working_file_diff(&repo_path, "deleted.txt", false)
+        .await
+        .unwrap();
+    let mut selection = whole_patch_selection(&detail, [0]);
+    selection.hunks[0].lines = vec![1];
+    let before = backend.generations(&repo_path).unwrap();
+    let after = backend
+        .stage_patch(&repo_path, &selection, before)
+        .await
+        .unwrap();
+    assert_eq!(
+        index_blob(&repo_path, "deleted.txt").unwrap(),
+        b"one\nthree\n"
+    );
+    assert!(!repo_path.0.join("deleted.txt").exists());
+    assert_eq!(after.working_tree, before.working_tree + 1);
+
+    // Deleted: partial unstage is intentionally unsupported: reverse apply
+    // would otherwise restore more than the selected deletion. It must fail
+    // before any Git mutation or generation advance.
+    let staged = backend
+        .working_file_diff(&repo_path, "deleted.txt", true)
+        .await
+        .unwrap();
+    let mut unstage = staged_patch_selection(&staged, [0]);
+    unstage.hunks[0].lines = vec![0];
+    let before = backend.generations(&repo_path).unwrap();
+    let index_before = index_blob(&repo_path, "deleted.txt");
+    assert!(matches!(
+        backend.unstage_patch(&repo_path, &unstage, before).await,
+        Err(GitError::PatchUnsupported(_))
+    ));
+    assert_eq!(index_blob(&repo_path, "deleted.txt"), index_before);
+    assert!(!repo_path.0.join("deleted.txt").exists());
+    assert_eq!(backend.generations(&repo_path).unwrap(), before);
+
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo_path,
+        &[("deleted.txt", b"one\ntwo\nthree\n")],
+    )
+    .await;
+    std::fs::remove_file(repo_path.0.join("deleted.txt")).unwrap();
+    let detail = backend
+        .working_file_diff(&repo_path, "deleted.txt", false)
+        .await
+        .unwrap();
+    let mut discard = whole_patch_selection(&detail, [0]);
+    discard.hunks[0].lines = vec![detail.hunks[0]
+        .lines
+        .iter()
+        .position(|line| line.kind == DiffLineKind::Deletion && line.content == "two")
+        .unwrap() as u32];
+    let before = backend.generations(&repo_path).unwrap();
+    let after = discard_confirmed(&backend, &repo_path, &discard, before)
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(repo_path.0.join("deleted.txt")).unwrap(),
+        b"two\n"
+    );
+    assert_eq!(
+        index_blob(&repo_path, "deleted.txt").unwrap(),
+        b"one\ntwo\nthree\n"
+    );
+    assert_eq!(after.working_tree, before.working_tree + 1);
+}
+
 #[tokio::test]
 async fn unstage_patch_removes_a_complete_hunk_without_touching_the_worktree() {
     let (_dir, repo_path) = empty_repo();

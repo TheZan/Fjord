@@ -134,6 +134,7 @@
     "stagingSelectedLines": "Preparando líneas seleccionadas…",
     "unstageSelectedLines": "Quitar líneas seleccionadas de preparación",
     "unstagingSelectedLines": "Quitando líneas seleccionadas…",
+    "partialDeletedUnstageUnsupported": "No se admite quitar parcialmente del área de preparación un archivo eliminado.",
     "select": {
       "addition": "Seleccionar línea añadida {{line}}",
       "deletion": "Seleccionar línea eliminada {{line}}"

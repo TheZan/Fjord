@@ -261,6 +261,7 @@ export function FileDiffView({
                     <HunkRow
                       hunk={row.hunk}
                       source={source}
+                      partialApplyUnsupported={source.kind === "working" && source.staged && diff.changeType === "deleted"}
                       disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard) || !diff.baseDigest || !generations}
                       selectedLineCount={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices.size : 0}
                       selectionPending={selectionPending && lineSelection?.hunkIndex === row.hunkIndex}
@@ -462,6 +463,7 @@ function linesDiscardSelection(path: string, hunk: DiffHunk, lineIndices: Set<nu
 function HunkRow({
   hunk,
   source,
+  partialApplyUnsupported,
   disabled,
   selectedLineCount,
   selectionPending,
@@ -472,6 +474,7 @@ function HunkRow({
 }: {
   hunk: DiffHunk;
   source: DiffSource;
+  partialApplyUnsupported: boolean;
   disabled: boolean;
   selectedLineCount: number;
   selectionPending: boolean;
@@ -496,7 +499,8 @@ function HunkRow({
       <button
         type="button"
         className="interactive-control ml-auto rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={disabled || selectedLineCount === 0 || !onApplySelected}
+        disabled={disabled || partialApplyUnsupported || selectedLineCount === 0 || !onApplySelected}
+        title={partialApplyUnsupported ? t("diff.partialDeletedUnstageUnsupported") : undefined}
         aria-label={t(staged ? "diff.unstageSelectedLines" : "diff.stageSelectedLines")}
         onClick={() => void onApplySelected?.()}
       >
@@ -519,7 +523,8 @@ function HunkRow({
       <button
         type="button"
         className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={disabled || pending || !onApply}
+        disabled={disabled || partialApplyUnsupported || pending || !onApply}
+        title={partialApplyUnsupported ? t("diff.partialDeletedUnstageUnsupported") : undefined}
         aria-label={actionLabel}
         onClick={() => {
           if (pending || !onApply) return;

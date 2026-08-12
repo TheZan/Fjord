@@ -136,6 +136,7 @@
       "stagingSelectedLines": "Staging selected lines…",
       "unstageSelectedLines": "Unstage selected lines",
       "unstagingSelectedLines": "Unstaging selected lines…",
+      "partialDeletedUnstageUnsupported": "Partial unstaging of a deleted file is not supported.",
       "select": {
         "addition": "Select added line {{line}}",
         "deletion": "Select deleted line {{line}}"
