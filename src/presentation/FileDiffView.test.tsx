@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FileDiffView } from "@/presentation/FileDiffView";
+import { buildDiffRows, FileDiffView } from "@/presentation/FileDiffView";
 import type { GenerationSet } from "@/domain/git";
 
 const state = vi.hoisted(() => ({
@@ -37,6 +37,16 @@ const state = vi.hoisted(() => ({
     baseDigest: string | null;
   },
   preflight: vi.fn(),
+  loadUiState: vi.fn(),
+  saveRepoModes: vi.fn(),
+  firstVisibleIndex: 0,
+  measure: vi.fn(),
+  scrollToIndex: vi.fn(),
+}));
+
+vi.mock("@/infrastructure/uiState", () => ({
+  loadUiState: state.loadUiState,
+  saveRepoModes: state.saveRepoModes,
 }));
 
 vi.mock("@/infrastructure/tauriClient", () => ({
@@ -60,12 +70,17 @@ vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 20,
     getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({
-        index,
-        key: index,
-        size: 20,
-        start: index * 20,
-      })),
+      Array.from({ length: Math.max(0, count - state.firstVisibleIndex) }, (_, offset) => {
+        const index = state.firstVisibleIndex + offset;
+        return {
+          index,
+          key: index,
+          size: 20,
+          start: index * 20,
+        };
+      }),
+    measure: state.measure,
+    scrollToIndex: state.scrollToIndex,
   }),
 }));
 
@@ -96,6 +111,57 @@ describe("FileDiffView windowing", () => {
       generations: state.generations,
       confirmationToken: "confirmation-token",
     }));
+    state.loadUiState.mockReset();
+    state.loadUiState.mockResolvedValue({ repo: { diffMode: "unified" } });
+    state.saveRepoModes.mockReset();
+    state.saveRepoModes.mockResolvedValue(undefined);
+    state.firstVisibleIndex = 0;
+    state.measure.mockReset();
+    state.scrollToIndex.mockReset();
+  });
+
+  it("builds unified rows and pairs changed lines in split rows", () => {
+    const hunks = textDiff().hunks;
+
+    expect(buildDiffRows(hunks, "unified").map((row) => row.kind)).toEqual(["hunk", "line", "line"]);
+    const splitRows = buildDiffRows(hunks, "split");
+    expect(splitRows.map((row) => row.kind)).toEqual(["hunk", "split"]);
+    expect(splitRows[1]).toMatchObject({
+      left: { lineIndex: 0, line: { kind: "deletion", content: "old line" } },
+      right: { lineIndex: 1, line: { kind: "addition", content: "new line" } },
+    });
+
+    const paddedRows = buildDiffRows([{
+      ...hunks[0],
+      lines: [hunks[0].lines[0], { ...hunks[0].lines[0], oldLineno: 5 }, hunks[0].lines[1]],
+    }], "split");
+    expect(paddedRows[2]).toMatchObject({ left: { line: { oldLineno: 5 } }, right: null });
+  });
+
+  it("persists the header mode and keeps the first visible diff line anchored", async () => {
+    state.hasMore = false;
+    state.firstVisibleIndex = 2;
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "working", staged: false }} />,
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: "diff.split" }));
+
+    expect(state.saveRepoModes).toHaveBeenCalledWith("split", null);
+    expect(state.measure).toHaveBeenCalled();
+    expect(state.scrollToIndex).toHaveBeenCalledWith(1, { align: "start" });
+    expect(screen.getByRole("radio", { name: "diff.split" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("restores the persisted diff mode", async () => {
+    state.hasMore = false;
+    state.loadUiState.mockResolvedValue({ repo: { diffMode: "split" } });
+    render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("radio", { name: "diff.split" })).toHaveAttribute("aria-checked", "true"));
+    expect(state.saveRepoModes).not.toHaveBeenCalled();
   });
 
   it("loads the next window near the virtualized end and stops when complete", async () => {
@@ -665,8 +731,8 @@ function textDiff() {
       newStart: 4,
       newLines: 2,
       lines: [
-        { kind: "deletion" as const, oldLineno: 4, newLineno: null, content: "old line" },
-        { kind: "addition" as const, oldLineno: null, newLineno: 4, content: "new line" },
+        { kind: "deletion" as const, oldLineno: 4, newLineno: null, content: "old line", lineEnding: null },
+        { kind: "addition" as const, oldLineno: null, newLineno: 4, content: "new line", lineEnding: null },
       ],
     }],
     totalHunks: 1,

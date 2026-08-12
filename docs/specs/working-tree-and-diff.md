@@ -71,7 +71,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Discard | ✅ File, hunk, and selected-line discard use the shared destructive preflight. The backend holds the resolved per-worktree index lock while it reconstructs the current index-to-worktree selection, runs `git apply --check --reverse`, revalidates the diff and exact index fingerprint, then contextually applies without writing HEAD or the index. |
 | Push | ✅ System Git, target resolved from upstream, `no_upstream` → explicit publish (`publish_branch`). |
 | Force push | 🚧 Absent. P8-09 is blocked on authoritative backend resolution and confirmation binding of the remote, remote ref, and expected OID; frontend-supplied lease facts are not sufficient. |
-| Diff rendering | ⚠️ Unified only, virtualized rows (`FileDiffView.tsx`), change-type coloring, no highlighting, no whitespace options, no word diff. |
+| Diff rendering | ⚠️ Unified and split modes share the accumulated diff and virtualized renderer (`FileDiffView.tsx`). Split rows pair deletion/addition runs and pad the shorter side; the persisted header toggle remeasures the virtualizer and restores its logical scroll anchor. Syntax highlighting, whitespace options, and word diff remain open. |
 | Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). Every page is independently stamped with the complete `GenerationSet`; working pages also carry the complete rendered-diff digest. The frontend rejects the full accumulated result unless repository/path/source, digest, generations, file/change/mode metadata, totals, and the offset/continuation chain all agree, then clears selection and refetches from offset zero. |
 | Upstream management | ✅ Local set/unset commands, branch-context selection, persistent publish affordance, and per-branch upstream/divergence display. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). |
@@ -395,8 +395,9 @@ flags keep display and patch identical, at the cost of a recomputation on toggle
 - Highlighting and word diff run per visible window only, in a worker, and are
   cancelled when the window scrolls away. Neither may delay the diff's first
   paint (SLO-9 / SLO-10).
-- Split mode doubles the row count for the same content; the virtualizer's row
-  estimate is recomputed on mode change to avoid a scroll jump.
+- Split mode roughly doubles the rendered cells for the same content; the
+  virtualizer is remeasured on mode change and restores the first visible
+  logical diff row to avoid a scroll jump.
 - Amend and commit-and-push run through the existing operation pipeline and
   therefore inherit progress and cancellation without new machinery.
 

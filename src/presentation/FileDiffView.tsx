@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useFileDiff, type DiffSource } from "@/application/useFileDiff";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { Surface } from "@/presentation/ui";
+import { loadUiState, saveRepoModes } from "@/infrastructure/uiState";
 import type { DestructiveAction, DiffLineKind, DiscardSelection, GenerationSet, PatchSelection } from "@/domain/git";
 import type { DiffHunk, DiffLine } from "@/domain/git";
+import type { UiDiffMode } from "@/domain/generated";
 
 const DIFF_LINE_HEIGHT = 20;
 const HUNK_HEADER_HEIGHT = 24;
@@ -63,20 +65,40 @@ export function FileDiffView({
     source,
   );
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingModeAnchor = useRef<DiffRowAnchor | null>(null);
+  const [diffMode, setDiffMode] = useState<UiDiffMode>("unified");
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
   const [selectionPending, setSelectionPending] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
-  const rows = useMemo(() => flattenDiffRows(diff?.hunks ?? []), [diff?.hunks]);
+  const rows = useMemo(() => buildDiffRows(diff?.hunks ?? [], diffMode), [diff?.hunks, diffMode]);
   const actionsDisabled = actionDisabled || snapshotInvalid;
   const snapshotKey = `${repoId}\0${path}\0${diffSourceKey(source)}\0${diff?.baseDigest ?? ""}\0${generationKey(generations)}`;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (index) => (rows[index].kind === "hunk" ? HUNK_HEADER_HEIGHT : DIFF_LINE_HEIGHT),
+    estimateSize: (index) => estimateDiffRowSize(rows[index]),
     overscan: 20,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
   const lastVisibleIndex = virtualRows.at(-1)?.index ?? -1;
+
+  useEffect(() => {
+    void loadUiState()
+      .then((state) => setDiffMode(state.repo.diffMode))
+      .catch(() => undefined);
+  }, []);
+
+  useLayoutEffect(() => {
+    rowVirtualizer.measure();
+    const anchor = pendingModeAnchor.current;
+    pendingModeAnchor.current = null;
+    if (!anchor) return;
+    const anchorIndex = rows.findIndex((row) => rowContainsAnchor(row, anchor));
+    if (anchorIndex >= 0) rowVirtualizer.scrollToIndex(anchorIndex, { align: "start" });
+    // This effect is intentionally keyed only by presentation mode. Incoming
+    // diff windows should not force a full virtualizer remeasurement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffMode]);
 
   useEffect(() => {
     if (hasMore && !loadingMore && lastVisibleIndex >= rows.length - 100) loadMore();
@@ -167,6 +189,16 @@ export function FileDiffView({
 
   const canDiscard = source.kind === "working" && !source.staged && Boolean(onDiscardPatch);
 
+  function changeDiffMode(mode: UiDiffMode) {
+    if (mode === diffMode) return;
+    const scrollTop = scrollRef.current?.scrollTop ?? 0;
+    const firstVisibleItem = virtualRows.find((row) => row.start + row.size > scrollTop) ?? virtualRows[0];
+    const firstVisibleRow = rows[firstVisibleItem?.index ?? -1];
+    pendingModeAnchor.current = firstVisibleRow ? anchorForRow(firstVisibleRow) : null;
+    setDiffMode(mode);
+    void saveRepoModes(mode, null).catch(() => undefined);
+  }
+
   return <>
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
       <div
@@ -195,6 +227,37 @@ export function FileDiffView({
         <code className="min-w-0 flex-1 truncate font-mono text-xs" style={{ color: "var(--ink)" }}>
           {path}
         </code>
+        <div
+          role="radiogroup"
+          aria-label={t("diff.viewMode")}
+          className="flex shrink-0 items-center rounded border p-0.5"
+          style={{ borderColor: "var(--hairline)", background: "var(--canvas)" }}
+        >
+          {(["unified", "split"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="radio"
+              aria-checked={diffMode === mode}
+              data-diff-mode={mode}
+              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
+              style={{
+                background: diffMode === mode ? "var(--paper)" : "transparent",
+                color: diffMode === mode ? "var(--ink)" : "var(--slate)",
+              }}
+              onClick={() => changeDiffMode(mode)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const nextMode = mode === "unified" ? "split" : "unified";
+                changeDiffMode(nextMode);
+                queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-diff-mode="${nextMode}"]`)?.focus());
+              }}
+            >
+              {t(`diff.${mode}`)}
+            </button>
+          ))}
+        </div>
         {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
           <button
             type="button"
@@ -278,13 +341,21 @@ export function FileDiffView({
                       }
                       onDiscardSelected={canDiscard ? () => discardSelectedLines(row.hunkIndex, row.hunk) : undefined}
                     />
-                  ) : (
+                  ) : row.kind === "line" ? (
                     <DiffLineRow
                       line={row.line}
                       hunkIndex={row.hunkIndex}
                       lineIndex={row.lineIndex}
                       interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
                       selected={lineSelection?.hunkIndex === row.hunkIndex && lineSelection.lineIndices.has(row.lineIndex)}
+                      onSelect={selectLine}
+                      onExtendSelection={extendLineSelection}
+                    />
+                  ) : (
+                    <SplitDiffRow
+                      row={row}
+                      interactive={source.kind === "working" && !actionsDisabled && !selectionPending && !pendingDiscard}
+                      selectedLineIndices={lineSelection?.hunkIndex === row.hunkIndex ? lineSelection.lineIndices : null}
                       onSelect={selectLine}
                       onExtendSelection={extendLineSelection}
                     />
@@ -329,11 +400,18 @@ function formatFileBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+type DiffLineRef = { line: DiffLine; lineIndex: number };
+
 type FlatDiffRow =
   | { kind: "hunk"; key: string; hunk: DiffHunk; hunkIndex: number }
-  | { kind: "line"; key: string; line: DiffLine; hunkIndex: number; lineIndex: number };
+  | { kind: "line"; key: string; line: DiffLine; hunkIndex: number; lineIndex: number }
+  | { kind: "split"; key: string; left: DiffLineRef | null; right: DiffLineRef | null; hunkIndex: number };
 
-function flattenDiffRows(hunks: DiffHunk[]): FlatDiffRow[] {
+export function buildDiffRows(hunks: DiffHunk[], mode: UiDiffMode): FlatDiffRow[] {
+  return mode === "unified" ? buildUnifiedRows(hunks) : buildSplitRows(hunks);
+}
+
+function buildUnifiedRows(hunks: DiffHunk[]): FlatDiffRow[] {
   return hunks.flatMap((hunk, hunkIndex) => [
     { kind: "hunk" as const, key: `hunk-${hunkIndex}`, hunk, hunkIndex },
     ...hunk.lines.map((line, lineIndex) => ({
@@ -344,6 +422,63 @@ function flattenDiffRows(hunks: DiffHunk[]): FlatDiffRow[] {
       lineIndex,
     })),
   ]);
+}
+
+function buildSplitRows(hunks: DiffHunk[]): FlatDiffRow[] {
+  return hunks.flatMap((hunk, hunkIndex) => {
+    const rows: FlatDiffRow[] = [{ kind: "hunk", key: `hunk-${hunkIndex}`, hunk, hunkIndex }];
+    let lineIndex = 0;
+    while (lineIndex < hunk.lines.length) {
+      const line = hunk.lines[lineIndex];
+      if (line.kind === "context") {
+        const reference = { line, lineIndex };
+        rows.push({ kind: "split", key: `split-${hunkIndex}-${lineIndex}`, left: reference, right: reference, hunkIndex });
+        lineIndex += 1;
+        continue;
+      }
+
+      const deletions: DiffLineRef[] = [];
+      const additions: DiffLineRef[] = [];
+      while (lineIndex < hunk.lines.length && hunk.lines[lineIndex].kind !== "context") {
+        const changed = hunk.lines[lineIndex];
+        (changed.kind === "deletion" ? deletions : additions).push({ line: changed, lineIndex });
+        lineIndex += 1;
+      }
+      const pairCount = Math.max(deletions.length, additions.length);
+      for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
+        const left = deletions[pairIndex] ?? null;
+        const right = additions[pairIndex] ?? null;
+        rows.push({
+          kind: "split",
+          key: `split-${hunkIndex}-${left?.lineIndex ?? "pad"}-${right?.lineIndex ?? "pad"}`,
+          left,
+          right,
+          hunkIndex,
+        });
+      }
+    }
+    return rows;
+  });
+}
+
+function estimateDiffRowSize(row: FlatDiffRow): number {
+  return row.kind === "hunk" ? HUNK_HEADER_HEIGHT : DIFF_LINE_HEIGHT;
+}
+
+type DiffRowAnchor = { hunkIndex: number; lineIndex: number | null };
+
+function anchorForRow(row: FlatDiffRow): DiffRowAnchor {
+  if (row.kind === "hunk") return { hunkIndex: row.hunkIndex, lineIndex: null };
+  if (row.kind === "line") return { hunkIndex: row.hunkIndex, lineIndex: row.lineIndex };
+  return { hunkIndex: row.hunkIndex, lineIndex: row.left?.lineIndex ?? row.right?.lineIndex ?? null };
+}
+
+function rowContainsAnchor(row: FlatDiffRow, anchor: DiffRowAnchor): boolean {
+  if (row.hunkIndex !== anchor.hunkIndex) return false;
+  if (anchor.lineIndex === null) return row.kind === "hunk";
+  if (row.kind === "line") return row.lineIndex === anchor.lineIndex;
+  if (row.kind === "split") return row.left?.lineIndex === anchor.lineIndex || row.right?.lineIndex === anchor.lineIndex;
+  return false;
 }
 
 interface LineSelection {
@@ -622,6 +757,114 @@ function DiffLineRow({
         if (!event.shiftKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
         event.preventDefault();
         onExtendSelection(hunkIndex, lineIndex, event.key === "ArrowUp" ? -1 : 1);
+      }}
+    >
+      {content}
+    </button>
+  );
+}
+
+function SplitDiffRow({
+  row,
+  interactive,
+  selectedLineIndices,
+  onSelect,
+  onExtendSelection,
+}: {
+  row: Extract<FlatDiffRow, { kind: "split" }>;
+  interactive: boolean;
+  selectedLineIndices: Set<number> | null;
+  onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
+  onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
+}) {
+  return (
+    <div className="flex h-full min-w-[56rem]">
+      <SplitDiffCell
+        side="old"
+        reference={row.left}
+        hunkIndex={row.hunkIndex}
+        interactive={interactive}
+        selected={row.left ? selectedLineIndices?.has(row.left.lineIndex) === true : false}
+        onSelect={onSelect}
+        onExtendSelection={onExtendSelection}
+      />
+      <SplitDiffCell
+        side="new"
+        reference={row.right}
+        hunkIndex={row.hunkIndex}
+        interactive={interactive}
+        selected={row.right ? selectedLineIndices?.has(row.right.lineIndex) === true : false}
+        onSelect={onSelect}
+        onExtendSelection={onExtendSelection}
+      />
+    </div>
+  );
+}
+
+function SplitDiffCell({
+  side,
+  reference,
+  hunkIndex,
+  interactive,
+  selected,
+  onSelect,
+  onExtendSelection,
+}: {
+  side: "old" | "new";
+  reference: DiffLineRef | null;
+  hunkIndex: number;
+  interactive: boolean;
+  selected: boolean;
+  onSelect: (hunkIndex: number, lineIndex: number, event: MouseEvent<HTMLButtonElement>) => void;
+  onExtendSelection: (hunkIndex: number, lineIndex: number, direction: -1 | 1) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const line = reference?.line;
+  const baseClass = "flex h-full min-w-0 w-1/2 border-r text-left last:border-r-0";
+  const style = {
+    borderColor: "var(--hairline)",
+    background: line ? LINE_BG[line.kind] : "var(--canvas)",
+    color: line ? LINE_COLOR[line.kind] : "var(--mist)",
+    boxShadow: selected ? "inset 3px 0 var(--fjord)" : undefined,
+  };
+  if (!line || !reference) {
+    return <div aria-hidden="true" className={baseClass} style={style} />;
+  }
+
+  const content = <>
+    <span className="w-10 shrink-0 select-none px-1 text-right" style={{ color: "var(--mist)" }}>
+      {side === "old" ? line.oldLineno ?? "" : line.newLineno ?? ""}
+    </span>
+    <span className="min-w-0 flex-1 whitespace-pre px-2">
+      {LINE_PREFIX[line.kind]}
+      {line.content}
+    </span>
+  </>;
+  if (!isChangedLine(line) || !interactive) {
+    return <div className={baseClass} style={style}>{content}</div>;
+  }
+
+  const lineNumber = line.oldLineno ?? line.newLineno ?? reference.lineIndex + 1;
+  const label = t(selected ? `diff.deselect.${line.kind}` : `diff.select.${line.kind}`, { line: lineNumber });
+  return (
+    <button
+      type="button"
+      data-diff-line={`${hunkIndex}:${reference.lineIndex}`}
+      aria-pressed={selected}
+      aria-label={label}
+      title={label}
+      className={`${baseClass} outline-none focus-visible:ring-2 focus-visible:ring-inset`}
+      style={{
+        ...style,
+        background: selected
+          ? `color-mix(in srgb, var(--fjord-tint) 55%, ${LINE_BG[line.kind]})`
+          : LINE_BG[line.kind],
+      }}
+      onClick={(event) => onSelect(hunkIndex, reference.lineIndex, event)}
+      onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+        if (!event.shiftKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+        event.preventDefault();
+        onExtendSelection(hunkIndex, reference.lineIndex, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
       {content}
