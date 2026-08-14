@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPublishBranch, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -86,6 +86,13 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   createBranchAt: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
   runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
+  runPushBranchToRemotes: vi.fn(() => ({
+    operationId: "push-remotes-1",
+    promise: Promise.resolve([
+      { remote: "origin", ok: true, errorCode: null },
+      { remote: "gitlab", ok: true, errorCode: null },
+    ]),
+  })),
   runContinueOperation: vi.fn(() => ({
     operationId: "operation-continue",
     promise: Promise.resolve({
@@ -134,6 +141,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOperationControl,
     onOpenRecoveryCenter,
     onPublishBranch,
+    onPushToRemotes,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -154,6 +162,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOperationControl: (control: import("@/domain/generated").OperationControl) => void;
     onOpenRecoveryCenter: () => void;
     onPublishBranch: (branch: string) => void;
+    onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -163,6 +172,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
+      <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
@@ -221,6 +231,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       operationId: "publish-1",
       promise: Promise.resolve(),
     });
+    vi.mocked(runPushBranchToRemotes).mockClear();
     vi.mocked(runContinueOperation).mockClear();
     vi.mocked(runStashAndCheckout).mockReset();
     vi.mocked(runStashAndCheckout).mockReturnValue({
@@ -291,6 +302,23 @@ describe("RepoDetailContainer checkout confirmation", () => {
     fireEvent.click(screen.getByRole("button", { name: "confirm publish main" }));
 
     await waitFor(() => expect(runPublishBranch).toHaveBeenCalledWith("repo-1"));
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock,
+      "repo-1",
+      "workspace-1",
+      ["status", "refs"],
+    ));
+  });
+
+  it("pushes the current branch to explicitly selected remotes", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "push to remotes" }));
+
+    await waitFor(() => expect(runPushBranchToRemotes).toHaveBeenCalledWith(
+      "repo-1",
+      ["origin", "gitlab"],
+    ));
     await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
       queryClientMock,
       "repo-1",

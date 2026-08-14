@@ -117,6 +117,18 @@ pub struct RemoteInfo {
     pub push_url: Option<String>,
 }
 
+/// Result of pushing the current branch to one explicitly selected remote.
+/// Individual remote failures are data so one rejected destination does not
+/// hide successful pushes to the others.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RemotePushResult {
+    pub remote: String,
+    pub ok: bool,
+    pub error_code: Option<String>,
+}
+
 /// Monotonic in-memory versions of independently observable repository data.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

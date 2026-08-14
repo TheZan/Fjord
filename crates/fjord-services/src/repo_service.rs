@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use fjord_domain::{
@@ -6,9 +7,9 @@ use fjord_domain::{
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus, RepositoryEntry,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    Recoverability, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -1594,6 +1595,80 @@ impl RepoService {
             .await?)
     }
 
+    /// Pushes the current branch to each explicitly selected configured remote
+    /// without changing the branch's upstream. Destinations are attempted in
+    /// caller order and ordinary failures are returned per remote; cancellation
+    /// still stops the whole operation.
+    pub async fn push_branch_to_remotes_with_context(
+        &self,
+        repo_id: RepositoryId,
+        remotes: &[String],
+        context: GitOperationContext,
+    ) -> Result<Vec<RemotePushResult>, RepoError> {
+        let requested = remotes
+            .iter()
+            .map(|remote| remote.trim())
+            .collect::<Vec<_>>();
+        let unique = requested.iter().copied().collect::<HashSet<_>>();
+        if requested.is_empty()
+            || requested.iter().any(|remote| remote.is_empty())
+            || unique.len() != requested.len()
+        {
+            return Err(
+                GitError::InvalidRemote("at least one unique remote is required".into()).into(),
+            );
+        }
+
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let configured = self.git.remotes(&repo_path).await?;
+        if let Some(unknown) = requested
+            .iter()
+            .copied()
+            .find(|remote| !configured.iter().any(|item| item.name == *remote))
+        {
+            return Err(
+                GitError::InvalidRemote(format!("remote '{unknown}' is not configured")).into(),
+            );
+        }
+
+        let branch_ref = self.git.current_branch_ref(&repo_path).await?;
+        let refspec = format!("{branch_ref}:{branch_ref}");
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        let mut results = Vec::with_capacity(requested.len());
+
+        for remote in requested {
+            if context.is_cancelled() {
+                return Err(GitError::Cancelled.into());
+            }
+            match self
+                .remote
+                .push(
+                    &repo_path,
+                    remote,
+                    std::slice::from_ref(&refspec),
+                    context.clone(),
+                )
+                .await
+            {
+                Ok(()) => results.push(RemotePushResult {
+                    remote: remote.to_string(),
+                    ok: true,
+                    error_code: None,
+                }),
+                Err(GitRemoteError::Cancelled) => return Err(GitError::Cancelled.into()),
+                Err(error) => results.push(RemotePushResult {
+                    remote: remote.to_string(),
+                    ok: false,
+                    error_code: Some(error.code().to_string()),
+                }),
+            }
+        }
+
+        Ok(results)
+    }
+
     pub async fn force_push_with_context(
         &self,
         repo_id: RepositoryId,
@@ -2106,6 +2181,7 @@ mod tests {
         pushes: Arc<Mutex<Vec<RecordedPush>>>,
         publishes: Arc<Mutex<Vec<(String, String)>>>,
         deletes: Arc<Mutex<Vec<(String, String)>>>,
+        fail_remote: Option<String>,
     }
 
     struct FakeEnvironment;
@@ -2180,6 +2256,12 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((remote.to_string(), refspecs.to_vec()));
+            if self.fail_remote.as_deref() == Some(remote) {
+                return Err(GitRemoteError::RemoteRejected {
+                    summary: "rejected by test remote".into(),
+                    stderr_tail: "rejected by test remote".into(),
+                });
+            }
             Ok(())
         }
 
@@ -2342,6 +2424,21 @@ mod tests {
                 dirty_count: 0,
                 has_conflict: false,
             })
+        }
+        async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec![
+                RemoteInfo {
+                    name: "origin".into(),
+                    fetch_url: "https://example.test/origin.git".into(),
+                    push_url: None,
+                },
+                RemoteInfo {
+                    name: "gitlab".into(),
+                    fetch_url: "https://example.test/gitlab.git".into(),
+                    push_url: None,
+                },
+            ])
         }
         async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
@@ -3408,6 +3505,90 @@ mod tests {
                 ("company".to_string(), "refs/heads/develop".to_string()),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn multi_remote_push_uses_one_exact_branch_ref_without_publishing() {
+        let repo = repo_entry();
+        let remote = Arc::new(FakeRemoteGit {
+            fail_remote: Some("gitlab".into()),
+            ..FakeRemoteGit::default()
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            Arc::new(FakeGit::default()),
+            remote.clone(),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        let results = service
+            .push_branch_to_remotes_with_context(
+                repo.id,
+                &["origin".into(), "gitlab".into()],
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            remote.pushes.lock().unwrap().as_slice(),
+            [
+                (
+                    "origin".to_string(),
+                    vec!["refs/heads/develop:refs/heads/develop".to_string()]
+                ),
+                (
+                    "gitlab".to_string(),
+                    vec!["refs/heads/develop:refs/heads/develop".to_string()]
+                ),
+            ]
+        );
+        assert_eq!(
+            results,
+            vec![
+                RemotePushResult {
+                    remote: "origin".into(),
+                    ok: true,
+                    error_code: None,
+                },
+                RemotePushResult {
+                    remote: "gitlab".into(),
+                    ok: false,
+                    error_code: Some("git_remote_rejected".into()),
+                },
+            ]
+        );
+        assert!(remote.publishes.lock().unwrap().is_empty());
+
+        let push_count = remote.pushes.lock().unwrap().len();
+        assert!(matches!(
+            service
+                .push_branch_to_remotes_with_context(
+                    repo.id,
+                    &["origin".into(), "missing".into()],
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(RepoError::Git(GitError::InvalidRemote(_)))
+        ));
+        assert!(matches!(
+            service
+                .push_branch_to_remotes_with_context(
+                    repo.id,
+                    &["origin".into(), "origin".into()],
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(RepoError::Git(GitError::InvalidRemote(_)))
+        ));
+        assert_eq!(remote.pushes.lock().unwrap().len(), push_count);
     }
 
     #[tokio::test]

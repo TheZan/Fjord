@@ -412,7 +412,14 @@
     "cancel": "Abbrechen",
     "submit": "Hinzufügen",
     "adding": "Wird hinzugefügt…",
-    "pushAndSetUpstream": "Push & Upstream festlegen"
+    "pushAndSetUpstream": "Push & Upstream festlegen",
+    "selectForPush": "{{remote}} zum Pushen auswählen",
+    "pushDescription": "Den aktuellen Branch zu allen ausgewählten Remotes pushen, ohne seinen Upstream zu ändern.",
+    "pushSelected": "Zu ausgewählten pushen ({{count}})",
+    "pushPending": "Wird gepusht…",
+    "pushResults": "Push-Ergebnisse",
+    "pushSuccess": "Gepusht",
+    "pushFailure": "Fehlgeschlagen: {{error}}"
   },
   "working": {
     "title": "Nicht committete Änderungen",

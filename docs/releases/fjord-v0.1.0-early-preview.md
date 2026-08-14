@@ -31,8 +31,9 @@ available when network access is unavailable.
   changes, bounded diffs, staged/unstaged files, and partial-hunk operations.
 - Commit and amend; branch, tag, and stash workflows; checkout protection for
   local changes.
-- List/add a remote, explicitly **Push & Set Upstream**, fetch, pull, push, and
-  authentication through the installed Git credential helpers, SSH config, and
+- List/add a remote, explicitly **Push & Set Upstream**, push the current branch
+  to several selected remotes without changing upstream, fetch, pull, push, and
+  authenticate through the installed Git credential helpers, SSH config, and
   Fjord's one-use askpass prompt.
 - Detection and control of interrupted Git operations, destructive preflight
   summaries, force-with-lease protection, and reflog-based Recovery Center.

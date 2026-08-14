@@ -412,7 +412,14 @@
     "cancel": "Cancelar",
     "submit": "Añadir",
     "adding": "Añadiendo…",
-    "pushAndSetUpstream": "Enviar y definir upstream"
+    "pushAndSetUpstream": "Enviar y definir upstream",
+    "selectForPush": "Seleccionar {{remote}} para enviar",
+    "pushDescription": "Envía la rama actual a todos los remotos seleccionados sin cambiar su upstream.",
+    "pushSelected": "Enviar a seleccionados ({{count}})",
+    "pushPending": "Enviando…",
+    "pushResults": "Resultados del envío",
+    "pushSuccess": "Enviado",
+    "pushFailure": "Error: {{error}}"
   },
   "working": {
     "title": "Cambios sin commit",

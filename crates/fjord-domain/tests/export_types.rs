@@ -11,8 +11,8 @@ use fjord_domain::{
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
     InteractionSpan, InteractionTrace, LogCursor, OperationControl, OverviewUiState,
     OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability, ReflogEntry,
-    ReflogPage, RemoteInfo, RemoteRef, RepoOperation, RepoOperationState, RepoStatus,
-    RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
+    ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoOperation, RepoOperationState,
+    RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
     RepositorySnapshot, ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
     Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
@@ -55,6 +55,7 @@ fn generated_types() -> String {
     push::<CreateRepositoryRequest>(&mut output, &config);
     push::<CreateRepositoryResult>(&mut output, &config);
     push::<RemoteInfo>(&mut output, &config);
+    push::<RemotePushResult>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
     push::<RepositorySnapshot>(&mut output, &config);
     push::<StoredRepositorySnapshot>(&mut output, &config);

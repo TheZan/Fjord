@@ -25,7 +25,7 @@ import type {
   WorkingChanges,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
-import type { RepositoryEntry } from "@/domain/workspace";
+import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
   | { kind: "origin"; action: "fetch" | "pull" | "push" | "stash-pop" }
@@ -80,6 +80,7 @@ export function RepoDetailView({
   onSetBranchUpstream,
   onUnsetBranchUpstream,
   onPublishBranch,
+  onPushToRemotes,
   onCreateTag,
   onCherryPick,
   onRevertCommit,
@@ -139,6 +140,7 @@ export function RepoDetailView({
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
   onPublishBranch: (branch: string) => void;
+  onPushToRemotes: (remotes: string[]) => Promise<RemotePushResult[] | null>;
   onCreateTag: (name: string, target: string) => void;
   onCherryPick: (commitId: string) => void;
   onRevertCommit: (commitId: string) => void;
@@ -333,7 +335,7 @@ export function RepoDetailView({
               onTagContextAction={handleTagContextAction}
             />
           </PerformanceBoundary>
-          <RemoteSection repoId={repo.id} />
+          <RemoteSection repoId={repo.id} onPushToRemotes={onPushToRemotes} />
           </div>
         }
         center={

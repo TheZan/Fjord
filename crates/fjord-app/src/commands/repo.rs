@@ -1,9 +1,9 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RemoteInfo, RepoOperationState,
-    RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId,
+    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult,
+    RepoOperationState, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -815,6 +815,36 @@ pub async fn push_repo(
                     .await
             } else {
                 repos.push_with_context(repo_id, context).await
+            }
+        },
+    )
+    .await
+}
+
+/// Pushes the current branch to multiple explicitly selected remotes without
+/// changing its configured upstream. Ordinary failures are reported per
+/// destination so a successful mirror push is never hidden by another remote.
+#[tauri::command]
+pub async fn push_branch_to_remotes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    remotes: Vec<String>,
+    operation_id: Option<String>,
+) -> Result<Vec<RemotePushResult>, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Push,
+        repo_id,
+        |context| {
+            let repos = state.repos.clone();
+            let remotes = remotes.clone();
+            async move {
+                repos
+                    .push_branch_to_remotes_with_context(repo_id, &remotes, context)
+                    .await
             }
         },
     )

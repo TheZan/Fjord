@@ -414,7 +414,14 @@
     "cancel": "Cancel",
     "submit": "Add",
     "adding": "Adding…",
-    "pushAndSetUpstream": "Push & Set Upstream"
+    "pushAndSetUpstream": "Push & Set Upstream",
+    "selectForPush": "Select {{remote}} for push",
+    "pushDescription": "Push the current branch to every selected remote without changing its upstream.",
+    "pushSelected": "Push to selected ({{count}})",
+    "pushPending": "Pushing…",
+    "pushResults": "Push results",
+    "pushSuccess": "Pushed",
+    "pushFailure": "Failed: {{error}}"
   },
   "working": {
     "title": "Uncommitted changes",

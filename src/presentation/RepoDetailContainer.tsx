@@ -16,7 +16,7 @@ import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
-import type { RepositoryEntry } from "@/domain/workspace";
+import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
   checkoutBranch,
@@ -36,6 +36,7 @@ import {
   runCommitAndPushRepo,
   runPullRepo,
   runPublishBranch,
+  runPushBranchToRemotes,
   runPushRepo,
   runContinueOperation,
   runSkipOperation,
@@ -325,6 +326,22 @@ export function RepoDetailContainer({
       },
       ["status", "refs"],
     );
+  }
+
+  async function pushCurrentBranchToRemotes(
+    remotes: string[],
+  ): Promise<RemotePushResult[] | null> {
+    let results: RemotePushResult[] | null = null;
+    const succeeded = await runRepoAction(
+      "push-remotes",
+      async () => {
+        const task = runPushBranchToRemotes(repo.id, remotes);
+        setActionOperationId(task.operationId);
+        results = await task.promise;
+      },
+      ["status", "refs"],
+    );
+    return succeeded ? results : null;
   }
 
   function onCreateBranch(name: string) {
@@ -639,6 +656,7 @@ export function RepoDetailContainer({
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
       onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
+      onPushToRemotes={pushCurrentBranchToRemotes}
       onCreateTag={onCreateTag}
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}

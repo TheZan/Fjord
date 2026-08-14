@@ -340,6 +340,10 @@ review" message.
   configuration unchanged.
 - The branch row shows its upstream and divergence, so "which remote does this go
   to" is answerable without opening a dialog.
+- The Remotes section may explicitly push the current branch to several selected
+  configured remotes. This uses ordinary non-force pushes, reports each result,
+  and does not set or replace the branch upstream; ordinary **Push** continues to
+  target exactly the one configured upstream.
 
 Remote CRUD (add/edit/remove remotes) belongs to
 [`workspace-workflows.md`](workspace-workflows.md) §3; this spec only selects

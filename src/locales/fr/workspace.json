@@ -412,7 +412,14 @@
     "cancel": "Annuler",
     "submit": "Ajouter",
     "adding": "Ajout…",
-    "pushAndSetUpstream": "Envoyer et définir l’upstream"
+    "pushAndSetUpstream": "Envoyer et définir l’upstream",
+    "selectForPush": "Sélectionner {{remote}} pour l’envoi",
+    "pushDescription": "Envoyer la branche actuelle vers tous les dépôts distants sélectionnés sans modifier son upstream.",
+    "pushSelected": "Envoyer vers la sélection ({{count}})",
+    "pushPending": "Envoi…",
+    "pushResults": "Résultats de l’envoi",
+    "pushSuccess": "Envoyé",
+    "pushFailure": "Échec : {{error}}"
   },
   "working": {
     "title": "Changements non commités",

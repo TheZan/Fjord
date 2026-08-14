@@ -422,7 +422,14 @@
     "cancel": "Отмена",
     "submit": "Добавить",
     "adding": "Добавление…",
-    "pushAndSetUpstream": "Отправить и задать upstream"
+    "pushAndSetUpstream": "Отправить и задать upstream",
+    "selectForPush": "Выбрать {{remote}} для отправки",
+    "pushDescription": "Отправить текущую ветку во все выбранные удалённые репозитории, не меняя её upstream.",
+    "pushSelected": "Отправить в выбранные ({{count}})",
+    "pushPending": "Отправка…",
+    "pushResults": "Результаты отправки",
+    "pushSuccess": "Отправлено",
+    "pushFailure": "Ошибка: {{error}}"
   },
   "working": {
     "title": "Незакоммиченные изменения",

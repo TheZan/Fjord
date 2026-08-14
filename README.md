@@ -107,8 +107,10 @@ select a different Git binary, or run a read-only connection test.
 The v0.1 candidate includes workspace/repository onboarding, clone/create,
 status and history, staged/unstaged and partial-hunk workflows, commit/amend,
 branch/tag/stash operations, fetch/pull/push, explicit **Push & Set Upstream**,
-operation-state controls, destructive preflights, and reflog-based Recovery
-Center. Safety-sensitive network operations use the installed system Git.
+and explicit current-branch push to several selected remotes without changing
+upstream, plus operation-state controls, destructive preflights, and
+reflog-based Recovery Center. Safety-sensitive network operations use the
+installed system Git.
 
 Not yet included: hosting-provider accounts/OAuth, provider-side repository
 creation, pull requests/issues, full remote CRUD, worktrees, interactive rebase,

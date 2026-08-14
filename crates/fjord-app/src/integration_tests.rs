@@ -748,6 +748,89 @@ async fn publish_sets_upstream_while_rejection_and_cancellation_preserve_local_w
 }
 
 #[tokio::test]
+async fn multi_remote_push_updates_each_remote_without_changing_upstream() {
+    let (_app_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("mirrored");
+    let workspace = services
+        .workspaces
+        .create_workspace("Mirrors")
+        .await
+        .unwrap();
+    let entry = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+    let remote_root = TempDir::new().unwrap();
+    let origin = remote_root.path().join("origin.git");
+    let gitlab = remote_root.path().join("gitlab.git");
+    run_git_success(
+        remote_root.path(),
+        &["init", "--bare", origin.to_str().unwrap()],
+    );
+    run_git_success(
+        remote_root.path(),
+        &["init", "--bare", gitlab.to_str().unwrap()],
+    );
+    services
+        .repos
+        .add_remote(entry.id, "origin", origin.to_str().unwrap())
+        .await
+        .unwrap();
+    services
+        .repos
+        .add_remote(entry.id, "gitlab", gitlab.to_str().unwrap())
+        .await
+        .unwrap();
+    services.repos.publish_branch(entry.id, None).await.unwrap();
+
+    std::fs::write(repo_path.join("README.md"), b"mirrored update\n").unwrap();
+    services
+        .repos
+        .stage_files(entry.id, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    services
+        .repos
+        .commit(entry.id, "Mirror update", false)
+        .await
+        .unwrap();
+    let results = services
+        .repos
+        .push_branch_to_remotes_with_context(
+            entry.id,
+            &["origin".into(), "gitlab".into()],
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(results.iter().all(|result| result.ok));
+    let local = Repository::open(&repo_path).unwrap();
+    let local_head = local.head().unwrap().target().unwrap();
+    assert_eq!(
+        Repository::open_bare(&origin)
+            .unwrap()
+            .refname_to_id("refs/heads/main")
+            .unwrap(),
+        local_head
+    );
+    assert_eq!(
+        Repository::open_bare(&gitlab)
+            .unwrap()
+            .refname_to_id("refs/heads/main")
+            .unwrap(),
+        local_head
+    );
+    let config = local.config().unwrap();
+    assert_eq!(config.get_string("branch.main.remote").unwrap(), "origin");
+    assert_eq!(
+        config.get_string("branch.main.merge").unwrap(),
+        "refs/heads/main"
+    );
+}
+
+#[tokio::test]
 async fn fresh_install_smoke_restores_each_repository_once_after_restart() {
     let app_dir = TempDir::new().unwrap();
     let services = compose_services(app_dir.path()).await.unwrap();

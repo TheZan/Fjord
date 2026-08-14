@@ -64,7 +64,7 @@ most are the ones still missing:
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
-| Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
+| Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
 | Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
 | Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |
@@ -187,6 +187,13 @@ remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs a
 displayed with userinfo redacted using the existing sanitizer
 ([`system-git-transport.md`](system-git-transport.md) §"Redaction") — a URL with an
 embedded token must never be rendered verbatim.
+
+The shipped multi-push slice is deliberately narrower than that shared picker:
+when at least two remotes exist, the Remotes section exposes unchecked
+destinations and an explicit **Push to selected** action. It reports success or
+the localized stable error for each remote. It sends the current branch to the
+same branch ref without changing upstream; it is not a mirror daemon and does
+not make future ordinary pushes fan out automatically.
 
 Removing a remote routes through the preflight: it names the branches whose
 upstream would be orphaned.

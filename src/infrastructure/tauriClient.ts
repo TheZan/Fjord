@@ -29,6 +29,7 @@ import type {
   CreateRepositoryRequest,
   CreateRepositoryResult,
   RemoteInfo,
+  RemotePushResult,
   RepoStatusSummary,
   RepositoryEntry,
   Workspace,
@@ -808,6 +809,13 @@ export function runPushRepo(
   confirmationToken: string | null = null,
 ): OperationTask<void> {
   return invokeOperation("push", "push_repo", { repoId, forceWithLease, expectedGenerations, confirmationToken });
+}
+
+export function runPushBranchToRemotes(
+  repoId: string,
+  remotes: string[],
+): OperationTask<RemotePushResult[]> {
+  return invokeOperation("push", "push_branch_to_remotes", { repoId, remotes });
 }
 
 // Publishes the current branch and sets its upstream. The remote is chosen by

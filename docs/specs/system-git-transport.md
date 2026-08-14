@@ -217,6 +217,15 @@ fetch refspecs, so a branch tracking `company/trunk` is never pushed to
 user answers that with an explicit publish, which is the only operation allowed
 to name a default remote. Nothing depends on the user's `push.default`.
 
+An explicit multi-remote push is separate from both operations. The service
+first verifies that every selected name is a configured remote, resolves the
+current local branch as one fully qualified ref, then sequentially runs ordinary
+`git push --progress <remote> <ref>:<ref>` for each selected destination.
+Sequential execution prevents overlapping credential prompts for one repository.
+An ordinary failure is returned as a stable per-remote result and does not hide
+later successes; cancellation stops the whole operation. This path never adds
+`--set-upstream`, never changes tracking configuration, and never offers force.
+
 ## Diagnostics and askpass milestones
 
 Environment inspection is read-only and may reveal executable path/version,
