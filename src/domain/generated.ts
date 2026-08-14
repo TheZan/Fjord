@@ -19,6 +19,10 @@ export type CloneRepositoryRequest = { workspaceId: WorkspaceId, url: string, de
 
 export type CloneRepositoryResult = { repository: RepositoryEntry, };
 
+export type CreateRepositoryRequest = { workspaceId: WorkspaceId, destinationParent: string, directoryName: string, initialBranch: string | null, };
+
+export type CreateRepositoryResult = { repository: RepositoryEntry, };
+
 export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };
 
 export type RepositorySnapshot = { status: RepoStatus, operationState: RepoOperationState, branches: Array<BranchInfo>, tags: Array<TagInfo>, firstHistoryPage: CommitPage, workingChanges: WorkingChanges, generations: GenerationSet, };

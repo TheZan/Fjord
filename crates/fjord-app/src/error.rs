@@ -103,6 +103,18 @@ impl From<RepoError> for AppError {
             error @ RepoError::CloneRegistrationFailed(_) => {
                 Self::new("clone_registration_failed", error.to_string())
             }
+            error @ RepoError::InvalidCreateRepositoryRequest(_) => {
+                Self::new("create_repository_request_invalid", error.to_string())
+            }
+            error @ RepoError::CreateRepositoryDestinationInvalid(_) => {
+                Self::new("create_repository_destination_invalid", error.to_string())
+            }
+            error @ RepoError::CreateRepositoryDestinationNotEmpty => {
+                Self::new("create_repository_destination_not_empty", error.to_string())
+            }
+            error @ RepoError::CreateRepositoryRegistrationFailed(_) => {
+                Self::new("create_repository_registration_failed", error.to_string())
+            }
         }
     }
 }
@@ -154,6 +166,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::NothingToCommit => "nothing_to_commit",
         GitError::NoConflicts => "no_conflicts",
         GitError::BranchExists(_) => "branch_exists",
+        GitError::InvalidRepositoryInitialization(_) => "create_repository_request_invalid",
+        GitError::RepositoryDestinationInvalid(_) => "create_repository_destination_invalid",
+        GitError::RepositoryDestinationNotEmpty => "create_repository_destination_not_empty",
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
@@ -223,6 +238,39 @@ mod tests {
             ))
             .code,
             "clone_registration_failed"
+        );
+    }
+
+    #[test]
+    fn create_repository_failures_have_stable_codes() {
+        assert_eq!(
+            AppError::from(RepoError::InvalidCreateRepositoryRequest("bad name".into())).code,
+            "create_repository_request_invalid"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CreateRepositoryDestinationInvalid(
+                "missing parent".into()
+            ))
+            .code,
+            "create_repository_destination_invalid"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CreateRepositoryDestinationNotEmpty).code,
+            "create_repository_destination_not_empty"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CreateRepositoryRegistrationFailed(
+                "workspace removed".into()
+            ))
+            .code,
+            "create_repository_registration_failed"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::InvalidRepositoryInitialization(
+                "bad branch".into()
+            ))
+            .code,
+            "create_repository_request_invalid"
         );
     }
 

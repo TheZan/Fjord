@@ -90,6 +90,24 @@ pub struct CloneRepositoryResult {
     pub repository: RepositoryEntry,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateRepositoryRequest {
+    pub workspace_id: WorkspaceId,
+    #[ts(type = "string")]
+    pub destination_parent: PathBuf,
+    pub directory_name: String,
+    pub initial_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateRepositoryResult {
+    pub repository: RepositoryEntry,
+}
+
 /// Monotonic in-memory versions of independently observable repository data.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

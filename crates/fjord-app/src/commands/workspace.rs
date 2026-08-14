@@ -9,8 +9,8 @@ use crate::operations::{
 };
 use crate::state::AppState;
 use fjord_domain::{
-    CloneRepositoryRequest, CloneRepositoryResult, RepoStatusSummary, RepositoryEntry,
-    RepositoryId, Workspace, WorkspaceId,
+    CloneRepositoryRequest, CloneRepositoryResult, CreateRepositoryRequest, CreateRepositoryResult,
+    RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
 };
 use fjord_services::WorkspaceError;
 use tauri::AppHandle;
@@ -190,6 +190,16 @@ pub async fn clone_repository(
     );
 
     result
+}
+
+#[tauri::command]
+pub async fn create_repository(
+    state: State<'_, AppState>,
+    request: CreateRepositoryRequest,
+) -> Result<CreateRepositoryResult, AppError> {
+    let result = state.repos.create_repository(request).await?;
+    state.refresh_repository_tiers().await?;
+    Ok(result)
 }
 
 #[tauri::command]

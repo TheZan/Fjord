@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
-    CommitSummary, Consequence, DestructiveAction, DestructivePreflight, DiffHunk, DiffLineKind,
-    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
-    ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
-    GlobalSearchResult, LogCursor, PatchSelection, Recoverability, ReflogPage, RepoOperationState,
-    RepoStatus, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
-    WorkspaceId,
+    CommitSummary, Consequence, CreateRepositoryRequest, CreateRepositoryResult, DestructiveAction,
+    DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
+    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
+    Recoverability, ReflogPage, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -70,6 +70,14 @@ pub enum RepoError {
     CloneDestinationExists,
     #[error("clone completed but repository registration failed: {0}")]
     CloneRegistrationFailed(String),
+    #[error("invalid create repository request: {0}")]
+    InvalidCreateRepositoryRequest(String),
+    #[error("repository creation destination is invalid: {0}")]
+    CreateRepositoryDestinationInvalid(String),
+    #[error("repository creation destination is not empty")]
+    CreateRepositoryDestinationNotEmpty,
+    #[error("repository was initialized but registration failed: {0}")]
+    CreateRepositoryRegistrationFailed(String),
 }
 
 #[derive(Debug)]
@@ -100,6 +108,7 @@ impl PreparedCloneRepository {
 /// The remote a branch is published to when the caller does not name one.
 /// Only ever used for the explicit publish action, never for a plain push.
 const DEFAULT_PUBLISH_REMOTE: &str = "origin";
+pub const DEFAULT_INITIAL_BRANCH: &str = "main";
 
 /// What the local backend should run, given an inspection result. An invalid
 /// configured path yields `Unavailable`, matching what remote transport does
@@ -153,6 +162,15 @@ fn validate_clone_directory_name(name: &str) -> Result<(), RepoError> {
         ));
     }
     Ok(())
+}
+
+fn valid_repository_directory_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+        && !name.is_empty()
+        && !name.contains(['/', '\\', '\0'])
+        && !matches!(name, "." | "..")
 }
 
 fn ensure_diff_response_ceiling(window: FileDiffWindow) -> Result<FileDiffWindow, RepoError> {
@@ -457,6 +475,113 @@ impl RepoService {
         }
 
         Ok(CloneRepositoryResult { repository })
+    }
+
+    /// Initializes a local repository without creating a commit, then
+    /// registers the validated path exactly once in the requested workspace.
+    pub async fn create_repository(
+        &self,
+        request: CreateRepositoryRequest,
+    ) -> Result<CreateRepositoryResult, RepoError> {
+        let workspaces = self.workspaces.list_workspaces().await?;
+        if !workspaces
+            .iter()
+            .any(|workspace| workspace.id == request.workspace_id)
+        {
+            return Err(StoreError::WorkspaceNotFound(request.workspace_id).into());
+        }
+
+        let destination_parent =
+            std::fs::canonicalize(&request.destination_parent).map_err(|_| {
+                RepoError::CreateRepositoryDestinationInvalid(
+                    "parent directory does not exist".into(),
+                )
+            })?;
+        if !destination_parent.is_dir() {
+            return Err(RepoError::CreateRepositoryDestinationInvalid(
+                "destination parent is not a directory".into(),
+            ));
+        }
+
+        let directory_name = request.directory_name.trim().to_string();
+        if !valid_repository_directory_name(&directory_name) {
+            return Err(RepoError::InvalidCreateRepositoryRequest(
+                "repository directory name must be one path component".into(),
+            ));
+        }
+        let initial_branch = match request.initial_branch {
+            Some(branch) => {
+                let branch = branch.trim().to_string();
+                if branch.is_empty() || branch.contains('\0') {
+                    return Err(RepoError::InvalidCreateRepositoryRequest(
+                        "initial branch cannot be empty or contain NUL".into(),
+                    ));
+                }
+                branch
+            }
+            None => DEFAULT_INITIAL_BRANCH.to_string(),
+        };
+        let destination = destination_parent.join(&directory_name);
+        match std::fs::symlink_metadata(&destination) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Ok(metadata) if metadata.is_dir() => {
+                if std::fs::read_dir(&destination)
+                    .map_err(|error| {
+                        RepoError::CreateRepositoryDestinationInvalid(error.to_string())
+                    })?
+                    .next()
+                    .is_some()
+                {
+                    return Err(RepoError::CreateRepositoryDestinationNotEmpty);
+                }
+            }
+            Ok(_) => {
+                return Err(RepoError::CreateRepositoryDestinationInvalid(
+                    "destination is not a directory".into(),
+                ));
+            }
+            Err(error) => {
+                return Err(RepoError::CreateRepositoryDestinationInvalid(
+                    error.to_string(),
+                ));
+            }
+        }
+
+        let repositories = self
+            .workspaces
+            .list_repositories(request.workspace_id)
+            .await?;
+        if repositories.iter().any(|repository| {
+            let existing = fjord_fs::canonicalize_path(&repository.path)
+                .unwrap_or_else(|_| repository.path.clone());
+            fjord_fs::paths_equal(&existing, &destination)
+        }) {
+            return Err(RepoError::CreateRepositoryDestinationNotEmpty);
+        }
+
+        self.git
+            .init_repository(&RepoPath::new(destination.clone()), &initial_branch)
+            .await?;
+        let destination = fjord_fs::canonicalize_path(&destination).map_err(|_| {
+            RepoError::CreateRepositoryDestinationInvalid(
+                "initialized repository directory is unavailable".into(),
+            )
+        })?;
+        let status = self.git.status(&RepoPath::new(destination.clone())).await?;
+        let repository = self
+            .workspaces
+            .add_repository(request.workspace_id, &directory_name, &destination)
+            .await
+            .map_err(|error| RepoError::CreateRepositoryRegistrationFailed(error.to_string()))?;
+        if let Err(error) = self
+            .workspaces
+            .upsert_repo_status(repository.id, &status)
+            .await
+        {
+            tracing::warn!(repository_id = ?repository.id, error = %error, "created repository status cache refresh failed");
+        }
+
+        Ok(CreateRepositoryResult { repository })
     }
 
     pub async fn get_generations(&self, repo_id: RepositoryId) -> Result<GenerationSet, RepoError> {

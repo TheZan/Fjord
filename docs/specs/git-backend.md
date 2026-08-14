@@ -1,6 +1,6 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04.
 
 ## Purpose
 
@@ -15,6 +15,7 @@ See [`system-git-transport.md`](system-git-transport.md).
 ```rust
 #[async_trait]
 pub trait GitBackend: Send + Sync {
+    async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError>;
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
@@ -65,6 +66,7 @@ at 200 entries per response.
 
 | Method | Engine (today) | Why |
 |---|---|---|
+| `init_repository` | `git2` | Creates one local non-bare repository without transport or an initial commit. Fjord initializes in an app-owned sibling staging directory and publishes only after success, so a failed initialization does not leave a partial target. |
 | `status` | `gix` | Hot path, run per-repo on every dashboard refresh — this is the operation the "fast on large repos" claim lives or dies on. |
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
 | `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
@@ -105,6 +107,16 @@ protocol and may race the final worktree replacement as described in
 The local/remote split is deliberate: maturing local engines can change behind
 `GitBackend`, while authentication and transport stay delegated to the installed
 Git through `GitRemoteBackend`.
+
+Repository creation uses `main` when the request omits an initial branch. A
+caller may supply another valid branch name, but initialization never creates a
+commit: `HEAD` remains symbolic and unborn. A missing target directory or an
+existing empty directory is accepted; files, symlinks, and non-empty directories
+are refused explicitly. Initialization occurs in a unique sibling staging
+directory. The completed repository is atomically renamed into a missing target,
+or its `.git` directory is renamed into a still-empty existing target. App-owned
+staging is removed on failure, while a successfully initialized repository is
+never recursively deleted merely because later database registration failed.
 
 The local trait has no fetch, push, or remote-branch deletion methods. This is a
 compile-time guard against reintroducing libgit2 transport or hidden network I/O.

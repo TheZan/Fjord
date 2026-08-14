@@ -19,6 +19,9 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "clone_destination_exists", message: "raw path" })).toBe(
       "errors.clone_destination_exists",
     );
+    expect(
+      errorTranslationKey({ code: "create_repository_destination_not_empty", message: "raw path" }),
+    ).toBe("errors.create_repository_destination_not_empty");
     expect(errorTranslationKey({ code: "git_auth_failed", message: "raw git" })).toBe(
       "errors.git_auth_failed",
     );

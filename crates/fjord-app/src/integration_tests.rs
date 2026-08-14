@@ -16,7 +16,9 @@
 
 use std::path::PathBuf;
 
-use fjord_domain::{CloneRepositoryRequest, RebaseKind, RepoOperation, Settings, Theme};
+use fjord_domain::{
+    CloneRepositoryRequest, CreateRepositoryRequest, RebaseKind, RepoOperation, Settings, Theme,
+};
 use fjord_ports::GitOperationContext;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use tempfile::TempDir;
@@ -688,6 +690,158 @@ async fn clone_preserves_a_completed_checkout_when_registration_fails() {
         .await
         .unwrap()
         .is_empty());
+}
+
+#[tokio::test]
+async fn create_repository_supports_empty_or_new_destinations_and_registers_once() {
+    let (_app_dir, services) = services().await;
+    let root = TempDir::new().unwrap();
+    let workspace = services.workspaces.create_workspace("Local").await.unwrap();
+    let existing_empty = root.path().join("existing-empty");
+    std::fs::create_dir(&existing_empty).unwrap();
+
+    let existing = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: root.path().to_path_buf(),
+            directory_name: "existing-empty".into(),
+            initial_branch: Some("trunk".into()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(existing.repository.name, "existing-empty");
+    assert!(existing.repository.path.join(".git").is_dir());
+    assert!(matches!(
+        services
+            .repos
+            .get_operation_state(existing.repository.id)
+            .await
+            .unwrap()
+            .operation,
+        RepoOperation::UnbornBranch
+    ));
+    let repository = Repository::open(&existing.repository.path).unwrap();
+    assert_eq!(
+        repository.find_reference("HEAD").unwrap().symbolic_target(),
+        Ok(Some("refs/heads/trunk"))
+    );
+
+    let created = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: root.path().to_path_buf(),
+            directory_name: "created".into(),
+            initial_branch: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        Repository::open(&created.repository.path)
+            .unwrap()
+            .find_reference("HEAD")
+            .unwrap()
+            .symbolic_target(),
+        Ok(Some("refs/heads/main"))
+    );
+    assert_eq!(
+        services
+            .workspaces
+            .list_repositories(workspace.id)
+            .await
+            .unwrap(),
+        vec![existing.repository.clone(), created.repository.clone()]
+    );
+    assert_eq!(
+        services
+            .workspaces
+            .get_workspace_status(workspace.id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let duplicate: AppError = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: root.path().to_path_buf(),
+            directory_name: "created".into(),
+            initial_branch: None,
+        })
+        .await
+        .expect_err("an initialized destination must not be registered twice")
+        .into();
+    assert_eq!(duplicate.code, "create_repository_destination_not_empty");
+    assert_eq!(
+        services
+            .workspaces
+            .list_repositories(workspace.id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn create_repository_rejects_non_empty_and_invalid_targets_atomically() {
+    let (_app_dir, services) = services().await;
+    let root = TempDir::new().unwrap();
+    let workspace = services.workspaces.create_workspace("Local").await.unwrap();
+    let occupied = root.path().join("occupied");
+    std::fs::create_dir(&occupied).unwrap();
+    std::fs::write(occupied.join("keep.txt"), "keep").unwrap();
+
+    let occupied_error: AppError = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: root.path().to_path_buf(),
+            directory_name: "occupied".into(),
+            initial_branch: None,
+        })
+        .await
+        .expect_err("a non-empty destination must be preserved")
+        .into();
+    assert_eq!(
+        occupied_error.code,
+        "create_repository_destination_not_empty"
+    );
+    assert_eq!(
+        std::fs::read_to_string(occupied.join("keep.txt")).unwrap(),
+        "keep"
+    );
+
+    let invalid_target = root.path().join("invalid-branch");
+    let invalid_error: AppError = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: root.path().to_path_buf(),
+            directory_name: "invalid-branch".into(),
+            initial_branch: Some("bad branch".into()),
+        })
+        .await
+        .expect_err("invalid initialization must not publish a partial target")
+        .into();
+    assert_eq!(invalid_error.code, "create_repository_request_invalid");
+    assert!(!invalid_target.exists());
+    assert!(services
+        .workspaces
+        .list_repositories(workspace.id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(std::fs::read_dir(root.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".fjord-init-")
+    }));
 }
 
 #[tokio::test]

@@ -87,6 +87,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::set_repository_activity,
             commands::add_repository,
             commands::clone_repository,
+            commands::create_repository,
             commands::import_repositories,
             commands::remove_repository,
             commands::get_branches,

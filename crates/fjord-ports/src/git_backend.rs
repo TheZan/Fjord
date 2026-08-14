@@ -200,6 +200,12 @@ pub enum GitError {
     NoConflicts,
     #[error("branch already exists: {0}")]
     BranchExists(String),
+    #[error("invalid repository initialization request: {0}")]
+    InvalidRepositoryInitialization(String),
+    #[error("repository destination is invalid: {0}")]
+    RepositoryDestinationInvalid(String),
+    #[error("repository destination is not empty")]
+    RepositoryDestinationNotEmpty,
     #[error("nothing to stash")]
     NothingToStash,
     #[error("stash is empty")]
@@ -241,6 +247,17 @@ pub enum GitError {
 pub trait GitBackend: Send + Sync {
     fn generations(&self, _repo: &RepoPath) -> Result<GenerationSet, GitError> {
         Ok(GenerationSet::default())
+    }
+
+    /// Initializes one non-bare local repository with an unborn branch.
+    /// Implementations must reject non-empty destinations and must not publish
+    /// a partially initialized target when initialization fails.
+    async fn init_repository(
+        &self,
+        _repo: &RepoPath,
+        _initial_branch: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("init_repository"))
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;

@@ -40,6 +40,7 @@ mod destructive_execution;
 mod destructive_preflight;
 mod diff;
 mod history;
+mod initialization;
 mod mutations;
 mod operation_control;
 mod operation_state;
@@ -127,6 +128,10 @@ pub(crate) fn forget_repository(repo: &RepoPath) {
 impl GitBackend for LocalGitBackend {
     fn generations(&self, repo: &RepoPath) -> Result<crate::GenerationSet, GitError> {
         runtime::generations(repo)
+    }
+
+    async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError> {
+        initialization::init_repository(repo, initial_branch).await
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {

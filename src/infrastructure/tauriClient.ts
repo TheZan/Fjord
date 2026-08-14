@@ -26,6 +26,8 @@ import type {
   BulkRepoResult,
   CloneRepositoryRequest,
   CloneRepositoryResult,
+  CreateRepositoryRequest,
+  CreateRepositoryResult,
   RepoStatusSummary,
   RepositoryEntry,
   Workspace,
@@ -335,6 +337,12 @@ export function cloneRepository(
   request: CloneRepositoryRequest,
 ): OperationTask<CloneRepositoryResult> {
   return invokeOperation("clone", "clone_repository", { request });
+}
+
+export function createRepository(
+  request: CreateRepositoryRequest,
+): Promise<CreateRepositoryResult> {
+  return invoke("create_repository", { request });
 }
 
 export function importRepositories(workspaceId: string, root: string): Promise<RepositoryEntry[]> {
