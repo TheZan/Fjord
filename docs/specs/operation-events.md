@@ -1,6 +1,6 @@
 # Spec: long-running operation events
 
-Referenced by: `P4-17`, `P9R-02`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
+Referenced by: `P4-17`, `P9R-02`, `P9R-03`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
 
 ## Purpose
 
@@ -75,6 +75,11 @@ runner.
   remote processes while preserving per-repository write locks.
 
 Cancelled commands reject with `AppError { code: "operation_cancelled", message: "operation cancelled" }`. The frontend treats that as a controlled stop, not a user-facing failure.
+
+The clone onboarding UI retains its generated operation ID for both progress
+lookup and cancellation. A terminal success publishes the returned repository
+entry once and selects it; a cancelled clone returns to the editable form without
+rendering an error alert.
 
 ## Authentication prompt event
 

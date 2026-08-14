@@ -24,6 +24,10 @@
   "errors": {
     "auth_failed": "L'authentification a échoué. Vérifiez vos identifiants ou votre clé SSH.",
     "branch_exists": "Une branche portant ce nom existe déjà.",
+    "clone_destination_exists": "Ce dossier de dépôt existe déjà. Choisissez un autre nom ou emplacement.",
+    "clone_destination_invalid": "Fjord ne peut pas créer le dépôt à cet emplacement.",
+    "clone_registration_failed": "Le dépôt a été cloné sur le disque mais n’a pas pu être ajouté au workspace. Les fichiers ont été conservés.",
+    "clone_request_invalid": "Vérifiez l’URL, l’emplacement et le nom du dossier.",
     "database_error": "Fjord n'a pas pu enregistrer ses données. Réessayez ou redémarrez l'application.",
     "git_error": "Git n’a pas pu terminer l’opération. Vérifiez l’état du dépôt et réessayez.",
     "git_auth_failed": "L’authentification Git a échoué. Vérifiez le gestionnaire d’identifiants, le jeton ou la clé SSH.",

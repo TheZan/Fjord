@@ -24,6 +24,10 @@
   "errors": {
     "auth_failed": "Die Anmeldung ist fehlgeschlagen. Prüfe deine Zugangsdaten oder deinen SSH-Schlüssel.",
     "branch_exists": "Ein Branch mit diesem Namen existiert bereits.",
+    "clone_destination_exists": "Dieser Repository-Ordner ist bereits vorhanden. Wähle einen anderen Namen oder Zielort.",
+    "clone_destination_invalid": "Fjord kann das Repository an diesem Zielort nicht erstellen.",
+    "clone_registration_failed": "Das Repository wurde geklont, konnte aber nicht zum Workspace hinzugefügt werden. Die Dateien bleiben erhalten.",
+    "clone_request_invalid": "Prüfe Repository-URL, Zielort und Ordnername.",
     "database_error": "Fjord konnte seine Daten nicht speichern. Versuche es erneut oder starte die App neu.",
     "git_error": "Git konnte den Vorgang nicht abschließen. Prüfe den Repository-Status und versuche es erneut.",
     "git_auth_failed": "Git-Authentifizierung fehlgeschlagen. Prüfe Credential Helper, Token oder SSH-Schlüssel.",

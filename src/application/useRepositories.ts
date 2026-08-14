@@ -6,6 +6,7 @@ import { queryKeys } from "@/application/queryKeys";
 import { pickFolder } from "@/infrastructure/dialog";
 import {
   addRepository as addRepositoryCommand,
+  cloneRepository as cloneRepositoryCommand,
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
@@ -15,8 +16,15 @@ import {
   removeRepository as removeRepositoryCommand,
   renameWorkspace as renameWorkspaceCommand,
   reorderWorkspaces,
+  type OperationTask,
 } from "@/infrastructure/tauriClient";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type {
+  CloneRepositoryRequest,
+  CloneRepositoryResult,
+  RepoStatusSummary,
+  RepositoryEntry,
+  Workspace,
+} from "@/domain/workspace";
 
 function sortWorkspaces(workspaces: Workspace[]): Workspace[] {
   return [...workspaces].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -49,6 +57,7 @@ export interface UseRepositoriesResult {
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
   moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
   openRepository: () => Promise<void>;
+  cloneRepository: (request: CloneRepositoryRequest) => OperationTask<CloneRepositoryResult>;
   importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
   removeRepository: (id: string) => Promise<void>;
 }
@@ -345,6 +354,29 @@ export function useRepositories(): UseRepositoriesResult {
     [invalidateWorkspace, queryClient, removeRepositoryMutation, selectedWorkspaceId],
   );
 
+  const cloneRepository = useCallback(
+    (request: CloneRepositoryRequest): OperationTask<CloneRepositoryResult> => {
+      const started = cloneRepositoryCommand(request);
+      return {
+        operationId: started.operationId,
+        promise: started.promise.then(async (result) => {
+          queryClient.setQueryData<RepositoryEntry[]>(
+            queryKeys.workspaces.repositories(request.workspaceId),
+            (current = []) =>
+              current.some((repository) => repository.id === result.repository.id)
+                ? current
+                : [...current, result.repository],
+          );
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.workspaces.status(request.workspaceId),
+          });
+          return result;
+        }),
+      };
+    },
+    [queryClient],
+  );
+
   const queryBackedError =
     workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
 
@@ -370,6 +402,7 @@ export function useRepositories(): UseRepositoriesResult {
     moveWorkspace,
     moveWorkspaceTo,
     openRepository,
+    cloneRepository,
     importRepositories,
     removeRepository,
   };

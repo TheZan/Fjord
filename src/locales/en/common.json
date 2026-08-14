@@ -24,6 +24,10 @@
   "errors": {
     "auth_failed": "Authentication failed. Check your credentials or SSH key and try again.",
     "branch_exists": "A branch with this name already exists.",
+    "clone_destination_exists": "That repository folder already exists. Choose another name or destination.",
+    "clone_destination_invalid": "Fjord cannot create the repository in that destination.",
+    "clone_registration_failed": "The repository was cloned on disk but could not be added to the workspace. Your cloned files were kept.",
+    "clone_request_invalid": "Check the repository URL, destination, and folder name.",
     "database_error": "Fjord could not save its data. Try again or restart the app if the problem continues.",
     "git_error": "Git could not complete the operation. Check the repository state and try again.",
     "git_auth_failed": "Git authentication failed. Check your credential helper, token, or SSH key.",

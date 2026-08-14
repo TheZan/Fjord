@@ -16,6 +16,15 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "operation_step_failed", message: "raw git" })).toBe(
       "errors.operation_step_failed",
     );
+    expect(errorTranslationKey({ code: "clone_destination_exists", message: "raw path" })).toBe(
+      "errors.clone_destination_exists",
+    );
+    expect(errorTranslationKey({ code: "git_auth_failed", message: "raw git" })).toBe(
+      "errors.git_auth_failed",
+    );
+    expect(errorTranslationKey({ code: "git_network_unavailable", message: "raw git" })).toBe(
+      "errors.git_network_unavailable",
+    );
   });
 
   it("never exposes unknown backend or JavaScript messages", () => {

@@ -239,6 +239,21 @@
       "create": { "label": "Créer un dépôt", "description": "Initialisez un nouveau dépôt Git local." }
     }
   },
+  "clone": {
+    "title": "Cloner un dépôt",
+    "description": "Clonez avec Git installé et les gestionnaires d’identifiants existants.",
+    "url": "URL du dépôt",
+    "urlPlaceholder": "https://example.com/team/repository.git",
+    "destination": "Dossier parent de destination",
+    "choose": "Choisir…",
+    "directoryName": "Nom du dossier du dépôt",
+    "running": "Clonage du dépôt…",
+    "progress": "Progression du clonage",
+    "back": "Retour",
+    "submit": "Cloner le dépôt",
+    "cloning": "Clonage…",
+    "validation": { "url": "Saisissez l’URL du dépôt.", "destination": "Choisissez un dossier de destination.", "name": "Saisissez un nom de dossier valide." }
+  },
   "operations": {
     "running": "En cours…",
     "progress": "{{completed}} / {{total}}",

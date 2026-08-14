@@ -160,12 +160,22 @@ with a second owner.
 
 The onboarding surface has four stable choices: **Open Existing Repository**,
 **Scan Folder for Repositories**, **Clone Repository**, and **Create Repository**.
-It is also reached after creating a workspace during first run. Actions not yet
-implemented remain visible with a localized disabled reason so the structure does
-not change as Phase 9.5 fills them in. The dialog follows the shell overlay
+It is also reached after creating a workspace during first run. The Create action
+remains visible with a localized disabled reason until its Phase 9.5 task lands, so
+the structure does not change as the remaining flow is filled in. The dialog follows the shell overlay
 contract: first-action focus, trapped Tab order, Escape dismissal, invoker focus
 restoration, and localized labels/descriptions. P9R-01 reuses the existing Open
 and Scan operations and adds no IPC or Git mutation.
+
+Clone opens a second app-owned overlay with Repository URL, destination-parent
+picker, and repository-folder-name fields. Common HTTPS, SSH, and SCP-style Git
+URLs seed the editable folder name; the operation cannot start until all three
+inputs are valid. While cloning, the fields and navigation are locked, operation
+events drive a determinate progress bar when Git reports totals (otherwise a
+message-only phase), and Cancel targets the same operation ID. Stable transport
+and destination errors are localized without exposing raw Git output. Success
+publishes the returned repository into the workspace query at most once, closes
+the overlay, and selects it through the normal repository-detail navigation path.
 
 The three metric cards are replaced by a single summary line:
 

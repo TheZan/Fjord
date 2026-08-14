@@ -14,6 +14,7 @@ vi.mock("@/infrastructure/dialog", () => ({
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   addRepository: vi.fn(),
+  cloneRepository: vi.fn(),
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
   getWorkspaceStatus: vi.fn(),
@@ -149,6 +150,36 @@ describe("useRepositories", () => {
       "backend",
       "frontend",
     ]);
+  });
+
+  it("publishes one cloned repository into the workspace query", async () => {
+    const cloned: RepositoryEntry = {
+      id: "fjord",
+      workspaceId: "frontend",
+      name: "fjord",
+      path: "/dev/fjord",
+      sortOrder: 1,
+    };
+    vi.mocked(tauriClient.cloneRepository).mockReturnValue({
+      operationId: "clone:1",
+      promise: Promise.resolve({ repository: cloned }),
+    });
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const request = {
+      workspaceId: "frontend",
+      url: "https://example.test/fjord.git",
+      destinationParent: "/dev",
+      directoryName: "fjord",
+      branch: null,
+    };
+    await act(async () => result.current.cloneRepository(request).promise);
+
+    expect(tauriClient.cloneRepository).toHaveBeenCalledWith(request);
+    await waitFor(() =>
+      expect(result.current.repositories.filter((repo) => repo.id === "fjord")).toHaveLength(1),
+    );
   });
 
   it("shows a localized dismissible error when a repository is added twice", async () => {

@@ -27,6 +27,7 @@ import {
 import { loadUiState, saveSelection } from "@/infrastructure/uiState";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
+import { CloneRepositoryDialog } from "@/presentation/CloneRepositoryDialog";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { GlobalSearchDialog } from "@/presentation/GlobalSearchDialog";
 import { Onboarding } from "@/presentation/Onboarding";
@@ -80,6 +81,7 @@ export function App() {
     moveWorkspace,
     moveWorkspaceTo,
     openRepository,
+    cloneRepository,
     importRepositories,
     removeRepository,
   } = useRepositories();
@@ -88,7 +90,7 @@ export function App() {
   const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [repositoryOnboardingOpen, setRepositoryOnboardingOpen] = useState(false);
+  const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<"choices" | "clone" | null>(null);
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [repoDetailCommand, setRepoDetailCommand] = useState<RepoDetailCommand | null>(null);
@@ -427,7 +429,7 @@ export function App() {
       <Onboarding
         onCreate={async (name, withRepository) => {
           const created = await createWorkspace(name || tw("onboarding.defaultWorkspaceName"));
-          if (created && withRepository) setRepositoryOnboardingOpen(true);
+          if (created && withRepository) setRepositoryOnboardingStep("choices");
         }}
       />
     );
@@ -522,7 +524,7 @@ export function App() {
               if (bulkOperationId) void cancelOperation(bulkOperationId);
             }}
             onBulk={onBulk}
-            onAddRepository={() => setRepositoryOnboardingOpen(true)}
+            onAddRepository={() => setRepositoryOnboardingStep("choices")}
             onSelectRepo={(repoId) =>
               selectedWorkspaceId ? void selectRepository(selectedWorkspaceId, repoId) : undefined
             }
@@ -602,11 +604,26 @@ export function App() {
         />
       )}
 
-      {repositoryOnboardingOpen && (
+      {repositoryOnboardingStep === "choices" && (
         <RepositoryOnboardingDialog
           onOpenExisting={() => void openRepository()}
           onScanFolder={() => void importRepositories()}
-          onClose={() => setRepositoryOnboardingOpen(false)}
+          onClone={() => setRepositoryOnboardingStep("clone")}
+          onClose={() => setRepositoryOnboardingStep(null)}
+        />
+      )}
+
+      {repositoryOnboardingStep === "clone" && selectedWorkspaceId && (
+        <CloneRepositoryDialog
+          workspaceId={selectedWorkspaceId}
+          operations={operations}
+          onClone={cloneRepository}
+          onCancelOperation={(operationId) => void cancelOperation(operationId)}
+          onSuccess={(result) => {
+            setRepositoryOnboardingStep(null);
+            void selectRepository(result.repository.workspaceId, result.repository.id);
+          }}
+          onBack={() => setRepositoryOnboardingStep("choices")}
         />
       )}
 

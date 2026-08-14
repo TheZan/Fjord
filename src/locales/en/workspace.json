@@ -241,6 +241,21 @@
       "create": { "label": "Create repository", "description": "Initialize a new local Git repository." }
     }
   },
+  "clone": {
+    "title": "Clone repository",
+    "description": "Clone with your installed Git and existing credential helpers.",
+    "url": "Repository URL",
+    "urlPlaceholder": "https://example.com/team/repository.git",
+    "destination": "Destination parent folder",
+    "choose": "Choose…",
+    "directoryName": "Repository folder name",
+    "running": "Cloning repository…",
+    "progress": "Clone progress",
+    "back": "Back",
+    "submit": "Clone repository",
+    "cloning": "Cloning…",
+    "validation": { "url": "Enter a repository URL.", "destination": "Choose a destination folder.", "name": "Enter one valid folder name." }
+  },
   "operations": {
     "running": "Running…",
     "progress": "{{completed}} / {{total}}",

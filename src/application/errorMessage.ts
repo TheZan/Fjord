@@ -3,6 +3,10 @@ import { i18n } from "@/infrastructure/i18n";
 const USER_ERROR_CODES = new Set([
   "auth_failed",
   "branch_exists",
+  "clone_destination_exists",
+  "clone_destination_invalid",
+  "clone_registration_failed",
+  "clone_request_invalid",
   "database_error",
   "git_error",
   "git_auth_failed",

@@ -239,6 +239,21 @@
       "create": { "label": "Repository erstellen", "description": "Initialisiere ein neues lokales Git-Repository." }
     }
   },
+  "clone": {
+    "title": "Repository klonen",
+    "description": "Mit installiertem Git und vorhandenen Anmeldehilfen klonen.",
+    "url": "Repository-URL",
+    "urlPlaceholder": "https://example.com/team/repository.git",
+    "destination": "Übergeordneter Zielordner",
+    "choose": "Auswählen…",
+    "directoryName": "Name des Repository-Ordners",
+    "running": "Repository wird geklont…",
+    "progress": "Klonfortschritt",
+    "back": "Zurück",
+    "submit": "Repository klonen",
+    "cloning": "Wird geklont…",
+    "validation": { "url": "Repository-URL eingeben.", "destination": "Zielordner auswählen.", "name": "Einen gültigen Ordnernamen eingeben." }
+  },
   "operations": {
     "running": "Läuft…",
     "progress": "{{completed}} / {{total}}",

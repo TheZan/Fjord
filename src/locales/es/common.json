@@ -24,6 +24,10 @@
   "errors": {
     "auth_failed": "La autenticación falló. Comprueba tus credenciales o clave SSH e inténtalo de nuevo.",
     "branch_exists": "Ya existe una rama con este nombre.",
+    "clone_destination_exists": "Esa carpeta de repositorio ya existe. Elige otro nombre o destino.",
+    "clone_destination_invalid": "Fjord no puede crear el repositorio en ese destino.",
+    "clone_registration_failed": "El repositorio se clonó en el disco, pero no pudo añadirse al workspace. Los archivos se conservaron.",
+    "clone_request_invalid": "Comprueba la URL, el destino y el nombre de la carpeta.",
     "database_error": "Fjord no pudo guardar sus datos. Inténtalo de nuevo o reinicia la app.",
     "git_error": "Git no pudo completar la operación. Comprueba el estado del repositorio e inténtalo de nuevo.",
     "git_auth_failed": "La autenticación de Git falló. Comprueba el gestor de credenciales, el token o la clave SSH.",
