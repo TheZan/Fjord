@@ -1,0 +1,293 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  TAURI_UPDATE_ENDPOINT: https://github.com/TheZan/Fjord/releases/latest/download/latest.json
+
+jobs:
+  # Parses VERSION from the pushed tag, verifies the same VERSION is what
+  # every project file records (scripts/release-lib.mjs — the exact function
+  # `npm run release:verify` runs locally), verifies the matching release
+  # notes are populated, and requires a green same-SHA `CI` run. Nothing
+  # platform-specific happens until this is green.
+  prerequisites:
+    name: Version, metadata, and green CI
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Parse the release version from the tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release metadata matches the tag
+        run: node scripts/release-verify.mjs --tag "$GITHUB_REF_NAME"
+
+      - name: Verify release notes are populated
+        run: node scripts/check-release-notes.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Require successful CI for this commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "ci.yml",
+              head_sha: context.sha,
+              status: "completed",
+              per_page: 20,
+            });
+            const successful = data.workflow_runs.find((run) => run.conclusion === "success");
+            if (!successful) {
+              core.setFailed(`No successful CI run exists for ${context.sha}.`);
+              return;
+            }
+            await core.summary
+              .addHeading("Same-SHA CI prerequisite")
+              .addLink(`CI run #${successful.run_number}`, successful.html_url)
+              .write();
+
+  # Builds, signs, and uploads every platform package to a still-draft,
+  # still-prerelease GitHub Release. Nothing here is publicly visible or
+  # updater-discoverable yet — that only happens in `publish-release`, once
+  # every matrix leg and `packaging-verification` have succeeded.
+  publish:
+    needs: prerequisites
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prerequisites.outputs.version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: "--target x86_64-unknown-linux-gnu --bundles appimage --features updater --config src-tauri/tauri.sidecar.conf.json"
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: "--target x86_64-pc-windows-msvc --bundles nsis --features updater --config src-tauri/tauri.sidecar.conf.json"
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin --bundles app,dmg --features updater --config src-tauri/tauri.sidecar.conf.json"
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin --bundles app,dmg --features updater --config src-tauri/tauri.sidecar.conf.json"
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - name: Build askpass sidecar
+        run: cargo build --release -p fjord-askpass --target ${{ matrix.target }}
+
+      - name: Prepare askpass sidecar for Tauri
+        env:
+          FJORD_SIDECAR_TARGET: ${{ matrix.target }}
+          FJORD_SIDECAR_PROFILE: release
+        run: node scripts/prepare-askpass-sidecar.mjs
+
+      # Platform code-signing (this step, and Apple's APPLE_CERTIFICATE below)
+      # is optional — many OSS projects ship unsigned. Absence here only
+      # means Windows SmartScreen/macOS Gatekeeper show an unknown-publisher
+      # warning on first run; it has no effect on the *updater*'s own
+      # cryptographic signature, which stays mandatory (see "Prepare release
+      # Tauri config" below and docs/release.md).
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            Write-Host "::notice::WINDOWS_CERTIFICATE/WINDOWS_CERTIFICATE_PASSWORD are not set — building an unsigned Windows installer."
+            exit 0
+          }
+
+          $certPath = Join-Path $env:RUNNER_TEMP "fjord-signing.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $certPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Prepare release Tauri config
+        env:
+          TAURI_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: node scripts/prepare-tauri-release-config.mjs
+
+      - name: Read release notes for this version
+        id: notes
+        shell: bash
+        run: |
+          NOTES_PATH=$(node scripts/print-release-notes-path.mjs "$VERSION")
+          {
+            echo "body<<FJORD_RELEASE_NOTES_EOF"
+            cat "$NOTES_PATH"
+            echo "FJORD_RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Fjord v${{ env.VERSION }} — Early Preview"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Verify Linux AppImage contents
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          appimage=$(find target/${{ matrix.target }}/release/bundle/appimage -name "Fjord*${VERSION}*.AppImage" -print -quit)
+          test -n "$appimage"
+          chmod +x "$appimage"
+          "$appimage" --appimage-extract >/dev/null
+          test -x squashfs-root/usr/bin/fjord-askpass
+          ! find squashfs-root -iname '*fixture*' -o -iname '*.env' | grep -q .
+
+      - name: Verify macOS package contents
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(find target/${{ matrix.target }}/release/bundle/macos -maxdepth 1 -name 'Fjord.app' -print -quit)
+          dmg=$(find target/${{ matrix.target }}/release/bundle/dmg -name "Fjord*${VERSION}*.dmg" -print -quit)
+          test -d "$app"
+          test -n "$dmg"
+          test -x "$app/Contents/MacOS/fjord-askpass"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
+          ! find "$app" -iname '*fixture*' -o -iname '*.env' | grep -q .
+
+      - name: Verify Windows installer contents
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis" -Filter "Fjord*$env:VERSION*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "versioned Fjord NSIS installer was not produced" }
+          $listing = 7z l $installer.FullName
+          if ($LASTEXITCODE -ne 0) { $listing; throw "could not inspect NSIS installer" }
+          if (-not ($listing | Select-String -SimpleMatch 'fjord-askpass.exe' -Quiet)) { throw "fjord-askpass.exe is missing" }
+          if ($listing | Select-String -Pattern 'fixture|test-data|\.env' -Quiet) { throw "development-only content is present" }
+
+  # Generic, version-parameterized asset-completeness check — every platform
+  # package, the updater manifest, and its signatures must be attached to the
+  # still-draft release before anything is allowed to go live. This replaced
+  # a v0.1-only gate that additionally required V0_1_CLEAN_MACHINE_EVIDENCE /
+  # V0_1_FRESH_INSTALL_EVIDENCE repo variables; that evidence requirement was
+  # correct for the one-time first public launch but would otherwise block
+  # every future patch release on variables that only ever applied to
+  # v0.1.0. See docs/releasing.md and docs/release.md for where that
+  # first-launch checklist lives now (`npm run gate:v0.1`, run by hand before
+  # pushing the v0.1.0 tag specifically).
+  packaging-verification:
+    name: Packaging verification
+    if: ${{ always() }}
+    needs: [prerequisites, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prerequisites.outputs.version }}
+    steps:
+      - name: Fail closed and report every packaging blocker
+        shell: bash
+        run: |
+          blockers=()
+          if [[ "${{ needs.prerequisites.result }}" != "success" ]]; then blockers+=("metadata, release-notes, or same-SHA CI prerequisite failed"); fi
+          if [[ "${{ needs.publish.result }}" != "success" ]]; then blockers+=("one or more platform package/signing/content checks failed"); fi
+
+          if [[ "${{ needs.publish.result }}" == "success" ]]; then
+            release=$(gh api "repos/${{ github.repository }}/releases/tags/v$VERSION")
+            escaped_version="${VERSION//./\\.}"
+            assets=$(jq -r '.assets[].name' <<<"$release")
+            grep -Eq "Fjord.*${escaped_version}.*\.AppImage$" <<<"$assets" || blockers+=("Linux AppImage is missing")
+            grep -Eq "Fjord.*${escaped_version}.*\.exe$" <<<"$assets" || blockers+=("Windows installer is missing")
+            grep -Eq "Fjord.*${escaped_version}.*\.dmg$" <<<"$assets" || blockers+=("macOS package is missing")
+            grep -Fxq 'latest.json' <<<"$assets" || blockers+=("updater manifest is missing")
+            grep -Eq '\.sig$' <<<"$assets" || blockers+=("updater signatures are missing")
+          fi
+
+          {
+            echo "## Fjord v$VERSION packaging verification"
+            if (( ${#blockers[@]} == 0 )); then
+              echo "READY TO PUBLISH"
+            else
+              echo "BLOCKED"
+              printf -- '- %s\n' "${blockers[@]}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          (( ${#blockers[@]} == 0 ))
+
+  # The only job allowed to make a release (and therefore the Tauri updater
+  # endpoint, which only resolves published/non-prerelease releases) public.
+  # Runs only on default success — i.e. every job above must have passed.
+  publish-release:
+    name: Publish the GitHub Release
+    needs: [prerequisites, publish, packaging-verification]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish v${{ needs.prerequisites.outputs.version }}
+        run: |
+          gh release edit "v${{ needs.prerequisites.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --prerelease=false

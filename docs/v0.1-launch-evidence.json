@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-08-14",
+  "conditions": [
+    {
+      "id": "phase9_safety_recovery",
+      "status": "pass",
+      "evidence": [
+        {
+          "href": "docs/tasks.md#phase-9--safety--recovery",
+          "note": "Phase 9 safety and Recovery Center tasks P9-01 through P9-10 are closed with regression coverage."
+        }
+      ]
+    },
+    {
+      "id": "onboarding_essentials",
+      "status": "pass",
+      "evidence": [
+        {
+          "href": "docs/tasks.md#phase-95--repository-onboarding--v01-readiness",
+          "note": "P9R-01 through P9R-08 cover open, scan, clone, create, connect, publish, and first-run onboarding."
+        }
+      ]
+    },
+    {
+      "id": "no_known_data_loss",
+      "status": "blocked",
+      "blocker": "no reviewed no-known-data-loss sign-off exists for the exact v0.1 candidate",
+      "evidence": [
+        {
+          "href": "docs/specs/repository-safety.md",
+          "note": "The safety contract and automated regressions exist, but the exact candidate still needs an issue review and explicit sign-off."
+        }
+      ]
+    },
+    {
+      "id": "same_sha_ci",
+      "status": "blocked",
+      "blocker": "no successful same-SHA CI run URL is recorded for the launch candidate",
+      "evidence": [
+        {
+          "href": ".github/workflows/release.yml",
+          "note": "The Release workflow requires same-SHA CI, but no successful candidate run is available in this review."
+        }
+      ]
+    },
+    {
+      "id": "signed_release_artifacts",
+      "status": "blocked",
+      "blocker": "signed v0.1 Windows and macOS packages, the Linux AppImage, updater manifest, and signatures have not been produced and verified",
+      "evidence": [
+        {
+          "href": "docs/release.md#release-pipeline",
+          "note": "The fail-closed packaging contract is implemented; exact-candidate Release-run and asset evidence are pending."
+        }
+      ]
+    },
+    {
+      "id": "fresh_install_smoke",
+      "status": "blocked",
+      "blocker": "the exact candidate has no completed clean-machine fresh-install evidence for Windows, macOS, and Ubuntu",
+      "evidence": [
+        {
+          "href": "docs/v0.1-fresh-install-smoke.md",
+          "note": "The real-composition automated lifecycle passes locally and is in the CI matrix; the three packaged clean-machine rows remain unfilled."
+        }
+      ]
+    },
+    {
+      "id": "public_materials",
+      "status": "pass",
+      "evidence": [
+        {
+          "href": "docs/public-readiness.md#publication-tree-evidence",
+          "note": "English/Russian READMEs, current seeded screenshot, contribution guidance, and honest scope are present."
+        },
+        {
+          "href": "docs/releases/fjord-v0.1.0-early-preview.md",
+          "note": "The populated Early Preview release body covers platforms, workflows, limitations, safety, and reporting."
+        }
+      ]
+    },
+    {
+      "id": "issue_reporting",
+      "status": "pass",
+      "evidence": [
+        {
+          "href": ".github/ISSUE_TEMPLATE/bug_report.yml",
+          "note": "A structured public bug form is present."
+        },
+        {
+          "href": "SECURITY.md",
+          "note": "Private vulnerability reporting and sensitive-data guidance are documented."
+        }
+      ]
+    },
+    {
+      "id": "secrets_private_content_audit",
+      "status": "blocked",
+      "blocker": "the full-history publication audit lacks launch-CI evidence and owner approval of the public commit-author email",
+      "evidence": [
+        {
+          "href": "docs/public-readiness.md#remaining-external-launch-evidence",
+          "note": "The current tree and reachable history pass locally; CI evidence and the documented human privacy review remain pending."
+        }
+      ]
+    },
+    {
+      "id": "default_branch_and_metadata",
+      "status": "blocked",
+      "blocker": "the GitHub default branch does not yet contain the reviewed launch commit and description/topics are unconfirmed",
+      "evidence": [
+        {
+          "href": "docs/public-readiness.md#github-settings-for-human-review",
+          "note": "The local remote advertises origin/master while launch work is on develop; settings remain human-owned."
+        }
+      ]
+    },
+    {
+      "id": "visibility_human_control",
+      "status": "pass",
+      "evidence": [
+        {
+          "href": ".github/workflows/release.yml",
+          "note": "Release automation creates only a draft prerelease and contains no repository-visibility mutation."
+        }
+      ]
+    }
+  ]
+}

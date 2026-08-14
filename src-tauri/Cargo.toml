@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+updater = ["fjord-app/updater"]
+
 [lib]
 name = "fjord_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -19,3 +22,5 @@ tauri = { version = "2", features = [] }
 # ACL/permission discovery only scans the crate where build.rs/tauri.conf.json
 # live, not transitive deps through fjord-app.
 tauri-plugin-dialog = "2.7"
+tauri-plugin-updater = "2.10"
+tauri-plugin-process = "2"

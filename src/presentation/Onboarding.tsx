@@ -18,10 +18,10 @@ export function Onboarding({
   const [name, setName] = useState("");
   const [pending, setPending] = useState<string | null>(null);
 
-  async function submit(withImport: boolean) {
-    setPending(withImport ? "import" : "create");
+  async function submit(withRepository: boolean) {
+    setPending(withRepository ? "repository" : "create");
     try {
-      await onCreate(name, withImport);
+      await onCreate(name, withRepository);
     } finally {
       setPending(null);
     }
@@ -40,10 +40,12 @@ export function Onboarding({
         </p>
 
         <Input
+          autoFocus
+          disabled={pending !== null}
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void submit(false);
+            if (event.key === "Enter" && pending === null) void submit(false);
           }}
           placeholder={t("onboarding.workspacePlaceholder")}
           className="mt-5 w-full"
@@ -51,7 +53,9 @@ export function Onboarding({
 
         <div className="mt-3 flex gap-2">
           <Button variant="primary" disabled={pending !== null} onClick={() => void submit(true)}>
-            {pending === "import" ? t("onboarding.importing") : t("onboarding.createAndImport")}
+            {pending === "repository"
+              ? t("onboarding.openingRepositorySetup")
+              : t("onboarding.createAndAdd")}
           </Button>
           <Button disabled={pending !== null} onClick={() => void submit(false)}>
             {pending === "create" ? t("onboarding.creating") : t("onboarding.createOnly")}

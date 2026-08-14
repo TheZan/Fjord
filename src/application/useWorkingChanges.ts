@@ -1,5 +1,11 @@
-import { useEffect, useState } from "react";
-import { getWorkingChanges, invokeErrorMessage } from "@/infrastructure/tauriClient";
+import { useQuery } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
+import { queryKeys } from "@/application/queryKeys";
+import {
+  REPOSITORY_QUERY_GC_TIME,
+  REPOSITORY_QUERY_STALE_TIME,
+} from "@/application/repositoryQueryPolicy";
+import { getWorkingChanges } from "@/infrastructure/tauriClient";
 import type { WorkingChanges } from "@/domain/git";
 
 export interface UseWorkingChangesResult {
@@ -10,43 +16,19 @@ export interface UseWorkingChangesResult {
 
 const EMPTY: WorkingChanges = { staged: [], unstaged: [] };
 
-/**
- * Uncommitted work for `repoId`. Shares the `version` counter with
- * `useRepoStatus`, so staging, unstaging and committing all refresh the list
- * through the same bump the rest of the detail view already does.
- */
-export function useWorkingChanges(repoId: string | null, version: number): UseWorkingChangesResult {
-  const [changes, setChanges] = useState<WorkingChanges>(EMPTY);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/** Uncommitted work for `repoId`, refreshed only after working-tree mutations. */
+export function useWorkingChanges(repoId: string | null, ready = true): UseWorkingChangesResult {
+  const query = useQuery({
+    queryKey: repoId ? queryKeys.repos.workingChanges(repoId) : queryKeys.repos.all,
+    queryFn: ({ signal }) => getWorkingChanges(repoId!, signal),
+    enabled: repoId !== null && ready,
+    staleTime: REPOSITORY_QUERY_STALE_TIME,
+    gcTime: REPOSITORY_QUERY_GC_TIME,
+  });
 
-  useEffect(() => {
-    if (!repoId) {
-      setChanges(EMPTY);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    getWorkingChanges(repoId)
-      .then((result) => {
-        if (!cancelled) setChanges(result);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(invokeErrorMessage(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [repoId, version]);
-
-  return { changes, loading, error };
+  return {
+    changes: query.data ?? EMPTY,
+    loading: query.isPending,
+    error: query.error ? userErrorMessage(query.error) : null,
+  };
 }

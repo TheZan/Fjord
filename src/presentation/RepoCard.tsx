@@ -14,12 +14,14 @@ export function RepoCard({
   status,
   selected,
   onSelect,
+  onWarm,
   onRemove,
 }: {
   repo: RepositoryEntry;
   status: RepoStatusSummary["status"] | undefined;
   selected: boolean;
   onSelect: () => void;
+  onWarm?: () => void;
   onRemove: () => void;
 }) {
   const { t } = useTranslation("workspace");
@@ -29,21 +31,28 @@ export function RepoCard({
   const dirty = status?.dirtyCount ?? 0;
 
   const state = status?.hasConflict
-    ? { tone: "rust" as const, label: t("cardStatus.conflict") }
+    ? { tone: "rust" as const, glyph: "⚠", label: t("cardStatus.conflict") }
     : dirty > 0
-      ? { tone: "amber" as const, label: t("cardStatus.dirty") }
+      ? { tone: "amber" as const, glyph: "●", label: t("cardStatus.dirty") }
       : ahead > 0
-        ? { tone: "fjord" as const, label: t("cardStatus.ahead") }
+        ? { tone: "fjord" as const, glyph: "↑", label: t("cardStatus.ahead") }
         : behind > 0
-          ? { tone: "amber" as const, label: t("cardStatus.behind") }
-          : { tone: "moss" as const, label: t("cardStatus.synced") };
+          ? { tone: "amber" as const, glyph: "↓", label: t("cardStatus.behind") }
+          : { tone: "moss" as const, glyph: "✓", label: t("cardStatus.synced") };
 
   return (
-    <Card selected={selected} className="group relative">
-      <button type="button" onClick={onSelect} className="flex w-full flex-col gap-2 p-3 text-left">
+    <Card selected={selected} className="interactive-card group relative h-full">
+      <button
+        type="button"
+        onClick={onSelect}
+        onPointerEnter={onWarm}
+        onFocus={onWarm}
+        data-selected={selected}
+        className="interactive-row flex h-full w-full flex-col gap-2 p-3 text-left"
+      >
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate text-[13px] font-medium">{repo.name}</span>
-          <Pill tone={state.tone}>{state.label}</Pill>
+          <Pill tone={state.tone}><span aria-hidden="true">{state.glyph}</span>{state.label}</Pill>
         </div>
 
         <span
@@ -57,7 +66,7 @@ export function RepoCard({
         <div className="flex items-center gap-2.5 text-[11px] tabular-nums" style={{ color: "var(--mist)" }}>
           {ahead > 0 && <span>↑{ahead}</span>}
           {behind > 0 && <span>↓{behind}</span>}
-          {dirty > 0 && <span style={{ color: "var(--amber-ink)" }}>{t("cardStatus.changes", { count: dirty })}</span>}
+          {dirty > 0 && <span aria-label={t("cardStatus.changes", { count: dirty })} style={{ color: "var(--amber-ink)" }}>●{dirty}</span>}
           {ahead === 0 && behind === 0 && dirty === 0 && <span>{t("cardStatus.upToDate")}</span>}
         </div>
       </button>
@@ -65,7 +74,7 @@ export function RepoCard({
       <button
         type="button"
         onClick={onRemove}
-        className="absolute bottom-2 right-2 hidden rounded px-1.5 py-0.5 text-[10px] group-hover:block"
+        className="interactive-control absolute bottom-2 right-2 hidden rounded px-1.5 py-0.5 text-[10px] group-hover:block"
         style={{ background: "var(--page-bg)", color: "var(--slate)" }}
       >
         {t("repositories.removeButton")}

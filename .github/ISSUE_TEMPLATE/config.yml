@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/TheZan/Fjord/security/advisories/new
+    about: Use a private security advisory, never a public issue, for vulnerabilities.
+  - name: Task board
+    url: https://github.com/TheZan/Fjord/blob/develop/docs/tasks.md
+    about: Check planned work and stable task IDs before filing a new request.

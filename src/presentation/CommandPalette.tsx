@@ -1,30 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export interface PaletteItem {
   id: string;
   label: string;
   detail: string;
-  kind: string;
+  group?: string;
   run: () => void | Promise<void>;
 }
 
 export function CommandPalette({
   items,
-  remoteItems = [],
   query,
   onQueryChange,
   onClose,
 }: {
   items: PaletteItem[];
-  /** Backend search hits (commits and the like) — already filtered server-side, so they bypass local scoring. */
-  remoteItems?: PaletteItem[];
   query: string;
   onQueryChange: (value: string) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [index, setIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocusTrap(dialogRef, onClose);
 
   const scored = items
     .flatMap((item) => {
@@ -34,7 +34,7 @@ export function CommandPalette({
     .sort((a, b) => a.score - b.score)
     .map((entry) => entry.item);
 
-  const visible = [...scored, ...remoteItems].slice(0, 12);
+  const visible = scored.slice(0, 12);
 
   useEffect(() => {
     setIndex(0);
@@ -53,7 +53,12 @@ export function CommandPalette({
       onMouseDown={onClose}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-xl border shadow-2xl"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("commandPalette.placeholder")}
+        tabIndex={-1}
+        className="desktop-popover w-full max-w-xl overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",
           borderColor: "var(--hairline-strong)",
@@ -66,10 +71,6 @@ export function CommandPalette({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onClose();
-            }
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setIndex((value) => Math.min(value + 1, Math.max(visible.length - 1, 0)));
@@ -101,16 +102,22 @@ export function CommandPalette({
           <ul className="max-h-80 overflow-auto p-1.5">
             {visible.map((item, itemIndex) => {
               const isSelected = itemIndex === index;
+              const previousGroup = visible[itemIndex - 1]?.group;
 
               return (
                 <li key={item.id}>
+                  {item.group && item.group !== previousGroup ? (
+                    <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+                      {item.group}
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     onMouseEnter={() => setIndex(itemIndex)}
                     onClick={() => void run(item)}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2.5 py-1.5 text-left"
+                    data-selected={isSelected}
+                    className="interactive-row grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2.5 py-1.5 text-left"
                     style={{
-                      background: isSelected ? "var(--fjord-tint)" : "transparent",
                       color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                     }}
                   >
@@ -121,7 +128,7 @@ export function CommandPalette({
                       </span>
                     </span>
                     <span className="shrink-0 text-[10px]" style={{ color: "var(--mist)" }}>
-                      {item.kind}
+                      {t("commandPalette.action")}
                     </span>
                   </button>
                 </li>

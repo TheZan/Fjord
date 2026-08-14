@@ -3,7 +3,8 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
+    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot,
+    StoredRepositorySnapshot, Workspace, WorkspaceId,
 };
 use fjord_ports::{StoreError, WorkspaceStore};
 use sqlx::{Row, SqlitePool};
@@ -220,7 +221,16 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| StoreError::Database(e.to_string()))?;
+        .map_err(|error| {
+            if error
+                .as_database_error()
+                .is_some_and(|database| database.is_unique_violation())
+            {
+                StoreError::RepositoryAlreadyExists(path.to_path_buf())
+            } else {
+                StoreError::Database(error.to_string())
+            }
+        })?;
 
         Ok(RepositoryEntry {
             id,
@@ -329,6 +339,76 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             .map_err(|e| StoreError::Database(e.to_string()))?;
         Ok(())
     }
+
+    async fn load_repository_snapshot(
+        &self,
+        repo_id: RepositoryId,
+        schema_version: u32,
+    ) -> Result<Option<StoredRepositorySnapshot>, StoreError> {
+        let Some(row) = sqlx::query(
+            "SELECT schema_version, payload, captured_at FROM repo_snapshot WHERE repo_id = ?",
+        )
+        .bind(repo_id.0.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|error| StoreError::Database(error.to_string()))?
+        else {
+            return Ok(None);
+        };
+
+        if row.get::<i64, _>("schema_version") != i64::from(schema_version) {
+            return Ok(None);
+        }
+
+        let snapshot = serde_json::from_str::<RepositorySnapshot>(row.get("payload"))
+            .map_err(|error| StoreError::Database(error.to_string()))?;
+        let captured_at = OffsetDateTime::parse(row.get("captured_at"), &Rfc3339)
+            .map_err(|error| StoreError::Database(error.to_string()))?;
+
+        Ok(Some(StoredRepositorySnapshot {
+            repo_id,
+            snapshot,
+            captured_at,
+            validated: false,
+        }))
+    }
+
+    async fn upsert_repository_snapshot(
+        &self,
+        repo_id: RepositoryId,
+        schema_version: u32,
+        snapshot: &RepositorySnapshot,
+    ) -> Result<StoredRepositorySnapshot, StoreError> {
+        let captured_at = OffsetDateTime::now_utc();
+        let payload = serde_json::to_string(snapshot)
+            .map_err(|error| StoreError::Database(error.to_string()))?;
+        let captured_at_text = captured_at
+            .format(&Rfc3339)
+            .map_err(|error| StoreError::Database(error.to_string()))?;
+
+        sqlx::query(
+            "INSERT INTO repo_snapshot (repo_id, schema_version, payload, captured_at) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT(repo_id) DO UPDATE SET \
+                schema_version = excluded.schema_version, \
+                payload = excluded.payload, \
+                captured_at = excluded.captured_at",
+        )
+        .bind(repo_id.0.to_string())
+        .bind(i64::from(schema_version))
+        .bind(payload)
+        .bind(captured_at_text)
+        .execute(&self.pool)
+        .await
+        .map_err(|error| StoreError::Database(error.to_string()))?;
+
+        Ok(StoredRepositorySnapshot {
+            repo_id,
+            snapshot: snapshot.clone(),
+            captured_at,
+            validated: true,
+        })
+    }
 }
 
 impl SqliteWorkspaceStore {
@@ -358,6 +438,7 @@ impl SqliteWorkspaceStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fjord_domain::{CommitPage, GenerationSet, WorkingChanges};
 
     async fn store() -> SqliteWorkspaceStore {
         let pool = crate::connect(std::path::Path::new(":memory:"))
@@ -418,6 +499,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn duplicate_repository_has_a_typed_error() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let path = std::path::Path::new("/repos/api-gateway");
+        store
+            .add_repository(ws.id, "api-gateway", path)
+            .await
+            .unwrap();
+
+        let result = store.add_repository(ws.id, "api-gateway", path).await;
+
+        assert!(matches!(
+            result,
+            Err(StoreError::RepositoryAlreadyExists(duplicate)) if duplicate == path
+        ));
+    }
+
+    #[tokio::test]
     async fn status_cache_defaults_then_round_trips_and_invalidates() {
         let store = store().await;
         let ws = store.create_workspace("Backend").await.unwrap();
@@ -454,5 +553,89 @@ mod tests {
         store.invalidate_repo_status(repo.id).await.unwrap();
         let invalidated = store.list_workspace_status(ws.id).await.unwrap();
         assert!(invalidated[0].last_synced_at.is_none());
+    }
+
+    fn repository_snapshot() -> RepositorySnapshot {
+        RepositorySnapshot {
+            status: RepoStatus {
+                branch: Some("main".to_string()),
+                ahead: 1,
+                behind: 0,
+                dirty_count: 2,
+                has_conflict: false,
+            },
+            operation_state: fjord_domain::RepoOperationState {
+                operation: fjord_domain::RepoOperation::Normal,
+                conflicted_paths: Vec::new(),
+                available: Vec::new(),
+                detected_externally: false,
+            },
+            branches: Vec::new(),
+            tags: Vec::new(),
+            first_history_page: CommitPage {
+                commits: Vec::new(),
+                next_cursor: None,
+            },
+            working_changes: WorkingChanges::default(),
+            generations: GenerationSet {
+                working_tree: 3,
+                refs: 4,
+                history: 5,
+                stash: 0,
+                config: 1,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn repository_snapshot_round_trips_as_unvalidated_after_load() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let repo = store
+            .add_repository(ws.id, "api", std::path::Path::new("/repos/api"))
+            .await
+            .unwrap();
+        let snapshot = repository_snapshot();
+
+        let captured = store
+            .upsert_repository_snapshot(repo.id, 1, &snapshot)
+            .await
+            .unwrap();
+        assert!(captured.validated);
+
+        let loaded = store
+            .load_repository_snapshot(repo.id, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.snapshot, snapshot);
+        assert_eq!(loaded.captured_at, captured.captured_at);
+        assert!(!loaded.validated);
+    }
+
+    #[tokio::test]
+    async fn repository_snapshot_rejects_an_unknown_schema_version() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+        let repo = store
+            .add_repository(ws.id, "api", std::path::Path::new("/repos/api"))
+            .await
+            .unwrap();
+        store
+            .upsert_repository_snapshot(repo.id, 1, &repository_snapshot())
+            .await
+            .unwrap();
+
+        sqlx::query("UPDATE repo_snapshot SET schema_version = 999 WHERE repo_id = ?")
+            .bind(repo.id.0.to_string())
+            .execute(&store.pool)
+            .await
+            .unwrap();
+
+        assert!(store
+            .load_repository_snapshot(repo.id, 1)
+            .await
+            .unwrap()
+            .is_none());
     }
 }

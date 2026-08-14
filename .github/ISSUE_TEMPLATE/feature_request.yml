@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest an improvement or new workflow.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is hard, slow, or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Fjord do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other designs or workarounds you considered.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Single-repo view
+        - Workspace/dashboard
+        - Git operations
+        - Packaging/release
+        - Theming/i18n
+        - Other
+    validations:
+      required: true

@@ -10,6 +10,9 @@ export interface LocaleDescriptor {
 export const SUPPORTED_LOCALES: LocaleDescriptor[] = [
   { code: "en", label: "English" },
   { code: "ru", label: "Русский" },
+  { code: "es", label: "Español" },
+  { code: "de", label: "Deutsch" },
+  { code: "fr", label: "Français" },
 ];
 
 export const DEFAULT_LOCALE = "en";

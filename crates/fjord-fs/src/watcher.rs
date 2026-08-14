@@ -35,6 +35,56 @@ pub struct RepoEventWatcher {
     _watcher: RecommendedWatcher,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepositoryWatchScope {
+    WorkingTree,
+    GitMetadata,
+}
+
+/// Observable repository data affected by a filesystem event burst. Keeping
+/// this classification beside the platform watcher lets the UI refresh only
+/// the Git queries that can actually have changed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RepoChangeSet {
+    pub status: bool,
+    pub working: bool,
+    pub history: bool,
+    pub refs: bool,
+    pub stashes: bool,
+    pub config: bool,
+}
+
+impl RepoChangeSet {
+    fn all() -> Self {
+        Self {
+            status: true,
+            working: true,
+            history: true,
+            refs: true,
+            stashes: true,
+            config: true,
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.status |= other.status;
+        self.working |= other.working;
+        self.history |= other.history;
+        self.refs |= other.refs;
+        self.stashes |= other.stashes;
+        self.config |= other.config;
+    }
+
+    fn is_empty(self) -> bool {
+        !self.status
+            && !self.working
+            && !self.history
+            && !self.refs
+            && !self.stashes
+            && !self.config
+    }
+}
+
 /// Directory names whose subtrees never affect `git status` enough to be
 /// worth an invalidation storm (they churn constantly during builds and
 /// are near-universally gitignored). A false negative here only delays the
@@ -82,30 +132,69 @@ impl RepoEventWatcher {
     /// Watches `repo_root` recursively and calls `on_change` (debounced,
     /// filtered) whenever the repository plausibly changed state. The
     /// debounce thread exits when the watcher is dropped.
-    pub fn watch_repository<F>(repo_root: &Path, mut on_change: F) -> Result<Self, WatchError>
+    pub fn watch_repository<F>(repo_root: &Path, on_change: F) -> Result<Self, WatchError>
     where
-        F: FnMut() + Send + 'static,
+        F: FnMut(RepoChangeSet) + Send + 'static,
+    {
+        Self::watch_repository_with_scope(repo_root, RepositoryWatchScope::WorkingTree, on_change)
+    }
+
+    /// Installs either the full working-tree watch used by hot/warm
+    /// repositories or the metadata-only watch used by cold repositories.
+    pub fn watch_repository_with_scope<F>(
+        repo_root: &Path,
+        scope: RepositoryWatchScope,
+        mut on_change: F,
+    ) -> Result<Self, WatchError>
+    where
+        F: FnMut(RepoChangeSet) + Send + 'static,
     {
         let root: PathBuf = repo_root.to_path_buf();
-        let (tx, rx) = mpsc::channel::<()>();
+        let watched_root = match scope {
+            RepositoryWatchScope::WorkingTree => root.clone(),
+            RepositoryWatchScope::GitMetadata => git_metadata_path(&root)?,
+        };
+        let event_root = watched_root.clone();
+        let (tx, rx) = mpsc::channel::<RepoChangeSet>();
 
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let Ok(event) = event else { return };
-            // Events with no paths are rare catch-alls — treat as relevant.
-            if event.paths.is_empty() || event.paths.iter().any(|path| is_relevant(&root, path)) {
-                let _ = tx.send(());
+            let mut changes = if event.paths.is_empty() {
+                // Empty-path events are rare platform catch-alls.
+                RepoChangeSet::all()
+            } else {
+                RepoChangeSet::default()
+            };
+            for path in &event.paths {
+                let classified_path = match scope {
+                    RepositoryWatchScope::WorkingTree => path.clone(),
+                    RepositoryWatchScope::GitMetadata => {
+                        let relative = path.strip_prefix(&event_root).unwrap_or(path);
+                        root.join(".git").join(relative)
+                    }
+                };
+                changes.merge(classify_change(&root, &classified_path));
+            }
+            if !changes.is_empty() {
+                let _ = tx.send(changes);
             }
         })
         .map_err(|e| WatchError::Start(e.to_string()))?;
         watcher
-            .watch(repo_root, RecursiveMode::Recursive)
+            .watch(&watched_root, RecursiveMode::Recursive)
             .map_err(|e| WatchError::Start(e.to_string()))?;
 
         std::thread::spawn(move || {
-            while rx.recv().is_ok() {
+            while let Ok(mut changes) = rx.recv() {
                 let deadline = Instant::now() + DEBOUNCE_MAX_DELAY;
-                while Instant::now() < deadline && rx.recv_timeout(DEBOUNCE_QUIET).is_ok() {}
-                on_change();
+                while Instant::now() < deadline {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    match rx.recv_timeout(DEBOUNCE_QUIET.min(remaining)) {
+                        Ok(next) => changes.merge(next),
+                        Err(_) => break,
+                    }
+                }
+                on_change(changes);
             }
         });
 
@@ -113,26 +202,105 @@ impl RepoEventWatcher {
     }
 }
 
-/// `false` for paths inside ignored generated directories and for `.git`
-/// internals that churn without changing observable status (the object
-/// store); `true` for everything else, including `.git/index`, `HEAD`, and
-/// refs — those are exactly what checkout/commit/fetch touch.
-fn is_relevant(root: &Path, path: &Path) -> bool {
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    let mut components = relative
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy());
-
-    match components.next() {
-        Some(first) if first == ".git" => {
-            !matches!(components.next().as_deref(), Some("objects") | Some("logs"))
-        }
-        Some(first) if IGNORED_DIRS.contains(&first.as_ref()) => false,
-        _ => !relative
-            .components()
-            .map(|component| component.as_os_str().to_string_lossy())
-            .any(|name| IGNORED_DIRS.contains(&name.as_ref())),
+fn git_metadata_path(repo_root: &Path) -> Result<PathBuf, WatchError> {
+    let dot_git = repo_root.join(".git");
+    if dot_git.is_dir() {
+        return Ok(dot_git.canonicalize().unwrap_or(dot_git));
     }
+    if dot_git.is_file() {
+        let marker = std::fs::read_to_string(&dot_git)
+            .map_err(|error| WatchError::Start(error.to_string()))?;
+        let relative = marker
+            .trim()
+            .strip_prefix("gitdir:")
+            .map(str::trim)
+            .ok_or_else(|| WatchError::Start("invalid .git file".to_string()))?;
+        let path = PathBuf::from(relative);
+        let resolved = if path.is_absolute() {
+            path
+        } else {
+            repo_root.join(path)
+        };
+        return Ok(resolved.canonicalize().unwrap_or(resolved));
+    }
+    if repo_root.join("HEAD").is_file() {
+        return Ok(repo_root
+            .canonicalize()
+            .unwrap_or_else(|_| repo_root.to_path_buf()));
+    }
+    Err(WatchError::Start(format!(
+        "{} has no Git metadata directory",
+        repo_root.display()
+    )))
+}
+
+/// Maps a path to the smallest observable data set it can affect. Generated
+/// directories and noisy Git internals return an empty change set.
+fn classify_change(root: &Path, path: &Path) -> RepoChangeSet {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let components = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>();
+
+    match components.first().map(|value| value.as_ref()) {
+        Some(".git") => match components.get(1).map(|value| value.as_ref()) {
+            Some("objects" | "logs") => RepoChangeSet::default(),
+            Some("index") => RepoChangeSet {
+                status: true,
+                working: true,
+                ..RepoChangeSet::default()
+            },
+            Some("refs") if components.get(2).is_some_and(|value| value == "stash") => {
+                RepoChangeSet {
+                    status: true,
+                    working: true,
+                    stashes: true,
+                    ..RepoChangeSet::default()
+                }
+            }
+            // FETCH_HEAD is rewritten even when a fetch receives no new
+            // refs. Ignore it so periodic fetches do not redraw the graph.
+            Some("FETCH_HEAD") => RepoChangeSet::default(),
+            Some("config") => RepoChangeSet {
+                status: true,
+                refs: true,
+                config: true,
+                ..RepoChangeSet::default()
+            },
+            Some("refs" | "packed-refs") => RepoChangeSet {
+                status: true,
+                history: true,
+                refs: true,
+                ..RepoChangeSet::default()
+            },
+            Some("HEAD") => RepoChangeSet {
+                status: true,
+                working: true,
+                history: true,
+                refs: true,
+                ..RepoChangeSet::default()
+            },
+            Some(_) | None => RepoChangeSet::all(),
+        },
+        Some(first) if IGNORED_DIRS.contains(&first) => RepoChangeSet::default(),
+        _ if components
+            .iter()
+            .any(|name| IGNORED_DIRS.contains(&name.as_ref())) =>
+        {
+            RepoChangeSet::default()
+        }
+        _ => RepoChangeSet {
+            status: true,
+            working: true,
+            ..RepoChangeSet::default()
+        },
+    }
+}
+
+#[cfg(test)]
+fn is_relevant(root: &Path, path: &Path) -> bool {
+    !classify_change(root, path).is_empty()
 }
 
 #[cfg(test)]
@@ -176,14 +344,107 @@ mod tests {
     }
 
     #[test]
+    fn classifies_worktree_and_git_metadata_changes() {
+        let root = Path::new("/repo");
+
+        assert_eq!(
+            classify_change(root, Path::new("/repo/src/main.rs")),
+            RepoChangeSet {
+                status: true,
+                working: true,
+                ..RepoChangeSet::default()
+            }
+        );
+        assert_eq!(
+            classify_change(root, Path::new("/repo/.git/refs/remotes/origin/new-branch")),
+            RepoChangeSet {
+                status: true,
+                history: true,
+                refs: true,
+                ..RepoChangeSet::default()
+            }
+        );
+        assert_eq!(
+            classify_change(root, Path::new("/repo/.git/refs/stash")),
+            RepoChangeSet {
+                status: true,
+                working: true,
+                stashes: true,
+                ..RepoChangeSet::default()
+            }
+        );
+        assert_eq!(
+            classify_change(root, Path::new("/repo/.git/FETCH_HEAD")),
+            RepoChangeSet::default()
+        );
+        assert_eq!(
+            classify_change(root, Path::new("/repo/.git/config")),
+            RepoChangeSet {
+                status: true,
+                refs: true,
+                config: true,
+                ..RepoChangeSet::default()
+            }
+        );
+    }
+
+    #[test]
+    fn git_metadata_path_supports_directories_and_worktree_indirection() {
+        let root = TempDir::new().unwrap();
+        let repository = root.path().join("repository");
+        let metadata = repository.join(".git");
+        fs::create_dir_all(&metadata).unwrap();
+        assert_eq!(
+            git_metadata_path(&repository).unwrap(),
+            metadata.canonicalize().unwrap()
+        );
+
+        let worktree = root.path().join("worktree");
+        let shared = root.path().join("shared.git");
+        fs::create_dir_all(&worktree).unwrap();
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(worktree.join(".git"), "gitdir: ../shared.git\n").unwrap();
+        assert_eq!(
+            git_metadata_path(&worktree).unwrap(),
+            shared.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn metadata_only_watch_ignores_worktree_edits() {
+        let dir = TempDir::new().unwrap();
+        let metadata = dir.path().join(".git");
+        fs::create_dir_all(&metadata).unwrap();
+        fs::write(metadata.join("HEAD"), b"ref: refs/heads/main\n").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = RepoEventWatcher::watch_repository_with_scope(
+            dir.path(),
+            RepositoryWatchScope::GitMetadata,
+            move |changes| {
+                let _ = tx.send(changes);
+            },
+        )
+        .unwrap();
+
+        fs::write(dir.path().join("working.txt"), b"change").unwrap();
+        assert!(rx.recv_timeout(DEBOUNCE_QUIET * 2).is_err());
+
+        fs::write(metadata.join("HEAD"), b"ref: refs/heads/next\n").unwrap();
+        let changes = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("metadata edit should reach a cold watcher");
+        assert!(changes.refs && changes.history);
+    }
+
+    #[test]
     fn nested_edits_trigger_a_single_debounced_callback() {
         let dir = TempDir::new().unwrap();
         let nested = dir.path().join("src").join("deeply").join("nested");
         fs::create_dir_all(&nested).unwrap();
 
         let (tx, rx) = mpsc::channel();
-        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move || {
-            let _ = tx.send(());
+        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move |changes| {
+            let _ = tx.send(changes);
         })
         .unwrap();
 
@@ -212,8 +473,8 @@ mod tests {
         fs::create_dir_all(&generated).unwrap();
 
         let (tx, rx) = mpsc::channel();
-        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move || {
-            let _ = tx.send(());
+        let _watcher = RepoEventWatcher::watch_repository(dir.path(), move |changes| {
+            let _ = tx.send(changes);
         })
         .unwrap();
 

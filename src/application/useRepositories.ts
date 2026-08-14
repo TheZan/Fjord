@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { userErrorMessage } from "@/application/errorMessage";
+import { useStartup } from "@/application/StartupProvider";
+import { queryKeys } from "@/application/queryKeys";
 import { pickFolder } from "@/infrastructure/dialog";
 import {
   addRepository as addRepositoryCommand,
+  cloneRepository as cloneRepositoryCommand,
+  createRepository as createRepositoryCommand,
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
@@ -11,8 +17,17 @@ import {
   removeRepository as removeRepositoryCommand,
   renameWorkspace as renameWorkspaceCommand,
   reorderWorkspaces,
+  type OperationTask,
 } from "@/infrastructure/tauriClient";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type {
+  CloneRepositoryRequest,
+  CloneRepositoryResult,
+  CreateRepositoryRequest,
+  CreateRepositoryResult,
+  RepoStatusSummary,
+  RepositoryEntry,
+  Workspace,
+} from "@/domain/workspace";
 
 function sortWorkspaces(workspaces: Workspace[]): Workspace[] {
   return [...workspaces].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -20,6 +35,11 @@ function sortWorkspaces(workspaces: Workspace[]): Workspace[] {
 
 function withLocalOrder(workspaces: Workspace[]): Workspace[] {
   return workspaces.map((workspace, index) => ({ ...workspace, sortOrder: index }));
+}
+
+function queryError(queries: Array<{ error: Error | null }>): string | null {
+  const failed = queries.find((query) => query.error);
+  return failed?.error ? userErrorMessage(failed.error) : null;
 }
 
 export interface UseRepositoriesResult {
@@ -32,24 +52,78 @@ export interface UseRepositoriesResult {
   loading: boolean;
   error: string | null;
   workspaceActionPending: string | null;
+  clearError: () => void;
   selectWorkspace: (id: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
-  openRepository: () => Promise<void>;
-  importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
+  moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
+  openRepository: () => Promise<boolean>;
+  cloneRepository: (request: CloneRepositoryRequest) => OperationTask<CloneRepositoryResult>;
+  createRepository: (request: CreateRepositoryRequest) => Promise<CreateRepositoryResult>;
+  importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[] | null>;
   removeRepository: (id: string) => Promise<void>;
 }
 
 export function useRepositories(): UseRepositoriesResult {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const { activated } = useStartup();
+  const queryClient = useQueryClient();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const [repositoriesByWorkspace, setRepositoriesByWorkspace] = useState<Record<string, RepositoryEntry[]>>({});
-  const [statusByRepo, setStatusByRepo] = useState<Record<string, RepoStatusSummary>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [workspaceActionPending, setWorkspaceActionPending] = useState<string | null>(null);
+
+  const workspacesQuery = useQuery({
+    queryKey: queryKeys.workspaces.list(),
+    queryFn: async () => sortWorkspaces(await listWorkspaces()),
+    enabled: activated,
+  });
+
+  const workspaces = workspacesQuery.data ?? [];
+
+  const repositoryQueries = useQueries({
+    queries: workspaces.map((workspace) => ({
+      queryKey: queryKeys.workspaces.repositories(workspace.id),
+      queryFn: () => listRepositories(workspace.id),
+      enabled: activated,
+    })),
+  });
+
+  const statusQueries = useQueries({
+    queries: workspaces.map((workspace) => ({
+      queryKey: queryKeys.workspaces.status(workspace.id),
+      queryFn: () => getWorkspaceStatus(workspace.id),
+      enabled: activated,
+    })),
+  });
+
+  useEffect(() => {
+    if (workspaces.length === 0) {
+      setSelectedWorkspaceId(null);
+      return;
+    }
+    if (!selectedWorkspaceId || !workspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(workspaces[0].id);
+    }
+  }, [selectedWorkspaceId, workspaces]);
+
+  const repositoriesByWorkspace = useMemo(
+    () =>
+      Object.fromEntries(
+        workspaces.map((workspace, index) => [workspace.id, repositoryQueries[index]?.data ?? []]),
+      ),
+    [repositoryQueries, workspaces],
+  );
+
+  const statusByRepo = useMemo(
+    () =>
+      Object.fromEntries(
+        statusQueries.flatMap((query) =>
+          (query.data ?? []).map((summary) => [summary.repoId, summary] as const),
+        ),
+      ),
+    [statusQueries],
+  );
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
@@ -60,148 +134,121 @@ export function useRepositories(): UseRepositoriesResult {
     [repositoriesByWorkspace, selectedWorkspaceId],
   );
 
-  const loadWorkspaceRepositories = useCallback(async (workspaceId: string) => {
-    const [loadedRepositories, loadedStatuses] = await Promise.all([
-      listRepositories(workspaceId),
-      getWorkspaceStatus(workspaceId),
-    ]);
+  const createWorkspaceMutation = useMutation({
+    mutationFn: (name: string) => createWorkspaceCommand(name),
+  });
+  const renameWorkspaceMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => renameWorkspaceCommand(id, name),
+  });
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: (id: string) => deleteWorkspaceCommand(id),
+  });
+  const reorderWorkspacesMutation = useMutation({
+    mutationFn: (ids: string[]) => reorderWorkspaces(ids),
+  });
+  const addRepositoryMutation = useMutation({
+    mutationFn: ({ workspaceId, path }: { workspaceId: string; path: string }) =>
+      addRepositoryCommand(workspaceId, path),
+  });
+  const importRepositoriesMutation = useMutation({
+    mutationFn: ({ workspaceId, root }: { workspaceId: string; root: string }) =>
+      importRepositoriesCommand(workspaceId, root),
+  });
+  const removeRepositoryMutation = useMutation({
+    mutationFn: (id: string) => removeRepositoryCommand(id),
+  });
 
-    setRepositoriesByWorkspace((current) => ({
-      ...current,
-      [workspaceId]: loadedRepositories,
-    }));
-    setStatusByRepo((current) => ({
-      ...current,
-      ...Object.fromEntries(loadedStatuses.map((summary) => [summary.repoId, summary])),
-    }));
-
-    return loadedRepositories;
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    listWorkspaces()
-      .then(async (loaded) => {
-        const ordered = sortWorkspaces(loaded);
-        const nextSelectedId = ordered[0]?.id ?? null;
-        const workspaceData = await Promise.all(
-          ordered.map(async (workspace) => {
-            const [loadedRepositories, loadedStatuses] = await Promise.all([
-              listRepositories(workspace.id),
-              getWorkspaceStatus(workspace.id),
-            ]);
-            return { workspaceId: workspace.id, loadedRepositories, loadedStatuses };
-          }),
-        );
-        if (cancelled) return;
-
-        const repositoriesByWorkspace = Object.fromEntries(
-          workspaceData.map(({ workspaceId, loadedRepositories }) => [workspaceId, loadedRepositories]),
-        );
-        const statusByRepo = Object.fromEntries(
-          workspaceData.flatMap(({ loadedStatuses }) =>
-            loadedStatuses.map((summary) => [summary.repoId, summary]),
-          ),
-        );
-
-        setWorkspaces(ordered);
-        setSelectedWorkspaceId(nextSelectedId);
-        setRepositoriesByWorkspace(repositoriesByWorkspace);
-        setStatusByRepo(statusByRepo);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const selectWorkspace = useCallback(
-    async (id: string) => {
-      setError(null);
-      setSelectedWorkspaceId(id);
-      await loadWorkspaceRepositories(id);
+  const invalidateWorkspace = useCallback(
+    async (workspaceId: string) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.repositories(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(workspaceId) }),
+      ]);
     },
-    [loadWorkspaceRepositories],
+    [queryClient],
   );
+
+  const selectWorkspace = useCallback(async (id: string) => {
+    setLocalError(null);
+    setSelectedWorkspaceId(id);
+  }, []);
 
   const createWorkspace = useCallback(
     async (name: string) => {
       const trimmed = name.trim();
       if (!trimmed) return null;
 
-      setError(null);
+      setLocalError(null);
       setWorkspaceActionPending("create");
       try {
-        const created = await createWorkspaceCommand(trimmed);
-        setWorkspaces((current) => sortWorkspaces([...current, created]));
+        const created = await createWorkspaceMutation.mutateAsync(trimmed);
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), (current = []) =>
+          sortWorkspaces([...current, created]),
+        );
         setSelectedWorkspaceId(created.id);
-        await loadWorkspaceRepositories(created.id);
+        await invalidateWorkspace(created.id);
         return created;
       } catch (e) {
-        setError(String(e));
+        setLocalError(userErrorMessage(e));
         return null;
       } finally {
         setWorkspaceActionPending(null);
       }
     },
-    [loadWorkspaceRepositories],
+    [createWorkspaceMutation, invalidateWorkspace, queryClient],
   );
 
-  const renameWorkspace = useCallback(async (id: string, name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
+  const renameWorkspace = useCallback(
+    async (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
 
-    setError(null);
-    setWorkspaceActionPending(id);
-    try {
-      const renamed = await renameWorkspaceCommand(id, trimmed);
-      setWorkspaces((current) =>
-        sortWorkspaces(current.map((workspace) => (workspace.id === id ? renamed : workspace))),
-      );
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setWorkspaceActionPending(null);
-    }
-  }, []);
-
-  const deleteWorkspace = useCallback(
-    async (id: string) => {
-      setError(null);
+      setLocalError(null);
       setWorkspaceActionPending(id);
       try {
-        await deleteWorkspaceCommand(id);
-        const remaining = workspaces.filter((workspace) => workspace.id !== id);
-        const nextSelectedId =
-          id === selectedWorkspaceId ? remaining[0]?.id ?? null : selectedWorkspaceId;
-
-        setWorkspaces(remaining);
-        setSelectedWorkspaceId(nextSelectedId);
-        setRepositoriesByWorkspace((current) => {
-          const { [id]: _removed, ...rest } = current;
-          return rest;
-        });
-        setStatusByRepo((current) => {
-          const removedRepoIds = repositoriesByWorkspace[id]?.map((repo) => repo.id) ?? [];
-          return Object.fromEntries(
-            Object.entries(current).filter(([repoId]) => !removedRepoIds.includes(repoId)),
-          );
-        });
-        if (nextSelectedId) await loadWorkspaceRepositories(nextSelectedId);
+        const renamed = await renameWorkspaceMutation.mutateAsync({ id, name: trimmed });
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), (current = []) =>
+          sortWorkspaces(current.map((workspace) => (workspace.id === id ? renamed : workspace))),
+        );
       } catch (e) {
-        setError(String(e));
+        setLocalError(userErrorMessage(e));
       } finally {
         setWorkspaceActionPending(null);
       }
     },
-    [loadWorkspaceRepositories, repositoriesByWorkspace, selectedWorkspaceId, workspaces],
+    [queryClient, renameWorkspaceMutation],
+  );
+
+  const deleteWorkspace = useCallback(
+    async (id: string) => {
+      setLocalError(null);
+      setWorkspaceActionPending(id);
+      try {
+        await deleteWorkspaceMutation.mutateAsync(id);
+        const remaining = workspaces.filter((workspace) => workspace.id !== id);
+        const nextSelectedId =
+          id === selectedWorkspaceId ? remaining[0]?.id ?? null : selectedWorkspaceId;
+
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), remaining);
+        queryClient.removeQueries({ queryKey: queryKeys.workspaces.repositories(id) });
+        queryClient.removeQueries({ queryKey: queryKeys.workspaces.status(id) });
+        for (const repo of repositoriesByWorkspace[id] ?? []) {
+          queryClient.removeQueries({ queryKey: queryKeys.repos.detail(repo.id) });
+        }
+        setSelectedWorkspaceId(nextSelectedId);
+      } catch (e) {
+        setLocalError(userErrorMessage(e));
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [
+      deleteWorkspaceMutation,
+      queryClient,
+      repositoriesByWorkspace,
+      selectedWorkspaceId,
+      workspaces,
+    ],
   );
 
   const moveWorkspace = useCallback(
@@ -215,76 +262,147 @@ export function useRepositories(): UseRepositoriesResult {
       reordered.splice(nextIndex, 0, moved);
       const locallyOrdered = withLocalOrder(reordered);
 
-      setError(null);
+      setLocalError(null);
       setWorkspaceActionPending(id);
       try {
-        await reorderWorkspaces(locallyOrdered.map((workspace) => workspace.id));
-        setWorkspaces(locallyOrdered);
+        await reorderWorkspacesMutation.mutateAsync(locallyOrdered.map((workspace) => workspace.id));
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), locallyOrdered);
       } catch (e) {
-        setError(String(e));
+        setLocalError(userErrorMessage(e));
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() });
       } finally {
         setWorkspaceActionPending(null);
       }
     },
-    [workspaces],
+    [queryClient, reorderWorkspacesMutation, workspaces],
+  );
+
+  const moveWorkspaceTo = useCallback(
+    async (id: string, targetId: string) => {
+      if (id === targetId) return;
+      const currentIndex = workspaces.findIndex((workspace) => workspace.id === id);
+      const targetIndex = workspaces.findIndex((workspace) => workspace.id === targetId);
+      if (currentIndex < 0 || targetIndex < 0) return;
+
+      const reordered = [...workspaces];
+      const [moved] = reordered.splice(currentIndex, 1);
+      reordered.splice(targetIndex, 0, moved);
+      const locallyOrdered = withLocalOrder(reordered);
+
+      setLocalError(null);
+      setWorkspaceActionPending(id);
+      try {
+        await reorderWorkspacesMutation.mutateAsync(locallyOrdered.map((workspace) => workspace.id));
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), locallyOrdered);
+      } catch (e) {
+        setLocalError(userErrorMessage(e));
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.list() });
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [queryClient, reorderWorkspacesMutation, workspaces],
   );
 
   const openRepository = useCallback(async () => {
-    if (!selectedWorkspaceId) return;
+    if (!selectedWorkspaceId) return false;
 
     const path = await pickFolder();
-    if (!path) return;
+    if (!path) return false;
 
-    setError(null);
+    setLocalError(null);
     try {
-      await addRepositoryCommand(selectedWorkspaceId, path);
-      await loadWorkspaceRepositories(selectedWorkspaceId);
+      await addRepositoryMutation.mutateAsync({ workspaceId: selectedWorkspaceId, path });
+      await invalidateWorkspace(selectedWorkspaceId);
+      return true;
     } catch (e) {
-      setError(String(e));
+      setLocalError(userErrorMessage(e));
+      return false;
     }
-  }, [loadWorkspaceRepositories, selectedWorkspaceId]);
+  }, [addRepositoryMutation, invalidateWorkspace, selectedWorkspaceId]);
 
   const importRepositories = useCallback(
     async (workspaceId = selectedWorkspaceId) => {
-      if (!workspaceId) return [];
+      if (!workspaceId) return null;
 
       const root = await pickFolder();
-      if (!root) return [];
+      if (!root) return null;
 
-      setError(null);
+      setLocalError(null);
       setWorkspaceActionPending("import");
       try {
-        const imported = await importRepositoriesCommand(workspaceId, root);
-        await loadWorkspaceRepositories(workspaceId);
+        const imported = await importRepositoriesMutation.mutateAsync({ workspaceId, root });
+        await invalidateWorkspace(workspaceId);
         return imported;
       } catch (e) {
-        setError(String(e));
+        setLocalError(userErrorMessage(e));
         return [];
       } finally {
         setWorkspaceActionPending(null);
       }
     },
-    [loadWorkspaceRepositories, selectedWorkspaceId],
+    [importRepositoriesMutation, invalidateWorkspace, selectedWorkspaceId],
   );
 
   const removeRepository = useCallback(
     async (id: string) => {
       if (!selectedWorkspaceId) return;
 
-      setError(null);
+      setLocalError(null);
       try {
-        await removeRepositoryCommand(id);
-        setStatusByRepo((current) => {
-          const { [id]: _removed, ...rest } = current;
-          return rest;
-        });
-        await loadWorkspaceRepositories(selectedWorkspaceId);
+        await removeRepositoryMutation.mutateAsync(id);
+        queryClient.removeQueries({ queryKey: queryKeys.repos.detail(id) });
+        await invalidateWorkspace(selectedWorkspaceId);
       } catch (e) {
-        setError(String(e));
+        setLocalError(userErrorMessage(e));
       }
     },
-    [loadWorkspaceRepositories, selectedWorkspaceId],
+    [invalidateWorkspace, queryClient, removeRepositoryMutation, selectedWorkspaceId],
   );
+
+  const cloneRepository = useCallback(
+    (request: CloneRepositoryRequest): OperationTask<CloneRepositoryResult> => {
+      const started = cloneRepositoryCommand(request);
+      return {
+        operationId: started.operationId,
+        promise: started.promise.then(async (result) => {
+          queryClient.setQueryData<RepositoryEntry[]>(
+            queryKeys.workspaces.repositories(request.workspaceId),
+            (current = []) =>
+              current.some((repository) => repository.id === result.repository.id)
+                ? current
+                : [...current, result.repository],
+          );
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.workspaces.status(request.workspaceId),
+          });
+          return result;
+        }),
+      };
+    },
+    [queryClient],
+  );
+
+  const createRepository = useCallback(
+    async (request: CreateRepositoryRequest): Promise<CreateRepositoryResult> => {
+      const result = await createRepositoryCommand(request);
+      queryClient.setQueryData<RepositoryEntry[]>(
+        queryKeys.workspaces.repositories(request.workspaceId),
+        (current = []) =>
+          current.some((repository) => repository.id === result.repository.id)
+            ? current
+            : [...current, result.repository],
+      );
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.status(request.workspaceId),
+      });
+      return result;
+    },
+    [queryClient],
+  );
+
+  const queryBackedError =
+    workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
 
   return {
     workspaces,
@@ -293,15 +411,23 @@ export function useRepositories(): UseRepositoriesResult {
     repositories,
     repositoriesByWorkspace,
     statusByRepo,
-    loading,
-    error,
+    loading:
+      !activated ||
+      workspacesQuery.isLoading ||
+      repositoryQueries.some((query) => query.isLoading) ||
+      statusQueries.some((query) => query.isLoading),
+    error: localError ?? queryBackedError,
     workspaceActionPending,
+    clearError: () => setLocalError(null),
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
     moveWorkspace,
+    moveWorkspaceTo,
     openRepository,
+    cloneRepository,
+    createRepository,
     importRepositories,
     removeRepository,
   };

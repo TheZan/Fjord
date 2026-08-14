@@ -12,6 +12,7 @@ dist-ssr/
 
 # Tauri
 src-tauri/gen/
+src-tauri/binaries/fjord-askpass-*
 
 # Env / secrets
 .env

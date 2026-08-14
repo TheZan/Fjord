@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { buildFileTree, splitPath, type FileTreeNode } from "@/presentation/fileTree";
 
@@ -91,7 +92,7 @@ function IconButton({
       disabled={disabled}
       title={label}
       aria-label={label}
-      className="flex h-6 w-6 items-center justify-center rounded disabled:opacity-30"
+      className="interactive-control flex h-6 w-6 items-center justify-center rounded disabled:opacity-30"
       style={{ color: "var(--slate)" }}
     >
       <svg
@@ -111,7 +112,7 @@ function IconButton({
   );
 }
 
-/** Segmented Path/Tree switch, matching the pair GitKraken puts over its file list. */
+/** Segmented Path/Tree switch sitting over the file list. */
 export function FileViewTabs({
   mode,
   onChange,
@@ -131,9 +132,9 @@ export function FileViewTabs({
           key={value}
           type="button"
           onClick={() => onChange(value)}
-          className="rounded px-2 py-0.5 text-[11px] font-medium"
+          data-selected={mode === value}
+          className="interactive-control rounded px-2 py-0.5 text-[11px] font-medium"
           style={{
-            background: mode === value ? "var(--fjord-tint)" : "transparent",
             color: mode === value ? "var(--fjord-ink)" : "var(--slate)",
           }}
         >
@@ -154,7 +155,12 @@ interface FileEntryListProps<T extends { path: string }> {
   renderMark: (file: T) => ReactNode;
   /** Right-aligned extra, e.g. `+3 -1` or a stage button. */
   renderTrailing?: (file: T) => ReactNode;
+  /** Occupy the parent's remaining height instead of using a capped list. */
+  fill?: boolean;
 }
+
+const FILE_ROW_HEIGHT = 29;
+const MAX_CAPPED_LIST_HEIGHT = FILE_ROW_HEIGHT * 11;
 
 /**
  * One file list, rendered either flat ("path") or nested ("tree"). Both modes
@@ -170,115 +176,97 @@ export function FileEntryList<T extends { path: string }>({
   onSelect,
   renderMark,
   renderTrailing,
+  fill = false,
 }: FileEntryListProps<T>) {
   const tree = useMemo(() => (mode === "tree" ? buildFileTree(files) : []), [files, mode]);
+  const entries = useMemo(
+    () =>
+      mode === "path"
+        ? files.map((file) => {
+            const { dir, name } = splitPath(file.path);
+            return { kind: "file" as const, file, label: name, prefix: dir, depth: 0 };
+          })
+        : flattenVisibleTree(tree, collapse.collapsed),
+    [collapse.collapsed, files, mode, tree],
+  );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => FILE_ROW_HEIGHT,
+    overscan: 8,
+  });
 
-  if (mode === "path") {
-    return (
-      <ul className="flex flex-col gap-0.5">
-        {files.map((file) => {
-          const { dir, name } = splitPath(file.path);
-          return (
+  return (
+    <div
+      ref={scrollRef}
+      className={`min-h-0 min-w-0 overflow-x-hidden overflow-y-auto ${fill ? "h-full" : ""}`}
+      style={fill ? undefined : { height: Math.min(entries.length * FILE_ROW_HEIGHT, MAX_CAPPED_LIST_HEIGHT) }}
+    >
+      <ul className="relative min-w-0 w-full overflow-hidden" style={{ height: rowVirtualizer.getTotalSize() }}>
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const entry = entries[virtualRow.index];
+          const rowStyle: CSSProperties = {
+            height: virtualRow.size,
+            left: 0,
+            position: "absolute",
+            top: 0,
+            transform: `translateY(${virtualRow.start}px)`,
+            width: "100%",
+          };
+          return entry.kind === "file" ? (
             <FileRow
-              key={file.path}
-              file={file}
-              label={name}
-              prefix={dir}
-              depth={0}
-              selected={file.path === selectedPath}
+              key={entry.file.path}
+              file={entry.file}
+              label={entry.label}
+              prefix={entry.prefix}
+              depth={entry.depth}
+              selected={entry.file.path === selectedPath}
               onSelect={onSelect}
               renderMark={renderMark}
               renderTrailing={renderTrailing}
+              style={rowStyle}
+            />
+          ) : (
+            <DirectoryRow
+              key={entry.node.path}
+              node={entry.node}
+              depth={entry.depth}
+              collapsed={collapse.collapsed.has(entry.node.path)}
+              onToggle={collapse.toggle}
+              style={rowStyle}
             />
           );
         })}
       </ul>
-    );
-  }
-
-  return (
-    <ul className="flex flex-col gap-0.5">
-      {tree.map((node) => (
-        <TreeNodeRow
-          key={node.path}
-          node={node}
-          depth={0}
-          collapsed={collapse.collapsed}
-          onToggle={collapse.toggle}
-          selectedPath={selectedPath}
-          onSelect={onSelect}
-          renderMark={renderMark}
-          renderTrailing={renderTrailing}
-        />
-      ))}
-    </ul>
+    </div>
   );
 }
 
-function TreeNodeRow<T extends { path: string }>({
+function DirectoryRow<T extends { path: string }>({
   node,
   depth,
   collapsed,
   onToggle,
-  selectedPath,
-  onSelect,
-  renderMark,
-  renderTrailing,
+  style,
 }: {
-  node: FileTreeNode<T>;
+  node: Extract<FileTreeNode<T>, { kind: "dir" }>;
   depth: number;
-  collapsed: Set<string>;
+  collapsed: boolean;
   onToggle: (path: string) => void;
-  selectedPath: string | null;
-  onSelect: (file: T) => void;
-  renderMark: (file: T) => ReactNode;
-  renderTrailing?: (file: T) => ReactNode;
+  style: CSSProperties;
 }) {
-  if (node.kind === "file") {
-    return (
-      <FileRow
-        file={node.item}
-        label={node.name}
-        depth={depth}
-        selected={node.path === selectedPath}
-        onSelect={onSelect}
-        renderMark={renderMark}
-        renderTrailing={renderTrailing}
-      />
-    );
-  }
-
-  const isCollapsed = collapsed.has(node.path);
-
   return (
-    <li>
+    <li className="min-w-0 overflow-hidden" style={style}>
       <button
         type="button"
         onClick={() => onToggle(node.path)}
-        className="flex w-full items-center gap-1 rounded px-2 py-1 text-left"
+        className="interactive-row flex h-7 min-w-0 w-full items-center gap-1 overflow-hidden rounded px-2 text-left"
         style={{ paddingLeft: `${0.5 + depth * 0.75}rem`, color: "var(--slate)" }}
       >
-        <span className="w-3 shrink-0 text-center text-[10px]">{isCollapsed ? "▸" : "▾"}</span>
+        <span className="w-3 shrink-0 text-center text-[10px]">{collapsed ? "▸" : "▾"}</span>
         <span className="min-w-0 truncate font-mono text-xs">{node.name}</span>
       </button>
-
-      {!isCollapsed && (
-        <ul className="flex flex-col gap-0.5">
-          {node.children.map((child) => (
-            <TreeNodeRow
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              collapsed={collapsed}
-              onToggle={onToggle}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-              renderMark={renderMark}
-              renderTrailing={renderTrailing}
-            />
-          ))}
-        </ul>
-      )}
     </li>
   );
 }
@@ -292,6 +280,7 @@ function FileRow<T extends { path: string }>({
   onSelect,
   renderMark,
   renderTrailing,
+  style,
 }: {
   file: T;
   label: string;
@@ -301,38 +290,62 @@ function FileRow<T extends { path: string }>({
   onSelect: (file: T) => void;
   renderMark: (file: T) => ReactNode;
   renderTrailing?: (file: T) => ReactNode;
+  style: CSSProperties;
 }) {
   return (
-    <li className="group relative">
+    <li className="group min-w-0 overflow-hidden" style={style}>
       <button
         type="button"
         onClick={() => onSelect(file)}
         title={file.path}
-        className="flex w-full items-center gap-2 rounded py-1 pr-2 text-left"
+        data-selected={selected}
+        className="interactive-row flex h-7 min-w-0 w-full items-center gap-2 overflow-hidden rounded pr-2 text-left"
         style={{
           paddingLeft: `${0.5 + depth * 0.75}rem`,
-          background: selected ? "var(--fjord-tint)" : "transparent",
           color: selected ? "var(--fjord-ink)" : "var(--ink)",
         }}
       >
         <span className="w-4 shrink-0 text-center font-mono text-xs font-semibold">
           {renderMark(file)}
         </span>
-        <span className="flex min-w-0 flex-1 items-baseline gap-1">
+        <span className="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden">
           {prefix ? (
-            // The directory is the part allowed to shrink and ellipsize, so
-            // the file name stays fully readable however deep the path is.
+            // Prefer the basename, but allow both segments to ellipsize so a
+            // generated filename can never widen the inspector.
             <span
-              className="min-w-0 shrink truncate font-mono text-[11px]"
+              className="min-w-0 max-w-[45%] shrink truncate font-mono text-[11px]"
               style={{ color: "var(--mist)" }}
             >
               {prefix}
             </span>
           ) : null}
-          <span className="shrink-0 truncate font-mono text-xs">{label}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">{label}</span>
         </span>
         {renderTrailing?.(file)}
       </button>
     </li>
   );
+}
+
+type FlatFileEntry<T extends { path: string }> =
+  | { kind: "file"; file: T; label: string; prefix?: string; depth: number }
+  | { kind: "dir"; node: Extract<FileTreeNode<T>, { kind: "dir" }>; depth: number };
+
+function flattenVisibleTree<T extends { path: string }>(
+  nodes: FileTreeNode<T>[],
+  collapsed: Set<string>,
+  depth = 0,
+): FlatFileEntry<T>[] {
+  const entries: FlatFileEntry<T>[] = [];
+  for (const node of nodes) {
+    if (node.kind === "file") {
+      entries.push({ kind: "file", file: node.item, label: node.name, depth });
+      continue;
+    }
+    entries.push({ kind: "dir", node, depth });
+    if (!collapsed.has(node.path)) {
+      entries.push(...flattenVisibleTree(node.children, collapsed, depth + 1));
+    }
+  }
+  return entries;
 }

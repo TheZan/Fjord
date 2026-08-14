@@ -1,0 +1,4 @@
+# Generated files are compared byte-for-byte by their generator's test, so the
+# working tree must keep the line endings the generator writes — otherwise
+# `cargo test` fails on any clone with core.autocrlf=true.
+src/domain/generated.ts text eol=lf

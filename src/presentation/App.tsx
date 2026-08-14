@@ -1,40 +1,62 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { useBranches } from "@/application/useBranches";
+import { createAppShortcutBindings } from "@/application/appShortcuts";
+import { userErrorMessage } from "@/application/errorMessage";
+import { useStartup } from "@/application/StartupProvider";
+import { updateCoordinator } from "@/application/update/UpdateCoordinator";
+import { useOperationProgress } from "@/application/useOperationProgress";
+import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
+import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
+import { queryKeys } from "@/application/queryKeys";
+import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
-import { useRepoStatus } from "@/application/useRepoStatus";
-import type { CommitSummary, GlobalSearchResult } from "@/domain/git";
+import { useShortcutRegistry } from "@/application/useShortcutRegistry";
+import { warmRepositoryData } from "@/application/warmRepositoryData";
+import type { GlobalSearchResult } from "@/domain/git";
+import type { BulkRepoResult } from "@/domain/workspace";
 import {
-  bulkFetch,
   bulkOpenInIde,
-  bulkPull,
-  checkoutBranch,
-  commitRepo,
-  createBranch,
-  fetchRepo,
-  globalSearch,
-  invokeErrorMessage,
-  openInIde,
-  openMergeTool,
-  openTerminal,
-  pullRepo,
-  pushRepo,
-  stageFiles,
-  stashPop,
-  stashPush,
-  unstageFiles,
+  cancelOperation,
+  invokeErrorCode,
+  runBulkFetch,
+  runBulkPull,
+  setRepositoryActivity,
+  type OperationProgressEvent,
+  type OperationTask,
 } from "@/infrastructure/tauriClient";
+import { loadUiState, saveSelection } from "@/infrastructure/uiState";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
+import { CloneRepositoryDialog } from "@/presentation/CloneRepositoryDialog";
+import { CreateRepositoryDialog } from "@/presentation/CreateRepositoryDialog";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
+import { GlobalSearchDialog } from "@/presentation/GlobalSearchDialog";
 import { Onboarding } from "@/presentation/Onboarding";
 import { OverviewView } from "@/presentation/OverviewView";
-import { RepoDetailView } from "@/presentation/RepoDetailView";
-import type { RepoAction } from "@/presentation/RepoToolbar";
+import {
+  RepoDetailContainer,
+  type RepoDetailCommand,
+  type RepoDetailCommandPayload,
+} from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
+import { ShortcutHelpSheet } from "@/presentation/ShortcutHelpSheet";
+import { UpdateDialog } from "@/presentation/UpdateDialog";
+import {
+  setInteractionDiagnosticsEnabled,
+  useInteractionCommit,
+} from "@/presentation/performance";
+import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
+import { MainShell, ShellUtilities } from "@/presentation/MainShell";
+import { ResizableSidebar } from "@/presentation/ResizableSidebar";
+import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
+import { RepositoryOnboardingDialog } from "@/presentation/RepositoryOnboardingDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
+import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
 import type { View } from "@/presentation/view";
+
+const UPDATE_STARTUP_CHECK_DELAY_MS = 4000;
 
 /**
  * Owns app-level state and wires the screens together. Layout and styling
@@ -43,6 +65,9 @@ import type { View } from "@/presentation/view";
  * feature stacked onto a single scrolling page.
  */
 export function App() {
+  useInteractionCommit();
+  const queryClient = useQueryClient();
+  const { activated } = useStartup();
   const { t: tw } = useTranslation("workspace");
   const {
     workspaces,
@@ -53,43 +78,105 @@ export function App() {
     loading,
     error,
     workspaceActionPending,
+    clearError,
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
     moveWorkspace,
+    moveWorkspaceTo,
     openRepository,
+    cloneRepository,
+    createRepository,
     importRepositories,
     removeRepository,
   } = useRepositories();
 
+  const operations = useOperationProgress();
+  const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<
+    "choices" | "clone" | "create" | null
+  >(null);
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
-  // The WIP row and a commit are alternate selections of the same middle
-  // pane, so they're kept mutually exclusive rather than both being live.
-  const [workingSelected, setWorkingSelected] = useState(false);
-  const [repoVersion, setRepoVersion] = useState(0);
-  const [repoActionError, setRepoActionError] = useState<string | null>(null);
-  const [repoActionPending, setRepoActionPending] = useState<string | null>(null);
+  const [repoDetailCommand, setRepoDetailCommand] = useState<RepoDetailCommand | null>(null);
+  const [, setRepoDetailCommandId] = useState(0);
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteQuery, setPaletteQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherQuery, setSwitcherQuery] = useState("");
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [navigationRecency, setNavigationRecency] = useState<Record<string, number>>({});
+  const navigationSequenceRef = useRef(0);
+  const repositoryWarmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uiSelectionRestoredRef = useRef(false);
+  const [uiSelectionRestored, setUiSelectionRestored] = useState(false);
 
-  const { status: repoStatus, error: repoStatusError } = useRepoStatus(selectedRepoId, repoVersion);
-  const { branches: paletteBranches } = useBranches(paletteOpen ? selectedRepoId : null);
+  const {
+    closePalette,
+    open: paletteOpen,
+    openPalette,
+    query: paletteQuery,
+    setQuery: setPaletteQuery,
+  } = useCommandPaletteState();
 
   const allRepositories = useMemo(
     () => Object.values(repositoriesByWorkspace).flat(),
     [repositoriesByWorkspace],
   );
+  useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
+  const shortcutBindings = createAppShortcutBindings({
+    workspaceCount: workspaces.length,
+    actions: {
+      openPalette,
+      openRepositorySwitcher: () => {
+        setSwitcherQuery("");
+        setSwitcherOpen(true);
+      },
+      openSettings: () => setSettingsOpen(true),
+      openRepositorySearch: () => sendRepoDetailCommand({ kind: "openCommitSearch" }),
+      openGlobalSearch: () => setGlobalSearchOpen(true),
+      commit: () => document.dispatchEvent(new CustomEvent("fjord:commit")),
+      refreshRepository: () => sendRepoDetailCommand({ kind: "refresh" }),
+      refreshWorkspace: () => {
+        if (!selectedWorkspaceId) return;
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.workspaces.status(selectedWorkspaceId),
+        });
+      },
+      switchWorkspace: (index) => {
+        const workspace = workspaces[index];
+        if (!workspace) return;
+        void selectWorkspace(workspace.id);
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+      openHelp: () => setShortcutHelpOpen(true),
+      closeTopOverlay: () => {
+        if (shortcutHelpOpen) setShortcutHelpOpen(false);
+        else if (globalSearchOpen) setGlobalSearchOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
+        else if (switcherOpen) setSwitcherOpen(false);
+        else if (paletteOpen) closePalette();
+      },
+    },
+  });
+  useShortcutRegistry(
+    shortcutBindings,
+    paletteOpen || switcherOpen || settingsOpen || globalSearchOpen || shortcutHelpOpen
+      ? ["dialog"]
+      : selectedRepo
+        ? ["repository"]
+        : [],
+  );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
   const isFirstRun = !loading && workspaces.length === 0;
+  const activeBulkOperation = bulkOperationId ? (operations[bulkOperationId] ?? null) : null;
 
   const flatRows = workspaces.flatMap((workspace) =>
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
@@ -126,193 +213,167 @@ export function App() {
   );
 
   useEffect(() => {
+    if (loading || workspaces.length === 0 || uiSelectionRestoredRef.current) return;
+    uiSelectionRestoredRef.current = true;
+    void loadUiState()
+      .then(async (state) => {
+        const restored = resolveRestoredSelection(
+          state.selection,
+          workspaces,
+          repositoriesByWorkspace,
+        );
+        if (restored.workspaceId && restored.workspaceId !== selectedWorkspaceId) {
+          await selectWorkspace(restored.workspaceId);
+        }
+        setSelectedRepoId(restored.repositoryId);
+      })
+      .catch(() => undefined)
+      .finally(() => setUiSelectionRestored(true));
+  }, [loading, repositoriesByWorkspace, selectWorkspace, selectedWorkspaceId, workspaces]);
+
+  useEffect(() => {
+    if (!uiSelectionRestored) return;
+    const timeout = window.setTimeout(() => {
+      void saveSelection(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [selectedRepoId, selectedWorkspaceId, uiSelectionRestored]);
+
+  useEffect(() => {
+    if (activated) {
+      void setRepositoryActivity(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
+    }
+  }, [activated, selectedRepoId, selectedWorkspaceId]);
+
+  // One automatic update check per launch, a few seconds after first paint —
+  // never blocking startup and never polling (docs/releasing.md's
+  // runtime-update-check contract). `checkOnStartup` itself is idempotent,
+  // so StrictMode's double-effect and this timer firing twice are harmless.
+  useEffect(() => {
+    if (!activated) return;
+    const timeout = window.setTimeout(() => {
+      void updateCoordinator.checkOnStartup();
+    }, UPDATE_STARTUP_CHECK_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [activated]);
+
+  useEffect(() => {
+    const id = selectedRepoId
+      ? `repo:${selectedRepoId}`
+      : selectedWorkspaceId
+        ? `workspace:${selectedWorkspaceId}`
+        : null;
+    if (!id) return;
+    navigationSequenceRef.current += 1;
+    setNavigationRecency((current) => ({ ...current, [id]: navigationSequenceRef.current }));
+  }, [selectedRepoId, selectedWorkspaceId]);
+
+  useEffect(() => {
     if (selectedRepoId && !allRepositories.some((repo) => repo.id === selectedRepoId)) {
       setSelectedRepoId(null);
-      setSelectedCommit(null);
+      setRepoDetailCommand(null);
     }
   }, [allRepositories, selectedRepoId]);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteQuery("");
-        setPaletteOpen(true);
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  // Global search now runs through the palette instead of a separate card on
-  // the dashboard — two always-visible search fields on one screen was one of
-  // the things making it feel cluttered.
-  useEffect(() => {
-    const query = paletteQuery.trim();
-    if (!paletteOpen || query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      globalSearch(query, null, 20)
-        .then((results) => {
-          if (!cancelled) setSearchResults(results);
-        })
-        .catch(() => {
-          if (!cancelled) setSearchResults([]);
-        });
-    }, 200);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [paletteQuery, paletteOpen]);
-
-  /**
-   * `mutates` distinguishes actions that change the repository from ones that
-   * merely launch something external — opening a terminal or an IDE used to
-   * clear the selected commit and close an open diff for no reason.
-   */
-  async function runRepoAction(
-    action: string,
-    run: () => Promise<void>,
-    mutates = true,
-  ): Promise<boolean> {
-    setRepoActionError(null);
-    setRepoActionPending(action);
-    try {
-      await run();
-      if (mutates) {
-        setSelectedCommit(null);
-        setRepoVersion((version) => version + 1);
-      }
-      return true;
-    } catch (e) {
-      setRepoActionError(invokeErrorMessage(e));
-      return false;
-    } finally {
-      setRepoActionPending(null);
-    }
-  }
-
-  /**
-   * Staging changes what the commit panel shows but not which history entry
-   * is open, so unlike the other mutations these keep the WIP row selected.
-   */
-  function runWorkingAction(action: string, run: () => Promise<void>): Promise<boolean> {
-    return runRepoAction(action, run, false).then((ok) => {
-      if (ok) setRepoVersion((version) => version + 1);
-      return ok;
-    });
-  }
+  useEffect(
+    () => () => {
+      if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    },
+    [],
+  );
 
   async function runBulkAction(
     action: string,
-    run: () => Promise<Array<{ ok: boolean; error: string | null }>>,
+    run: () => OperationTask<BulkRepoResult[]> | Promise<BulkRepoResult[]>,
   ) {
     setBulkActionNotice(null);
     setBulkActionPending(action);
+    setBulkOperationId(null);
     try {
-      const results = await run();
+      const started = run();
+      const promise = "operationId" in started ? started.promise : started;
+      if ("operationId" in started) setBulkOperationId(started.operationId);
+      const results = await promise;
       const failed = results.filter((result) => !result.ok).length;
       setBulkActionNotice(tw("bulk.summary", { succeeded: results.length - failed, failed }));
-      setRepoVersion((version) => version + 1);
+      if (selectedWorkspaceId) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(selectedWorkspaceId) }),
+          ...workspaceRepos.map((repo) =>
+            queryClient.invalidateQueries({ queryKey: queryKeys.repos.detail(repo.id) }),
+          ),
+        ]);
+      }
     } catch (e) {
-      setBulkActionNotice(invokeErrorMessage(e));
+      setBulkActionNotice(
+        invokeErrorCode(e) === "operation_cancelled"
+          ? tw("operations.cancelled")
+          : userErrorMessage(e),
+      );
     } finally {
       setBulkActionPending(null);
+      setBulkOperationId(null);
     }
   }
 
   function onBulk(action: "fetch" | "pull" | "open-ide") {
     if (!selectedWorkspaceId) return;
-    const runner =
-      action === "fetch" ? bulkFetch : action === "pull" ? bulkPull : bulkOpenInIde;
-    void runBulkAction(action, () => runner(selectedWorkspaceId));
+    if (action === "fetch") {
+      void runBulkAction(action, () => runBulkFetch(selectedWorkspaceId));
+      return;
+    }
+    if (action === "pull") {
+      void runBulkAction(action, () => runBulkPull(selectedWorkspaceId));
+      return;
+    }
+    void runBulkAction(action, () => bulkOpenInIde(selectedWorkspaceId));
   }
 
-  function onRepoAction(action: RepoAction) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    const runners: Record<RepoAction, () => Promise<void>> = {
-      fetch: () => fetchRepo(id),
-      pull: () => pullRepo(id),
-      push: () => pushRepo(id),
-      stash: () => stashPush(id),
-      "stash-pop": () => stashPop(id),
-      terminal: () => openTerminal(id),
-      "open-ide": () => openInIde(id),
-      "merge-tool": () => openMergeTool(id),
-    };
-    const launchesExternalTool = action === "terminal" || action === "open-ide";
-    void runRepoAction(action, runners[action], !launchesExternalTool);
+  function sendRepoDetailCommand(command: RepoDetailCommandPayload) {
+    setRepoDetailCommandId((id) => {
+      const nextId = id + 1;
+      setRepoDetailCommand({ ...command, id: nextId });
+      return nextId;
+    });
   }
 
-  function onCreateBranch(name: string) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runRepoAction("create-branch", () => createBranch(id, name, true));
+  function startRepositoryWarm(repoId: string) {
+    if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    repositoryWarmTimerRef.current = null;
+    void warmRepositoryData(queryClient, repoId);
   }
 
-  function onStage(paths: string[]) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runWorkingAction("stage", () => stageFiles(id, paths));
-  }
-
-  function onUnstage(paths: string[]) {
-    if (!selectedRepoId) return;
-    const id = selectedRepoId;
-    void runWorkingAction("unstage", () => unstageFiles(id, paths));
-  }
-
-  async function onCommit(message: string): Promise<boolean> {
-    if (!selectedRepoId) return false;
-    const id = selectedRepoId;
-    return runWorkingAction("commit", () => commitRepo(id, message).then(() => undefined));
+  function queueRepositoryWarm(repoId: string) {
+    if (repositoryWarmTimerRef.current) clearTimeout(repositoryWarmTimerRef.current);
+    repositoryWarmTimerRef.current = setTimeout(() => {
+      startRepositoryWarm(repoId);
+    }, 80);
   }
 
   async function selectRepository(workspaceId: string, repoId: string) {
+    setRepoDetailCommand(null);
+    startRepositoryWarm(repoId);
     if (workspaceId !== selectedWorkspaceId) await selectWorkspace(workspaceId);
     setSelectedRepoId(repoId);
-    setSelectedCommit(null);
-    setWorkingSelected(false);
-  }
-
-  function selectCommit(commit: CommitSummary) {
-    setWorkingSelected(false);
-    setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
   async function openSearchResult(result: GlobalSearchResult) {
     await selectRepository(result.workspaceId, result.repoId);
     if (result.kind === "branch" && result.branch) {
-      void runRepoAction("checkout", () => checkoutBranch(result.repoId, result.branch!));
+      sendRepoDetailCommand({ kind: "checkout", branch: result.branch });
     } else if (result.kind === "commit" && result.commit) {
-      setWorkingSelected(false);
-      setSelectedCommit(result.commit);
+      sendRepoDetailCommand({ kind: "selectCommit", commit: result.commit });
     }
   }
 
   const paletteItems: PaletteItem[] = [
-    ...flatRows.map(({ workspace, repo }) => ({
-      id: `repo:${repo.id}`,
-      label: repo.name,
-      detail: `${workspace.name} · ${repo.path}`,
-      kind: tw("commandPalette.repository"),
-      run: () => selectRepository(workspace.id, repo.id),
-    })),
     ...(selectedRepo
       ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
           id: `action:${action}`,
           label: tw(action === "open-ide" ? "repoActions.openIde" : `repoActions.${action}`),
           detail: selectedRepo.name,
-          kind: tw("commandPalette.action"),
-          run: () => onRepoAction(action),
+          group: tw("commandPalette.activeRepositoryGroup"),
+          run: () => sendRepoDetailCommand({ kind: "repoAction", action }),
         }))
       : []),
     ...(selectedWorkspaceId
@@ -320,38 +381,70 @@ export function App() {
           id: `bulk:${action}`,
           label: tw(action === "open-ide" ? "bulk.openIde" : `bulk.${action}`),
           detail: selectedWorkspace?.name ?? "",
-          kind: tw("commandPalette.action"),
+          group: tw("commandPalette.workspaceGroup"),
           run: () => onBulk(action),
         }))
       : []),
-    ...paletteBranches.map((branch) => ({
-      id: `branch:${branch.name}`,
-      label: branch.name,
-      detail: selectedRepo?.name ?? "",
-      kind: branch.isRemote ? tw("commandPalette.remoteBranch") : tw("commandPalette.localBranch"),
-      run: () =>
-        selectedRepoId
-          ? void runRepoAction("checkout", () => checkoutBranch(selectedRepoId, branch.name))
-          : undefined,
-    })),
+    {
+      id: "view:overview",
+      label: tw("nav.overview"),
+      detail: tw("commandPalette.viewDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => {
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+    },
+    {
+      id: "view:all",
+      label: tw("nav.allRepositories"),
+      detail: tw("commandPalette.viewDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => {
+        setSelectedRepoId(null);
+        setView("repositories");
+      },
+    },
+    {
+      id: "settings:open",
+      label: tw("settings.openCommand"),
+      detail: tw("settings.openCommandDetail"),
+      group: tw("commandPalette.globalGroup"),
+      run: () => setSettingsOpen(true),
+    },
   ];
 
-  const remotePaletteItems: PaletteItem[] = searchResults
-    .filter((result) => result.kind === "commit")
-    .map((result, index) => ({
-      id: `search:${result.repoId}:${result.commit?.id ?? index}`,
-      label: result.commit?.message.split("\n")[0] ?? result.repoName,
-      detail: `${result.repoName} · ${result.commit?.id.slice(0, 7) ?? ""}`,
-      kind: tw("commandPalette.commit"),
-      run: () => openSearchResult(result),
-    }));
+  const switcherItems: RepositorySwitcherItem[] = [
+    ...workspaces.map((workspace) => ({
+      id: `workspace:${workspace.id}`,
+      label: workspace.name,
+      detail: tw("repositorySwitcher.workspaceDetail", {
+        count: repositoriesByWorkspace[workspace.id]?.length ?? 0,
+      }),
+      kind: "workspace" as const,
+      recency: navigationRecency[`workspace:${workspace.id}`] ?? 0,
+      run: async () => {
+        await selectWorkspace(workspace.id);
+        setSelectedRepoId(null);
+        setView("overview");
+      },
+    })),
+    ...flatRows.map(({ workspace, repo }) => ({
+      id: `repo:${repo.id}`,
+      label: repo.name,
+      detail: `${workspace.name} · ${repo.path}`,
+      kind: "repository" as const,
+      recency: navigationRecency[`repo:${repo.id}`] ?? 0,
+      run: () => selectRepository(workspace.id, repo.id),
+    })),
+  ];
 
   if (isFirstRun) {
     return (
       <Onboarding
-        onCreate={async (name, withImport) => {
+        onCreate={async (name, withRepository) => {
           const created = await createWorkspace(name || tw("onboarding.defaultWorkspaceName"));
-          if (created && withImport) await importRepositories(created.id);
+          if (created && withRepository) setRepositoryOnboardingStep("choices");
         }}
       />
     );
@@ -359,76 +452,78 @@ export function App() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--page-bg)", color: "var(--ink)" }}>
-      <Sidebar
+      <ResizableSidebar resizeLabel={tw("nav.resizeSidebar")}>
+        <Sidebar
         view={view}
         onViewChange={(next) => {
           setView(next);
           setSelectedRepoId(null);
+          setRepoDetailCommand(null);
         }}
         workspaces={workspaces}
+        repositoriesByWorkspace={repositoriesByWorkspace}
+        statusByRepo={statusByRepo}
         repoCountByWorkspace={repoCountByWorkspace}
         attentionByWorkspace={attentionByWorkspace}
         selectedWorkspaceId={selectedWorkspaceId}
+        selectedRepoId={selectedRepoId}
         onSelectWorkspace={(id) => {
           void selectWorkspace(id);
           setSelectedRepoId(null);
+          setRepoDetailCommand(null);
           setView("overview");
         }}
         onCreateWorkspace={(name) => void createWorkspace(name)}
         onRenameWorkspace={(id, name) => void renameWorkspace(id, name)}
         onDeleteWorkspace={(id) => void deleteWorkspace(id)}
         onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
+        onMoveWorkspaceTo={(id, targetId) => void moveWorkspaceTo(id, targetId)}
+        onSelectRepository={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
+        onWarmRepository={queueRepositoryWarm}
         pending={workspaceActionPending}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+        />
+      </ResizableSidebar>
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6">
+      <MainShell>
         {(error || bulkActionNotice) && (
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px]"
-            style={{ background: "var(--paper)", color: error ? "var(--rust-ink)" : "var(--slate)" }}
+          <div
+            role={error ? "alert" : "status"}
+            className="mb-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[13px]"
+            style={{
+              background: error ? "var(--rust-tint)" : "var(--paper)",
+              borderColor: error ? "var(--rust)" : "var(--hairline)",
+              color: error ? "var(--rust-ink)" : "var(--slate)",
+            }}
           >
             <span>{error ?? bulkActionNotice}</span>
-            {bulkActionNotice && !error && (
-              <Button size="sm" variant="ghost" onClick={() => setBulkActionNotice(null)}>
-                ✕
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={tw("notifications.close")}
+              onClick={error ? clearError : () => setBulkActionNotice(null)}
+            >
+              ✕
+            </Button>
           </div>
         )}
 
         <ErrorBoundary key={selectedRepo ? `repo:${selectedRepo.id}` : `view:${view}`}>
         {selectedRepo ? (
-          <RepoDetailView
+          <RepoDetailContainer
             repo={selectedRepo}
-            status={repoStatus}
-            statusError={repoStatusError}
-            actionPending={repoActionPending}
-            actionError={repoActionError}
-            selectedCommit={selectedCommit}
-            workingSelected={workingSelected}
-            repoVersion={repoVersion}
+            command={repoDetailCommand}
             onBack={() => {
               setSelectedRepoId(null);
-              setSelectedCommit(null);
-              setWorkingSelected(false);
+              setRepoDetailCommand(null);
             }}
-            onAction={onRepoAction}
-            onCheckout={(branch) =>
-              void runRepoAction("checkout", () => checkoutBranch(selectedRepo.id, branch))
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
             }
-            onCreateBranch={onCreateBranch}
-            onOpenSearch={() => {
-              setPaletteQuery("");
-              setPaletteOpen(true);
-            }}
-            onSelectCommit={selectCommit}
-            onSelectWorking={() => {
-              setSelectedCommit(null);
-              setWorkingSelected(true);
-            }}
-            onStage={onStage}
-            onUnstage={onUnstage}
-            onCommit={onCommit}
           />
         ) : view === "overview" ? (
           <OverviewView
@@ -438,14 +533,25 @@ export function App() {
             selectedRepoId={selectedRepoId}
             metrics={metrics}
             bulkPending={bulkActionPending}
+            bulkProgress={toBulkProgress(activeBulkOperation)}
+            onCancelBulk={() => {
+              if (bulkOperationId) void cancelOperation(bulkOperationId);
+            }}
             onBulk={onBulk}
-            onOpenRepository={openRepository}
-            onImport={() => void importRepositories()}
-            importPending={workspaceActionPending === "import"}
+            onAddRepository={() => setRepositoryOnboardingStep("choices")}
             onSelectRepo={(repoId) =>
               selectedWorkspaceId ? void selectRepository(selectedWorkspaceId, repoId) : undefined
             }
+            onWarmRepo={queueRepositoryWarm}
             onRemoveRepo={(repoId) => void removeRepository(repoId)}
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            }
           />
         ) : (
           <AllReposView
@@ -455,22 +561,129 @@ export function App() {
             filter={repoFilter}
             onFilterChange={setRepoFilter}
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
+            onWarm={(_workspaceId, repoId) => queueRepositoryWarm(repoId)}
+            utilities={
+              <ShellUtilities
+                searchLabel={tw("toolbar.search")}
+                settingsLabel={tw("settings.title")}
+                onOpenSearch={openPalette}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            }
           />
         )}
         </ErrorBoundary>
-      </main>
+      </MainShell>
 
       {paletteOpen && (
         <CommandPalette
           items={paletteItems}
-          remoteItems={remotePaletteItems}
           query={paletteQuery}
           onQueryChange={setPaletteQuery}
-          onClose={() => setPaletteOpen(false)}
+          onClose={closePalette}
         />
       )}
 
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {switcherOpen && (
+        <RepositorySwitcher
+          items={switcherItems}
+          query={switcherQuery}
+          onQueryChange={setSwitcherQuery}
+          onClose={() => setSwitcherOpen(false)}
+        />
+      )}
+
+      {globalSearchOpen && (
+        <GlobalSearchDialog
+          onSelect={(result) => void openSearchResult(result)}
+          onClose={() => setGlobalSearchOpen(false)}
+        />
+      )}
+
+      {shortcutHelpOpen && (
+        <ShortcutHelpSheet
+          bindings={shortcutBindings}
+          onClose={() => setShortcutHelpOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsDialog
+          repositories={allRepositories}
+          onClose={() => setSettingsOpen(false)}
+          onSettingsChange={(settings) => {
+            setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
+          }}
+        />
+      )}
+
+      <UpdateDialog />
+
+      {repositoryOnboardingStep === "choices" && (
+        <RepositoryOnboardingDialog
+          onOpenExisting={() => {
+            void openRepository().then((added) => {
+              if (added) setRepositoryOnboardingStep(null);
+            });
+          }}
+          onScanFolder={() => {
+            void importRepositories().then((repositories) => {
+              if (repositories !== null) setRepositoryOnboardingStep(null);
+            });
+          }}
+          onClone={() => setRepositoryOnboardingStep("clone")}
+          onCreate={() => setRepositoryOnboardingStep("create")}
+          onClose={() => setRepositoryOnboardingStep(null)}
+        />
+      )}
+
+      {repositoryOnboardingStep === "clone" && selectedWorkspaceId && (
+        <CloneRepositoryDialog
+          workspaceId={selectedWorkspaceId}
+          operations={operations}
+          onClone={cloneRepository}
+          onCancelOperation={(operationId) => void cancelOperation(operationId)}
+          onSuccess={(result) => {
+            setRepositoryOnboardingStep(null);
+            void selectRepository(result.repository.workspaceId, result.repository.id);
+          }}
+          onBack={() => setRepositoryOnboardingStep("choices")}
+        />
+      )}
+
+      {repositoryOnboardingStep === "create" && selectedWorkspaceId && (
+        <CreateRepositoryDialog
+          workspaceId={selectedWorkspaceId}
+          onCreate={createRepository}
+          onSuccess={(result) => {
+            setRepositoryOnboardingStep(null);
+            void selectRepository(result.repository.workspaceId, result.repository.id);
+          }}
+          onBack={() => setRepositoryOnboardingStep("choices")}
+        />
+      )}
+
+      {gitAuth.activePrompt && (
+        <GitAuthPromptDialog
+          prompt={gitAuth.activePrompt}
+          repositoryName={allRepositories.find(
+            (repository) => repository.id === operations[gitAuth.activePrompt!.operationId]?.repoId,
+          )?.name}
+          queuedCount={gitAuth.queuedCount}
+          onAnswer={(value) => gitAuth.answerPrompt(gitAuth.activePrompt!, value)}
+          onCancel={() => gitAuth.cancelPrompt(gitAuth.activePrompt!)}
+        />
+      )}
     </div>
   );
+}
+
+function toBulkProgress(event: OperationProgressEvent | null) {
+  if (!event) return null;
+  return {
+    completed: event.completed,
+    total: event.total,
+    error: event.error,
+    status: event.status,
+  };
 }

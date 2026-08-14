@@ -16,6 +16,9 @@ CREATE TABLE settings (
     locale          TEXT NOT NULL DEFAULT 'en',   -- BCP-47-ish code, e.g. 'en', 'ru'
     theme           TEXT NOT NULL DEFAULT 'system', -- 'light' | 'dark' | 'system'
     default_ide     TEXT,                          -- IDE identifier, see ipc-commands.md
+    auto_fetch      INTEGER NOT NULL DEFAULT 0,
+    performance_diagnostics INTEGER NOT NULL DEFAULT 0,
+    git_executable_path TEXT,
     updated_at      TEXT NOT NULL
 );
 
@@ -47,7 +50,50 @@ CREATE TABLE repo_status_cache (
     has_conflict    INTEGER NOT NULL DEFAULT 0,   -- 0/1
     last_synced_at  TEXT
 );
+
+-- Cache-only projection of the last repository paint. Implemented by
+-- 0005_repo_snapshot.sql; safe to drop and re-create from live Git state.
+CREATE TABLE repo_snapshot (
+    repo_id         TEXT PRIMARY KEY REFERENCES repositories(id) ON DELETE CASCADE,
+    schema_version  INTEGER NOT NULL,
+    payload         TEXT NOT NULL,
+    captured_at     TEXT NOT NULL
+);
+
+-- Single versioned UI-preference document. Unknown JSON keys are ignored;
+-- an unsupported version falls back to defaults. Implemented by 0006_ui_state.sql.
+CREATE TABLE ui_state (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    version         INTEGER NOT NULL,
+    payload         TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
 ```
+
+`auto_fetch` is retained as a legacy compatibility column so existing databases
+continue to round-trip through `SettingsStore`. It has no user-facing control and
+does not enable background network activity in the current product.
+
+Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
+`0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
+`0005_repo_snapshot.sql`, and `0006_ui_state.sql`.
+
+## Planned additions
+
+Designed but not migrated yet. Each is forward-only and owned by a spec.
+
+```sql
+-- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
+-- See specs/workspace-workflows.md §5.
+ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
+```
+
+A snapshot row is revalidated on first use after a restart, because generations
+([`performance.md`](performance.md) §5) are in-memory and reset to zero — a
+persisted snapshot can never be trusted on the strength of a stale generation.
+The current payload schema version is 2; P9-02 added `operationState`. Version 1
+rows are treated as cache misses so an older payload can never imply `Normal` by
+omission.
 
 ## Conventions
 

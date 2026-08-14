@@ -12,8 +12,10 @@ pub enum WorkspaceError {
     Store(#[from] StoreError),
     #[error("not a git repository: {0}")]
     NotAGitRepository(PathBuf),
-    #[error("git error: {0}")]
-    Git(String),
+    #[error("repository is already in this workspace: {0}")]
+    RepositoryAlreadyAdded(PathBuf),
+    #[error(transparent)]
+    Git(GitError),
 }
 
 impl From<GitError> for WorkspaceError {
@@ -22,7 +24,7 @@ impl From<GitError> for WorkspaceError {
             GitError::NotAGitRepository(path) | GitError::RepoNotFound(path) => {
                 WorkspaceError::NotAGitRepository(path)
             }
-            other => WorkspaceError::Git(other.to_string()),
+            other => WorkspaceError::Git(other),
         }
     }
 }
@@ -110,6 +112,27 @@ impl WorkspaceService {
         refresh_repo_status_once(self.store.as_ref(), self.git.as_ref(), repo_id).await
     }
 
+    /// Performs a live status read while preserving the cache-first dashboard
+    /// contract. The returned value is `Some` only when the semantic status
+    /// changed (timestamps alone never generate repository-change events).
+    pub async fn reconcile_repo_status(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<Option<RepoStatusSummary>, WorkspaceError> {
+        let repo = self.store.get_repository(repo_id).await?;
+        let previous = self
+            .store
+            .list_workspace_status(repo.workspace_id)
+            .await?
+            .into_iter()
+            .find(|summary| summary.repo_id == repo_id)
+            .map(|summary| summary.status);
+        let status = self.git.status(&RepoPath::new(repo.path)).await?;
+        let changed = previous.as_ref() != Some(&status);
+        let summary = self.store.upsert_repo_status(repo_id, &status).await?;
+        Ok(changed.then_some(summary))
+    }
+
     pub async fn invalidate_repo_status(
         &self,
         repo_id: RepositoryId,
@@ -145,13 +168,26 @@ impl WorkspaceService {
         workspace_id: WorkspaceId,
         path: PathBuf,
     ) -> Result<RepositoryEntry, WorkspaceError> {
+        let path = fjord_fs::canonicalize_path(&path).unwrap_or(path);
+        let repositories = self.store.list_repositories(workspace_id).await?;
+        if repositories.iter().any(|repository| {
+            let existing = fjord_fs::canonicalize_path(&repository.path)
+                .unwrap_or_else(|_| repository.path.clone());
+            fjord_fs::paths_equal(&existing, &path)
+        }) {
+            return Err(WorkspaceError::RepositoryAlreadyAdded(path));
+        }
+
         self.git.status(&RepoPath::new(path.clone())).await?;
 
         let name = repo_display_name(&path);
-        Ok(self
-            .store
-            .add_repository(workspace_id, &name, &path)
-            .await?)
+        match self.store.add_repository(workspace_id, &name, &path).await {
+            Ok(repository) => Ok(repository),
+            Err(StoreError::RepositoryAlreadyExists(_)) => {
+                Err(WorkspaceError::RepositoryAlreadyAdded(path))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub async fn remove_repository(&self, id: RepositoryId) -> Result<(), WorkspaceError> {
@@ -218,8 +254,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use fjord_domain::{
-        BranchInfo, CommitPage, FileChangeType, FileDiff, FileDiffDetail, LogCursor, RepoStatus,
-        RepositoryId, StashEntry, TagInfo, WorkingChanges,
+        BranchInfo, CommitPage, CommitSummary, FileChangeType, FileDiff, FileDiffDetail, LogCursor,
+        RepoStatus, RepositoryId, StashEntry, TagInfo, WorkingChanges,
     };
     use std::path::PathBuf as StdPathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -421,6 +457,14 @@ mod tests {
                 next_cursor: None,
             })
         }
+        async fn search_commits(
+            &self,
+            _repo: &RepoPath,
+            _query: &str,
+            _limit: u32,
+        ) -> Result<Vec<CommitSummary>, GitError> {
+            Ok(vec![])
+        }
         async fn diff(
             &self,
             _repo: &RepoPath,
@@ -437,6 +481,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![],
             })
@@ -456,6 +502,8 @@ mod tests {
             Ok(FileDiffDetail {
                 path: path.to_string(),
                 change_type: FileChangeType::Modified,
+                old_mode: Some(0o100644),
+                new_mode: Some(0o100644),
                 is_binary: false,
                 hunks: vec![],
             })
@@ -489,15 +537,6 @@ mod tests {
         }
         async fn commit(&self, _repo: &RepoPath, _message: &str) -> Result<String, GitError> {
             Ok("deadbeef".into())
-        }
-        async fn fetch(&self, _repo: &RepoPath, _remote: &str) -> Result<(), GitError> {
-            Ok(())
-        }
-        async fn pull(&self, _repo: &RepoPath) -> Result<(), GitError> {
-            Ok(())
-        }
-        async fn push(&self, _repo: &RepoPath, _refspec: &str) -> Result<(), GitError> {
-            Ok(())
         }
         async fn open_merge_tool(&self, _repo: &RepoPath) -> Result<(), GitError> {
             Ok(())
@@ -538,6 +577,68 @@ mod tests {
             .await;
         assert!(matches!(result, Err(WorkspaceError::NotAGitRepository(_))));
         assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn adding_the_same_repository_twice_is_rejected_before_persisting() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let path = PathBuf::from("/repos/api-gateway");
+        service.add_repository(ws.id, path.clone()).await.unwrap();
+
+        let result = service.add_repository(ws.id, path.clone()).await;
+
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::RepositoryAlreadyAdded(duplicate)) if duplicate == path
+        ));
+        assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn equivalent_filesystem_paths_are_treated_as_the_same_repository() {
+        let service = service(true);
+        let ws = service.create_workspace("Backend").await.unwrap();
+        let root = tempfile::TempDir::new().unwrap();
+        let repository = root.path().join("repository");
+        std::fs::create_dir_all(repository.join("nested")).unwrap();
+
+        service
+            .add_repository(ws.id, repository.clone())
+            .await
+            .unwrap();
+        let result = service
+            .add_repository(ws.id, repository.join("nested/.."))
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(WorkspaceError::RepositoryAlreadyAdded(_))
+        ));
+        assert_eq!(service.list_repositories(ws.id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_same_repository_can_belong_to_different_workspaces() {
+        let service = service(true);
+        let backend = service.create_workspace("Backend").await.unwrap();
+        let frontend = service.create_workspace("Frontend").await.unwrap();
+        let path = PathBuf::from("/repos/shared");
+
+        service
+            .add_repository(backend.id, path.clone())
+            .await
+            .unwrap();
+        service.add_repository(frontend.id, path).await.unwrap();
+
+        assert_eq!(
+            service.list_repositories(backend.id).await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            service.list_repositories(frontend.id).await.unwrap().len(),
+            1
+        );
     }
 
     #[tokio::test]

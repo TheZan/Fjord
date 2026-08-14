@@ -1,0 +1,97 @@
+name: Release Benchmarks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  release-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download previous benchmark baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          mkdir -p target/benchmark-baseline
+          artifact_id="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" |
+              jq -r --arg branch "$BASELINE_BRANCH" '
+                [.artifacts[] |
+                  select(.name == "release-benchmark-results") |
+                  select(.expired == false) |
+                  select(.workflow_run.head_branch == $branch)] |
+                sort_by(.created_at) | last | .id // empty'
+          )"
+          if [ -n "$artifact_id" ]; then
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > target/benchmark-baseline.zip
+            unzip -q target/benchmark-baseline.zip -d target/benchmark-baseline
+            echo "Downloaded baseline artifact ${artifact_id}."
+          else
+            echo "No previous baseline artifact; this run will establish one."
+          fi
+
+      - name: Single-repo log report
+        run: >
+          cargo run --release -p fjord-bench --
+          --repo target/fjord-bench/p4-18-single-50k
+          --commits 50000
+          --files 200
+          --log-limit 200
+          --scenario log-first-page
+          --cache-state warm
+          --json target/benchmark-results/current/log-first-page.json
+          --force
+
+      - name: Workspace dashboard report
+        run: >
+          cargo run --release -p fjord-bench --
+          --repo target/fjord-bench/p4-18-workspace-60k
+          --workspace-repos 24
+          --commits 2500
+          --files 50
+          --scenario workspace-render
+          --cache-state warm
+          --json target/benchmark-results/current/workspace-render.json
+          --force
+
+      - name: Report deltas against previous baseline
+        run: >
+          node scripts/report-benchmark-deltas.mjs
+          --current target/benchmark-results/current
+          --baseline target/benchmark-baseline/current
+          --markdown target/benchmark-results/report.md
+          --json target/benchmark-results/report.json
+
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if [ -f target/benchmark-results/report.md ]; then
+            cat target/benchmark-results/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Performance regression report" >> "$GITHUB_STEP_SUMMARY"
+            echo "Benchmark reporting did not complete; inspect the preceding step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Store benchmark result set
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-benchmark-results
+          path: target/benchmark-results
+          retention-days: 90

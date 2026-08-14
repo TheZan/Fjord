@@ -5,11 +5,18 @@
 //! thin entrypoint that just calls [`builder`] and runs it — see
 //! docs/tasks.md P0-05.
 
+mod askpass;
 mod commands;
 mod error;
 mod ide_launcher;
+mod interaction_traces;
 mod logging;
+mod operations;
+mod repository_tiers;
 mod state;
+
+#[cfg(test)]
+mod integration_tests;
 
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -33,13 +40,21 @@ fn initialize(app: &tauri::App) -> Result<AppState, String> {
         tracing::info!(version = env!("CARGO_PKG_VERSION"), "fjord starting");
     }
 
-    tauri::async_runtime::block_on(state::bootstrap(&app_data_dir))
+    tauri::async_runtime::block_on(state::bootstrap(&app_data_dir, app.handle().clone()))
         .map_err(|e| format!("could not initialize application state: {e}"))
 }
 
 pub fn builder() -> tauri::Builder<tauri::Wry> {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(all(not(debug_assertions), feature = "updater"))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Only needed to relaunch after an update is installed — gated with
+        // the updater itself rather than always registered, matching the
+        // minimal-permission rule in capabilities/default.json.
+        .plugin(tauri_plugin_process::init());
+
+    builder
         .setup(|app| match initialize(app) {
             Ok(state) => {
                 app.manage(state);
@@ -60,6 +75,12 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::update_settings,
+            commands::get_ui_state,
+            commands::update_ui_state,
+            commands::get_git_environment,
+            commands::select_git_executable,
+            commands::reset_git_executable,
+            commands::reveal_log_folder,
             commands::list_workspaces,
             commands::create_workspace,
             commands::rename_workspace,
@@ -68,34 +89,72 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::list_repositories,
             commands::get_workspace_status,
             commands::refresh_repo_status,
+            commands::set_repository_activity,
             commands::add_repository,
+            commands::clone_repository,
+            commands::create_repository,
             commands::import_repositories,
             commands::remove_repository,
+            commands::list_remotes,
+            commands::add_remote,
             commands::get_branches,
             commands::get_tags,
             commands::get_repo_status,
+            commands::get_repo_operation_state,
+            commands::continue_operation,
+            commands::skip_operation,
+            commands::get_repository_snapshot,
+            commands::capture_repository_snapshot,
+            commands::revalidate_repository_snapshot,
             commands::get_commit_log,
+            commands::get_reflog,
+            commands::get_reflog_refs,
+            commands::search_commit_log,
             commands::global_search,
             commands::get_commit_diff,
+            commands::get_recovery_diff,
+            commands::get_commit_files,
             commands::get_file_diff,
             commands::checkout_branch,
+            commands::stash_and_checkout,
             commands::get_working_changes,
             commands::get_working_file_diff,
+            commands::preflight_destructive_action,
+            commands::execute_destructive_action,
             commands::create_branch,
+            commands::create_branch_at,
+            commands::rename_branch,
+            commands::set_branch_upstream,
+            commands::unset_branch_upstream,
+            commands::create_tag,
+            commands::cherry_pick,
+            commands::revert_commit,
             commands::get_stashes,
             commands::stash_push,
-            commands::stash_pop,
             commands::open_terminal,
             commands::stage_files,
+            commands::stage_patch,
             commands::unstage_files,
+            commands::unstage_patch,
+            commands::discard_patch,
+            commands::get_amend_info,
             commands::commit_repo,
+            commands::commit_and_push_repo,
             commands::fetch_repo,
             commands::pull_repo,
             commands::push_repo,
+            commands::push_branch_to_remotes,
+            commands::publish_branch,
             commands::open_merge_tool,
             commands::open_in_ide,
             commands::bulk_fetch,
             commands::bulk_pull,
             commands::bulk_open_in_ide,
+            commands::cancel_operation,
+            commands::test_git_connection,
+            commands::answer_git_auth_prompt,
+            commands::cancel_git_auth_prompt,
+            commands::get_interaction_traces,
+            commands::activate_after_first_paint,
         ])
 }

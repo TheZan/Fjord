@@ -1,6 +1,10 @@
+import { useRef, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { Input, Muted } from "@/presentation/ui";
 import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
+
+const ROW_HEIGHT = 58;
 
 /**
  * The flat cross-workspace list. It used to sit directly above the
@@ -15,6 +19,8 @@ export function AllReposView({
   filter,
   onFilterChange,
   onSelect,
+  onWarm,
+  utilities,
 }: {
   rows: { workspace: Workspace; repo: RepositoryEntry }[];
   statusByRepo: Record<string, RepoStatusSummary>;
@@ -22,11 +28,20 @@ export function AllReposView({
   filter: string;
   onFilterChange: (value: string) => void;
   onSelect: (workspaceId: string, repoId: string) => void;
+  onWarm?: (workspaceId: string, repoId: string) => void;
+  utilities: ReactNode;
 }) {
   const { t } = useTranslation("workspace");
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 12,
+  });
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-[17px] font-medium">{t("allRepositories.title")}</h2>
@@ -40,51 +55,76 @@ export function AllReposView({
           placeholder={t("allRepositories.filterPlaceholder")}
           className="w-64"
         />
+        {utilities}
       </header>
 
       {rows.length === 0 ? (
         <Muted className="text-[13px]">{t("allRepositories.empty")}</Muted>
       ) : (
         <div
-          className="overflow-hidden rounded-xl border"
+          ref={parentRef}
+          className="min-h-[18rem] flex-1 overflow-auto rounded-lg border"
           style={{ borderWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
         >
-          {rows.map(({ workspace, repo }, index) => {
-            const status = statusByRepo[repo.id]?.status;
-            const isSelected = repo.id === selectedRepoId;
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+              width: "100%",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const { workspace, repo } = rows[virtualRow.index];
+              const status = statusByRepo[repo.id]?.status;
+              const isSelected = repo.id === selectedRepoId;
 
-            return (
-              <button
-                key={repo.id}
-                type="button"
-                onClick={() => onSelect(workspace.id, repo.id)}
-                className="grid w-full grid-cols-[minmax(0,1fr)_8rem_9rem] items-center gap-3 px-3.5 py-2.5 text-left"
-                style={{
-                  borderTopWidth: index === 0 ? 0 : "0.5px",
-                  borderTopStyle: "solid",
-                  borderTopColor: "var(--hairline)",
-                  background: isSelected ? "var(--fjord-tint)" : "transparent",
-                  color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
-                }}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium">{repo.name}</span>
-                  <span className="block truncate text-[11px]" style={{ color: "var(--mist)" }}>
-                    {repo.path}
-                  </span>
-                </span>
-                <span className="truncate text-[11px]" style={{ color: "var(--slate)" }}>
-                  {workspace.name}
-                </span>
-                <span
-                  className="truncate text-right font-mono text-[11px]"
-                  style={{ color: "var(--slate)" }}
+              return (
+                <div
+                  key={repo.id}
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    left: 0,
+                    position: "absolute",
+                    top: 0,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    width: "100%",
+                  }}
                 >
-                  {status?.branch ?? t("dashboard.unknown")}
-                </span>
-              </button>
-            );
-          })}
+                  <button
+                    type="button"
+                    onClick={() => onSelect(workspace.id, repo.id)}
+                    onPointerEnter={() => onWarm?.(workspace.id, repo.id)}
+                    onFocus={() => onWarm?.(workspace.id, repo.id)}
+                    data-selected={isSelected}
+                    className="interactive-row grid w-full grid-cols-[minmax(0,1fr)_8rem_9rem] items-center gap-3 px-3.5 text-left"
+                    style={{
+                      borderTopWidth: virtualRow.index === 0 ? 0 : "0.5px",
+                      borderTopStyle: "solid",
+                      borderTopColor: "var(--hairline)",
+                      color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
+                      height: ROW_HEIGHT,
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] font-medium">{repo.name}</span>
+                      <span className="block truncate text-[11px]" style={{ color: "var(--mist)" }}>
+                        {repo.path}
+                      </span>
+                    </span>
+                    <span className="truncate text-[11px]" style={{ color: "var(--slate)" }}>
+                      {workspace.name}
+                    </span>
+                    <span
+                      className="truncate text-right font-mono text-[11px]"
+                      style={{ color: "var(--slate)" }}
+                    >
+                      {status?.branch ?? t("dashboard.unknown")}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

@@ -3,7 +3,8 @@
 
 use async_trait::async_trait;
 use fjord_domain::{
-    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, Settings, Workspace, WorkspaceId,
+    RepoStatus, RepoStatusSummary, RepositoryEntry, RepositoryId, RepositorySnapshot, Settings,
+    StoredRepositorySnapshot, UiState, Workspace, WorkspaceId,
 };
 use thiserror::Error;
 
@@ -13,6 +14,8 @@ pub enum StoreError {
     WorkspaceNotFound(WorkspaceId),
     #[error("repository not found: {0:?}")]
     RepositoryNotFound(RepositoryId),
+    #[error("repository is already in this workspace: {0}")]
+    RepositoryAlreadyExists(std::path::PathBuf),
     #[error("database error: {0}")]
     Database(String),
 }
@@ -49,10 +52,33 @@ pub trait WorkspaceStore: Send + Sync {
         status: &RepoStatus,
     ) -> Result<RepoStatusSummary, StoreError>;
     async fn invalidate_repo_status(&self, repo_id: RepositoryId) -> Result<(), StoreError>;
+    async fn load_repository_snapshot(
+        &self,
+        _repo_id: RepositoryId,
+        _schema_version: u32,
+    ) -> Result<Option<StoredRepositorySnapshot>, StoreError> {
+        Ok(None)
+    }
+    async fn upsert_repository_snapshot(
+        &self,
+        _repo_id: RepositoryId,
+        _schema_version: u32,
+        _snapshot: &RepositorySnapshot,
+    ) -> Result<StoredRepositorySnapshot, StoreError> {
+        Err(StoreError::Database(
+            "repository snapshots are not supported by this store".to_string(),
+        ))
+    }
 }
 
 #[async_trait]
 pub trait SettingsStore: Send + Sync {
     async fn get_settings(&self) -> Result<Settings, StoreError>;
     async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError>;
+}
+
+#[async_trait]
+pub trait UiStateStore: Send + Sync {
+    async fn get_ui_state(&self) -> Result<UiState, StoreError>;
+    async fn update_ui_state(&self, state: &UiState) -> Result<UiState, StoreError>;
 }

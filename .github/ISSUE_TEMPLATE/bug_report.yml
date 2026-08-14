@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible problem in Fjord.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Please avoid attaching private repository contents, full diffs, credentials, or signing keys.
+  - type: input
+    id: version
+    attributes:
+      label: Fjord version
+      description: Use the app version or commit SHA.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest sequence that triggers the problem.
+      placeholder: |
+        1. Open a workspace with ...
+        2. Click ...
+        3. Fjord shows ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Attach only logs that do not contain private data.
+      render: text

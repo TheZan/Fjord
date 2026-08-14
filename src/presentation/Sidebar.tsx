@@ -1,48 +1,117 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FjordMark } from "@/presentation/FjordMark";
-import { Button, GroupLabel, Input } from "@/presentation/ui";
-import type { Workspace } from "@/domain/workspace";
+import { loadUiState, saveCollapsedWorkspaces } from "@/infrastructure/uiState";
+import { GroupLabel, Input, TYPOGRAPHY } from "@/presentation/ui";
+import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
 
 interface SidebarProps {
   view: View;
   onViewChange: (view: View) => void;
   workspaces: Workspace[];
+  repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
+  statusByRepo: Record<string, RepoStatusSummary>;
   repoCountByWorkspace: Record<string, number>;
   attentionByWorkspace: Record<string, number>;
   selectedWorkspaceId: string | null;
+  selectedRepoId: string | null;
   onSelectWorkspace: (id: string) => void;
+  onSelectRepository: (workspaceId: string, repoId: string) => void;
+  onWarmRepository: (repoId: string) => void;
   onCreateWorkspace: (name: string) => void;
   onRenameWorkspace: (id: string, name: string) => void;
   onDeleteWorkspace: (id: string) => void;
   onMoveWorkspace: (id: string, direction: -1 | 1) => void;
+  onMoveWorkspaceTo: (id: string, targetId: string) => void;
   pending: string | null;
-  onOpenSettings: () => void;
 }
 
 export function Sidebar({
   view,
   onViewChange,
   workspaces,
+  repositoriesByWorkspace,
+  statusByRepo,
   repoCountByWorkspace,
   attentionByWorkspace,
   selectedWorkspaceId,
+  selectedRepoId,
   onSelectWorkspace,
+  onSelectRepository,
+  onWarmRepository,
   onCreateWorkspace,
   onRenameWorkspace,
   onDeleteWorkspace,
   onMoveWorkspace,
+  onMoveWorkspaceTo,
   pending,
-  onOpenSettings,
 }: SidebarProps) {
-  const { t } = useTranslation();
   const { t: tw } = useTranslation("workspace");
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [draggedWorkspaceId, setDraggedWorkspaceId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const uiStateRestoredRef = useRef(false);
+  const menuRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!menuId) return;
+    function onPointerDown(event: MouseEvent) {
+      if (!menuRootRef.current?.contains(event.target as Node)) setMenuId(null);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuId(null);
+    }
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuId]);
+
+  useEffect(() => {
+    if (uiStateRestoredRef.current || workspaces.length === 0) return;
+    let mounted = true;
+    void loadUiState()
+      .then((state) => {
+        if (!mounted) return;
+        uiStateRestoredRef.current = true;
+        setExpandedIds(
+          new Set(
+            workspaces
+              .map((workspace) => workspace.id)
+              .filter((id) => !state.sidebar.collapsedWorkspaces.includes(id)),
+          ),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [workspaces]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    setExpandedIds((current) => {
+      if (current.has(selectedWorkspaceId)) return current;
+      const next = new Set(current);
+      next.add(selectedWorkspaceId);
+      return next;
+    });
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    setExpandedIds((current) => {
+      const existing = new Set(workspaces.map((workspace) => workspace.id));
+      const next = new Set([...current].filter((id) => existing.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [workspaces]);
 
   function submitNew() {
     if (!newName.trim()) {
@@ -59,17 +128,25 @@ export function Sidebar({
     setEditingId(null);
   }
 
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      const collapsed = workspaces
+        .map((workspace) => workspace.id)
+        .filter((workspaceId) => !next.has(workspaceId));
+      void saveCollapsedWorkspaces(collapsed).catch(() => undefined);
+      return next;
+    });
+  }
+
   return (
     <aside
-      className="flex w-60 shrink-0 flex-col border-r"
-      style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)", background: "var(--paper)" }}
+      className="flex h-full w-full flex-col"
+      style={{ background: "var(--sidebar-bg)" }}
     >
-      <div className="flex items-center gap-2 px-4 pb-3 pt-4">
-        <FjordMark size={18} style={{ color: "var(--brand)" }} />
-        <span className="text-[15px] font-medium">{t("app.title")}</span>
-      </div>
-
-      <nav className="flex flex-col gap-0.5 px-2">
+      <nav className="flex flex-col gap-0.5 px-2 pt-3">
         <NavItem active={view === "overview"} onClick={() => onViewChange("overview")}>
           {tw("nav.overview")}
         </NavItem>
@@ -83,7 +160,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setAdding((value) => !value)}
-          className="flex h-4 w-4 items-center justify-center rounded text-sm leading-none"
+          className="interactive-control flex h-4 w-4 items-center justify-center rounded text-sm leading-none"
           style={{ color: "var(--mist)" }}
           aria-label={tw("workspaces.createButton")}
         >
@@ -112,6 +189,10 @@ export function Sidebar({
         {workspaces.map((workspace) => {
           const isSelected = workspace.id === selectedWorkspaceId;
           const attention = attentionByWorkspace[workspace.id] ?? 0;
+          const repos = repositoriesByWorkspace[workspace.id] ?? [];
+          const expanded = expandedIds.has(workspace.id);
+          const dragging = draggedWorkspaceId === workspace.id;
+          const dropTarget = dropTargetId === workspace.id && draggedWorkspaceId !== workspace.id;
 
           if (editingId === workspace.id) {
             return (
@@ -131,16 +212,72 @@ export function Sidebar({
           }
 
           return (
-            <div key={workspace.id} className="group relative">
-              <button
-                type="button"
-                onClick={() => onSelectWorkspace(workspace.id)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px]"
+            <div
+              key={workspace.id}
+              draggable={pending === null}
+              onDragStart={(event) => {
+                setDraggedWorkspaceId(workspace.id);
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", workspace.id);
+              }}
+              onDragOver={(event) => {
+                if (!draggedWorkspaceId || draggedWorkspaceId === workspace.id) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+                setDropTargetId(workspace.id);
+              }}
+              onDragLeave={() => {
+                setDropTargetId((current) => (current === workspace.id ? null : current));
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const draggedId = draggedWorkspaceId ?? event.dataTransfer.getData("text/plain");
+                setDraggedWorkspaceId(null);
+                setDropTargetId(null);
+                if (draggedId && draggedId !== workspace.id) onMoveWorkspaceTo(draggedId, workspace.id);
+              }}
+              onDragEnd={() => {
+                setDraggedWorkspaceId(null);
+                setDropTargetId(null);
+              }}
+              className="rounded-md"
+              style={{
+                opacity: dragging ? 0.55 : 1,
+                outline: dropTarget ? "1px solid var(--fjord)" : "none",
+                outlineOffset: dropTarget ? "2px" : 0,
+              }}
+            >
+              <div
+                ref={(element) => {
+                  if (menuId === workspace.id) menuRootRef.current = element;
+                }}
+                data-selected={isSelected}
+                className={`group interactive-row relative flex w-full cursor-grab items-center gap-1 rounded-md px-1.5 py-1.5 text-left active:cursor-grabbing ${TYPOGRAPHY.body}`}
                 style={{
-                  background: isSelected ? "var(--fjord-tint)" : "transparent",
                   color: isSelected ? "var(--fjord-ink)" : "var(--ink)",
                 }}
               >
+                <span className="flex h-5 w-3 shrink-0 items-center justify-center" style={{ color: "var(--mist)" }}>
+                  <DragHandleIcon />
+                </span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleExpanded(workspace.id);
+                  }}
+                  className="interactive-control flex h-5 w-5 shrink-0 items-center justify-center rounded"
+                  style={{ color: "var(--mist)" }}
+                  aria-label={expanded ? tw("workspaces.collapse") : tw("workspaces.expand")}
+                  title={expanded ? tw("workspaces.collapse") : tw("workspaces.expand")}
+                >
+                  <ChevronIcon open={expanded} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkspace(workspace.id)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: attention > 0 ? "var(--amber)" : "var(--moss)" }}
@@ -152,64 +289,86 @@ export function Sidebar({
                 >
                   {repoCountByWorkspace[workspace.id] ?? 0}
                 </span>
-              </button>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setMenuId(menuId === workspace.id ? null : workspace.id)}
-                className="absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
-                style={{ color: "var(--slate)" }}
-                aria-label={tw("workspaces.rename")}
-              >
-                •••
-              </button>
-
-              {menuId === workspace.id && (
-                <div
-                  className="absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-lg border py-1 shadow-lg"
-                  style={{
-                    borderWidth: "0.5px",
-                    borderColor: "var(--hairline-strong)",
-                    background: "var(--paper)",
-                  }}
+                <button
+                  type="button"
+                  onClick={() => setMenuId(menuId === workspace.id ? null : workspace.id)}
+                  className="interactive-control absolute right-1.5 top-1/2 hidden -translate-y-1/2 rounded px-1 text-xs leading-none group-hover:block"
+                  style={{ color: "var(--slate)" }}
+                  aria-label={tw("workspaces.rename")}
                 >
-                  <MenuItem
-                    onClick={() => {
-                      setEditingId(workspace.id);
-                      setEditingName(workspace.name);
-                      setMenuId(null);
+                  •••
+                </button>
+
+                {menuId === workspace.id && (
+                  <div
+                    className="desktop-popover absolute right-1 top-full z-20 mt-0.5 flex w-36 flex-col rounded-md border py-1"
+                    style={{
+                      borderWidth: "0.5px",
+                      borderColor: "var(--hairline-strong)",
+                      background: "var(--paper)",
                     }}
                   >
-                    {tw("workspaces.rename")}
-                  </MenuItem>
-                  <MenuItem
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onMoveWorkspace(workspace.id, -1);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.moveUp")}
-                  </MenuItem>
-                  <MenuItem
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onMoveWorkspace(workspace.id, 1);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.moveDown")}
-                  </MenuItem>
-                  <MenuItem
-                    danger
-                    disabled={pending !== null}
-                    onClick={() => {
-                      onDeleteWorkspace(workspace.id);
-                      setMenuId(null);
-                    }}
-                  >
-                    {tw("workspaces.delete")}
-                  </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        setEditingId(workspace.id);
+                        setEditingName(workspace.name);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.rename")}
+                    </MenuItem>
+                    <MenuItem
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onMoveWorkspace(workspace.id, -1);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.moveUp")}
+                    </MenuItem>
+                    <MenuItem
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onMoveWorkspace(workspace.id, 1);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.moveDown")}
+                    </MenuItem>
+                    <MenuItem
+                      danger
+                      disabled={pending !== null}
+                      onClick={() => {
+                        onDeleteWorkspace(workspace.id);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaces.delete")}
+                    </MenuItem>
+                  </div>
+                )}
+              </div>
+
+              {expanded && (
+                <div className="flex flex-col gap-0.5 pb-1 pl-7 pr-1 pt-1">
+                  {repos.length === 0 ? (
+                    <span className="truncate px-2 py-1 text-[11px]" style={{ color: "var(--mist)" }}>
+                      {tw("workspaces.noRepositories")}
+                    </span>
+                  ) : (
+                    repos.map((repo) => (
+                      <RepositoryItem
+                        key={repo.id}
+                        repo={repo}
+                        status={statusByRepo[repo.id]?.status}
+                        selected={repo.id === selectedRepoId}
+                        onSelect={() => onSelectRepository(workspace.id, repo.id)}
+                        onWarm={() => onWarmRepository(repo.id)}
+                      />
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -217,15 +376,92 @@ export function Sidebar({
         })}
       </div>
 
-      <div
-        className="border-t px-2 py-2"
-        style={{ borderTopWidth: "0.5px", borderColor: "var(--hairline)" }}
-      >
-        <Button variant="ghost" size="sm" onClick={onOpenSettings} className="w-full justify-start">
-          {tw("settings.title")}
-        </Button>
-      </div>
     </aside>
+  );
+}
+
+function RepositoryItem({
+  repo,
+  status,
+  selected,
+  onSelect,
+  onWarm,
+}: {
+  repo: RepositoryEntry;
+  status: RepoStatusSummary["status"] | undefined;
+  selected: boolean;
+  onSelect: () => void;
+  onWarm: () => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const dirty = status?.dirtyCount ?? 0;
+  const ahead = status?.ahead ?? 0;
+  const behind = status?.behind ?? 0;
+  const tone = status?.hasConflict
+    ? "var(--rust)"
+    : dirty > 0
+      ? "var(--amber)"
+      : ahead > 0 || behind > 0
+        ? "var(--fjord)"
+        : "var(--moss)";
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      onPointerEnter={onWarm}
+      onFocus={onWarm}
+      data-selected={selected}
+      className="interactive-row grid w-full grid-cols-[0.5rem_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left"
+      title={repo.path}
+      style={{
+        color: selected ? "var(--fjord-ink)" : "var(--slate)",
+      }}
+    >
+      <span aria-hidden="true" className="row-span-2 h-1.5 w-1.5 rounded-full" style={{ background: tone }} />
+      <span className={`min-w-0 truncate font-medium ${TYPOGRAPHY.body}`}>{repo.name}</span>
+      <span className={`min-w-0 truncate ${TYPOGRAPHY.caption}`} style={{ color: "var(--mist)" }}>
+        {status?.branch ?? repo.path}
+        {(status?.hasConflict || dirty > 0 || ahead > 0 || behind > 0) && (
+          <span className="ml-1.5 inline-flex gap-1 tabular-nums">
+            {status?.hasConflict && <span style={{ color: "var(--rust-ink)" }}>⚠ {t("cardStatus.conflict")}</span>}
+            {dirty > 0 && (
+              <span aria-label={t("cardStatus.changes", { count: dirty })} style={{ color: "var(--amber-ink)" }}>●{dirty}</span>
+            )}
+            {ahead > 0 && <span>↑{ahead}</span>}
+            {behind > 0 && <span>↓{behind}</span>}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden="true">
+      <path
+        d={open ? "M3 4.5 6 7.5 9 4.5" : "M4.5 3 7.5 6 4.5 9"}
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 8 14" className="h-3.5 w-2" aria-hidden="true">
+      <circle cx="2" cy="3" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="3" r="0.8" fill="currentColor" />
+      <circle cx="2" cy="7" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="7" r="0.8" fill="currentColor" />
+      <circle cx="2" cy="11" r="0.8" fill="currentColor" />
+      <circle cx="6" cy="11" r="0.8" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -242,9 +478,9 @@ function NavItem({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md px-2 py-1.5 text-left text-[13px]"
+      data-selected={active}
+      className={`interactive-row rounded-md px-2 py-1.5 text-left ${TYPOGRAPHY.body}`}
       style={{
-        background: active ? "var(--fjord-tint)" : "transparent",
         color: active ? "var(--fjord-ink)" : "var(--slate)",
         fontWeight: active ? 500 : 400,
       }}
@@ -270,7 +506,7 @@ function MenuItem({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="px-2.5 py-1 text-left text-xs disabled:opacity-45"
+      className="interactive-row px-2.5 py-1 text-left text-xs disabled:opacity-45"
       style={{ color: danger ? "var(--rust-ink)" : "var(--ink)" }}
     >
       {children}

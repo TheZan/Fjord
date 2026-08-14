@@ -7,9 +7,13 @@ license.workspace = true
 [dependencies]
 fjord-domain.workspace = true
 fjord-ports.workspace = true
+fjord-fs.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 time.workspace = true
+tempfile = "3"

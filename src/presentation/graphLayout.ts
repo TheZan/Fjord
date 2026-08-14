@@ -33,11 +33,28 @@ export interface GraphLayout {
   laneCount: number;
 }
 
+export interface GraphLayoutState {
+  activeLanes: (string | null)[];
+  maxLaneCount: number;
+}
+
+export interface GraphLayoutChunk extends GraphLayout {
+  state: GraphLayoutState;
+}
+
 export function computeGraphLayout(commits: CommitSummary[]): GraphLayout {
+  const { rows, laneCount } = computeGraphLayoutChunk(commits);
+  return { rows, laneCount };
+}
+
+export function computeGraphLayoutChunk(
+  commits: CommitSummary[],
+  previous: GraphLayoutState = { activeLanes: [], maxLaneCount: 0 },
+): GraphLayoutChunk {
   // `null` = free lane; otherwise the commit id this lane is waiting for.
-  const activeLanes: (string | null)[] = [];
+  const activeLanes = [...previous.activeLanes];
   const rows: GraphRow[] = [];
-  let maxLaneCount = 0;
+  let maxLaneCount = previous.maxLaneCount;
 
   function allocateLane(): number {
     const free = activeLanes.indexOf(null);
@@ -91,5 +108,9 @@ export function computeGraphLayout(commits: CommitSummary[]): GraphLayout {
     rows.push({ commit, lane, passthroughLanes, convergingLanes, divergingLanes, hasLineAbove, hasLineBelow });
   }
 
-  return { rows, laneCount: maxLaneCount };
+  return {
+    rows,
+    laneCount: maxLaneCount,
+    state: { activeLanes, maxLaneCount },
+  };
 }
