@@ -782,7 +782,23 @@ impl RepoService {
                         consequences.push(Consequence::CommitsUnreachable { count, sample });
                     }
                     force_plan = Some(plan);
-                    (consequences, Recoverability::Reflog, Vec::new())
+                    // A remote server is not required to retain a reflog, so
+                    // force-push recovery cannot be promised by Fjord.
+                    (consequences, Recoverability::NotRecoverable, Vec::new())
+                }
+                DestructiveAction::Reset { .. }
+                | DestructiveAction::DeleteBranch { .. }
+                | DestructiveAction::DeleteRemoteBranch { .. }
+                | DestructiveAction::DeleteTag { .. }
+                | DestructiveAction::StashPop { .. }
+                | DestructiveAction::CheckoutDiscard { .. }
+                | DestructiveAction::AbortOperation
+                | DestructiveAction::RecoveryRestore { .. } => {
+                    let facts = self
+                        .git
+                        .destructive_action_facts(&path, &action, PREFLIGHT_SAMPLE_LIMIT as u32)
+                        .await?;
+                    (facts.consequences, facts.recoverable, facts.blockers)
                 }
             };
             let after = self.git.generations(&path)?;
@@ -799,11 +815,21 @@ impl RepoService {
                             Err(GitError::PreflightStale | GitError::PatchStale) => continue,
                             Err(error) => return Err(error.into()),
                         }
-                    } else {
+                    } else if matches!(action, DestructiveAction::ForceWithLease) {
                         let plan = force_plan.as_ref().ok_or(GitError::PreflightStale)?;
                         match self
                             .git
                             .issue_force_push_confirmation(&path, &action, plan, after)
+                            .await
+                        {
+                            Ok(token) => Some(token),
+                            Err(GitError::PreflightStale | GitError::PatchStale) => continue,
+                            Err(error) => return Err(error.into()),
+                        }
+                    } else {
+                        match self
+                            .git
+                            .issue_action_confirmation(&path, &action, after)
                             .await
                         {
                             Ok(token) => Some(token),
@@ -1502,7 +1528,7 @@ mod tests {
         RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
         WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
-    use fjord_ports::{ForcePushPlan, PushTarget};
+    use fjord_ports::{DestructiveActionFacts, ForcePushPlan, PushTarget};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
@@ -1988,6 +2014,36 @@ mod tests {
                     .collect(),
             ))
         }
+        async fn destructive_action_facts(
+            &self,
+            _repo: &RepoPath,
+            action: &DestructiveAction,
+            sample_limit: u32,
+        ) -> Result<DestructiveActionFacts, GitError> {
+            let sample = (0..sample_limit.min(5))
+                .map(|index| CommitSummary {
+                    id: CommitId(format!("commit-{index}")),
+                    parent_ids: vec![],
+                    message: format!("Lost commit {index}"),
+                    author_name: "Ada".into(),
+                    author_email: "ada@example.test".into(),
+                    authored_at: OffsetDateTime::UNIX_EPOCH,
+                    refs: vec![],
+                })
+                .collect();
+            Ok(DestructiveActionFacts {
+                consequences: vec![Consequence::CommitsUnreachable { count: 7, sample }],
+                recoverable: if matches!(
+                    action,
+                    DestructiveAction::Reset { .. } | DestructiveAction::RecoveryRestore { .. }
+                ) {
+                    Recoverability::Reflog
+                } else {
+                    Recoverability::NotRecoverable
+                },
+                blockers: Vec::new(),
+            })
+        }
         async fn diff(&self, repo: &RepoPath, _commit_id: &str) -> Result<Vec<FileDiff>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![FileDiff {
@@ -2166,6 +2222,15 @@ mod tests {
             _generations: GenerationSet,
         ) -> Result<String, GitError> {
             Ok("confirmation-token".to_string())
+        }
+
+        async fn issue_action_confirmation(
+            &self,
+            _repo: &RepoPath,
+            _action: &DestructiveAction,
+            _generations: GenerationSet,
+        ) -> Result<String, GitError> {
+            Ok("action-confirmation-token".to_string())
         }
 
         async fn discard_patch(
@@ -3192,6 +3257,31 @@ mod tests {
         );
         assert_eq!(sample.0, 7);
         assert_eq!(sample.1.len(), PREFLIGHT_SAMPLE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn phase_nine_preflight_routes_backend_facts_and_issues_action_confirmation() {
+        let (repo, _, _, service) = service_with_fake_git();
+        let action = DestructiveAction::RecoveryRestore {
+            commit_id: "target".into(),
+        };
+
+        let preflight = service
+            .preflight_destructive_action(repo.id, action.clone(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(preflight.action, action);
+        assert_eq!(preflight.recoverable, Recoverability::Reflog);
+        assert_eq!(
+            preflight.confirmation_token.as_deref(),
+            Some("action-confirmation-token")
+        );
+        assert!(preflight.consequences.iter().any(|consequence| matches!(
+            consequence,
+            Consequence::CommitsUnreachable { count: 7, sample }
+                if sample.len() == PREFLIGHT_SAMPLE_LIMIT
+        )));
     }
 
     #[tokio::test]

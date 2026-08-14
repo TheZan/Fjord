@@ -23,8 +23,8 @@ use fjord_domain::{
     RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
-    DiffWindowOptions, ForcePushPlan, GitBackend, GitError, GitExecutableResolution, PushTarget,
-    RepoPath,
+    DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
+    GitExecutableResolution, PushTarget, RepoPath,
 };
 use git2::build::CheckoutBuilder;
 use git2::{ErrorCode, IndexAddOption, StashFlags};
@@ -36,6 +36,7 @@ use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
 mod destructive_confirmation;
+mod destructive_preflight;
 mod diff;
 mod history;
 mod mutations;
@@ -215,6 +216,15 @@ impl GitBackend for LocalGitBackend {
         sample_limit: u32,
     ) -> Result<(u32, Vec<CommitSummary>), GitError> {
         history::commits_unreachable_from_head(repo, tip, sample_limit).await
+    }
+
+    async fn destructive_action_facts(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        sample_limit: u32,
+    ) -> Result<DestructiveActionFacts, GitError> {
+        destructive_preflight::facts(repo, action, sample_limit).await
     }
 
     async fn diff_files(
@@ -476,6 +486,19 @@ impl GitBackend for LocalGitBackend {
             generations,
         )
         .await
+    }
+
+    async fn issue_action_confirmation(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: crate::GenerationSet,
+    ) -> Result<String, GitError> {
+        if runtime::generations(repo)? != generations {
+            return Err(GitError::PreflightStale);
+        }
+        self.destructive_confirmations
+            .issue_action(repo, action, generations)
     }
 
     async fn discard_patch(

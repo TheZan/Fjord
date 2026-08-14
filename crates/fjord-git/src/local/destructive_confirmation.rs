@@ -25,6 +25,7 @@ struct PendingConfirmation {
 enum ConfirmationBinding {
     Discard(PatchSelection),
     ForcePush(ForcePushPlan),
+    Action,
 }
 
 impl DestructiveConfirmationStore {
@@ -106,6 +107,30 @@ impl DestructiveConfirmationStore {
                 repo: repository_key(repo),
                 action: action.clone(),
                 binding: ConfirmationBinding::ForcePush(plan.clone()),
+                generations,
+                expires_at: now + self.ttl,
+            },
+        );
+        Ok(token)
+    }
+
+    pub(super) fn issue_action(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: GenerationSet,
+    ) -> Result<String, GitError> {
+        let now = Instant::now();
+        let mut entries = self.entries.lock().map_err(|_| GitError::PreflightStale)?;
+        entries.retain(|_, pending| pending.expires_at > now);
+
+        let token = Uuid::new_v4().to_string();
+        entries.insert(
+            token.clone(),
+            PendingConfirmation {
+                repo: repository_key(repo),
+                action: action.clone(),
+                binding: ConfirmationBinding::Action,
                 generations,
                 expires_at: now + self.ttl,
             },

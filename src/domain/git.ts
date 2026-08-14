@@ -24,6 +24,7 @@ export type {
   PatchSource,
   RepoStatus,
   Recoverability,
+  ResetMode,
   SearchResultKind,
   StashEntry,
   TagInfo,

@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, DestructiveAction, DiffWhitespaceMode,
-    FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor, PatchSelection,
-    RepoOperationState, RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
+    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
+    PatchSelection, Recoverability, RepoOperationState, RepoStatus, StashEntry, TagInfo,
+    WorkingChanges,
 };
 use thiserror::Error;
 
@@ -144,6 +145,15 @@ pub struct ForcePushPlan {
     pub remote_ref: String,
     pub expected_oid: String,
     pub source_oid: String,
+}
+
+/// Backend-computed facts for destructive actions that do not require remote
+/// transport or patch-coordinate validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DestructiveActionFacts {
+    pub consequences: Vec<Consequence>,
+    pub recoverable: Recoverability,
+    pub blockers: Vec<String>,
 }
 
 impl PushTarget {
@@ -294,6 +304,14 @@ pub trait GitBackend: Send + Sync {
         _sample_limit: u32,
     ) -> Result<(u32, Vec<CommitSummary>), GitError> {
         Err(GitError::NotImplemented("commits_unreachable_from_head"))
+    }
+    async fn destructive_action_facts(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _sample_limit: u32,
+    ) -> Result<DestructiveActionFacts, GitError> {
+        Err(GitError::NotImplemented("destructive_action_facts"))
     }
     /// Fast tree-only file list used to paint commit inspectors before line
     /// statistics finish. Backends may fall back to the full diff.
@@ -456,6 +474,16 @@ pub trait GitBackend: Send + Sync {
         _generations: GenerationSet,
     ) -> Result<String, GitError> {
         Err(GitError::NotImplemented("issue_discard_confirmation"))
+    }
+    /// Issues a short-lived confirmation bound to an exact action and
+    /// generation stamp. Action-specific execution consumes this in P9-06.
+    async fn issue_action_confirmation(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _generations: GenerationSet,
+    ) -> Result<String, GitError> {
+        Err(GitError::NotImplemented("issue_action_confirmation"))
     }
     /// Discards a verified index-to-worktree selection only after atomically
     /// validating and consuming its backend-issued confirmation.

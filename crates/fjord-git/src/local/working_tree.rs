@@ -445,7 +445,7 @@ fn ensure_discard_scope_matches(
                     lines: lines.clone(),
                 }]
         }
-        DestructiveAction::ForceWithLease => false,
+        _ => false,
     };
 
     if matches {
@@ -458,7 +458,7 @@ fn ensure_discard_scope_matches(
 fn action_discard_path(action: &DestructiveAction) -> Option<&str> {
     match action {
         DestructiveAction::Discard { selection } => Some(selection.path()),
-        DestructiveAction::ForceWithLease => None,
+        _ => None,
     }
 }
 

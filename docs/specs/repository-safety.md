@@ -67,11 +67,11 @@ resolution.
 |---|---|
 | Operation state | ✅ P9-01–P9-04 implement the domain model, local detector, typed IPC/query and snapshot-schema-v2 inclusion, cancellable continue/skip/abort controls, and the persistent operation banner. Controls return the newly detected state and advance `working_tree`/`refs`/`history` generations after a launched step. |
 | Conflict UI | ✅ The operation banner identifies the sequencer, rebase progress, external origin, bounded conflicted-file sample, legal controls, and merge-tool handoff. Conflicted files remain flagged in the working list (`WorkingFile.conflicted`); conflict content stays owned by the external merge tool. |
-| Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
-| Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
-| Branch deletion | ✅ `delete_branch`, `delete_remote_branch`. No merged/unmerged check surfaced. |
+| Destructive preflight | ✅ One bounded domain/IPC contract now computes generation-coherent backend facts for Phase 8 discard/force-with-lease and every P9-05 action: reset, local/remote branch and tag deletion, stash pop, checkout discard, operation abort, and Recovery Center restore. Phase 9 actions receive short-lived action-bound tokens; P9-06 still owns shared-dialog rendering and confirmation-time execution wiring. |
+| Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)` plus P9-05 preflight facts for soft/mixed/hard and Recovery Center restore. P9-06 still wires execution through the shared confirmation. |
+| Branch deletion | ✅ `delete_branch`, `delete_remote_branch`; P9-05 preflight reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability. P9-06 still wires execution through it. |
 | Checkout | ⚠️ `checkout_branch`; remote branches materialize via a targeted fetch first (`remote_checkout_refspec` + `checkout_local`). No overwrite preflight, no stash-and-checkout. |
-| Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`. |
+| Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, and exact stash-entry consumption facts. |
 | Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 
@@ -201,6 +201,7 @@ pub enum Consequence {
     StagedChangesDiscarded { count: u32 },
     CommitsUnreachable     { count: u32, sample: Vec<CommitSummary> },
     BranchDeleted          { name: String, unmerged_into: Option<String> },
+    TagDeleted             { name: String, target_commit_id: Option<CommitId> },
     StashEntryConsumed     { index: u32, message: String },
     RemoteRefUpdated       { remote: String, ref_name: String, dropped_commits: u32 },
 }
@@ -221,6 +222,14 @@ example paths or commit subjects, and states recoverability honestly:
 - *Stash* — "your changes will be saved to the stash."
 - *Not recoverable* — "these changes are not stored anywhere and cannot be
   restored." Used for discarded uncommitted work and deleted untracked files.
+
+The backend applies the label to the complete consequence set, not merely to
+the moved ref. Reset and Recovery Center restore are `Reflog` only when they do
+not also discard uncommitted/index state. Local/remote branch deletion, tag
+deletion, stash pop, checkout discard, operation abort, and force-push are
+`NotRecoverable`: a branch/tag/remote server is not required to preserve a
+usable reflog, and a successfully popped stash is no longer durable recovery
+storage even though its content was applied to the worktree.
 
 A preflight is computed immediately before the dialog opens and is re-validated
 against the repository generation at confirmation time; a generation change
@@ -265,10 +274,11 @@ current branch. A blocker disables confirmation and states the reason.
 
 Ownership is intentionally split without splitting the contract: `P8-00`
 implements the model, IPC command, shared dialog, and confirmation-time generation
-revalidation for Phase 8 discard and force-with-lease. `P9-05`/`P9-06` extend the
-same exhaustive action enum and dialog to reset, deletion, stash pop, checkout,
-operation abort, and recovery. Therefore no Phase 8 destructive action waits for a
-future phase, while Phase 9 does not create a competing preflight abstraction.
+revalidation for Phase 8 discard and force-with-lease. `P9-05` extends the same
+exhaustive action enum and backend fact/token path to reset, deletion, stash pop,
+checkout, operation abort, and recovery; `P9-06` extends the dialog and execution
+wiring. Therefore no Phase 8 destructive action waits for a future phase, while
+Phase 9 does not create a competing preflight abstraction.
 
 ### 4. Safe checkout
 

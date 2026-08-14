@@ -11,10 +11,11 @@ use fjord_domain::{
     InteractionTrace, LogCursor, OperationControl, OverviewUiState, OverviewUiStatePatch,
     PatchSelection, PatchSource, RebaseKind, Recoverability, RemoteRef, RepoOperation,
     RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState,
-    SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
-    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode, SearchResultKind,
+    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
+    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -79,6 +80,7 @@ fn generated_types() -> String {
     push_without_trailing_whitespace::<HunkSelection>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);
+    push::<ResetMode>(&mut output, &config);
     push::<DestructiveAction>(&mut output, &config);
     push::<ForceWithLeaseDetails>(&mut output, &config);
     push::<Recoverability>(&mut output, &config);

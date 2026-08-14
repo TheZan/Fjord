@@ -476,8 +476,16 @@ impl DiscardSelection {
     }
 }
 
-/// Phase 8 initially owns only discard and force-with-lease. Phase 9 extends
-/// this exhaustive enum rather than introducing a second confirmation model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum ResetMode {
+    Soft,
+    Mixed,
+    Hard,
+}
+
+/// One exhaustive destructive-action model shared by preflight and execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",
@@ -492,6 +500,14 @@ impl DiscardSelection {
 pub enum DestructiveAction {
     Discard { selection: DiscardSelection },
     ForceWithLease,
+    Reset { commit_id: String, mode: ResetMode },
+    DeleteBranch { name: String },
+    DeleteRemoteBranch { remote: String, branch: String },
+    DeleteTag { name: String },
+    StashPop { index: u32 },
+    CheckoutDiscard { branch: String },
+    AbortOperation,
+    RecoveryRestore { commit_id: String },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only
@@ -550,6 +566,10 @@ pub enum Consequence {
     BranchDeleted {
         name: String,
         unmerged_into: Option<String>,
+    },
+    TagDeleted {
+        name: String,
+        target_commit_id: Option<CommitId>,
     },
     StashEntryConsumed {
         index: u32,

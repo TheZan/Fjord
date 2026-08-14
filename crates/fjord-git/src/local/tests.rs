@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::GenerationSet;
-use fjord_domain::{OperationControl, RebaseKind, RepoOperation};
+use fjord_domain::{
+    Consequence, OperationControl, RebaseKind, Recoverability, RepoOperation, ResetMode,
+};
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
 use std::io::Write as _;
 use std::path::Path;
@@ -3711,6 +3713,440 @@ async fn unreachable_commit_preflight_counts_exactly_and_bounds_the_sample() {
     assert_eq!(count, 7);
     assert_eq!(sample.len(), 5);
     assert_eq!(sample[0].message, "Remote revision 7");
+}
+
+#[tokio::test]
+async fn reset_preflight_reports_lost_work_and_bounds_unreachable_commits() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Base").await.unwrap();
+    for revision in 1..=7 {
+        write_file(&repo_path, "tracked.txt", &format!("revision {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        backend
+            .commit(&repo_path, &format!("Revision {revision}"))
+            .await
+            .unwrap();
+    }
+    write_file(&repo_path, "tracked.txt", "staged\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    write_file(&repo_path, "tracked.txt", "unstaged too\n");
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::Reset {
+                commit_id: base,
+                mode: ResetMode::Hard,
+            },
+            5,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+    assert!(facts
+        .consequences
+        .contains(&Consequence::ModifiedFilesDiscarded {
+            count: 1,
+            sample: vec!["tracked.txt".into()],
+        }));
+    assert!(facts
+        .consequences
+        .contains(&Consequence::StagedChangesDiscarded { count: 1 }));
+    let (count, sample) = facts
+        .consequences
+        .iter()
+        .find_map(|consequence| match consequence {
+            Consequence::CommitsUnreachable { count, sample } => Some((*count, sample)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(count, 7);
+    assert_eq!(sample.len(), 5);
+}
+
+#[tokio::test]
+async fn branch_delete_preflight_blocks_current_and_samples_unmerged_commits() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+
+    let current = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::DeleteBranch {
+                name: "main".into(),
+            },
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(current.blockers, ["current_branch_cannot_be_deleted"]);
+
+    backend
+        .create_branch(&repo_path, "topic", true)
+        .await
+        .unwrap();
+    for revision in 1..=7 {
+        write_file(&repo_path, "tracked.txt", &format!("topic {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Topic").await.unwrap();
+    }
+    backend.checkout(&repo_path, "main").await.unwrap();
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::DeleteBranch {
+                name: "topic".into(),
+            },
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+    assert!(facts.consequences.contains(&Consequence::BranchDeleted {
+        name: "topic".into(),
+        unmerged_into: Some("main".into()),
+    }));
+    let sample = facts
+        .consequences
+        .iter()
+        .find_map(|consequence| match consequence {
+            Consequence::CommitsUnreachable { count, sample } => Some((*count, sample.len())),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(sample, (7, 5));
+}
+
+#[tokio::test]
+async fn remote_branch_delete_preflight_reports_remote_ref_and_bounded_commits() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    backend
+        .create_branch(&repo_path, "remote-topic", true)
+        .await
+        .unwrap();
+    for revision in 1..=7 {
+        write_file(&repo_path, "tracked.txt", &format!("remote {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Remote topic").await.unwrap();
+    }
+    let topic = Repository::open(&repo_path.0)
+        .unwrap()
+        .head()
+        .unwrap()
+        .target()
+        .unwrap();
+    backend.checkout(&repo_path, "main").await.unwrap();
+    Repository::open(&repo_path.0)
+        .unwrap()
+        .reference("refs/remotes/origin/topic", topic, true, "fixture")
+        .unwrap();
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::DeleteRemoteBranch {
+                remote: "origin".into(),
+                branch: "topic".into(),
+            },
+            5,
+        )
+        .await
+        .unwrap();
+    assert!(facts.consequences.contains(&Consequence::RemoteRefUpdated {
+        remote: "origin".into(),
+        ref_name: "refs/heads/topic".into(),
+        dropped_commits: 7,
+    }));
+    assert!(facts.consequences.iter().any(|consequence| matches!(
+        consequence,
+        Consequence::CommitsUnreachable { count: 7, sample } if sample.len() == 5
+    )));
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+}
+
+#[tokio::test]
+async fn tag_delete_preflight_reports_the_exact_tag_target() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    let head = backend.commit(&repo_path, "Base").await.unwrap();
+    backend.create_tag(&repo_path, "v1", &head).await.unwrap();
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::DeleteTag { name: "v1".into() },
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        facts.consequences,
+        [Consequence::TagDeleted {
+            name: "v1".into(),
+            target_commit_id: Some(CommitId(head)),
+        }]
+    );
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+}
+
+#[tokio::test]
+async fn stash_pop_preflight_reports_the_consumed_entry() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    write_file(&repo_path, "tracked.txt", "stash me\n");
+    backend
+        .stash_push(&repo_path, Some("P9 stash"))
+        .await
+        .unwrap();
+
+    let facts = backend
+        .destructive_action_facts(&repo_path, &DestructiveAction::StashPop { index: 0 }, 5)
+        .await
+        .unwrap();
+    assert!(facts.consequences.iter().any(|consequence| matches!(
+        consequence,
+        Consequence::StashEntryConsumed { index: 0, message } if message.contains("P9 stash")
+    )));
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+}
+
+#[tokio::test]
+async fn checkout_discard_preflight_reports_tracked_and_staged_losses_only() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    backend
+        .create_branch(&repo_path, "target", false)
+        .await
+        .unwrap();
+    backend.checkout(&repo_path, "target").await.unwrap();
+    write_file(&repo_path, "untracked.txt", "tracked on target\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("untracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Target file").await.unwrap();
+    backend.checkout(&repo_path, "main").await.unwrap();
+    write_file(&repo_path, "tracked.txt", "staged\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    write_file(&repo_path, "tracked.txt", "unstaged\n");
+    write_file(&repo_path, "untracked.txt", "preserved\n");
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::CheckoutDiscard {
+                branch: "target".into(),
+            },
+            5,
+        )
+        .await
+        .unwrap();
+    assert!(facts
+        .consequences
+        .contains(&Consequence::ModifiedFilesDiscarded {
+            count: 1,
+            sample: vec!["tracked.txt".into()],
+        }));
+    assert!(facts
+        .consequences
+        .contains(&Consequence::StagedChangesDiscarded { count: 1 }));
+    assert!(facts
+        .consequences
+        .contains(&Consequence::UntrackedFilesDeleted {
+            count: 1,
+            sample: vec!["untracked.txt".into()],
+        }));
+}
+
+#[tokio::test]
+async fn operation_abort_preflight_blocks_clean_repositories_and_reports_conflict_losses() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    let clean = backend
+        .destructive_action_facts(&repo_path, &DestructiveAction::AbortOperation, 5)
+        .await
+        .unwrap();
+    assert_eq!(clean.blockers, ["operation_not_in_progress"]);
+
+    backend
+        .create_branch(&repo_path, "topic", true)
+        .await
+        .unwrap();
+    write_file(&repo_path, "tracked.txt", "topic\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Topic").await.unwrap();
+    backend.checkout(&repo_path, "main").await.unwrap();
+    write_file(&repo_path, "tracked.txt", "main\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Main").await.unwrap();
+    assert!(!run_git_status(&backend, &repo_path, &["merge", "topic"]).success());
+
+    let facts = backend
+        .destructive_action_facts(&repo_path, &DestructiveAction::AbortOperation, 5)
+        .await
+        .unwrap();
+    assert!(facts.consequences.iter().any(|consequence| matches!(
+        consequence,
+        Consequence::ModifiedFilesDiscarded { count: 1, .. }
+    )));
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+}
+
+#[tokio::test]
+async fn recovery_restore_preflight_reports_bounded_unreachable_commits() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Base").await.unwrap();
+    for revision in 1..=7 {
+        write_file(&repo_path, "tracked.txt", &format!("revision {revision}\n"));
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Revision").await.unwrap();
+    }
+
+    let facts = backend
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::RecoveryRestore { commit_id: base },
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(facts.recoverable, Recoverability::Reflog);
+    assert!(facts.consequences.iter().any(|consequence| matches!(
+        consequence,
+        Consequence::CommitsUnreachable { count: 7, sample } if sample.len() == 5
+    )));
+}
+
+#[tokio::test]
+async fn every_new_reflog_labeled_action_writes_a_head_reflog_entry() {
+    for mode in [
+        Some(ResetMode::Soft),
+        Some(ResetMode::Mixed),
+        Some(ResetMode::Hard),
+        None,
+    ] {
+        let (_dir, repo_path) = empty_repo();
+        let backend = LocalGitBackend::new();
+        write_file(&repo_path, "tracked.txt", "base\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        let base = backend.commit(&repo_path, "Base").await.unwrap();
+        write_file(&repo_path, "tracked.txt", "next\n");
+        backend
+            .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+            .await
+            .unwrap();
+        backend.commit(&repo_path, "Next").await.unwrap();
+        let action = match mode {
+            Some(mode) => DestructiveAction::Reset {
+                commit_id: base.clone(),
+                mode,
+            },
+            None => DestructiveAction::RecoveryRestore {
+                commit_id: base.clone(),
+            },
+        };
+        let facts = backend
+            .destructive_action_facts(&repo_path, &action, 5)
+            .await
+            .unwrap();
+        assert_eq!(facts.recoverable, Recoverability::Reflog);
+        let before = Repository::open(&repo_path.0)
+            .unwrap()
+            .reflog("HEAD")
+            .unwrap()
+            .len();
+
+        let reset_mode = match mode {
+            Some(ResetMode::Soft) => "soft",
+            Some(ResetMode::Mixed) => "mixed",
+            Some(ResetMode::Hard) | None => "hard",
+        };
+        backend.reset(&repo_path, &base, reset_mode).await.unwrap();
+
+        let after = Repository::open(&repo_path.0)
+            .unwrap()
+            .reflog("HEAD")
+            .unwrap()
+            .len();
+        assert_eq!(after, before + 1, "{action:?} promised a reflog entry");
+    }
 }
 
 #[tokio::test]
