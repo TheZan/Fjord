@@ -44,6 +44,10 @@ export function useRepositorySnapshot(repoId: string): RepositorySnapshotState {
     (stored: StoredRepositorySnapshot, observeGenerations: boolean) => {
       const snapshot = stored.snapshot;
       queryClient.setQueryData(queryKeys.repos.status(repoId), snapshot.status);
+      queryClient.setQueryData(
+        queryKeys.repos.operationState(repoId),
+        snapshot.operationState,
+      );
       queryClient.setQueryData(queryKeys.repos.branches(repoId), snapshot.branches);
       queryClient.setQueryData(queryKeys.repos.tags(repoId), snapshot.tags);
       queryClient.setQueryData<InfiniteData<CommitPage, string | null>>(
@@ -53,7 +57,7 @@ export function useRepositorySnapshot(repoId: string): RepositorySnapshotState {
       queryClient.setQueryData(queryKeys.repos.workingChanges(repoId), snapshot.workingChanges);
 
       if (observeGenerations) {
-        for (const scope of ["status", "working", "history", "refs"] as const) {
+        for (const scope of ["status", "operation", "working", "history", "refs"] as const) {
           observeRepositoryGenerations(repoId, snapshot.generations, scope);
         }
       }

@@ -63,6 +63,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | Command | Input | Output | Notes |
 |---|---|---|---|
 | `get_repo_status` | `{ repo_id }` | `GenerationEnvelope<RepoStatus>` | Live single-repo status |
+| `get_repo_operation_state` | `{ repo_id }` | `GenerationEnvelope<RepoOperationState>` | Live on-disk operation state; query validity depends on `refs` and `working_tree` |
 | `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
 | `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | |

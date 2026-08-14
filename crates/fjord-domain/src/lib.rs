@@ -95,6 +95,7 @@ pub struct GenerationSet {
 #[ts(rename_all = "camelCase")]
 pub struct RepositorySnapshot {
     pub status: RepoStatus,
+    pub operation_state: RepoOperationState,
     pub branches: Vec<BranchInfo>,
     pub tags: Vec<TagInfo>,
     pub first_history_page: CommitPage,

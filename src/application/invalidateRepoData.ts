@@ -16,6 +16,7 @@ export async function invalidateRepoData(
   if (requested.has("status")) {
     keys.push(queryKeys.repos.status(repoId), queryKeys.workspaces.status(workspaceId));
   }
+  if (requested.has("operation")) keys.push(queryKeys.repos.operationState(repoId));
   if (requested.has("working")) {
     keys.push(queryKeys.repos.workingChanges(repoId), queryKeys.repos.fileDiffs(repoId));
   }

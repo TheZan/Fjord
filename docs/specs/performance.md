@@ -355,7 +355,9 @@ the computation started and drop the result if it lost the race.
 
 A **repository snapshot** is the minimum set needed to paint the primary view:
 current branch, ahead/behind/dirty counts, conflict flag, branch and tag lists,
-the first history page, and the working-changes summary.
+the current repository operation state, the first history page, and the
+working-changes summary. Operation state depends on both the `refs` and
+`working_tree` generations.
 
 Persistence: a new `repo_snapshot` table (`fjord-db`), one row per repository,
 storing a versioned serialized snapshot plus `captured_at` and the schema version.

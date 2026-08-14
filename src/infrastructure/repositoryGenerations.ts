@@ -1,10 +1,17 @@
 import type { GenerationSet } from "@/domain/generated";
 
-export type RepositoryGenerationScope = "status" | "working" | "history" | "refs" | "stashes";
+export type RepositoryGenerationScope =
+  | "status"
+  | "operation"
+  | "working"
+  | "history"
+  | "refs"
+  | "stashes";
 export type GenerationDomain = keyof GenerationSet;
 
 const dependencies: Record<RepositoryGenerationScope, GenerationDomain[]> = {
   status: ["workingTree", "refs", "config"],
+  operation: ["workingTree", "refs"],
   working: ["workingTree"],
   history: ["history"],
   refs: ["refs", "config"],

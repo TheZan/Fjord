@@ -5,9 +5,9 @@ use fjord_domain::{
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, RepoStatus, RepositoryEntry, RepositoryId, RepositorySnapshot,
-    SearchResultKind, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId,
+    Recoverability, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -21,7 +21,7 @@ use tokio::task::JoinSet;
 
 const BULK_WORKER_LIMIT: usize = 6;
 const SEARCH_COMMIT_SCAN_LIMIT: u32 = 80;
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 const SNAPSHOT_CAPTURE_ATTEMPTS: usize = 3;
 const PREFLIGHT_CAPTURE_ATTEMPTS: usize = 3;
 const PATCH_DIFF_CAPTURE_ATTEMPTS: usize = 3;
@@ -294,8 +294,9 @@ impl RepoService {
 
         for _ in 0..SNAPSHOT_CAPTURE_ATTEMPTS {
             let before = self.git.generations(&path)?;
-            let (status, branches, tags, first_history_page, working_changes) = tokio::try_join!(
+            let (status, operation_state, branches, tags, first_history_page, working_changes) = tokio::try_join!(
                 self.git.status(&path),
+                self.git.operation_state(&path),
                 self.git.branches(&path),
                 self.git.tags(&path),
                 self.git.log(&path, None, 30),
@@ -306,6 +307,7 @@ impl RepoService {
             if before == after {
                 let snapshot = RepositorySnapshot {
                     status,
+                    operation_state,
                     branches,
                     tags,
                     first_history_page,
@@ -348,6 +350,14 @@ impl RepoService {
     pub async fn get_status(&self, repo_id: RepositoryId) -> Result<RepoStatus, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.status(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_operation_state(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<RepoOperationState, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.operation_state(&RepoPath::new(repo.path)).await?)
     }
 
     pub async fn get_git_environment(&self) -> Result<GitEnvironmentInfo, RepoError> {
@@ -1827,6 +1837,15 @@ mod tests {
                 has_conflict: false,
             })
         }
+        async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(RepoOperationState {
+                operation: fjord_domain::RepoOperation::Normal,
+                conflicted_paths: Vec::new(),
+                available: Vec::new(),
+                detected_externally: false,
+            })
+        }
         async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![BranchInfo {
@@ -3238,6 +3257,12 @@ mod tests {
 
         let status = service.get_status(repo.id).await.unwrap();
         assert_eq!(status.branch.as_deref(), Some("main"));
+
+        let operation_state = service.get_operation_state(repo.id).await.unwrap();
+        assert_eq!(
+            operation_state.operation,
+            fjord_domain::RepoOperation::Normal
+        );
 
         service.open_merge_tool(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));

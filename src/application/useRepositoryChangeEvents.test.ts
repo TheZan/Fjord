@@ -50,6 +50,7 @@ describe("repositoryChangeScopes", () => {
   it("maps only affected repository data", () => {
     forgetRepositoryGenerations();
     observeRepositoryGenerations("repo-1", zeroGenerations(), "status");
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "operation");
     observeRepositoryGenerations("repo-1", zeroGenerations(), "history");
     observeRepositoryGenerations("repo-1", zeroGenerations(), "refs");
     expect(
@@ -64,7 +65,7 @@ describe("repositoryChangeScopes", () => {
         generations: { ...zeroGenerations(), refs: 1, history: 1 },
         statusSummary: null,
       }),
-    ).toEqual(["status", "history", "refs"]);
+    ).toEqual(["status", "operation", "history", "refs"]);
   });
 });
 
@@ -85,6 +86,7 @@ describe("useRepositoryChangeEvents", () => {
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
     queryClient.setQueryData(queryKeys.workspaces.status(repo.workspaceId), []);
     observeRepositoryGenerations(repo.id, zeroGenerations(), "status");
+    observeRepositoryGenerations(repo.id, zeroGenerations(), "operation");
     observeRepositoryGenerations(repo.id, zeroGenerations(), "history");
     observeRepositoryGenerations(repo.id, zeroGenerations(), "refs");
 
@@ -130,6 +132,9 @@ describe("useRepositoryChangeEvents", () => {
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: queryKeys.repos.tags(repo.id),
       });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: queryKeys.repos.operationState(repo.id),
+      });
     });
     expect(tauriClient.listenRepositoryChanges).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(queryKeys.repos.status(repo.id))).toEqual({
@@ -144,7 +149,14 @@ describe("useRepositoryChangeEvents", () => {
   it("does not refetch refs or history when only the working tree generation advances", async () => {
     const queryClient = createQueryClient();
     const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
-    for (const scope of ["status", "working", "history", "refs", "stashes"] as const) {
+    for (const scope of [
+      "status",
+      "operation",
+      "working",
+      "history",
+      "refs",
+      "stashes",
+    ] as const) {
       observeRepositoryGenerations(repo.id, zeroGenerations(), scope);
     }
 
@@ -168,6 +180,9 @@ describe("useRepositoryChangeEvents", () => {
     await waitFor(() => {
       expect(invalidateQueries).toHaveBeenCalledWith({
         queryKey: queryKeys.repos.workingChanges(repo.id),
+      });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: queryKeys.repos.operationState(repo.id),
       });
     });
     const invalidatedKeys = invalidateQueries.mock.calls.map(([filters]) => filters?.queryKey);

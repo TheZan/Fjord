@@ -1,8 +1,9 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, RepoStatus, RepositoryId, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    GlobalSearchResult, LogCursor, PatchSelection, RepoOperationState, RepoStatus, RepositoryId,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
+    WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -64,6 +65,15 @@ pub async fn get_repo_status(
     repo_id: RepositoryId,
 ) -> Result<GenerationEnvelope<RepoStatus>, AppError> {
     let data = state.repos.get_status(repo_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_repo_operation_state(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<GenerationEnvelope<RepoOperationState>, AppError> {
+    let data = state.repos.get_operation_state(repo_id).await?;
     versioned(&state, repo_id, data).await
 }
 

@@ -564,6 +564,12 @@ mod tests {
                 dirty_count: 2,
                 has_conflict: false,
             },
+            operation_state: fjord_domain::RepoOperationState {
+                operation: fjord_domain::RepoOperation::Normal,
+                conflicted_paths: Vec::new(),
+                available: Vec::new(),
+                detected_externally: false,
+            },
             branches: Vec::new(),
             tags: Vec::new(),
             first_history_page: CommitPage {

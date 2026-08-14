@@ -87,6 +87,9 @@ ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
 A snapshot row is revalidated on first use after a restart, because generations
 ([`performance.md`](performance.md) §5) are in-memory and reset to zero — a
 persisted snapshot can never be trusted on the strength of a stale generation.
+The current payload schema version is 2; P9-02 added `operationState`. Version 1
+rows are treated as cache misses so an older payload can never imply `Normal` by
+omission.
 
 ## Conventions
 

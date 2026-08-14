@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use fjord_domain::{Settings, Theme};
+use fjord_domain::{RebaseKind, RepoOperation, Settings, Theme};
 use fjord_ports::GitOperationContext;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use tempfile::TempDir;
@@ -58,6 +58,41 @@ fn fixture_repo(name: &str) -> (TempDir, PathBuf) {
     drop(repo);
 
     (dir, path)
+}
+
+fn run_git(repo: &std::path::Path, arguments: &[&str]) -> std::process::Output {
+    std::process::Command::new("git")
+        .args(arguments)
+        .current_dir(repo)
+        .output()
+        .expect("system Git should be available to the integration test")
+}
+
+fn run_git_success(repo: &std::path::Path, arguments: &[&str]) {
+    let output = run_git(repo, arguments);
+    assert!(
+        output.status.success(),
+        "git {} failed: {}",
+        arguments.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn commit_with_system_git(repo: &std::path::Path, content: &[u8], message: &str) {
+    std::fs::write(repo.join("README.md"), content).unwrap();
+    run_git_success(repo, &["add", "README.md"]);
+    run_git_success(
+        repo,
+        &[
+            "-c",
+            "user.name=Fjord Test",
+            "-c",
+            "user.email=test@fjord.invalid",
+            "commit",
+            "-m",
+            message,
+        ],
+    );
 }
 
 /// Settings survive a round trip through the real SQLite store, including the
@@ -397,6 +432,68 @@ async fn snapshot_revalidation_detects_an_out_of_band_git_commit() {
             .commits
             .len(),
         2
+    );
+}
+
+/// P9-02. A rebase started by another Git client must replace the persisted
+/// normal state in one live snapshot refresh, without rebuilding services.
+#[tokio::test]
+async fn snapshot_refresh_reports_a_cli_created_rebase_without_restart() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("rebase-state");
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+
+    let initial = services
+        .repos
+        .capture_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        initial.snapshot.operation_state.operation,
+        RepoOperation::Normal
+    );
+
+    run_git_success(&repo_path, &["branch", "topic"]);
+    commit_with_system_git(&repo_path, b"main\n", "main change");
+    run_git_success(&repo_path, &["checkout", "topic"]);
+    commit_with_system_git(&repo_path, b"topic\n", "topic change");
+    let output = run_git(&repo_path, &["rebase", "--merge", "main"]);
+    assert!(
+        !output.status.success(),
+        "the fixture must stop on a conflict"
+    );
+
+    let refreshed = services
+        .repos
+        .revalidate_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+
+    assert!(refreshed.changed);
+    assert!(matches!(
+        refreshed.snapshot.snapshot.operation_state.operation,
+        RepoOperation::Rebase {
+            rebase_kind: RebaseKind::Merge,
+            current: 1,
+            total: 1,
+            ..
+        }
+    ));
+    assert!(
+        refreshed
+            .snapshot
+            .snapshot
+            .operation_state
+            .detected_externally
     );
 }
 

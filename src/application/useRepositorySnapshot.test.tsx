@@ -22,6 +22,12 @@ vi.mock("@/infrastructure/tauriClient", () => ipc);
 function snapshot(branch: string, message: string): RepositorySnapshot {
   return {
     status: { branch, ahead: 0, behind: 0, dirtyCount: 1, hasConflict: false },
+    operationState: {
+      operation: { kind: "normal" },
+      conflictedPaths: [],
+      available: [],
+      detectedExternally: false,
+    },
     branches: [
       {
         name: branch,
@@ -101,6 +107,9 @@ describe("useRepositorySnapshot", () => {
 
     expect(await screen.findByText("unvalidated:saved")).toBeInTheDocument();
     expect(client.getQueryData(queryKeys.repos.branches("repo-1"))).toEqual(persisted.branches);
+    expect(client.getQueryData(queryKeys.repos.operationState("repo-1"))).toEqual(
+      persisted.operationState,
+    );
     expect(client.getQueryData(queryKeys.repos.workingChanges("repo-1"))).toEqual(
       persisted.workingChanges,
     );

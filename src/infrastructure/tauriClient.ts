@@ -14,6 +14,7 @@ import type {
   GitAuthPrompt,
   InteractionTrace,
   PatchSelection,
+  RepoOperationState,
   SnapshotRevalidation,
   StoredRepositorySnapshot,
   UiState,
@@ -372,6 +373,13 @@ export function getTags(repoId: string, signal?: AbortSignal): Promise<TagInfo[]
 
 export function getRepoStatus(repoId: string, signal?: AbortSignal): Promise<RepoStatus> {
   return invokeVersioned("get_repo_status", { repoId }, repoId, "status", signal);
+}
+
+export function getRepoOperationState(
+  repoId: string,
+  signal?: AbortSignal,
+): Promise<RepoOperationState> {
+  return invokeVersioned("get_repo_operation_state", { repoId }, repoId, "operation", signal);
 }
 
 export function getCommitLog(

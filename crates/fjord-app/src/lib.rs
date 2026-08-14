@@ -91,6 +91,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_branches,
             commands::get_tags,
             commands::get_repo_status,
+            commands::get_repo_operation_state,
             commands::get_repository_snapshot,
             commands::capture_repository_snapshot,
             commands::revalidate_repository_snapshot,

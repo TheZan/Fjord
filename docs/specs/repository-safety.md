@@ -65,7 +65,7 @@ resolution.
 
 | Area | State |
 |---|---|
-| Operation state | ⚠️ P9-01 implements the domain model and local `GitBackend::operation_state` detector for `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, and unborn branches. P9-02 still owns IPC, snapshot inclusion, and generation-scoped frontend delivery. |
+| Operation state | ✅ P9-01/P9-02 implement the domain model, local `GitBackend::operation_state` detector, typed IPC/query, and snapshot-schema-v2 inclusion for `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, and unborn branches. The query invalidates on either `refs` or `working_tree`; P9-04 still owns the banner. |
 | Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
 | Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
