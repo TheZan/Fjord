@@ -808,6 +808,12 @@ async fn fresh_install_smoke_restores_each_repository_once_after_restart() {
         .await
         .unwrap()
         .repository;
+    {
+        let repo = Repository::open(&created.path).unwrap();
+        let mut config = repo.config().unwrap();
+        config.set_str("user.name", "Fjord Test").unwrap();
+        config.set_str("user.email", "test@fjord.invalid").unwrap();
+    }
     std::fs::write(created.path.join("README.md"), b"fresh repository\n").unwrap();
     services
         .repos
