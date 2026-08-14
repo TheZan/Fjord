@@ -46,7 +46,11 @@
     "placeholder": "Поиск репозиториев, веток и коммитов",
     "hint": "Введите не менее двух символов.",
     "empty": "Ничего не найдено.",
-    "kind": { "repository": "Репозиторий", "branch": "Ветка", "commit": "Коммит" }
+    "kind": {
+      "repository": "Репозиторий",
+      "branch": "Ветка",
+      "commit": "Коммит"
+    }
   },
   "shortcuts": {
     "title": "Сочетания клавиш",
@@ -62,7 +66,13 @@
     "search_repository": "Искать в активном репозитории",
     "commit": "Создать коммит из staged-изменений",
     "refresh_repository": "Обновить активный репозиторий",
-    "key": { "primary": "Ctrl/Cmd", "alt": "Alt", "shift": "Shift", "escape": "Esc", "enter": "Enter" }
+    "key": {
+      "primary": "Ctrl/Cmd",
+      "alt": "Alt",
+      "shift": "Shift",
+      "escape": "Esc",
+      "enter": "Enter"
+    }
   },
   "commitInspector": {
     "empty": "Нет изменённых файлов.",
@@ -97,9 +107,97 @@
     "rowLabel": "{{message}}, автор {{author}}, коммит {{sha}}"
   },
   "context": {
-    "checkout": "Переключиться на ветку", "createBranchHere": "Создать ветку здесь", "createTagHere": "Создать тег здесь", "renameBranch": "Переименовать ветку", "setUpstream": "Задать upstream…", "unsetUpstream": "Удалить upstream", "publishBranch": "Опубликовать ветку", "upstreamBranch": "Удалённая ветка", "setUpstreamDescription": "Выберите удалённую ветку, которую будет отслеживать {{branch}}.", "deleteBranch": "Удалить ветку", "deleteRemoteBranch": "Удалить удалённую ветку", "deleteTag": "Удалить тег", "copyBranchName": "Копировать имя ветки", "copyTagName": "Копировать имя тега", "copyCommitSha": "Копировать SHA коммита", "cherryPick": "Перенести коммит", "revertCommit": "Отменить коммит", "resetToCommit": "Сбросить текущую ветку к этому коммиту", "branchName": "Имя ветки", "tagName": "Имя тега", "create": "Создать", "rename": "Переименовать", "cancel": "Отмена", "resetMode": "Режим", "resetSoft": "Soft — сохранить изменения в индексе", "resetMixed": "Mixed — сохранить изменения в файлах", "resetHard": "Hard — удалить изменения в файлах", "createBranchDescription": "Новая ветка будет создана от {{commit}}.", "createTagDescription": "Новый тег будет указывать на {{commit}}.", "renameBranchDescription": "Переименовать {{branch}}.",
+    "checkout": "Переключиться на ветку",
+    "createBranchHere": "Создать ветку здесь",
+    "createTagHere": "Создать тег здесь",
+    "renameBranch": "Переименовать ветку",
+    "setUpstream": "Задать upstream…",
+    "unsetUpstream": "Удалить upstream",
+    "publishBranch": "Опубликовать ветку",
+    "upstreamBranch": "Удалённая ветка",
+    "setUpstreamDescription": "Выберите удалённую ветку, которую будет отслеживать {{branch}}.",
+    "deleteBranch": "Удалить ветку",
+    "deleteRemoteBranch": "Удалить удалённую ветку",
+    "deleteTag": "Удалить тег",
+    "copyBranchName": "Копировать имя ветки",
+    "copyTagName": "Копировать имя тега",
+    "copyCommitSha": "Копировать SHA коммита",
+    "cherryPick": "Перенести коммит",
+    "revertCommit": "Отменить коммит",
+    "resetToCommit": "Сбросить текущую ветку к этому коммиту",
+    "branchName": "Имя ветки",
+    "tagName": "Имя тега",
+    "create": "Создать",
+    "rename": "Переименовать",
+    "cancel": "Отмена",
+    "resetMode": "Режим",
+    "resetSoft": "Soft — сохранить изменения в индексе",
+    "resetMixed": "Mixed — сохранить изменения в файлах",
+    "resetHard": "Hard — удалить изменения в файлах",
+    "createBranchDescription": "Новая ветка будет создана от {{commit}}.",
+    "createTagDescription": "Новый тег будет указывать на {{commit}}.",
+    "renameBranchDescription": "Переименовать {{branch}}.",
     "confirm": {
-      "deleteBranch": { "title": "Удалить ветку?", "description": "Ветка {{target}} будет удалена из репозитория.", "button": "Удалить ветку" }, "deleteRemoteBranch": { "title": "Удалить удалённую ветку?", "description": "Ветка {{target}} будет удалена из удалённого репозитория.", "button": "Удалить удалённую ветку" }, "deleteTag": { "title": "Удалить тег?", "description": "Тег {{target}} будет удалён из репозитория.", "button": "Удалить тег" }, "cherryPick": { "title": "Перенести коммит?", "description": "Коммит {{target}} будет применён к текущей ветке.", "button": "Перенести" }, "revert": { "title": "Отменить коммит?", "description": "Будет создан новый коммит, отменяющий {{target}}.", "button": "Отменить" }, "reset": { "title": "Сбросить текущую ветку?", "description": "Текущая ветка будет перемещена на {{target}}.", "button": "Сбросить" }, "fetch": { "title": "Получить изменения из origin?", "description": "Будут загружены актуальные ссылки из origin.", "button": "Получить" }, "pull": { "title": "Забрать изменения из origin?", "description": "Изменения из origin будут загружены и применены.", "button": "Забрать" }, "push": { "title": "Отправить изменения?", "description": "Отправить текущую ветку в её upstream-репозиторий.", "button": "Отправить" }, "remoteCheckout": { "title": "Переключиться на удалённую ветку?", "description": "Для {{target}} будет создана локальная tracking-ветка.", "button": "Переключиться" }, "publishBranch": { "title": "Опубликовать ветку?", "description": "Отправить {{target}} в origin и отслеживать её.", "button": "Опубликовать ветку" }, "stashPop": { "title": "Применить и удалить последний stash?", "description": "Последний stash будет применён к рабочей директории и удалён.", "button": "Применить stash" }
+      "deleteBranch": {
+        "title": "Удалить ветку?",
+        "description": "Ветка {{target}} будет удалена из репозитория.",
+        "button": "Удалить ветку"
+      },
+      "deleteRemoteBranch": {
+        "title": "Удалить удалённую ветку?",
+        "description": "Ветка {{target}} будет удалена из удалённого репозитория.",
+        "button": "Удалить удалённую ветку"
+      },
+      "deleteTag": {
+        "title": "Удалить тег?",
+        "description": "Тег {{target}} будет удалён из репозитория.",
+        "button": "Удалить тег"
+      },
+      "cherryPick": {
+        "title": "Перенести коммит?",
+        "description": "Коммит {{target}} будет применён к текущей ветке.",
+        "button": "Перенести"
+      },
+      "revert": {
+        "title": "Отменить коммит?",
+        "description": "Будет создан новый коммит, отменяющий {{target}}.",
+        "button": "Отменить"
+      },
+      "reset": {
+        "title": "Сбросить текущую ветку?",
+        "description": "Текущая ветка будет перемещена на {{target}}.",
+        "button": "Сбросить"
+      },
+      "fetch": {
+        "title": "Получить изменения из origin?",
+        "description": "Будут загружены актуальные ссылки из origin.",
+        "button": "Получить"
+      },
+      "pull": {
+        "title": "Забрать изменения из origin?",
+        "description": "Изменения из origin будут загружены и применены.",
+        "button": "Забрать"
+      },
+      "push": {
+        "title": "Отправить изменения?",
+        "description": "Отправить текущую ветку в её upstream-репозиторий.",
+        "button": "Отправить"
+      },
+      "remoteCheckout": {
+        "title": "Переключиться на удалённую ветку?",
+        "description": "Для {{target}} будет создана локальная tracking-ветка.",
+        "button": "Переключиться"
+      },
+      "publishBranch": {
+        "title": "Опубликовать ветку?",
+        "description": "Отправить {{target}} в origin и отслеживать её.",
+        "button": "Опубликовать ветку"
+      },
+      "stashPop": {
+        "title": "Применить и удалить последний stash?",
+        "description": "Последний stash будет применён к рабочей директории и удалён.",
+        "button": "Применить stash"
+      }
     }
   },
   "dashboard": {
@@ -156,7 +254,13 @@
       "addition": "Снять выбор с добавленной строки {{line}}",
       "deletion": "Снять выбор с удалённой строки {{line}}"
     },
-    "whitespace": { "label": "Обработка пробелов", "show": "Показывать пробелы", "ignoreTrailing": "Игнорировать конечные", "ignoreAll": "Игнорировать все пробелы", "partialActionsDisabled": "Действия с фрагментами и строками недоступны при игнорировании пробелов: показанное сравнение не совпадает с патчем Git." },
+    "whitespace": {
+      "label": "Обработка пробелов",
+      "show": "Показывать пробелы",
+      "ignoreTrailing": "Игнорировать конечные",
+      "ignoreAll": "Игнорировать все пробелы",
+      "partialActionsDisabled": "Действия с фрагментами и строками недоступны при игнорировании пробелов: показанное сравнение не совпадает с патчем Git."
+    },
     "tooLarge": "Размер файла — {{size}}, что превышает лимит отображения 10 МБ. Содержимое не загружено."
   },
   "fileView": {
@@ -235,10 +339,22 @@
     "description": "Выберите способ добавления Git-репозитория в это рабочее пространство.",
     "unavailable": "Будет доступно на следующем этапе онбординга",
     "actions": {
-      "openExisting": { "label": "Открыть существующий репозиторий", "description": "Выберите один существующий Git-репозиторий на диске." },
-      "scanFolder": { "label": "Найти репозитории в папке", "description": "Найдите существующие Git-репозитории непосредственно в папке." },
-      "clone": { "label": "Клонировать репозиторий", "description": "Клонируйте репозиторий по Git URL." },
-      "create": { "label": "Создать репозиторий", "description": "Инициализируйте новый локальный Git-репозиторий." }
+      "openExisting": {
+        "label": "Открыть существующий репозиторий",
+        "description": "Выберите один существующий Git-репозиторий на диске."
+      },
+      "scanFolder": {
+        "label": "Найти репозитории в папке",
+        "description": "Найдите существующие Git-репозитории непосредственно в папке."
+      },
+      "clone": {
+        "label": "Клонировать репозиторий",
+        "description": "Клонируйте репозиторий по Git URL."
+      },
+      "create": {
+        "label": "Создать репозиторий",
+        "description": "Инициализируйте новый локальный Git-репозиторий."
+      }
     }
   },
   "clone": {
@@ -254,7 +370,11 @@
     "back": "Назад",
     "submit": "Клонировать репозиторий",
     "cloning": "Клонирование…",
-    "validation": { "url": "Введите URL репозитория.", "destination": "Выберите папку назначения.", "name": "Введите одно допустимое имя папки." }
+    "validation": {
+      "url": "Введите URL репозитория.",
+      "destination": "Выберите папку назначения.",
+      "name": "Введите одно допустимое имя папки."
+    }
   },
   "createRepository": {
     "title": "Создать репозиторий",
@@ -267,7 +387,11 @@
     "back": "Назад",
     "submit": "Создать и открыть",
     "creating": "Создание…",
-    "validation": { "name": "Введите допустимое имя репозитория.", "destination": "Выберите родительскую папку.", "branch": "Введите допустимое имя начальной ветки." }
+    "validation": {
+      "name": "Введите допустимое имя репозитория.",
+      "destination": "Выберите родительскую папку.",
+      "branch": "Введите допустимое имя начальной ветки."
+    }
   },
   "operations": {
     "running": "Выполняется…",
@@ -282,8 +406,16 @@
     "blockedActions": "Переключение ветки, pull и применение stash недоступны до завершения операции.",
     "conflicts": "Файлы с конфликтами ({{count}})",
     "moreConflicts": "И ещё {{count}}…",
-    "controls": { "continue": "Продолжить", "skip": "Пропустить", "abort": "Прервать" },
-    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "интерактивный" },
+    "controls": {
+      "continue": "Продолжить",
+      "skip": "Пропустить",
+      "abort": "Прервать"
+    },
+    "rebaseKinds": {
+      "apply": "apply",
+      "merge": "merge",
+      "interactive": "интерактивный"
+    },
     "states": {
       "merge": "Выполняется слияние",
       "rebase": "Выполняется rebase · {{current}} / {{total}} · {{kind}}",
@@ -302,16 +434,47 @@
     "error": "Не удалось проверить последствия. Ничего не изменено.",
     "blocked": "Действие нельзя продолжить:",
     "commitSample": "Примеры коммитов",
-    "discard": { "title": "Отменить изменения?", "confirm": "Отменить изменения" },
-    "forceWithLease": { "title": "Принудительно отправить с lease?", "confirm": "Принудительно отправить", "expectedOid": "Ожидаемый коммит в remote: {{oid}}" },
-    "reset": { "title": "Сбросить состояние до этого коммита?", "confirm": "Сбросить" },
-    "deleteBranch": { "title": "Удалить эту ветку?", "confirm": "Удалить ветку" },
-    "deleteRemoteBranch": { "title": "Удалить ветку в remote?", "confirm": "Удалить ветку в remote" },
-    "deleteTag": { "title": "Удалить этот тег?", "confirm": "Удалить тег" },
-    "stashPop": { "title": "Применить и удалить этот stash?", "confirm": "Применить stash" },
-    "checkoutDiscard": { "title": "Отменить изменения и переключиться?", "confirm": "Отменить и переключиться" },
-    "abortOperation": { "title": "Прервать операцию Git?", "confirm": "Прервать операцию" },
-    "recoveryRestore": { "title": "Восстановить HEAD до этого состояния?", "confirm": "Восстановить HEAD" },
+    "discard": {
+      "title": "Отменить изменения?",
+      "confirm": "Отменить изменения"
+    },
+    "forceWithLease": {
+      "title": "Принудительно отправить с lease?",
+      "confirm": "Принудительно отправить",
+      "expectedOid": "Ожидаемый коммит в remote: {{oid}}"
+    },
+    "reset": {
+      "title": "Сбросить состояние до этого коммита?",
+      "confirm": "Сбросить"
+    },
+    "deleteBranch": {
+      "title": "Удалить эту ветку?",
+      "confirm": "Удалить ветку"
+    },
+    "deleteRemoteBranch": {
+      "title": "Удалить ветку в remote?",
+      "confirm": "Удалить ветку в remote"
+    },
+    "deleteTag": {
+      "title": "Удалить этот тег?",
+      "confirm": "Удалить тег"
+    },
+    "stashPop": {
+      "title": "Применить и удалить этот stash?",
+      "confirm": "Применить stash"
+    },
+    "checkoutDiscard": {
+      "title": "Отменить изменения и переключиться?",
+      "confirm": "Отменить и переключиться"
+    },
+    "abortOperation": {
+      "title": "Прервать операцию Git?",
+      "confirm": "Прервать операцию"
+    },
+    "recoveryRestore": {
+      "title": "Восстановить HEAD до этого состояния?",
+      "confirm": "Восстановить HEAD"
+    },
     "recoverability": {
       "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
       "stash": "Изменения будут сохранены в stash.",
@@ -470,5 +633,30 @@
     "expand": "Раскрыть рабочее пространство",
     "collapse": "Свернуть рабочее пространство",
     "noRepositories": "Нет репозиториев"
+  },
+  "update": {
+    "available": {
+      "title": "Доступно обновление",
+      "description": "Доступна версия Fjord {{version}}. Вы используете {{currentVersion}}.",
+      "later": "Позже",
+      "updateAndRestart": "Обновить и перезапустить"
+    },
+    "downloading": {
+      "title": "Обновление Fjord…",
+      "progressKnown": "Загружено {{downloaded}} из {{total}}",
+      "progressUnknown": "Загрузка… уже {{downloaded}}",
+      "noCancel": "Это может занять несколько минут. Fjord перезапустится автоматически по завершении."
+    },
+    "relaunching": {
+      "title": "Перезапуск Fjord…",
+      "description": "Обновление установлено. Fjord перезапускается, чтобы завершить его применение."
+    },
+    "failed": {
+      "title": "Не удалось обновить",
+      "description": "Fjord не смог установить обновление. Текущая установка не изменена.",
+      "relaunchDescription": "Обновление установлено, но Fjord не смог перезапуститься автоматически. Перезапустите Fjord вручную.",
+      "close": "Закрыть",
+      "tryAgain": "Повторить"
+    }
   }
 }

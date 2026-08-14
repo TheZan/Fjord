@@ -46,7 +46,11 @@
     "placeholder": "Rechercher dépôts, branches et commits",
     "hint": "Saisissez au moins deux caractères.",
     "empty": "Aucun résultat trouvé.",
-    "kind": { "repository": "Dépôt", "branch": "Branche", "commit": "Commit" }
+    "kind": {
+      "repository": "Dépôt",
+      "branch": "Branche",
+      "commit": "Commit"
+    }
   },
   "shortcuts": {
     "title": "Raccourcis clavier",
@@ -62,7 +66,13 @@
     "search_repository": "Rechercher dans le dépôt actif",
     "commit": "Commiter les changements indexés",
     "refresh_repository": "Actualiser le dépôt actif",
-    "key": { "primary": "Ctrl/Cmd", "alt": "Alt", "shift": "Maj", "escape": "Échap", "enter": "Entrée" }
+    "key": {
+      "primary": "Ctrl/Cmd",
+      "alt": "Alt",
+      "shift": "Maj",
+      "escape": "Échap",
+      "enter": "Entrée"
+    }
   },
   "commitInspector": {
     "empty": "Aucun fichier modifié.",
@@ -97,8 +107,98 @@
     "rowLabel": "{{message}}, par {{author}}, commit {{sha}}"
   },
   "context": {
-    "checkout": "Checkout", "createBranchHere": "Create branch here", "createTagHere": "Create tag here", "renameBranch": "Rename branch", "setUpstream": "Définir l’upstream…", "unsetUpstream": "Supprimer l’upstream", "publishBranch": "Publier la branche", "upstreamBranch": "Branche distante", "setUpstreamDescription": "Choisissez la branche distante que {{branch}} suivra.", "deleteBranch": "Delete branch", "deleteRemoteBranch": "Delete remote branch", "deleteTag": "Delete tag", "copyBranchName": "Copy branch name", "copyTagName": "Copy tag name", "copyCommitSha": "Copy commit SHA", "cherryPick": "Cherry-pick commit", "revertCommit": "Revert commit", "resetToCommit": "Reset current branch to this commit", "branchName": "Branch name", "tagName": "Tag name", "create": "Create", "rename": "Rename", "cancel": "Cancel", "resetMode": "Mode", "resetSoft": "Soft - keep staged changes", "resetMixed": "Mixed - keep file changes", "resetHard": "Hard - discard file changes", "createBranchDescription": "A new branch will start at {{commit}}.", "createTagDescription": "A new tag will point to {{commit}}.", "renameBranchDescription": "Rename {{branch}}.",
-    "confirm": { "deleteBranch": { "title": "Delete branch?", "description": "Delete {{target}} from this repository.", "button": "Delete branch" }, "deleteRemoteBranch": { "title": "Delete remote branch?", "description": "Delete {{target}} from its remote repository.", "button": "Delete remote branch" }, "deleteTag": { "title": "Delete tag?", "description": "Delete {{target}} from this repository.", "button": "Delete tag" }, "cherryPick": { "title": "Cherry-pick commit?", "description": "Apply {{target}} to the current branch.", "button": "Cherry-pick" }, "revert": { "title": "Revert commit?", "description": "Create a new commit that reverses {{target}}.", "button": "Revert" }, "reset": { "title": "Reset current branch?", "description": "Move the current branch to {{target}}.", "button": "Reset" }, "fetch": { "title": "Fetch from origin?", "description": "Download the latest refs from origin.", "button": "Fetch" }, "pull": { "title": "Pull from origin?", "description": "Fetch and integrate changes from origin.", "button": "Pull" }, "push": { "title": "Envoyer les modifications ?", "description": "Envoie la branche actuelle vers son dépôt distant upstream.", "button": "Envoyer" }, "remoteCheckout": { "title": "Checkout remote branch?", "description": "Create a local tracking branch for {{target}}.", "button": "Checkout" }, "publishBranch": { "title": "Publier la branche ?", "description": "Envoie {{target}} vers origin et la suit désormais.", "button": "Publier la branche" }, "stashPop": { "title": "Apply and drop latest stash?", "description": "The latest stash will be applied to the working directory and removed.", "button": "Apply stash" } }
+    "checkout": "Checkout",
+    "createBranchHere": "Create branch here",
+    "createTagHere": "Create tag here",
+    "renameBranch": "Rename branch",
+    "setUpstream": "Définir l’upstream…",
+    "unsetUpstream": "Supprimer l’upstream",
+    "publishBranch": "Publier la branche",
+    "upstreamBranch": "Branche distante",
+    "setUpstreamDescription": "Choisissez la branche distante que {{branch}} suivra.",
+    "deleteBranch": "Delete branch",
+    "deleteRemoteBranch": "Delete remote branch",
+    "deleteTag": "Delete tag",
+    "copyBranchName": "Copy branch name",
+    "copyTagName": "Copy tag name",
+    "copyCommitSha": "Copy commit SHA",
+    "cherryPick": "Cherry-pick commit",
+    "revertCommit": "Revert commit",
+    "resetToCommit": "Reset current branch to this commit",
+    "branchName": "Branch name",
+    "tagName": "Tag name",
+    "create": "Create",
+    "rename": "Rename",
+    "cancel": "Cancel",
+    "resetMode": "Mode",
+    "resetSoft": "Soft - keep staged changes",
+    "resetMixed": "Mixed - keep file changes",
+    "resetHard": "Hard - discard file changes",
+    "createBranchDescription": "A new branch will start at {{commit}}.",
+    "createTagDescription": "A new tag will point to {{commit}}.",
+    "renameBranchDescription": "Rename {{branch}}.",
+    "confirm": {
+      "deleteBranch": {
+        "title": "Delete branch?",
+        "description": "Delete {{target}} from this repository.",
+        "button": "Delete branch"
+      },
+      "deleteRemoteBranch": {
+        "title": "Delete remote branch?",
+        "description": "Delete {{target}} from its remote repository.",
+        "button": "Delete remote branch"
+      },
+      "deleteTag": {
+        "title": "Delete tag?",
+        "description": "Delete {{target}} from this repository.",
+        "button": "Delete tag"
+      },
+      "cherryPick": {
+        "title": "Cherry-pick commit?",
+        "description": "Apply {{target}} to the current branch.",
+        "button": "Cherry-pick"
+      },
+      "revert": {
+        "title": "Revert commit?",
+        "description": "Create a new commit that reverses {{target}}.",
+        "button": "Revert"
+      },
+      "reset": {
+        "title": "Reset current branch?",
+        "description": "Move the current branch to {{target}}.",
+        "button": "Reset"
+      },
+      "fetch": {
+        "title": "Fetch from origin?",
+        "description": "Download the latest refs from origin.",
+        "button": "Fetch"
+      },
+      "pull": {
+        "title": "Pull from origin?",
+        "description": "Fetch and integrate changes from origin.",
+        "button": "Pull"
+      },
+      "push": {
+        "title": "Envoyer les modifications ?",
+        "description": "Envoie la branche actuelle vers son dépôt distant upstream.",
+        "button": "Envoyer"
+      },
+      "remoteCheckout": {
+        "title": "Checkout remote branch?",
+        "description": "Create a local tracking branch for {{target}}.",
+        "button": "Checkout"
+      },
+      "publishBranch": {
+        "title": "Publier la branche ?",
+        "description": "Envoie {{target}} vers origin et la suit désormais.",
+        "button": "Publier la branche"
+      },
+      "stashPop": {
+        "title": "Apply and drop latest stash?",
+        "description": "The latest stash will be applied to the working directory and removed.",
+        "button": "Apply stash"
+      }
+    }
   },
   "dashboard": {
     "title": "Tableau de bord",
@@ -154,7 +254,13 @@
       "addition": "Désélectionner la ligne ajoutée {{line}}",
       "deletion": "Désélectionner la ligne supprimée {{line}}"
     },
-    "whitespace": { "label": "Gestion des espaces", "show": "Afficher les espaces", "ignoreTrailing": "Ignorer les espaces finaux", "ignoreAll": "Ignorer tous les espaces", "partialActionsDisabled": "Les actions par bloc ou ligne sont indisponibles lorsque les espaces sont ignorés, car le diff affiché ne correspond pas au patch Git." },
+    "whitespace": {
+      "label": "Gestion des espaces",
+      "show": "Afficher les espaces",
+      "ignoreTrailing": "Ignorer les espaces finaux",
+      "ignoreAll": "Ignorer tous les espaces",
+      "partialActionsDisabled": "Les actions par bloc ou ligne sont indisponibles lorsque les espaces sont ignorés, car le diff affiché ne correspond pas au patch Git."
+    },
     "tooLarge": "Ce fichier fait {{size}} et dépasse la limite d’affichage de 10 Mo. Son contenu n’a pas été chargé."
   },
   "fileView": {
@@ -233,10 +339,22 @@
     "description": "Choisissez comment ajouter un dépôt Git à ce workspace.",
     "unavailable": "Disponible dans une prochaine étape de l’accueil",
     "actions": {
-      "openExisting": { "label": "Ouvrir un dépôt existant", "description": "Choisissez un dépôt Git existant sur le disque." },
-      "scanFolder": { "label": "Rechercher des dépôts dans un dossier", "description": "Trouvez les dépôts Git existants directement dans un dossier." },
-      "clone": { "label": "Cloner un dépôt", "description": "Clonez un dépôt depuis une URL Git." },
-      "create": { "label": "Créer un dépôt", "description": "Initialisez un nouveau dépôt Git local." }
+      "openExisting": {
+        "label": "Ouvrir un dépôt existant",
+        "description": "Choisissez un dépôt Git existant sur le disque."
+      },
+      "scanFolder": {
+        "label": "Rechercher des dépôts dans un dossier",
+        "description": "Trouvez les dépôts Git existants directement dans un dossier."
+      },
+      "clone": {
+        "label": "Cloner un dépôt",
+        "description": "Clonez un dépôt depuis une URL Git."
+      },
+      "create": {
+        "label": "Créer un dépôt",
+        "description": "Initialisez un nouveau dépôt Git local."
+      }
     }
   },
   "clone": {
@@ -252,7 +370,11 @@
     "back": "Retour",
     "submit": "Cloner le dépôt",
     "cloning": "Clonage…",
-    "validation": { "url": "Saisissez l’URL du dépôt.", "destination": "Choisissez un dossier de destination.", "name": "Saisissez un nom de dossier valide." }
+    "validation": {
+      "url": "Saisissez l’URL du dépôt.",
+      "destination": "Choisissez un dossier de destination.",
+      "name": "Saisissez un nom de dossier valide."
+    }
   },
   "createRepository": {
     "title": "Créer un dépôt",
@@ -265,7 +387,11 @@
     "back": "Retour",
     "submit": "Créer et ouvrir",
     "creating": "Création…",
-    "validation": { "name": "Saisissez un nom de dépôt valide.", "destination": "Choisissez un dossier parent.", "branch": "Saisissez un nom de branche initiale valide." }
+    "validation": {
+      "name": "Saisissez un nom de dépôt valide.",
+      "destination": "Choisissez un dossier parent.",
+      "branch": "Saisissez un nom de branche initiale valide."
+    }
   },
   "operations": {
     "running": "En cours…",
@@ -280,8 +406,16 @@
     "blockedActions": "Le checkout, le pull et le stash pop sont indisponibles jusqu'à la fin de cette opération.",
     "conflicts": "Fichiers en conflit ({{count}})",
     "moreConflicts": "Et {{count}} de plus…",
-    "controls": { "continue": "Continuer", "skip": "Ignorer", "abort": "Abandonner" },
-    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "interactif" },
+    "controls": {
+      "continue": "Continuer",
+      "skip": "Ignorer",
+      "abort": "Abandonner"
+    },
+    "rebaseKinds": {
+      "apply": "apply",
+      "merge": "merge",
+      "interactive": "interactif"
+    },
     "states": {
       "merge": "Fusion en cours",
       "rebase": "Rebase en cours · {{current}} / {{total}} · {{kind}}",
@@ -300,16 +434,47 @@
     "error": "Les conséquences n’ont pas pu être vérifiées. Rien n’a été modifié.",
     "blocked": "Cette action ne peut pas continuer :",
     "commitSample": "Exemples de commits",
-    "discard": { "title": "Abandonner les modifications ?", "confirm": "Abandonner les modifications" },
-    "forceWithLease": { "title": "Forcer le push avec lease ?", "confirm": "Forcer le push", "expectedOid": "Commit distant attendu : {{oid}}" },
-    "reset": { "title": "Réinitialiser sur ce commit ?", "confirm": "Réinitialiser" },
-    "deleteBranch": { "title": "Supprimer cette branche ?", "confirm": "Supprimer la branche" },
-    "deleteRemoteBranch": { "title": "Supprimer cette branche distante ?", "confirm": "Supprimer la branche distante" },
-    "deleteTag": { "title": "Supprimer ce tag ?", "confirm": "Supprimer le tag" },
-    "stashPop": { "title": "Appliquer et retirer ce stash ?", "confirm": "Appliquer le stash" },
-    "checkoutDiscard": { "title": "Abandonner les modifications et changer de branche ?", "confirm": "Abandonner et changer" },
-    "abortOperation": { "title": "Abandonner cette opération Git ?", "confirm": "Abandonner l’opération" },
-    "recoveryRestore": { "title": "Restaurer HEAD à cet état ?", "confirm": "Restaurer HEAD" },
+    "discard": {
+      "title": "Abandonner les modifications ?",
+      "confirm": "Abandonner les modifications"
+    },
+    "forceWithLease": {
+      "title": "Forcer le push avec lease ?",
+      "confirm": "Forcer le push",
+      "expectedOid": "Commit distant attendu : {{oid}}"
+    },
+    "reset": {
+      "title": "Réinitialiser sur ce commit ?",
+      "confirm": "Réinitialiser"
+    },
+    "deleteBranch": {
+      "title": "Supprimer cette branche ?",
+      "confirm": "Supprimer la branche"
+    },
+    "deleteRemoteBranch": {
+      "title": "Supprimer cette branche distante ?",
+      "confirm": "Supprimer la branche distante"
+    },
+    "deleteTag": {
+      "title": "Supprimer ce tag ?",
+      "confirm": "Supprimer le tag"
+    },
+    "stashPop": {
+      "title": "Appliquer et retirer ce stash ?",
+      "confirm": "Appliquer le stash"
+    },
+    "checkoutDiscard": {
+      "title": "Abandonner les modifications et changer de branche ?",
+      "confirm": "Abandonner et changer"
+    },
+    "abortOperation": {
+      "title": "Abandonner cette opération Git ?",
+      "confirm": "Abandonner l’opération"
+    },
+    "recoveryRestore": {
+      "title": "Restaurer HEAD à cet état ?",
+      "confirm": "Restaurer HEAD"
+    },
     "recoverability": {
       "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
       "stash": "Vos modifications seront enregistrées dans le stash.",
@@ -458,5 +623,30 @@
     "expand": "Déplier le workspace",
     "collapse": "Replier le workspace",
     "noRepositories": "Aucun dépôt"
+  },
+  "update": {
+    "available": {
+      "title": "Mise à jour disponible",
+      "description": "Fjord {{version}} est disponible. Vous utilisez {{currentVersion}}.",
+      "later": "Plus tard",
+      "updateAndRestart": "Mettre à jour et redémarrer"
+    },
+    "downloading": {
+      "title": "Mise à jour de Fjord…",
+      "progressKnown": "{{downloaded}} sur {{total}} téléchargés",
+      "progressUnknown": "Téléchargement… {{downloaded}} pour l'instant",
+      "noCancel": "Cela peut prendre quelques minutes. Fjord redémarrera automatiquement une fois terminé."
+    },
+    "relaunching": {
+      "title": "Redémarrage de Fjord…",
+      "description": "La mise à jour est installée. Fjord redémarre pour terminer son application."
+    },
+    "failed": {
+      "title": "Échec de la mise à jour",
+      "description": "Fjord n'a pas pu installer la mise à jour. Votre installation actuelle n'a pas été modifiée.",
+      "relaunchDescription": "La mise à jour a été installée, mais Fjord n'a pas pu redémarrer automatiquement. Veuillez redémarrer Fjord manuellement.",
+      "close": "Fermer",
+      "tryAgain": "Réessayer"
+    }
   }
 }

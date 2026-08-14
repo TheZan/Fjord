@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { createAppShortcutBindings } from "@/application/appShortcuts";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useStartup } from "@/application/StartupProvider";
+import { updateCoordinator } from "@/application/update/UpdateCoordinator";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
@@ -40,6 +41,7 @@ import {
 } from "@/presentation/RepoDetailContainer";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
 import { ShortcutHelpSheet } from "@/presentation/ShortcutHelpSheet";
+import { UpdateDialog } from "@/presentation/UpdateDialog";
 import {
   setInteractionDiagnosticsEnabled,
   useInteractionCommit,
@@ -53,6 +55,8 @@ import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
 import type { View } from "@/presentation/view";
+
+const UPDATE_STARTUP_CHECK_DELAY_MS = 4000;
 
 /**
  * Owns app-level state and wires the screens together. Layout and styling
@@ -240,6 +244,18 @@ export function App() {
       void setRepositoryActivity(selectedWorkspaceId, selectedRepoId).catch(() => undefined);
     }
   }, [activated, selectedRepoId, selectedWorkspaceId]);
+
+  // One automatic update check per launch, a few seconds after first paint —
+  // never blocking startup and never polling (docs/releasing.md's
+  // runtime-update-check contract). `checkOnStartup` itself is idempotent,
+  // so StrictMode's double-effect and this timer firing twice are harmless.
+  useEffect(() => {
+    if (!activated) return;
+    const timeout = window.setTimeout(() => {
+      void updateCoordinator.checkOnStartup();
+    }, UPDATE_STARTUP_CHECK_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [activated]);
 
   useEffect(() => {
     const id = selectedRepoId
@@ -600,6 +616,8 @@ export function App() {
           }}
         />
       )}
+
+      <UpdateDialog />
 
       {repositoryOnboardingStep === "choices" && (
         <RepositoryOnboardingDialog

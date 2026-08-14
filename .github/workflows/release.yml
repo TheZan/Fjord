@@ -11,12 +11,19 @@ env:
   TAURI_UPDATE_ENDPOINT: https://github.com/TheZan/Fjord/releases/latest/download/latest.json
 
 jobs:
+  # Parses VERSION from the pushed tag, verifies the same VERSION is what
+  # every project file records (scripts/release-lib.mjs — the exact function
+  # `npm run release:verify` runs locally), verifies the matching release
+  # notes are populated, and requires a green same-SHA `CI` run. Nothing
+  # platform-specific happens until this is green.
   prerequisites:
-    name: v0.1 metadata and green CI
+    name: Version, metadata, and green CI
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -25,11 +32,17 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify v0.1 release metadata
+      - name: Parse the release version from the tag
+        id: version
         run: |
-          npm run test:release-gate
-          node scripts/check-v0.1-release-gate.mjs
-          npm run check:release-notes
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release metadata matches the tag
+        run: node scripts/release-verify.mjs --tag "$GITHUB_REF_NAME"
+
+      - name: Verify release notes are populated
+        run: node scripts/check-release-notes.mjs "${{ steps.version.outputs.version }}"
 
       - name: Require successful CI for this commit
         uses: actions/github-script@v8
@@ -49,14 +62,20 @@ jobs:
               return;
             }
             await core.summary
-              .addHeading("v0.1 CI prerequisite")
+              .addHeading("Same-SHA CI prerequisite")
               .addLink(`CI run #${successful.run_number}`, successful.html_url)
               .write();
 
+  # Builds, signs, and uploads every platform package to a still-draft,
+  # still-prerelease GitHub Release. Nothing here is publicly visible or
+  # updater-discoverable yet — that only happens in `publish-release`, once
+  # every matrix leg and `packaging-verification` have succeeded.
   publish:
     needs: prerequisites
     permissions:
       contents: write
+    env:
+      VERSION: ${{ needs.prerequisites.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +151,17 @@ jobs:
           WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
         run: node scripts/prepare-tauri-release-config.mjs
 
+      - name: Read release notes for this version
+        id: notes
+        shell: bash
+        run: |
+          NOTES_PATH=$(node scripts/print-release-notes-path.mjs "$VERSION")
+          {
+            echo "body<<FJORD_RELEASE_NOTES_EOF"
+            cat "$NOTES_PATH"
+            echo "FJORD_RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,8 +175,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v__VERSION__
-          releaseName: "Fjord v__VERSION__ — Early Preview"
-          releaseBody: "Early Preview candidate. Eligibility is reported by the v0.1 release gate job."
+          releaseName: "Fjord v${{ env.VERSION }} — Early Preview"
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.args }}
@@ -155,7 +185,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          appimage=$(find target/${{ matrix.target }}/release/bundle/appimage -name 'Fjord*0.1.0*.AppImage' -print -quit)
+          appimage=$(find target/${{ matrix.target }}/release/bundle/appimage -name "Fjord*${VERSION}*.AppImage" -print -quit)
           test -n "$appimage"
           chmod +x "$appimage"
           "$appimage" --appimage-extract >/dev/null
@@ -167,64 +197,67 @@ jobs:
         shell: bash
         run: |
           app=$(find target/${{ matrix.target }}/release/bundle/macos -maxdepth 1 -name 'Fjord.app' -print -quit)
-          dmg=$(find target/${{ matrix.target }}/release/bundle/dmg -name 'Fjord*0.1.0*.dmg' -print -quit)
+          dmg=$(find target/${{ matrix.target }}/release/bundle/dmg -name "Fjord*${VERSION}*.dmg" -print -quit)
           test -d "$app"
           test -n "$dmg"
           test -x "$app/Contents/MacOS/fjord-askpass"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "0.1.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
           ! find "$app" -iname '*fixture*' -o -iname '*.env' | grep -q .
 
       - name: Verify Windows installer contents
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $installer = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis" -Filter "Fjord*0.1.0*.exe" | Select-Object -First 1
+          $installer = Get-ChildItem "target/${{ matrix.target }}/release/bundle/nsis" -Filter "Fjord*$env:VERSION*.exe" | Select-Object -First 1
           if (-not $installer) { throw "versioned Fjord NSIS installer was not produced" }
           $listing = 7z l $installer.FullName
           if ($LASTEXITCODE -ne 0) { $listing; throw "could not inspect NSIS installer" }
           if (-not ($listing | Select-String -SimpleMatch 'fjord-askpass.exe' -Quiet)) { throw "fjord-askpass.exe is missing" }
           if ($listing | Select-String -Pattern 'fixture|test-data|\.env' -Quiet) { throw "development-only content is present" }
 
-  eligibility:
-    name: v0.1 Early Preview eligibility
+  # Generic, version-parameterized asset-completeness check — every platform
+  # package, the updater manifest, and its signatures must be attached to the
+  # still-draft release before anything is allowed to go live. This replaced
+  # a v0.1-only gate that additionally required V0_1_CLEAN_MACHINE_EVIDENCE /
+  # V0_1_FRESH_INSTALL_EVIDENCE repo variables; that evidence requirement was
+  # correct for the one-time first public launch but would otherwise block
+  # every future patch release on variables that only ever applied to
+  # v0.1.0. See docs/releasing.md and docs/release.md for where that
+  # first-launch checklist lives now (`npm run gate:v0.1`, run by hand before
+  # pushing the v0.1.0 tag specifically).
+  packaging-verification:
+    name: Packaging verification
     if: ${{ always() }}
     needs: [prerequisites, publish]
     runs-on: ubuntu-latest
-    environment: v0.1-release-gate
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
-      CLEAN_MACHINE_EVIDENCE: ${{ vars.V0_1_CLEAN_MACHINE_EVIDENCE }}
-      FRESH_INSTALL_EVIDENCE: ${{ vars.V0_1_FRESH_INSTALL_EVIDENCE }}
+      VERSION: ${{ needs.prerequisites.outputs.version }}
     steps:
       - name: Fail closed and report every packaging blocker
         shell: bash
         run: |
           blockers=()
-          if [[ "${{ needs.prerequisites.result }}" != "success" ]]; then blockers+=("metadata or same-SHA CI prerequisite failed"); fi
+          if [[ "${{ needs.prerequisites.result }}" != "success" ]]; then blockers+=("metadata, release-notes, or same-SHA CI prerequisite failed"); fi
           if [[ "${{ needs.publish.result }}" != "success" ]]; then blockers+=("one or more platform package/signing/content checks failed"); fi
-          if [[ -z "$CLEAN_MACHINE_EVIDENCE" ]]; then blockers+=("V0_1_CLEAN_MACHINE_EVIDENCE is not recorded"); fi
-          if [[ -z "$FRESH_INSTALL_EVIDENCE" ]]; then blockers+=("V0_1_FRESH_INSTALL_EVIDENCE is not recorded"); fi
 
           if [[ "${{ needs.publish.result }}" == "success" ]]; then
-            release=$(gh api "repos/${{ github.repository }}/releases/tags/v0.1.0")
-            if [[ "$(jq -r .draft <<<"$release")" != "true" ]]; then blockers+=("release is not draft"); fi
-            if [[ "$(jq -r .prerelease <<<"$release")" != "true" ]]; then blockers+=("release is not marked Early Preview/prerelease"); fi
+            release=$(gh api "repos/${{ github.repository }}/releases/tags/v$VERSION")
+            escaped_version="${VERSION//./\\.}"
             assets=$(jq -r '.assets[].name' <<<"$release")
-            grep -Eq 'Fjord.*0\.1\.0.*\.AppImage$' <<<"$assets" || blockers+=("Linux AppImage is missing")
-            grep -Eq 'Fjord.*0\.1\.0.*\.exe$' <<<"$assets" || blockers+=("Windows installer is missing")
-            grep -Eq 'Fjord.*0\.1\.0.*\.dmg$' <<<"$assets" || blockers+=("macOS package is missing")
+            grep -Eq "Fjord.*${escaped_version}.*\.AppImage$" <<<"$assets" || blockers+=("Linux AppImage is missing")
+            grep -Eq "Fjord.*${escaped_version}.*\.exe$" <<<"$assets" || blockers+=("Windows installer is missing")
+            grep -Eq "Fjord.*${escaped_version}.*\.dmg$" <<<"$assets" || blockers+=("macOS package is missing")
             grep -Fxq 'latest.json' <<<"$assets" || blockers+=("updater manifest is missing")
             grep -Eq '\.sig$' <<<"$assets" || blockers+=("updater signatures are missing")
           fi
 
           {
-            echo "## Fjord v0.1.0 packaging gate"
+            echo "## Fjord v$VERSION packaging verification"
             if (( ${#blockers[@]} == 0 )); then
-              echo "ELIGIBLE FOR v0.1 EARLY PREVIEW REVIEW"
-              echo "- Clean-machine evidence: $CLEAN_MACHINE_EVIDENCE"
-              echo "- Fresh-install evidence: $FRESH_INSTALL_EVIDENCE"
+              echo "READY TO PUBLISH"
             else
               echo "BLOCKED"
               printf -- '- %s\n' "${blockers[@]}"
@@ -232,3 +265,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           (( ${#blockers[@]} == 0 ))
+
+  # The only job allowed to make a release (and therefore the Tauri updater
+  # endpoint, which only resolves published/non-prerelease releases) public.
+  # Runs only on default success — i.e. every job above must have passed.
+  publish-release:
+    name: Publish the GitHub Release
+    needs: [prerequisites, publish, packaging-verification]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Publish v${{ needs.prerequisites.outputs.version }}
+        run: |
+          gh release edit "v${{ needs.prerequisites.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --draft=false \
+            --prerelease=false

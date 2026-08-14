@@ -2,8 +2,10 @@
 #
 # Jobs:
 #   - frontend: type-check + Vite build, vitest, the i18n catalog drift check
-#     (scripts/check-i18n.ts), and the IPC contract drift check
-#     (scripts/check-ipc-docs.ts) — platform-independent, runs once.
+#     (scripts/check-i18n.ts), the IPC contract drift check
+#     (scripts/check-ipc-docs.ts), and release-script regressions
+#     (release:verify plus the release-script node:test suites — see
+#     docs/releasing.md) — platform-independent, runs once.
 #   - backend-lint: fmt and clippy (warnings are errors), once on Linux.
 #   - backend-test: the full cargo test suite on Windows / macOS / Linux.
 #   - askpass-sidecar-test: focused protocol/sidecar tests.
@@ -37,6 +39,10 @@ jobs:
       - run: npm run check-ipc-docs
       - run: npm run audit:public
       - run: npm run test:launch-gate
+      - run: npm run release:verify
+      - run: npm run test:release-verify
+      - run: npm run test:release-prepare
+      - run: npm run test:release-notes
 
   backend-lint:
     runs-on: ubuntu-latest

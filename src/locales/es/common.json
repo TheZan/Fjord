@@ -169,7 +169,12 @@
       "diagnostics": "Registros",
       "logsDescription": "Los registros contienen diagnósticos, nombres y rutas de repositorios y tiempos, pero nunca contenido de archivos o diffs.",
       "revealLogs": "Mostrar carpeta de registros",
-      "revealingLogs": "Abriendo…"
+      "revealingLogs": "Abriendo…",
+      "updates": "Actualizaciones",
+      "checkForUpdate": "Buscar actualizaciones",
+      "checkingForUpdates": "Buscando…",
+      "upToDate": "Fjord {{version}} es la última versión.",
+      "checkFailed": "No se pudieron buscar actualizaciones. Comprueba tu conexión e inténtalo de nuevo."
     }
   }
 }

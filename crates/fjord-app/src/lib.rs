@@ -47,7 +47,12 @@ fn initialize(app: &tauri::App) -> Result<AppState, String> {
 pub fn builder() -> tauri::Builder<tauri::Wry> {
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
     #[cfg(all(not(debug_assertions), feature = "updater"))]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Only needed to relaunch after an update is installed — gated with
+        // the updater itself rather than always registered, matching the
+        // minimal-permission rule in capabilities/default.json.
+        .plugin(tauri_plugin_process::init());
 
     builder
         .setup(|app| match initialize(app) {

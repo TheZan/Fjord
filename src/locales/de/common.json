@@ -169,7 +169,12 @@
       "diagnostics": "Protokolle",
       "logsDescription": "Protokolle enthalten Betriebsdiagnosen, Repository-Namen, Pfade und Zeitangaben, aber keine Datei- oder Diff-Inhalte.",
       "revealLogs": "Protokollordner anzeigen",
-      "revealingLogs": "Wird geöffnet…"
+      "revealingLogs": "Wird geöffnet…",
+      "updates": "Updates",
+      "checkForUpdate": "Nach Updates suchen",
+      "checkingForUpdates": "Wird geprüft…",
+      "upToDate": "Fjord {{version}} ist die aktuelle Version.",
+      "checkFailed": "Updates konnten nicht geprüft werden. Verbindung prüfen und erneut versuchen."
     }
   }
 }

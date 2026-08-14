@@ -169,7 +169,12 @@
       "diagnostics": "Journaux",
       "logsDescription": "Les journaux contiennent des diagnostics, noms de dépôts, chemins et durées, mais jamais le contenu des fichiers ou des diffs.",
       "revealLogs": "Afficher le dossier des journaux",
-      "revealingLogs": "Ouverture…"
+      "revealingLogs": "Ouverture…",
+      "updates": "Mises à jour",
+      "checkForUpdate": "Rechercher des mises à jour",
+      "checkingForUpdates": "Recherche…",
+      "upToDate": "Fjord {{version}} est la dernière version.",
+      "checkFailed": "Impossible de rechercher des mises à jour. Vérifiez votre connexion et réessayez."
     }
   }
 }

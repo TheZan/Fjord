@@ -50,7 +50,7 @@
       "blocker": "signed v0.1 Windows and macOS packages, the Linux AppImage, updater manifest, and signatures have not been produced and verified",
       "evidence": [
         {
-          "href": "docs/release.md#v01-packaging-gate",
+          "href": "docs/release.md#release-pipeline",
           "note": "The fail-closed packaging contract is implemented; exact-candidate Release-run and asset evidence are pending."
         }
       ]

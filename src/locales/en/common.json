@@ -169,7 +169,12 @@
       "diagnostics": "Logs",
       "logsDescription": "Logs contain operational diagnostics, repository names, paths, and timings, but never file or diff contents.",
       "revealLogs": "Reveal log folder",
-      "revealingLogs": "Opening…"
+      "revealingLogs": "Opening…",
+      "updates": "Updates",
+      "checkForUpdate": "Check for updates",
+      "checkingForUpdates": "Checking…",
+      "upToDate": "Fjord {{version}} is the latest version.",
+      "checkFailed": "Could not check for updates. Check your connection and try again."
     }
   }
 }

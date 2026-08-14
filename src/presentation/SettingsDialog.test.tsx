@@ -1,12 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { updateCoordinator } from "@/application/update/UpdateCoordinator";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
 
 const getSettings = vi.fn();
 const getGitEnvironment = vi.fn();
 const testGitConnection = vi.fn();
 const revealLogFolder = vi.fn();
+const checkForUpdate = vi.fn();
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   getSettings: (...args: unknown[]) => getSettings(...args),
@@ -16,6 +18,12 @@ vi.mock("@/infrastructure/tauriClient", () => ({
   resetGitExecutable: vi.fn(),
   testGitConnection: (...args: unknown[]) => testGitConnection(...args),
   revealLogFolder: (...args: unknown[]) => revealLogFolder(...args),
+}));
+
+vi.mock("@/infrastructure/updater", () => ({
+  checkForUpdate: (...args: unknown[]) => checkForUpdate(...args),
+  downloadAndInstallUpdate: vi.fn(),
+  relaunchApp: vi.fn(),
 }));
 
 vi.mock("@/infrastructure/dialog", () => ({ pickFile: vi.fn() }));
@@ -42,6 +50,11 @@ vi.mock("react-i18next", async (importOriginal) => ({
         "settings.git.connectionSuccess": `${String(values?.protocol ?? "")} ${String(values?.duration ?? "")} ms`,
         "settings.about.version": "Version 0.1.0",
         "settings.about.revealLogs": "Reveal log folder",
+        "settings.about.updates": "Updates",
+        "settings.about.checkForUpdate": "Check for updates",
+        "settings.about.checkingForUpdates": "Checking…",
+        "settings.about.upToDate": `Fjord ${String(values?.version ?? "")} is the latest version.`,
+        "settings.about.checkFailed": "Could not check for updates.",
         "app.title": "Fjord",
       };
       return labels[key] ?? key;
@@ -78,6 +91,8 @@ describe("SettingsDialog Git section", () => {
       referenceCount: 3,
     });
     revealLogFolder.mockResolvedValue(undefined);
+    checkForUpdate.mockReset();
+    updateCoordinator.close();
   });
 
   it("uses the compact four-section product structure without automatic fetch", async () => {
@@ -217,6 +232,17 @@ describe("SettingsDialog Git section", () => {
     expect(screen.queryByText(/not just another Git client/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reveal log folder" }));
     await waitFor(() => expect(revealLogFolder).toHaveBeenCalledOnce());
+  });
+
+  it("checks for updates through the shared updater coordinator and shows a compact result", async () => {
+    checkForUpdate.mockResolvedValue(null);
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "About" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
+
+    await waitFor(() => expect(checkForUpdate).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Fjord 0.1.0 is the latest version.")).toBeInTheDocument();
   });
 
   it("shows the ownership refusal diagnostic and safe-directory command", async () => {

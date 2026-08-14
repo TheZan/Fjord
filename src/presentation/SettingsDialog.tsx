@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import packageInfo from "../../package.json";
 import logoUrl from "../../assets/logo/fjord-mark.svg";
 import { userErrorMessage } from "@/application/errorMessage";
+import { updateCoordinator } from "@/application/update/UpdateCoordinator";
+import { isBusyPhase } from "@/application/update/updateModel";
+import { useUpdateState } from "@/application/update/useUpdateState";
 import { pickFile } from "@/infrastructure/dialog";
 import { setLocale } from "@/infrastructure/i18n";
 import { useTheme } from "@/infrastructure/theme/ThemeProvider";
@@ -72,6 +75,8 @@ export function SettingsDialog({
 }) {
   useInteractionCommit();
   const { t, i18n } = useTranslation();
+  const updateState = useUpdateState();
+  const updateActionDisabled = isBusyPhase(updateState.phase) || updateState.phase === "available";
   const { t: tw } = useTranslation("workspace");
   const { choice, setChoice } = useTheme();
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
@@ -637,6 +642,30 @@ export function SettingsDialog({
                     </div>
                   </div>
                 </div>
+                <SettingsGroup title={t("settings.about.updates")}>
+                  <SettingsPanel className="flex flex-col gap-2">
+                    <Button
+                      size="sm"
+                      disabled={updateActionDisabled}
+                      onClick={() => void updateCoordinator.checkManually()}
+                    >
+                      {updateState.phase === "checking"
+                        ? t("settings.about.checkingForUpdates")
+                        : t("settings.about.checkForUpdate")}
+                    </Button>
+                    {updateState.phase === "up-to-date" && (
+                      <p className="text-[12px]" style={{ color: "var(--moss-ink)" }}>
+                        {t("settings.about.upToDate", { version: packageInfo.version })}
+                      </p>
+                    )}
+                    {updateState.phase === "check-failed" && (
+                      <p role="alert" className="text-[12px]" style={{ color: "var(--rust-ink)" }}>
+                        {t("settings.about.checkFailed")}
+                      </p>
+                    )}
+                  </SettingsPanel>
+                </SettingsGroup>
+
                 <SettingsGroup
                   title={t("settings.about.diagnostics")}
                   description={t("settings.about.logsDescription")}
