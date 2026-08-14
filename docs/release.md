@@ -33,6 +33,33 @@ with `--features updater`. The published update manifest endpoint is:
 https://github.com/TheZan/Fjord/releases/latest/download/latest.json
 ```
 
+For v0.1 there is one **Early Preview** channel: the workflow creates only a
+draft GitHub prerelease from the exact `v0.1.0` tag. Fjord registers the updater
+plugin in signed release builds but does not initiate background checks or
+automatic installation, so v0.1 users are not silently moved between channels.
+`latest.json` and its signatures are still required packaging evidence and must
+describe the same candidate artifacts. A stable channel is not enabled.
+
+## v0.1 packaging gate
+
+`.github/workflows/release.yml` fails closed in three layers:
+
+1. `prerequisites` requires coherent `0.1.0` versions, the exact `v0.1.0` tag,
+   release-gate regression tests, and a successful `CI` run for the same SHA.
+2. The platform matrix independently builds signed Windows NSIS, macOS app/DMG
+   packages for both architectures, and a Linux AppImage. Every leg checks the
+   versioned name, bundled `fjord-askpass`, and absence of fixture/`.env`
+   content before it can succeed.
+3. `eligibility` runs even after failures, requires the protected
+   `v0.1-release-gate` environment, checks the draft/prerelease assets, updater
+   manifest/signatures, and requires repository variables
+   `V0_1_CLEAN_MACHINE_EVIDENCE` and `V0_1_FRESH_INSTALL_EVIDENCE`. It reports
+   all discovered blockers and is green only when the candidate is eligible for
+   the separate public launch review.
+
+The evidence variables contain reviewable URLs, never a boolean assertion. The
+release remains a draft, and no workflow changes repository visibility.
+
 ## Platform signing secrets
 
 Windows releases require:

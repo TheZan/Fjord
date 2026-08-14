@@ -11,6 +11,8 @@
     "test:benchmark-report": "node --test scripts/report-benchmark-deltas.node-test.mjs",
     "check-i18n": "node scripts/check-i18n.ts",
     "check-ipc-docs": "node scripts/check-ipc-docs.ts",
+    "check:release-gate": "node scripts/check-v0.1-release-gate.mjs --allow-untagged",
+    "test:release-gate": "node --test scripts/check-v0.1-release-gate.node-test.mjs",
     "prepare:askpass": "node scripts/prepare-askpass-sidecar.mjs",
     "tauri:build": "cargo build --release -p fjord-askpass && npm run prepare:askpass && tauri build --config src-tauri/tauri.sidecar.conf.json",
     "tauri": "tauri"

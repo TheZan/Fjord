@@ -180,6 +180,13 @@ A release build fails unless:
 | Manual Git compatibility matrix complete for the target environments | [`../manual-git-compatibility.md`](../manual-git-compatibility.md) |
 | Release checklist complete | [`../release.md`](../release.md) |
 
+For the v0.1 Early Preview, the Release workflow implements a narrower first
+public packaging gate ahead of the generalized Phase 11 channel/performance
+gates. It requires same-SHA CI, reports each package matrix leg independently,
+keeps the GitHub release draft/prerelease, and aggregates every packaging or
+manual-evidence blocker in a final protected-environment job. It does not make
+the repository public or claim that the later sustained-session/SLO gates exist.
+
 Alpha and beta channels differ only in which gates are advisory: alpha reports
 SLO violations, beta fails on them, stable fails on everything above. The
 distinction is encoded in the workflow, not in a person's judgment on the day.
