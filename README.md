@@ -12,12 +12,39 @@
 <p align="center">
   <a href="#license"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational">
-  <img alt="Status" src="https://img.shields.io/badge/status-early%20development-orange">
+  <img alt="Status" src="https://img.shields.io/badge/status-v0.1%20Early%20Preview-orange">
   <img alt="Rust" src="https://img.shields.io/badge/backend-Rust-b7410e">
   <img alt="TypeScript" src="https://img.shields.io/badge/frontend-TypeScript-3178c6">
 </p>
 
 ---
+
+> [!WARNING]
+> **Fjord v0.1 is an Early Preview.** Use ordinary Git backups and review every
+> destructive confirmation. Packaging and clean-machine evidence must pass the
+> release gate before public binaries are published.
+
+## Download and install
+
+Fjord targets **Windows 11 x64**, **macOS 13+** (Intel and Apple Silicon), and
+**Ubuntu 22.04+ x64**. Candidate installers are published only after the
+fail-closed release checklist passes; use the
+[GitHub Releases page](https://github.com/TheZan/Fjord/releases) for the signed
+Windows installer, notarized macOS package, and Linux AppImage. There is no
+automatic update installation in v0.1.
+
+To build from source, install Node.js 22+, stable Rust, system Git, and the
+[Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/), then run:
+
+```bash
+npm ci
+npm run tauri dev
+```
+
+![Fjord workspace overview with repository status cards](assets/screenshots/fjord-workspace-overview.png)
+
+_Workspace overview rendered from the shipped UI with seeded local demo data;
+no private repository data is shown._
 
 Most Git GUIs assume you're staring at one repository. In practice, a working day spans a handful of them — a backend service, a frontend app, some infrastructure config — and "what's the state of everything I'm touching right now" is a question no single-repo tool answers well.
 
@@ -30,9 +57,10 @@ Fjord starts from the workspace, not the repository. Group your repositories the
 - **Bulk operations** — fetch, pull, or open a whole workspace in your IDE in one action, running concurrently.
 - **Full single-repo view** — branches, a real commit graph with merge and branch topology, diffs, and a commit inspector.
 - **Command palette** (⌘K / Ctrl+K) and global search across repositories, branches, and commits.
-- **Fast on large repositories** — status and history are cached and updated incrementally, not recomputed on every screen.
+- **Bounded repository work** — status/history caches, paged history and diffs,
+  and measured fixture benchmarks keep expensive reads off the render path.
 - **Light, dark, or system theme.**
-- **English and Russian out of the box**, switchable at runtime — more languages coming.
+- **English, Russian, German, French, and Spanish**, switchable at runtime.
 - **Native and cross-platform** — one fast, quiet app on Windows, macOS, and Linux.
 
 ## Git and authentication
@@ -71,29 +99,30 @@ select a different Git binary, or run a read-only connection test.
 | **Persistence** | SQLite via [`sqlx`](https://github.com/launchbadge/sqlx) |
 | **Frontend** | React, TypeScript, [Vite](https://vitejs.dev/) |
 | **UI** | Tailwind CSS v4, custom component primitives |
-| **Data layer** | Typed Tauri IPC client (migration to [TanStack Query](https://tanstack.com/query) planned) |
+| **Data layer** | Typed Tauri IPC client + [TanStack Query](https://tanstack.com/query) |
 | **Localization** | react-i18next |
 
-## Roadmap
+## Early Preview scope
 
-- [x] Project scaffold: desktop shell boots, theming and localization wired end-to-end
-- [x] Single-repo view: branches, commit graph, diffs
-- [x] Workspaces: multi-repo grouping, live status, bulk operations, dashboard
-- [x] Command palette, global search
-- [x] Cross-platform packaging pipeline and update channel
-- [x] Remote transport through the user's installed Git (credential helpers, GCM, SSH agent)
-- [ ] First public release
-- [ ] Performance foundation: measurable SLOs, torture fixtures, long-lived repository runtime
-- [ ] Shell rework: keyboard-first navigation, persisted layout, less chrome
-- [ ] Daily-driver essentials: hunk staging, amend, safe force push, richer diff
-- [ ] Safety & recovery: operation states, informative preflights, reflog-based recovery
-- [ ] Workspace workflows: worktrees, rebase, remotes, workspace health
+The v0.1 candidate includes workspace/repository onboarding, clone/create,
+status and history, staged/unstaged and partial-hunk workflows, commit/amend,
+branch/tag/stash operations, fetch/pull/push, explicit **Push & Set Upstream**,
+operation-state controls, destructive preflights, and reflog-based Recovery
+Center. Safety-sensitive network operations use the installed system Git.
+
+Not yet included: hosting-provider accounts/OAuth, provider-side repository
+creation, pull requests/issues, full remote CRUD, worktrees, interactive rebase,
+plugins, cloud sync, or team collaboration.
 
 Phase goals and dependencies live in [`docs/SDD.md`](docs/SDD.md) §15; detailed task-level status in [`docs/tasks.md`](docs/tasks.md); per-subsystem contracts in [`docs/specs/`](docs/specs/).
 
 ## Contributing
 
 Fjord is early, but contributions and issue reports are welcome when they are small and focused. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local setup, checks, and how to pick up work from the task board.
+
+Report reproducible bugs with the GitHub issue templates. Report
+vulnerabilities privately as described in [`SECURITY.md`](SECURITY.md); never
+attach credentials, private repository contents, or full diffs to a public issue.
 
 ## License
 

@@ -121,6 +121,9 @@ Complete the automated and platform-manual lifecycle in
 [`v0.1-fresh-install-smoke.md`](v0.1-fresh-install-smoke.md) against the exact
 candidate artifacts. Its evidence notes are required inputs to the public launch
 gate; a developer checkout is not a substitute for the packaged pass.
+Complete the publication-tree and GitHub-settings review in
+[`public-readiness.md`](public-readiness.md); its external settings/default-branch
+items remain human-owned.
 
 Before publishing a draft release:
 
