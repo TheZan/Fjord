@@ -30,9 +30,9 @@ import type { RepositoryEntry } from "@/domain/workspace";
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 const CUSTOM_IDE_PREFIX = "custom:";
 
-type SettingsSection = "general" | "git" | "tools" | "appearance" | "about";
+type SettingsSection = "general" | "git" | "tools" | "about";
 
-const SECTION_CHOICES: SettingsSection[] = ["general", "git", "tools", "appearance", "about"];
+const SECTION_CHOICES: SettingsSection[] = ["general", "git", "tools", "about"];
 const DEFAULT_SETTINGS: Settings = {
   locale: "en",
   theme: "system",
@@ -314,28 +314,51 @@ export function SettingsDialog({
 
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {activeSection === "general" && (
-              <SettingsGroup
-                title={t("settings.locale.label")}
-                description={t("settings.locale.description")}
-              >
-                <SettingsPanel className="flex items-center justify-between gap-5">
-                  <span className="text-[12px]" style={{ color: "var(--slate)" }}>
-                    {t("settings.locale.interfaceLanguage")}
-                  </span>
-                  <Select
-                    value={selectedLocale}
-                    disabled={pendingKey === "locale"}
-                    onChange={(event) => void chooseLocale(event.target.value)}
-                    className="w-52 max-w-full"
-                  >
-                    {SUPPORTED_LOCALES.map((locale) => (
-                      <option key={locale.code} value={locale.code}>
-                        {locale.label}
-                      </option>
+              <div className="flex flex-col gap-4">
+                <SettingsGroup
+                  title={t("settings.locale.label")}
+                  description={t("settings.locale.description")}
+                >
+                  <SettingsPanel className="flex items-center justify-between gap-5">
+                    <span className="text-[12px]" style={{ color: "var(--slate)" }}>
+                      {t("settings.locale.interfaceLanguage")}
+                    </span>
+                    <Select
+                      value={selectedLocale}
+                      disabled={pendingKey === "locale"}
+                      onChange={(event) => void chooseLocale(event.target.value)}
+                      className="w-52 max-w-full"
+                    >
+                      {SUPPORTED_LOCALES.map((locale) => (
+                        <option key={locale.code} value={locale.code}>
+                          {locale.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </SettingsPanel>
+                </SettingsGroup>
+
+                {/* Theme is the only appearance preference, so it lives with the
+                    other once-per-install choices instead of owning a section
+                    whose panel would hold a single row of three buttons. */}
+                <SettingsGroup
+                  title={t("settings.appearance.label")}
+                  description={t("settings.theme.description")}
+                >
+                  <SettingsPanel className="grid grid-cols-3 gap-1.5">
+                    {THEME_CHOICES.map((themeChoice) => (
+                      <Button
+                        key={themeChoice}
+                        size="sm"
+                        variant={choice === themeChoice ? "primary" : "secondary"}
+                        onClick={() => chooseTheme(themeChoice)}
+                      >
+                        {t(`settings.theme.${themeChoice}`)}
+                      </Button>
                     ))}
-                  </Select>
-                </SettingsPanel>
-              </SettingsGroup>
+                  </SettingsPanel>
+                </SettingsGroup>
+              </div>
             )}
 
             {activeSection === "git" && (
@@ -505,74 +528,8 @@ export function SettingsDialog({
               </div>
             )}
 
-            {activeSection === "appearance" && (
-              <SettingsGroup
-                title={t("settings.theme.label")}
-                description={t("settings.theme.description")}
-              >
-                <SettingsPanel className="grid grid-cols-3 gap-1.5">
-                  {THEME_CHOICES.map((themeChoice) => (
-                    <Button
-                      key={themeChoice}
-                      size="sm"
-                      variant={choice === themeChoice ? "primary" : "secondary"}
-                      onClick={() => chooseTheme(themeChoice)}
-                    >
-                      {t(`settings.theme.${themeChoice}`)}
-                    </Button>
-                  ))}
-                </SettingsPanel>
-              </SettingsGroup>
-            )}
-
             {activeSection === "tools" && (
               <div className="flex flex-col gap-4">
-                <SettingsGroup title={t("settings.performanceDiagnostics.label")}>
-                  <div
-                    className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
-                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
-                        {t("settings.performanceDiagnostics.title")}
-                      </div>
-                      <Muted className="mt-0.5 block max-w-md text-[11px] leading-4">
-                        {t("settings.performanceDiagnostics.description")}
-                      </Muted>
-                    </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={currentSettings.performanceDiagnostics}
-                      aria-label={t("settings.performanceDiagnostics.title")}
-                      disabled={pendingKey === "performanceDiagnostics"}
-                      className="interactive-control relative h-5 w-9 shrink-0 rounded-full disabled:opacity-45"
-                      style={{
-                        background: currentSettings.performanceDiagnostics
-                          ? "var(--fjord)"
-                          : "var(--hairline-strong)",
-                      }}
-                      onClick={() =>
-                        void saveSettings(
-                          { performanceDiagnostics: !currentSettings.performanceDiagnostics },
-                          "performanceDiagnostics",
-                        )
-                      }
-                    >
-                      <span
-                        className="absolute top-0.5 h-4 w-4 rounded-full transition-transform"
-                        style={{
-                          left: "2px",
-                          background: "var(--paper)",
-                          transform: currentSettings.performanceDiagnostics
-                            ? "translateX(16px)"
-                            : "translateX(0)",
-                        }}
-                      />
-                    </button>
-                  </div>
-                </SettingsGroup>
-
                 <SettingsGroup
                   title={t("settings.defaultIde.label")}
                   description={t("settings.defaultIde.description")}
@@ -619,6 +576,52 @@ export function SettingsDialog({
                     </div>
                     <Muted className="text-[11px]">{t("settings.defaultIde.customValue")}</Muted>
                   </SettingsPanel>
+                </SettingsGroup>
+
+                <SettingsGroup title={t("settings.performanceDiagnostics.label")}>
+                  <div
+                    className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
+                    style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
+                        {t("settings.performanceDiagnostics.title")}
+                      </div>
+                      <Muted className="mt-0.5 block max-w-md text-[11px] leading-4">
+                        {t("settings.performanceDiagnostics.description")}
+                      </Muted>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={currentSettings.performanceDiagnostics}
+                      aria-label={t("settings.performanceDiagnostics.title")}
+                      disabled={pendingKey === "performanceDiagnostics"}
+                      className="interactive-control relative h-5 w-9 shrink-0 rounded-full disabled:opacity-45"
+                      style={{
+                        background: currentSettings.performanceDiagnostics
+                          ? "var(--fjord)"
+                          : "var(--hairline-strong)",
+                      }}
+                      onClick={() =>
+                        void saveSettings(
+                          { performanceDiagnostics: !currentSettings.performanceDiagnostics },
+                          "performanceDiagnostics",
+                        )
+                      }
+                    >
+                      <span
+                        className="absolute top-0.5 h-4 w-4 rounded-full transition-transform"
+                        style={{
+                          left: "2px",
+                          background: "var(--paper)",
+                          transform: currentSettings.performanceDiagnostics
+                            ? "translateX(16px)"
+                            : "translateX(0)",
+                        }}
+                      />
+                    </button>
+                  </div>
                 </SettingsGroup>
               </div>
             )}

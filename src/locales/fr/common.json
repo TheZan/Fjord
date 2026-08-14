@@ -82,8 +82,10 @@
       "general": "Général",
       "git": "Git",
       "tools": "Outils",
-      "appearance": "Apparence",
       "about": "À propos"
+    },
+    "appearance": {
+      "label": "Apparence"
     },
     "theme": {
       "label": "Thème",
@@ -98,7 +100,7 @@
       "interfaceLanguage": "Langue de l’interface"
     },
     "performanceDiagnostics": {
-      "label": "Diagnostic",
+      "label": "Diagnostic de performance",
       "title": "Enregistrer les traces de performance",
       "description": "Conserve en mémoire les durées des interactions récentes. Les traces ne contiennent que des identifiants et des durées, puis sont effacées à la désactivation."
     },
@@ -111,7 +113,11 @@
       "invalidPath": "Le Git configuré est indisponible",
       "invalidPathDescription": "Impossible d'exécuter le Git sélectionné dans les Réglages. Les opérations Git locales et distantes sont indisponibles tant que vous n'avez pas choisi un chemin valide ou réinitialisé.",
       "version": "Version {{version}}",
-      "source": { "settings": "chemin sélectionné", "path": "PATH", "standard-location": "emplacement standard" },
+      "source": {
+        "settings": "chemin sélectionné",
+        "path": "PATH",
+        "standard-location": "emplacement standard"
+      },
       "choose": "Choisir Git",
       "refresh": "Vérifier à nouveau",
       "reset": "Réinitialiser le chemin",
@@ -138,7 +144,7 @@
       "diagnostics": "Diagnostic brut"
     },
     "defaultIde": {
-      "label": "Éditeurs intégrés",
+      "label": "Éditeur par défaut",
       "description": "Choisissez l’éditeur que Fjord ouvre par défaut.",
       "auto": "Auto",
       "vscode": "VS Code",
@@ -160,7 +166,7 @@
     },
     "about": {
       "version": "Version {{version}}",
-      "diagnostics": "Diagnostic",
+      "diagnostics": "Journaux",
       "logsDescription": "Les journaux contiennent des diagnostics, noms de dépôts, chemins et durées, mais jamais le contenu des fichiers ou des diffs.",
       "revealLogs": "Afficher le dossier des journaux",
       "revealingLogs": "Ouverture…"

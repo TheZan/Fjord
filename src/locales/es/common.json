@@ -82,8 +82,10 @@
       "general": "General",
       "git": "Git",
       "tools": "Herramientas",
-      "appearance": "Apariencia",
       "about": "Acerca de"
+    },
+    "appearance": {
+      "label": "Apariencia"
     },
     "theme": {
       "label": "Tema",
@@ -98,7 +100,7 @@
       "interfaceLanguage": "Idioma de la interfaz"
     },
     "performanceDiagnostics": {
-      "label": "Diagnóstico",
+      "label": "Diagnóstico de rendimiento",
       "title": "Registrar trazas de rendimiento",
       "description": "Conserva en memoria los tiempos de las interacciones recientes. Las trazas solo contienen identificadores y duraciones, y se borran al desactivarlas."
     },
@@ -111,7 +113,11 @@
       "invalidPath": "El Git configurado no está disponible",
       "invalidPathDescription": "No se pudo ejecutar el Git seleccionado en Ajustes. Las operaciones de Git locales y remotas no están disponibles hasta que elijas una ruta válida o la restablezcas.",
       "version": "Versión {{version}}",
-      "source": { "settings": "ruta seleccionada", "path": "PATH", "standard-location": "ubicación estándar" },
+      "source": {
+        "settings": "ruta seleccionada",
+        "path": "PATH",
+        "standard-location": "ubicación estándar"
+      },
       "choose": "Elegir Git",
       "refresh": "Comprobar de nuevo",
       "reset": "Restablecer ruta",
@@ -138,7 +144,7 @@
       "diagnostics": "Diagnóstico sin procesar"
     },
     "defaultIde": {
-      "label": "Editores integrados",
+      "label": "Editor predeterminado",
       "description": "Elige el editor que Fjord abre de forma predeterminada.",
       "auto": "Automático",
       "vscode": "VS Code",
@@ -160,7 +166,7 @@
     },
     "about": {
       "version": "Versión {{version}}",
-      "diagnostics": "Diagnóstico",
+      "diagnostics": "Registros",
       "logsDescription": "Los registros contienen diagnósticos, nombres y rutas de repositorios y tiempos, pero nunca contenido de archivos o diffs.",
       "revealLogs": "Mostrar carpeta de registros",
       "revealingLogs": "Abriendo…"

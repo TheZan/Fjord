@@ -31,8 +31,8 @@ vi.mock("react-i18next", async (importOriginal) => ({
         "settings.sections.general": "General",
         "settings.sections.git": "Git",
         "settings.sections.tools": "Tools",
-        "settings.sections.appearance": "Appearance",
         "settings.sections.about": "About",
+        "settings.appearance.label": "Appearance",
         "settings.locale.interfaceLanguage": "Interface language",
         "settings.theme.light": "Light",
         "settings.theme.dark": "Dark",
@@ -80,7 +80,7 @@ describe("SettingsDialog Git section", () => {
     revealLogFolder.mockResolvedValue(undefined);
   });
 
-  it("uses the compact five-section product structure without automatic fetch", async () => {
+  it("uses the compact four-section product structure without automatic fetch", async () => {
     render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
 
     expect(await screen.findByText("Interface language")).toBeInTheDocument();
@@ -89,11 +89,37 @@ describe("SettingsDialog Git section", () => {
       "General",
       "Git",
       "Tools",
-      "Appearance",
       "About",
     ]);
     expect(within(navigation).queryByRole("button", { name: "Sync" })).not.toBeInTheDocument();
     expect(screen.queryByText("Fetch changes automatically")).not.toBeInTheDocument();
+  });
+
+  // A section whose whole body was one row of three buttons read as an empty
+  // screen; language and theme are both once-per-install choices.
+  it("keeps language and theme together in General", async () => {
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    expect(await screen.findByText("Interface language")).toBeInTheDocument();
+    expect(screen.getByText("Appearance")).toBeInTheDocument();
+    for (const theme of ["Light", "Dark", "System"]) {
+      expect(screen.getByRole("button", { name: theme })).toBeInTheDocument();
+    }
+  });
+
+  it("orders Tools as editor, custom command, then performance diagnostics", async () => {
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }));
+
+    const groups = await screen.findAllByText(
+      /settings\.defaultIde\.(label|custom)$|settings\.performanceDiagnostics\.label/,
+    );
+    expect(groups.map((node) => node.textContent)).toEqual([
+      "settings.defaultIde.label",
+      "settings.defaultIde.custom",
+      "settings.performanceDiagnostics.label",
+    ]);
   });
 
   it("shows diagnostics and can test a repository connection", async () => {

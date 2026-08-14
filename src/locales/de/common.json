@@ -82,8 +82,10 @@
       "general": "Allgemein",
       "git": "Git",
       "tools": "Werkzeuge",
-      "appearance": "Darstellung",
       "about": "Über"
+    },
+    "appearance": {
+      "label": "Darstellung"
     },
     "theme": {
       "label": "Design",
@@ -98,7 +100,7 @@
       "interfaceLanguage": "Oberflächensprache"
     },
     "performanceDiagnostics": {
-      "label": "Diagnose",
+      "label": "Leistungsdiagnose",
       "title": "Leistungstraces aufzeichnen",
       "description": "Speichert die letzten Interaktionszeiten im Arbeitsspeicher. Traces enthalten nur Kennungen und Dauern und werden beim Deaktivieren gelöscht."
     },
@@ -111,7 +113,11 @@
       "invalidPath": "Konfiguriertes Git ist nicht verfügbar",
       "invalidPathDescription": "Die in den Einstellungen gewählte Git-Anwendung konnte nicht ausgeführt werden. Lokale und entfernte Git-Operationen sind nicht verfügbar, bis Sie einen funktionierenden Pfad wählen oder ihn zurücksetzen.",
       "version": "Version {{version}}",
-      "source": { "settings": "ausgewählter Pfad", "path": "PATH", "standard-location": "Standardpfad" },
+      "source": {
+        "settings": "ausgewählter Pfad",
+        "path": "PATH",
+        "standard-location": "Standardpfad"
+      },
       "choose": "Git auswählen",
       "refresh": "Erneut prüfen",
       "reset": "Pfad zurücksetzen",
@@ -138,7 +144,7 @@
       "diagnostics": "Rohdiagnose"
     },
     "defaultIde": {
-      "label": "Integrierte Editoren",
+      "label": "Standard-Editor",
       "description": "Wähle den Editor, den Fjord standardmäßig öffnet.",
       "auto": "Automatisch",
       "vscode": "VS Code",
@@ -160,7 +166,7 @@
     },
     "about": {
       "version": "Version {{version}}",
-      "diagnostics": "Diagnose",
+      "diagnostics": "Protokolle",
       "logsDescription": "Protokolle enthalten Betriebsdiagnosen, Repository-Namen, Pfade und Zeitangaben, aber keine Datei- oder Diff-Inhalte.",
       "revealLogs": "Protokollordner anzeigen",
       "revealingLogs": "Wird geöffnet…"

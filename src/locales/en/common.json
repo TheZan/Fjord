@@ -82,8 +82,10 @@
       "general": "General",
       "git": "Git",
       "tools": "Tools",
-      "appearance": "Appearance",
       "about": "About"
+    },
+    "appearance": {
+      "label": "Appearance"
     },
     "theme": {
       "label": "Theme",
@@ -98,7 +100,7 @@
       "interfaceLanguage": "Interface language"
     },
     "performanceDiagnostics": {
-      "label": "Diagnostics",
+      "label": "Performance diagnostics",
       "title": "Record performance traces",
       "description": "Keeps the latest interaction timings in memory. Traces contain identifiers and durations only, and are cleared when disabled."
     },
@@ -119,7 +121,7 @@
       "choose": "Choose Git",
       "refresh": "Check again",
       "reset": "Reset path",
-      "environment": "Authentication and environment",
+      "environment": "Authentication & environment",
       "environmentDescription": "Fjord uses your existing credential helpers, SSH agent, and proxy configuration.",
       "credentialHelper": "Credential helper",
       "sshAgent": "SSH agent",
@@ -142,7 +144,7 @@
       "diagnostics": "Raw diagnostics"
     },
     "defaultIde": {
-      "label": "Built-in editors",
+      "label": "Default IDE",
       "description": "Choose the editor Fjord opens by default.",
       "auto": "Auto",
       "vscode": "VS Code",
@@ -164,7 +166,7 @@
     },
     "about": {
       "version": "Version {{version}}",
-      "diagnostics": "Diagnostics",
+      "diagnostics": "Logs",
       "logsDescription": "Logs contain operational diagnostics, repository names, paths, and timings, but never file or diff contents.",
       "revealLogs": "Reveal log folder",
       "revealingLogs": "Opening…"
