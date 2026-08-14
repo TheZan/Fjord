@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsDialog } from "@/presentation/SettingsDialog";
@@ -28,11 +28,21 @@ vi.mock("react-i18next", async (importOriginal) => ({
     i18n: { changeLanguage: vi.fn() },
     t: (key: string, values?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
+        "settings.sections.general": "General",
         "settings.sections.git": "Git",
+        "settings.sections.tools": "Tools",
+        "settings.sections.appearance": "Appearance",
         "settings.sections.about": "About",
+        "settings.locale.interfaceLanguage": "Interface language",
+        "settings.theme.light": "Light",
+        "settings.theme.dark": "Dark",
+        "settings.theme.system": "System",
         "settings.git.version": String(values?.version ?? ""),
         "settings.git.testConnection": "Test connection",
         "settings.git.connectionSuccess": `${String(values?.protocol ?? "")} ${String(values?.duration ?? "")} ms`,
+        "settings.about.version": "Version 0.1.0",
+        "settings.about.revealLogs": "Reveal log folder",
+        "app.title": "Fjord",
       };
       return labels[key] ?? key;
     },
@@ -46,6 +56,7 @@ describe("SettingsDialog Git section", () => {
       theme: "system",
       defaultIde: null,
       autoFetch: false,
+      performanceDiagnostics: false,
       gitExecutablePath: null,
     });
     getGitEnvironment.mockResolvedValue({
@@ -67,6 +78,22 @@ describe("SettingsDialog Git section", () => {
       referenceCount: 3,
     });
     revealLogFolder.mockResolvedValue(undefined);
+  });
+
+  it("uses the compact five-section product structure without automatic fetch", async () => {
+    render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
+
+    expect(await screen.findByText("Interface language")).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "settings.title" });
+    expect(within(navigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "General",
+      "Git",
+      "Tools",
+      "Appearance",
+      "About",
+    ]);
+    expect(within(navigation).queryByRole("button", { name: "Sync" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Fetch changes automatically")).not.toBeInTheDocument();
   });
 
   it("shows diagnostics and can test a repository connection", async () => {
@@ -101,6 +128,7 @@ describe("SettingsDialog Git section", () => {
       theme: "system",
       defaultIde: null,
       autoFetch: false,
+      performanceDiagnostics: false,
       gitExecutablePath: "C:/nowhere/git.exe",
     });
     getGitEnvironment.mockResolvedValue({
@@ -154,14 +182,14 @@ describe("SettingsDialog Git section", () => {
     expect(screen.getByText("settings.git.askpassMissingDescription")).toBeInTheDocument();
   });
 
-  it("gives branding a home and reveals the application log folder", async () => {
+  it("shows practical app information and reveals the application log folder", async () => {
     render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "About" }));
-    expect(await screen.findByText("app.title")).toBeInTheDocument();
-    expect(screen.getByText("app.tagline")).toBeInTheDocument();
-    expect(screen.getByText("settings.about.version")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "settings.about.revealLogs" }));
+    expect(await screen.findByText("Fjord")).toBeInTheDocument();
+    expect(screen.getByText("Version 0.1.0")).toBeInTheDocument();
+    expect(screen.queryByText(/not just another Git client/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reveal log folder" }));
     await waitFor(() => expect(revealLogFolder).toHaveBeenCalledOnce());
   });
 

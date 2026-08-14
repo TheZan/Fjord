@@ -1,7 +1,6 @@
 {
   "app": {
-    "title": "Fjord",
-    "tagline": "Ein Git-Workspace-Manager, nicht nur ein weiterer Git-Client."
+    "title": "Fjord"
   },
   "errorBoundary": {
     "title": "Etwas ist schiefgelaufen",
@@ -81,28 +80,22 @@
   "settings": {
     "sections": {
       "general": "Allgemein",
-      "sync": "Synchronisierung",
       "git": "Git",
-      "appearance": "Darstellung",
       "tools": "Werkzeuge",
+      "appearance": "Darstellung",
       "about": "Über"
     },
     "theme": {
       "label": "Design",
+      "description": "Wähle, wie Fjord dem Erscheinungsbild deines Systems folgt.",
       "light": "Hell",
       "dark": "Dunkel",
       "system": "System"
     },
     "locale": {
-      "label": "Sprache"
-    },
-    "autoFetch": {
-      "label": "Remote-Änderungen",
-      "title": "Änderungen automatisch abrufen",
-      "description": "Prüft origin einmal pro Minute nur für das geöffnete Repository. Pausiert, wenn das Fenster inaktiv ist.",
-      "confirmTitle": "Automatisches Abrufen aktivieren?",
-      "confirmDescription": "Fjord darf Änderungen aus origin abrufen, ohne jede Prüfung einzeln zu bestätigen. Push, Pull, das Löschen von Branches und andere Aktionen müssen weiterhin bestätigt werden.",
-      "confirmButton": "Aktivieren"
+      "label": "Sprache",
+      "description": "Fjord verwendet diese Sprache in der gesamten Anwendung.",
+      "interfaceLanguage": "Oberflächensprache"
     },
     "performanceDiagnostics": {
       "label": "Diagnose",
@@ -110,7 +103,8 @@
       "description": "Speichert die letzten Interaktionszeiten im Arbeitsspeicher. Traces enthalten nur Kennungen und Dauern und werden beim Deaktivieren gelöscht."
     },
     "git": {
-      "executable": "System-Git",
+      "executable": "Git-Programm",
+      "executableDescription": "Wähle die Git-Installation für lokale Befehle, Remote-Vorgänge und Authentifizierung.",
       "found": "Git gefunden",
       "notFound": "Git nicht gefunden",
       "notFoundDescription": "Fjord verwendet System-Git für Remote-Vorgänge und Authentifizierung.",
@@ -121,7 +115,8 @@
       "choose": "Git auswählen",
       "refresh": "Erneut prüfen",
       "reset": "Pfad zurücksetzen",
-      "environment": "Authentifizierungsumgebung",
+      "environment": "Authentifizierung und Umgebung",
+      "environmentDescription": "Fjord verwendet vorhandene Credential Helper, den SSH-Agenten und die Proxy-Konfiguration.",
       "credentialHelper": "Credential Helper",
       "sshAgent": "SSH-Agent",
       "proxy": "Proxy",
@@ -132,16 +127,19 @@
       "available": "Verfügbar",
       "unavailable": "Nicht verfügbar",
       "connection": "Verbindungstest",
+      "connectionDescription": "Prüfe, ob das ausgewählte Repository seinen konfigurierten origin erreicht.",
       "testConnection": "Verbindung testen",
       "noRepositories": "Füge ein Repository hinzu, um origin zu testen.",
       "connectionSuccess": "Über {{protocol}} in {{duration}} ms verbunden.",
       "repositoryOwnership": "Repository-Besitz",
+      "repositoryOwnershipSummary": "Prüfe die Git-Vertrauensregel, bevor du einem fremden Repository vertraust.",
       "repositoryOwnershipDescription": "Wenn Git meldet, dass ein Repository einem anderen Konto gehört, prüfe zuerst den Besitzer des Ordners. Korrigiere den Besitzer oder vertraue einem bekannten Repository ausdrücklich mit:",
       "repositoryOwnershipWarning": "Füge einen Pfad erst zu safe.directory hinzu, nachdem du dem Repository und seinem Besitzer vertraust.",
       "diagnostics": "Rohdiagnose"
     },
     "defaultIde": {
-      "label": "Standard-IDE",
+      "label": "Integrierte Editoren",
+      "description": "Wähle den Editor, den Fjord standardmäßig öffnet.",
       "auto": "Automatisch",
       "vscode": "VS Code",
       "vscodeInsiders": "VS Code Insiders",
@@ -155,6 +153,7 @@
       "rider": "Rider",
       "rustrover": "RustRover",
       "custom": "Eigener Befehl",
+      "customDescription": "Verwende einen Befehl, der nicht in der integrierten Editorenliste enthalten ist.",
       "customPlaceholder": "editor-befehl",
       "customValue": "Wird als custom:<command> gespeichert.",
       "saveCustom": "Speichern"

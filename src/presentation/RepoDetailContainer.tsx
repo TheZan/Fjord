@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
-import { useAutoFetch } from "@/application/useAutoFetch";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import {
@@ -75,13 +74,11 @@ export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
 
 export function RepoDetailContainer({
   repo,
-  autoFetch,
   command,
   onBack,
   utilities,
 }: {
   repo: RepositoryEntry;
-  autoFetch: boolean;
   command: RepoDetailCommand | null;
   onBack: () => void;
   utilities: ReactNode;
@@ -117,7 +114,6 @@ export function RepoDetailContainer({
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
-  const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
   const operationInProgress = isOperationInProgress(operationState?.operation);
@@ -619,10 +615,7 @@ export function RepoDetailContainer({
       actionSuccess={actionSuccess}
       actionNoticeSuppressed={actionNoticeSuppressed}
       onPopRetainedStash={() => setDestructiveAction({ kind: "stashPop", index: 0 })}
-      actionError={
-        actionError ??
-        (autoFetchError ? t("sync.autoFetchError", { error: autoFetchError }) : null)
-      }
+      actionError={actionError}
       operationProgress={toToolbarProgress(activeOperation)}
       branchScrollRequest={branchScrollRequest}
       commitSearchRequestId={commitSearchRequestId}

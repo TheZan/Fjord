@@ -70,6 +70,10 @@ CREATE TABLE ui_state (
 );
 ```
 
+`auto_fetch` is retained as a legacy compatibility column so existing databases
+continue to round-trip through `SettingsStore`. It has no user-facing control and
+does not enable background network activity in the current product.
+
 Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
 `0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
 `0005_repo_snapshot.sql`, and `0006_ui_state.sql`.

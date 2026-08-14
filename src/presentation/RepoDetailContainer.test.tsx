@@ -37,9 +37,6 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => queryClientMock,
 }));
 
-vi.mock("@/application/useAutoFetch", () => ({
-  useAutoFetch: () => ({ error: null }),
-}));
 vi.mock("@/application/useCommitLog", () => ({
   useCommitLog: () => ({ commits: [], loading: false }),
 }));
@@ -280,7 +277,6 @@ describe("RepoDetailContainer checkout confirmation", () => {
     render(
       <RepoDetailContainer
         repo={repo}
-        autoFetch={false}
         command={null}
         onBack={vi.fn()}
         utilities={<div data-testid="shell-utilities" />}
@@ -368,7 +364,6 @@ describe("RepoDetailContainer checkout confirmation", () => {
     view.rerender(
       <RepoDetailContainer
         repo={repo}
-        autoFetch={false}
         command={{ id: 1, kind: "repoAction", action: "push" }}
         onBack={vi.fn()}
         utilities={<div data-testid="shell-utilities" />}
@@ -396,7 +391,6 @@ describe("RepoDetailContainer checkout confirmation", () => {
     view.rerender(
       <RepoDetailContainer
         repo={repo}
-        autoFetch={false}
         command={{ id: 2, kind: "repoAction", action: "push" }}
         onBack={vi.fn()}
         utilities={<div data-testid="shell-utilities" />}
@@ -725,7 +719,6 @@ function renderContainer() {
   return render(
     <RepoDetailContainer
       repo={repo}
-      autoFetch={false}
       command={null}
       onBack={vi.fn()}
       utilities={<div data-testid="shell-utilities" />}

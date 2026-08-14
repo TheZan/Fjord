@@ -63,7 +63,7 @@ import type { View } from "@/presentation/view";
 export function App() {
   useInteractionCommit();
   const queryClient = useQueryClient();
-  const { activated, settings: startupSettings } = useStartup();
+  const { activated } = useStartup();
   const { t: tw } = useTranslation("workspace");
   const {
     workspaces,
@@ -102,7 +102,6 @@ export function App() {
   const [bulkActionPending, setBulkActionPending] = useState<string | null>(null);
   const [bulkActionNotice, setBulkActionNotice] = useState<string | null>(null);
   const [bulkOperationId, setBulkOperationId] = useState<string | null>(null);
-  const [autoFetch, setAutoFetch] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switcherQuery, setSwitcherQuery] = useState("");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
@@ -235,10 +234,6 @@ export function App() {
     }, 500);
     return () => window.clearTimeout(timeout);
   }, [selectedRepoId, selectedWorkspaceId, uiSelectionRestored]);
-
-  useEffect(() => {
-    if (startupSettings) setAutoFetch(startupSettings.autoFetch);
-  }, [startupSettings]);
 
   useEffect(() => {
     if (activated) {
@@ -500,7 +495,6 @@ export function App() {
         {selectedRepo ? (
           <RepoDetailContainer
             repo={selectedRepo}
-            autoFetch={autoFetch}
             command={repoDetailCommand}
             onBack={() => {
               setSelectedRepoId(null);
@@ -602,7 +596,6 @@ export function App() {
           repositories={allRepositories}
           onClose={() => setSettingsOpen(false)}
           onSettingsChange={(settings) => {
-            setAutoFetch(settings.autoFetch);
             setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
           }}
         />

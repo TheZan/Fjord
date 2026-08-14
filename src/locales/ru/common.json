@@ -1,7 +1,6 @@
 {
   "app": {
-    "title": "Fjord",
-    "tagline": "Git workspace manager — не просто ещё один Git-клиент."
+    "title": "Fjord"
   },
   "errorBoundary": {
     "title": "Что-то пошло не так",
@@ -81,28 +80,22 @@
   "settings": {
     "sections": {
       "general": "Основное",
-      "sync": "Синхронизация",
       "git": "Git",
-      "appearance": "Внешний вид",
       "tools": "Инструменты",
+      "appearance": "Внешний вид",
       "about": "О приложении"
     },
     "theme": {
       "label": "Тема",
+      "description": "Выберите, как Fjord следует оформлению системы.",
       "light": "Светлая",
       "dark": "Тёмная",
       "system": "Системная"
     },
     "locale": {
-      "label": "Язык"
-    },
-    "autoFetch": {
-      "label": "Удалённые изменения",
-      "title": "Автоматически получать изменения",
-      "description": "Проверяет origin только для открытого репозитория раз в минуту. Работа приостанавливается, когда окно неактивно.",
-      "confirmTitle": "Включить автоматическое получение?",
-      "confirmDescription": "Fjord сможет выполнять fetch из origin без отдельного подтверждения для каждой проверки. Push, pull, удаление веток и другие действия останутся подтверждаемыми.",
-      "confirmButton": "Включить"
+      "label": "Язык",
+      "description": "Этот язык используется во всём интерфейсе Fjord.",
+      "interfaceLanguage": "Язык интерфейса"
     },
     "performanceDiagnostics": {
       "label": "Диагностика",
@@ -110,7 +103,8 @@
       "description": "Хранит в памяти последние тайминги взаимодействий. В трассах есть только идентификаторы и длительности; при отключении они очищаются."
     },
     "git": {
-      "executable": "Системный Git",
+      "executable": "Исполняемый файл Git",
+      "executableDescription": "Выберите установку Git для локальных команд, сетевых операций и аутентификации.",
       "found": "Git найден",
       "notFound": "Git не найден",
       "notFoundDescription": "Fjord использует системный Git для сетевых операций и аутентификации.",
@@ -125,7 +119,8 @@
       "choose": "Выбрать Git",
       "refresh": "Проверить снова",
       "reset": "Сбросить путь",
-      "environment": "Окружение аутентификации",
+      "environment": "Аутентификация и окружение",
+      "environmentDescription": "Fjord использует настроенные credential helpers, SSH agent и proxy.",
       "credentialHelper": "Credential helper",
       "sshAgent": "SSH agent",
       "proxy": "Proxy",
@@ -136,16 +131,19 @@
       "available": "Доступен",
       "unavailable": "Недоступен",
       "connection": "Проверка подключения",
+      "connectionDescription": "Проверьте, доступен ли настроенный origin выбранного репозитория.",
       "testConnection": "Проверить подключение",
       "noRepositories": "Добавьте репозиторий, чтобы проверить подключение к origin.",
       "connectionSuccess": "Подключено по {{protocol}} за {{duration}} мс.",
       "repositoryOwnership": "Владелец репозитория",
+      "repositoryOwnershipSummary": "Проверьте правило доверия Git перед разрешением репозитория другого пользователя.",
       "repositoryOwnershipDescription": "Если Git сообщает, что репозиторий принадлежит другой учётной записи, сначала проверьте владельца папки. Исправьте владельца, если он неверен, или явно разрешите доверенный репозиторий командой:",
       "repositoryOwnershipWarning": "Добавляйте путь в safe.directory только после того, как убедились, что доверяете репозиторию и его владельцу.",
       "diagnostics": "Исходная диагностика"
     },
     "defaultIde": {
-      "label": "IDE по умолчанию",
+      "label": "Встроенные редакторы",
+      "description": "Выберите редактор, который Fjord открывает по умолчанию.",
       "auto": "Авто",
       "vscode": "VS Code",
       "vscodeInsiders": "VS Code Insiders",
@@ -159,6 +157,7 @@
       "rider": "Rider",
       "rustrover": "RustRover",
       "custom": "Своя команда",
+      "customDescription": "Используйте команду редактора, которого нет во встроенном списке.",
       "customPlaceholder": "editor-command",
       "customValue": "Сохраняется как custom:<command>.",
       "saveCustom": "Сохранить"

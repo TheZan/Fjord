@@ -16,7 +16,6 @@ import {
   updateSettings,
 } from "@/infrastructure/tauriClient";
 import { SUPPORTED_LOCALES } from "@/locales/registry";
-import { ConfirmActionDialog } from "@/presentation/GitContextMenu";
 import { useInteractionCommit } from "@/presentation/performance";
 import { Button, GroupLabel, Input, Muted, Select } from "@/presentation/ui";
 import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
@@ -31,9 +30,9 @@ import type { RepositoryEntry } from "@/domain/workspace";
 const THEME_CHOICES: Theme[] = ["light", "dark", "system"];
 const CUSTOM_IDE_PREFIX = "custom:";
 
-type SettingsSection = "general" | "sync" | "git" | "appearance" | "tools" | "about";
+type SettingsSection = "general" | "git" | "tools" | "appearance" | "about";
 
-const SECTION_CHOICES: SettingsSection[] = ["general", "sync", "git", "appearance", "tools", "about"];
+const SECTION_CHOICES: SettingsSection[] = ["general", "git", "tools", "appearance", "about"];
 const DEFAULT_SETTINGS: Settings = {
   locale: "en",
   theme: "system",
@@ -80,7 +79,6 @@ export function SettingsDialog({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [customIde, setCustomIde] = useState("");
-  const [confirmAutoFetch, setConfirmAutoFetch] = useState(false);
   const [gitEnvironment, setGitEnvironment] = useState<GitEnvironmentInfo | null>(null);
   const [gitPending, setGitPending] = useState(false);
   const [gitError, setGitError] = useState<string | null>(null);
@@ -249,8 +247,7 @@ export function SettingsDialog({
     : DEFAULT_SETTINGS.locale;
 
   return (
-    <>
-      <div
+    <div
       className="fixed inset-0 z-40 flex items-center justify-center p-6"
       style={{ background: "rgba(8, 12, 16, 0.45)" }}
       onClick={onClose}
@@ -261,7 +258,7 @@ export function SettingsDialog({
         aria-modal="true"
         aria-label={tw("settings.title")}
         tabIndex={-1}
-        className="desktop-popover flex max-h-[78vh] w-[760px] max-w-[calc(100vw-32px)] overflow-hidden rounded-lg border"
+        className="desktop-popover flex h-[min(680px,78vh)] w-[720px] max-w-[calc(100vw-32px)] overflow-hidden rounded-lg border"
         style={{
           borderWidth: "0.5px",
           borderColor: "var(--hairline-strong)",
@@ -270,18 +267,19 @@ export function SettingsDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <aside
-          className="w-44 shrink-0 border-r p-3"
+          className="w-36 shrink-0 border-r px-2.5 py-3"
           style={{ borderRightWidth: "0.5px", borderColor: "var(--hairline)" }}
         >
-          <h2 className="px-2 pb-3 text-[15px] font-medium">{tw("settings.title")}</h2>
-          <nav className="flex flex-col gap-1">
+          <h2 className="px-2 pb-3 text-[14px] font-medium">{tw("settings.title")}</h2>
+          <nav aria-label={tw("settings.title")} className="flex flex-col gap-0.5">
             {SECTION_CHOICES.map((section) => (
               <button
                 key={section}
                 type="button"
                 data-selected={activeSection === section}
+                aria-current={activeSection === section ? "page" : undefined}
                 onClick={() => setActiveSection(section)}
-                className="interactive-row rounded-md px-2 py-1.5 text-left text-[13px]"
+                className="interactive-row rounded-md px-2 py-1.5 text-left text-[12px]"
                 style={{
                   color: activeSection === section ? "var(--fjord-ink)" : "var(--slate)",
                   fontWeight: activeSection === section ? 500 : 400,
@@ -295,7 +293,7 @@ export function SettingsDialog({
 
         <section className="flex min-w-0 flex-1 flex-col">
           <div
-            className="flex items-center justify-between border-b px-5 py-3"
+            className="flex min-h-12 items-center justify-between border-b px-5 py-2.5"
             style={{ borderBottomWidth: "0.5px", borderColor: "var(--hairline)" }}
           >
             <div>
@@ -314,69 +312,38 @@ export function SettingsDialog({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto px-5 py-4">
             {activeSection === "general" && (
-              <SettingsGroup title={t("settings.locale.label")}>
-                <Select
-                  value={selectedLocale}
-                  disabled={pendingKey === "locale"}
-                  onChange={(event) => void chooseLocale(event.target.value)}
-                  className="w-64 max-w-full"
-                >
-                  {SUPPORTED_LOCALES.map((locale) => (
-                    <option key={locale.code} value={locale.code}>
-                      {locale.label}
-                    </option>
-                  ))}
-                </Select>
-              </SettingsGroup>
-            )}
-
-            {activeSection === "sync" && (
-              <SettingsGroup title={t("settings.autoFetch.label")}>
-                <div
-                  className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
-                  style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
-                >
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-medium" style={{ color: "var(--ink)" }}>
-                      {t("settings.autoFetch.title")}
-                    </div>
-                    <Muted className="mt-0.5 block max-w-md text-[11px] leading-4">
-                      {t("settings.autoFetch.description")}
-                    </Muted>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={currentSettings.autoFetch}
-                    aria-label={t("settings.autoFetch.title")}
-                    disabled={pendingKey === "autoFetch"}
-                    className="interactive-control relative h-5 w-9 shrink-0 rounded-full disabled:opacity-45"
-                    style={{
-                      background: currentSettings.autoFetch ? "var(--fjord)" : "var(--hairline-strong)",
-                    }}
-                    onClick={() => {
-                      if (currentSettings.autoFetch) void saveSettings({ autoFetch: false }, "autoFetch");
-                      else setConfirmAutoFetch(true);
-                    }}
+              <SettingsGroup
+                title={t("settings.locale.label")}
+                description={t("settings.locale.description")}
+              >
+                <SettingsPanel className="flex items-center justify-between gap-5">
+                  <span className="text-[12px]" style={{ color: "var(--slate)" }}>
+                    {t("settings.locale.interfaceLanguage")}
+                  </span>
+                  <Select
+                    value={selectedLocale}
+                    disabled={pendingKey === "locale"}
+                    onChange={(event) => void chooseLocale(event.target.value)}
+                    className="w-52 max-w-full"
                   >
-                    <span
-                      className="absolute top-0.5 h-4 w-4 rounded-full transition-transform"
-                      style={{
-                        left: "2px",
-                        background: "var(--paper)",
-                        transform: currentSettings.autoFetch ? "translateX(16px)" : "translateX(0)",
-                      }}
-                    />
-                  </button>
-                </div>
+                    {SUPPORTED_LOCALES.map((locale) => (
+                      <option key={locale.code} value={locale.code}>
+                        {locale.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsPanel>
               </SettingsGroup>
             )}
 
             {activeSection === "git" && (
-              <div className="flex flex-col gap-5">
-                <SettingsGroup title={t("settings.git.executable")}>
+              <div className="flex flex-col gap-4">
+                <SettingsGroup
+                  title={t("settings.git.executable")}
+                  description={t("settings.git.executableDescription")}
+                >
                   <div
                     className="rounded-md border p-3"
                     style={{
@@ -430,8 +397,11 @@ export function SettingsDialog({
                 </SettingsGroup>
 
                 {gitEnvironment && !configuredPathInvalid && (
-                  <SettingsGroup title={t("settings.git.environment")}>
-                    <div className="grid gap-2 text-[12px]">
+                  <SettingsGroup
+                    title={t("settings.git.environment")}
+                    description={t("settings.git.environmentDescription")}
+                  >
+                    <SettingsPanel className="grid gap-2 text-[12px]">
                       <GitStatusRow
                         label={t("settings.git.credentialHelper")}
                         value={gitEnvironment.credentialHelpers.length > 0 ? t("settings.git.configured") : t("settings.git.notConfigured")}
@@ -462,11 +432,14 @@ export function SettingsDialog({
                           {t("settings.git.askpassMissingDescription")}
                         </p>
                       )}
-                    </div>
+                    </SettingsPanel>
                   </SettingsGroup>
                 )}
 
-                <SettingsGroup title={t("settings.git.repositoryOwnership")}>
+                <SettingsGroup
+                  title={t("settings.git.repositoryOwnership")}
+                  description={t("settings.git.repositoryOwnershipSummary")}
+                >
                   <div
                     className="rounded-md border p-3 text-[11px] leading-4"
                     style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
@@ -484,31 +457,42 @@ export function SettingsDialog({
                   </div>
                 </SettingsGroup>
 
-                <SettingsGroup title={t("settings.git.connection")}>
-                  <div className="flex gap-2">
-                    <Select
-                      value={connectionRepoId}
-                      disabled={gitPending || repositories.length === 0}
-                      onChange={(event) => setConnectionRepoId(event.target.value)}
-                      className="min-w-0 flex-1"
-                    >
-                      {repositories.map((repository) => (
-                        <option key={repository.id} value={repository.id}>{repository.name}</option>
-                      ))}
-                    </Select>
-                    <Button size="sm" disabled={gitPending || !connectionRepoId} onClick={() => void runConnectionTest()}>
-                      {t("settings.git.testConnection")}
-                    </Button>
-                  </div>
-                  {repositories.length === 0 && <Muted className="text-[11px]">{t("settings.git.noRepositories")}</Muted>}
-                  {connectionResult && (
-                    <p className="text-[12px]" style={{ color: "var(--moss-ink)" }}>
-                      {t("settings.git.connectionSuccess", {
-                        duration: connectionResult.durationMs,
-                        protocol: connectionResult.protocol.toUpperCase(),
-                      })}
-                    </p>
-                  )}
+                <SettingsGroup
+                  title={t("settings.git.connection")}
+                  description={t("settings.git.connectionDescription")}
+                >
+                  <SettingsPanel className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <Select
+                        value={connectionRepoId}
+                        disabled={gitPending || repositories.length === 0}
+                        onChange={(event) => setConnectionRepoId(event.target.value)}
+                        className="min-w-0 flex-1"
+                      >
+                        {repositories.map((repository) => (
+                          <option key={repository.id} value={repository.id}>
+                            {repository.name}
+                          </option>
+                        ))}
+                      </Select>
+                      <Button
+                        size="sm"
+                        disabled={gitPending || !connectionRepoId}
+                        onClick={() => void runConnectionTest()}
+                      >
+                        {t("settings.git.testConnection")}
+                      </Button>
+                    </div>
+                    {repositories.length === 0 && <Muted className="text-[11px]">{t("settings.git.noRepositories")}</Muted>}
+                    {connectionResult && (
+                      <p className="text-[12px]" style={{ color: "var(--moss-ink)" }}>
+                        {t("settings.git.connectionSuccess", {
+                          duration: connectionResult.durationMs,
+                          protocol: connectionResult.protocol.toUpperCase(),
+                        })}
+                      </p>
+                    )}
+                  </SettingsPanel>
                 </SettingsGroup>
 
                 {gitError && <p className="text-xs" style={{ color: "var(--rust-ink)" }}>{gitError}</p>}
@@ -522,8 +506,11 @@ export function SettingsDialog({
             )}
 
             {activeSection === "appearance" && (
-              <SettingsGroup title={t("settings.theme.label")}>
-                <div className="grid grid-cols-3 gap-1.5">
+              <SettingsGroup
+                title={t("settings.theme.label")}
+                description={t("settings.theme.description")}
+              >
+                <SettingsPanel className="grid grid-cols-3 gap-1.5">
                   {THEME_CHOICES.map((themeChoice) => (
                     <Button
                       key={themeChoice}
@@ -534,12 +521,12 @@ export function SettingsDialog({
                       {t(`settings.theme.${themeChoice}`)}
                     </Button>
                   ))}
-                </div>
+                </SettingsPanel>
               </SettingsGroup>
             )}
 
             {activeSection === "tools" && (
-              <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-4">
                 <SettingsGroup title={t("settings.performanceDiagnostics.label")}>
                   <div
                     className="flex items-center justify-between gap-5 rounded-md border px-3 py-3"
@@ -586,8 +573,11 @@ export function SettingsDialog({
                   </div>
                 </SettingsGroup>
 
-                <SettingsGroup title={t("settings.defaultIde.label")}>
-                  <div className="grid grid-cols-3 gap-1.5">
+                <SettingsGroup
+                  title={t("settings.defaultIde.label")}
+                  description={t("settings.defaultIde.description")}
+                >
+                  <SettingsPanel className="grid grid-cols-3 gap-1.5">
                     {IDE_CHOICES.map((ide) => (
                       <Button
                         key={ide.key}
@@ -599,59 +589,63 @@ export function SettingsDialog({
                         {t(`settings.defaultIde.${ide.key}`)}
                       </Button>
                     ))}
-                  </div>
+                  </SettingsPanel>
                 </SettingsGroup>
 
-                <SettingsGroup title={t("settings.defaultIde.custom")}>
-                  <div className="flex gap-2">
-                    <Input
-                      value={customIde}
-                      onChange={(event) => setCustomIde(event.target.value)}
-                      onBlur={commitCustomIde}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                      }}
-                      placeholder={t("settings.defaultIde.customPlaceholder")}
-                      className="min-w-0 flex-1"
-                    />
-                    <Button
-                      size="sm"
-                      variant={selectedIde === "custom" ? "primary" : "secondary"}
-                      disabled={pendingKey === "customIde"}
-                      onClick={commitCustomIde}
-                    >
-                      {t("settings.defaultIde.saveCustom")}
-                    </Button>
-                  </div>
-                  <Muted className="text-[11px]">{t("settings.defaultIde.customValue")}</Muted>
+                <SettingsGroup
+                  title={t("settings.defaultIde.custom")}
+                  description={t("settings.defaultIde.customDescription")}
+                >
+                  <SettingsPanel className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={customIde}
+                        onChange={(event) => setCustomIde(event.target.value)}
+                        onBlur={commitCustomIde}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        placeholder={t("settings.defaultIde.customPlaceholder")}
+                        className="min-w-0 flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        variant={selectedIde === "custom" ? "primary" : "secondary"}
+                        disabled={pendingKey === "customIde"}
+                        onClick={commitCustomIde}
+                      >
+                        {t("settings.defaultIde.saveCustom")}
+                      </Button>
+                    </div>
+                    <Muted className="text-[11px]">{t("settings.defaultIde.customValue")}</Muted>
+                  </SettingsPanel>
                 </SettingsGroup>
               </div>
             )}
 
             {activeSection === "about" && (
-              <div className="flex flex-col gap-5">
-                <div className="flex items-center gap-4">
-                  <img src={logoUrl} alt="" className="h-14 w-14 shrink-0" />
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-3 py-1">
+                  <img src={logoUrl} alt="" className="h-10 w-10 shrink-0" />
                   <div>
-                    <div className="text-lg font-semibold">{t("app.title")}</div>
-                    <Muted className="mt-0.5 block text-[12px]">{t("app.tagline")}</Muted>
-                    <div className="mt-1 text-[11px]" style={{ color: "var(--mist)" }}>
+                    <div className="text-[15px] font-semibold">{t("app.title")}</div>
+                    <div className="mt-0.5 text-[11px]" style={{ color: "var(--mist)" }}>
                       {t("settings.about.version", { version: packageInfo.version })}
                     </div>
                   </div>
                 </div>
-                <SettingsGroup title={t("settings.about.diagnostics") }>
-                  <Muted className="text-[11px] leading-4">
-                    {t("settings.about.logsDescription")}
-                  </Muted>
-                  <div>
+                <SettingsGroup
+                  title={t("settings.about.diagnostics")}
+                  description={t("settings.about.logsDescription")}
+                >
+                  <SettingsPanel>
                     <Button size="sm" disabled={logFolderPending} onClick={() => void revealLogs()}>
                       {logFolderPending
                         ? t("settings.about.revealingLogs")
                         : t("settings.about.revealLogs")}
                     </Button>
-                  </div>
-                  {logFolderError && <p role="alert" className="text-[11px]" style={{ color: "var(--rust-ink)" }}>{logFolderError}</p>}
+                    {logFolderError && <p role="alert" className="mt-2 text-[11px]" style={{ color: "var(--rust-ink)" }}>{logFolderError}</p>}
+                  </SettingsPanel>
                 </SettingsGroup>
               </div>
             )}
@@ -665,27 +659,44 @@ export function SettingsDialog({
           </div>
         </section>
       </div>
-      </div>
-      {confirmAutoFetch && (
-        <ConfirmActionDialog
-          title={t("settings.autoFetch.confirmTitle")}
-          description={t("settings.autoFetch.confirmDescription")}
-          confirmLabel={t("settings.autoFetch.confirmButton")}
-          onClose={() => setConfirmAutoFetch(false)}
-          onConfirm={() => {
-            setConfirmAutoFetch(false);
-            void saveSettings({ autoFetch: true }, "autoFetch");
-          }}
-        />
-      )}
-    </>
+    </div>
   );
 }
 
-function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingsGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2">
-      <GroupLabel>{title}</GroupLabel>
+      <div>
+        <GroupLabel>{title}</GroupLabel>
+        {description && (
+          <Muted className="mt-0.5 block max-w-xl text-[11px] leading-4">{description}</Muted>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SettingsPanel({
+  className = "",
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-md border px-3 py-2.5 ${className}`}
+      style={{ borderWidth: "0.5px", borderColor: "var(--hairline)" }}
+    >
       {children}
     </div>
   );

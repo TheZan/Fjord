@@ -79,6 +79,7 @@ color-vision-deficient users and in high-contrast environments.
 |---|---|
 | Sidebar | ✅ Resizable navigation/workspace tree with no working-shell branding or Settings entry; width, expansion, and selection persist through the versioned UI-state store. |
 | Global utilities | ✅ Reusable `ShellUtilities` owns exactly Search and Settings and is composed into the active screen header. The shortcut/palette and Settings dialog owners are unchanged. There is no dedicated utility row. |
+| Settings dialog | ✅ Compact modal with a narrow sidebar and five product sections in order: General, Git, Tools, Appearance, About. General owns language; Git groups executable, authentication/environment, repository trust, and connection diagnostics; Tools owns performance traces plus built-in/custom editor selection; Appearance owns the three theme choices; About contains only app/version and log-folder diagnostics. There is no Sync section or background auto-fetch control. |
 | RepoToolbar | ✅ Identity/state left; Fetch/Pull/Push/Branch center; IDE and overflow next; one separated `ShellUtilities` slot last. Stash/Pop/Terminal/Merge tool/compact Inspector live in overflow. No duplicate Search. |
 | Overview header | ✅ Four workspace actions (Fetch all, Pull all, Add repository, overflow), followed by the separated two-control utility slot; one compact filterable summary line replaces metric cards. |
 | All repositories header | ✅ Title/count, text filter, then the same two-control utility slot. |
@@ -310,13 +311,11 @@ Search action twice and every screen paid the vertical cost. `P7-FIX-04` keeps o
 semantic `ShellUtilities` owner and composes it into each header. This retains a
 stable top-right location while eliminating the duplicate and wasted row.
 
-**Settings: dialog vs. dedicated screen.** The current dialog
-(`SettingsDialog.tsx`, 570 lines) already carries Git diagnostics and will grow
-with Phase 8–10 preferences. A dedicated route would fit that growth better, but
-it also adds a navigation state that must interact with repository selection and
-persisted UI state. This spec keeps the dialog and revisits the decision when
-Settings exceeds three sections; the utility-bar entry point is identical either
-way, so the change stays local.
+**Settings: dialog vs. dedicated screen.** Settings remains a compact modal with
+five stable sections. A dedicated route would add navigation state that must
+interact with repository selection and persisted UI state without improving the
+current set-once preference workflow. The utility-bar entry point stays
+independent of that future choice.
 
 **Metrics: compact line vs. keeping the metric cards.** Cards are scannable but
 consume ~90 px of vertical space above the content on every workspace, for three

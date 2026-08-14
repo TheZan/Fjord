@@ -375,9 +375,6 @@
     "openCommand": "Abrir ajustes",
     "openCommandDetail": "Tema, idioma e IDE predeterminado"
   },
-  "sync": {
-    "autoFetchError": "No se pudieron obtener automáticamente los cambios remotos: {{error}}"
-  },
   "toolbar": {
     "branch": "Rama",
     "branchPlaceholder": "Nombre de la nueva rama",

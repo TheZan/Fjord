@@ -1,7 +1,6 @@
 {
   "app": {
-    "title": "Fjord",
-    "tagline": "Un gestionnaire d'espaces de travail Git, pas seulement un autre client Git."
+    "title": "Fjord"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",
@@ -81,28 +80,22 @@
   "settings": {
     "sections": {
       "general": "Général",
-      "sync": "Synchronisation",
       "git": "Git",
-      "appearance": "Apparence",
       "tools": "Outils",
+      "appearance": "Apparence",
       "about": "À propos"
     },
     "theme": {
       "label": "Thème",
+      "description": "Choisissez comment Fjord suit l’apparence de votre système.",
       "light": "Clair",
       "dark": "Sombre",
       "system": "Système"
     },
     "locale": {
-      "label": "Langue"
-    },
-    "autoFetch": {
-      "label": "Modifications distantes",
-      "title": "Récupérer automatiquement les modifications",
-      "description": "Vérifie origin une fois par minute uniquement pour le dépôt ouvert. La vérification est suspendue lorsque la fenêtre est inactive.",
-      "confirmTitle": "Activer la récupération automatique ?",
-      "confirmDescription": "Fjord pourra récupérer les modifications depuis origin sans confirmation pour chaque vérification. Les push, pull, suppressions de branches et autres actions resteront soumis à confirmation.",
-      "confirmButton": "Activer"
+      "label": "Langue",
+      "description": "Fjord utilise cette langue dans toute l’application.",
+      "interfaceLanguage": "Langue de l’interface"
     },
     "performanceDiagnostics": {
       "label": "Diagnostic",
@@ -110,7 +103,8 @@
       "description": "Conserve en mémoire les durées des interactions récentes. Les traces ne contiennent que des identifiants et des durées, puis sont effacées à la désactivation."
     },
     "git": {
-      "executable": "Git système",
+      "executable": "Exécutable Git",
+      "executableDescription": "Choisissez l’installation Git utilisée pour les commandes locales, les opérations distantes et l’authentification.",
       "found": "Git trouvé",
       "notFound": "Git introuvable",
       "notFoundDescription": "Fjord utilise Git système pour les opérations distantes et l’authentification.",
@@ -121,7 +115,8 @@
       "choose": "Choisir Git",
       "refresh": "Vérifier à nouveau",
       "reset": "Réinitialiser le chemin",
-      "environment": "Environnement d’authentification",
+      "environment": "Authentification et environnement",
+      "environmentDescription": "Fjord utilise vos gestionnaires d’identifiants, votre agent SSH et votre configuration proxy existants.",
       "credentialHelper": "Gestionnaire d’identifiants",
       "sshAgent": "Agent SSH",
       "proxy": "Proxy",
@@ -132,16 +127,19 @@
       "available": "Disponible",
       "unavailable": "Indisponible",
       "connection": "Test de connexion",
+      "connectionDescription": "Vérifiez que le dépôt sélectionné peut joindre son origin configuré.",
       "testConnection": "Tester la connexion",
       "noRepositories": "Ajoutez un dépôt pour tester sa connexion origin.",
       "connectionSuccess": "Connexion via {{protocol}} en {{duration}} ms.",
       "repositoryOwnership": "Propriété du dépôt",
+      "repositoryOwnershipSummary": "Vérifiez la règle de confiance de Git avant d’autoriser un dépôt appartenant à un autre compte.",
       "repositoryOwnershipDescription": "Si Git indique qu’un dépôt appartient à un autre compte, vérifiez d’abord le propriétaire du dossier. Corrigez-le ou approuvez explicitement un dépôt connu avec :",
       "repositoryOwnershipWarning": "N’ajoutez un chemin à safe.directory qu’après avoir vérifié que vous faites confiance au dépôt et à son propriétaire.",
       "diagnostics": "Diagnostic brut"
     },
     "defaultIde": {
-      "label": "IDE par défaut",
+      "label": "Éditeurs intégrés",
+      "description": "Choisissez l’éditeur que Fjord ouvre par défaut.",
       "auto": "Auto",
       "vscode": "VS Code",
       "vscodeInsiders": "VS Code Insiders",
@@ -155,6 +153,7 @@
       "rider": "Rider",
       "rustrover": "RustRover",
       "custom": "Commande personnalisée",
+      "customDescription": "Utilisez une commande absente de la liste des éditeurs intégrés.",
       "customPlaceholder": "commande-editeur",
       "customValue": "Enregistré sous custom:<command>.",
       "saveCustom": "Enregistrer"

@@ -375,9 +375,6 @@
     "openCommand": "Ouvrir les réglages",
     "openCommandDetail": "Thème, langue et IDE par défaut"
   },
-  "sync": {
-    "autoFetchError": "Impossible de récupérer automatiquement les modifications distantes : {{error}}"
-  },
   "toolbar": {
     "branch": "Branche",
     "branchPlaceholder": "Nom de la nouvelle branche",

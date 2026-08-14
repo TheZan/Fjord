@@ -1,7 +1,6 @@
 {
   "app": {
-    "title": "Fjord",
-    "tagline": "A Git workspace manager, not just another Git client."
+    "title": "Fjord"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -81,28 +80,22 @@
   "settings": {
     "sections": {
       "general": "General",
-      "sync": "Sync",
       "git": "Git",
-      "appearance": "Appearance",
       "tools": "Tools",
+      "appearance": "Appearance",
       "about": "About"
     },
     "theme": {
       "label": "Theme",
+      "description": "Choose how Fjord follows your desktop appearance.",
       "light": "Light",
       "dark": "Dark",
       "system": "System"
     },
     "locale": {
-      "label": "Language"
-    },
-    "autoFetch": {
-      "label": "Remote changes",
-      "title": "Fetch changes automatically",
-      "description": "Checks origin only for the open repository once a minute. Pauses while the window is inactive.",
-      "confirmTitle": "Enable automatic fetching?",
-      "confirmDescription": "Fjord will be allowed to fetch from origin without a separate confirmation for every check. Push, pull, branch deletion, and other actions will still require confirmation.",
-      "confirmButton": "Enable"
+      "label": "Language",
+      "description": "Fjord uses this language throughout the application.",
+      "interfaceLanguage": "Interface language"
     },
     "performanceDiagnostics": {
       "label": "Diagnostics",
@@ -110,7 +103,8 @@
       "description": "Keeps the latest interaction timings in memory. Traces contain identifiers and durations only, and are cleared when disabled."
     },
     "git": {
-      "executable": "System Git",
+      "executable": "Git executable",
+      "executableDescription": "Choose the Git installation used for local commands, remote operations, and authentication.",
       "found": "Git found",
       "notFound": "Git not found",
       "notFoundDescription": "Fjord uses system Git for remote operations and authentication.",
@@ -125,7 +119,8 @@
       "choose": "Choose Git",
       "refresh": "Check again",
       "reset": "Reset path",
-      "environment": "Authentication environment",
+      "environment": "Authentication and environment",
+      "environmentDescription": "Fjord uses your existing credential helpers, SSH agent, and proxy configuration.",
       "credentialHelper": "Credential helper",
       "sshAgent": "SSH agent",
       "proxy": "Proxy",
@@ -136,16 +131,19 @@
       "available": "Available",
       "unavailable": "Unavailable",
       "connection": "Connection test",
+      "connectionDescription": "Verify that the selected repository can reach its configured origin.",
       "testConnection": "Test connection",
       "noRepositories": "Add a repository to test its origin connection.",
       "connectionSuccess": "Connected via {{protocol}} in {{duration}} ms.",
       "repositoryOwnership": "Repository ownership",
+      "repositoryOwnershipSummary": "Review Git's trust rule before allowing a repository owned by another account.",
       "repositoryOwnershipDescription": "If Git reports that a repository is owned by another account, verify who owns the folder first. Change the folder ownership when it is wrong, or explicitly trust a known repository with:",
       "repositoryOwnershipWarning": "Only add a path to safe.directory after verifying that you trust the repository and its owner.",
       "diagnostics": "Raw diagnostics"
     },
     "defaultIde": {
-      "label": "Default IDE",
+      "label": "Built-in editors",
+      "description": "Choose the editor Fjord opens by default.",
       "auto": "Auto",
       "vscode": "VS Code",
       "vscodeInsiders": "VS Code Insiders",
@@ -159,6 +157,7 @@
       "rider": "Rider",
       "rustrover": "RustRover",
       "custom": "Custom command",
+      "customDescription": "Use a command that is not included in the built-in editor list.",
       "customPlaceholder": "editor-command",
       "customValue": "Saved as custom:<command>.",
       "saveCustom": "Save"
