@@ -29,6 +29,7 @@ jobs:
         run: |
           npm run test:release-gate
           node scripts/check-v0.1-release-gate.mjs
+          npm run check:release-notes
 
       - name: Require successful CI for this commit
         uses: actions/github-script@v8

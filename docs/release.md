@@ -127,6 +127,11 @@ items remain human-owned.
 
 Before publishing a draft release:
 
+- Run `npm run check:release-notes` and use
+  [`releases/fjord-v0.1.0-early-preview.md`](releases/fjord-v0.1.0-early-preview.md)
+  as the candidate release body. The check requires every platform, workflow,
+  workspace-first, limitation, safety, reporting, and Early Preview section to
+  be populated; compare its claims with the exact candidate and this checklist.
 - Confirm every item in `docs/tasks.md` Phase 3 is closed or deliberately
   deferred in the release notes.
 - Re-run the local verification commands above from a clean checkout.
@@ -142,7 +147,7 @@ Before publishing a draft release:
   the supported self-hosted HTTPS/SSH environments before publishing.
 - Verify the updater manifest (`latest.json`) is attached and every platform
   entry has a URL and signature.
-- Write release notes with known limitations, especially unsigned Linux package
-  repository status and any unavailable distribution channels.
+- Confirm the release notes retain the known limitations, especially unsigned
+  Linux package-repository status and unavailable distribution channels.
 - Publish the release only after the app starts without terminal output or
   developer tooling on all supported OSes.
