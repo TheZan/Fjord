@@ -896,6 +896,9 @@ async fn fresh_install_smoke_restores_each_repository_once_after_restart() {
         let mut config = repo.config().unwrap();
         config.set_str("user.name", "Fjord Test").unwrap();
         config.set_str("user.email", "test@fjord.invalid").unwrap();
+        // The lifecycle assertion is about pulled content, not the runner's
+        // global line-ending policy.
+        config.set_bool("core.autocrlf", false).unwrap();
     }
     std::fs::write(created.path.join("README.md"), b"fresh repository\n").unwrap();
     services
