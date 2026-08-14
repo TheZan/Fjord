@@ -47,6 +47,7 @@ export function RepoToolbar({
   onCreateBranch,
   utilities,
   onOpenInspector,
+  onOpenRecoveryCenter = () => undefined,
 }: {
   repo: RepositoryEntry;
   status: RepoStatus | null;
@@ -60,6 +61,7 @@ export function RepoToolbar({
   onCreateBranch: (name: string) => void;
   utilities: ReactNode;
   onOpenInspector?: () => void;
+  onOpenRecoveryCenter?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const { stashes } = useStashes(repo.id);
@@ -246,6 +248,11 @@ export function RepoToolbar({
               ...(onOpenInspector
                 ? [{ id: "inspector", label: t("inspector.open"), onSelect: onOpenInspector }]
                 : []),
+              {
+                id: "recovery-center",
+                label: t("recovery.open"),
+                onSelect: onOpenRecoveryCenter,
+              },
             ]}
           />
         </ToolGroup>

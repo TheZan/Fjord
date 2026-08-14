@@ -478,6 +478,10 @@ export function getCommitDiff(repoId: string, commitId: string, signal?: AbortSi
   return invokeVersioned("get_commit_diff", { repoId, commitId }, repoId, "history", signal);
 }
 
+export function getRecoveryDiff(repoId: string, commitId: string, signal?: AbortSignal): Promise<FileDiff[]> {
+  return invokeVersioned("get_recovery_diff", { repoId, commitId }, repoId, "reflog", signal);
+}
+
 export function getCommitFiles(
   repoId: string,
   commitId: string,

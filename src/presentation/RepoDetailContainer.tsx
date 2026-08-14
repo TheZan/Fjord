@@ -54,6 +54,7 @@ import {
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
+import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
 import { useInteractionCommit } from "@/presentation/performance";
@@ -108,6 +109,7 @@ export function RepoDetailContainer({
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionNoticeSuppressed, setActionNoticeSuppressed] = useState(false);
   const [actionPending, setActionPending] = useState<string | null>(null);
+  const [recoveryCenterOpen, setRecoveryCenterOpen] = useState(false);
   const actionInFlight = useRef(false);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
@@ -218,6 +220,7 @@ export function RepoDetailContainer({
   useEffect(() => {
     setSelectedCommit(null);
     setWorkingSelected(false);
+    setRecoveryCenterOpen(false);
   }, [repo.id]);
 
   useEffect(() => {
@@ -340,6 +343,18 @@ export function RepoDetailContainer({
     void runRepoAction("create-branch", () => createBranchAt(repo.id, name, target, true), ["status", "working", "history", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(name);
     });
+  }
+
+  function onCreateRecoveryBranch(name: string, target: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
+    void runRepoAction(
+      "recovery-create-branch",
+      () => createBranchAt(repo.id, name, target, false),
+      ["refs", "history", "reflog"],
+    );
   }
 
   function onRenameBranch(oldName: string, newName: string) {
@@ -559,6 +574,18 @@ export function RepoDetailContainer({
 
   return (
     snapshot.ready ? <>
+    {recoveryCenterOpen ? (
+      <RecoveryCenter
+        repo={repo}
+        ready={actionsValidated}
+        actionPending={actionPending}
+        actionError={actionError}
+        actionSuccess={actionSuccess}
+        onBack={() => setRecoveryCenterOpen(false)}
+        onCreateBranch={onCreateRecoveryBranch}
+        onRestore={(commitId) => setDestructiveAction({ kind: "recoveryRestore", commitId })}
+      />
+    ) : (
     <RepoDetailView
       repo={repo}
       snapshotValidated={snapshot.validated}
@@ -591,6 +618,7 @@ export function RepoDetailContainer({
       changesLoading={changesLoading}
       changesError={changesError}
       onBack={onBack}
+      onOpenRecoveryCenter={() => setRecoveryCenterOpen(true)}
       onAction={onAction}
       actionConfirmation={actionConfirmation}
       onConfirmAction={() => {
@@ -628,6 +656,7 @@ export function RepoDetailContainer({
       onDiscardPatch={onDiscardPatch}
       onCommit={onCommit}
     />
+    )}
     {forcePushPreflight ? (
       <DestructivePreflightDialog
         repoId={repo.id}
@@ -746,7 +775,7 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
     case "reset":
     case "checkoutDiscard":
     case "recoveryRestore":
-      return ["status", "working", "history", "refs"];
+      return ["status", "working", "history", "refs", "reflog"];
     case "abortOperation":
       return ["status", "operation", "working", "history", "refs"];
     case "discard":

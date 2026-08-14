@@ -72,7 +72,7 @@ resolution.
 | Branch deletion | ✅ Local/remote deletion reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability, then executes only the confirmed action. |
 | Checkout | ✅ `checkout_branch` detects and returns bounded overwrite paths before switching, rechecks under the write lock after any targeted fetch, and offers cancel, retained stash-and-checkout, or confirmed discard. |
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. |
-| Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery. Recovery Center UI remains P9-09. |
+| Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery; P9-09 exposes them through the Recovery Center with HEAD-relative diffs and safe/confirmed recovery actions. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
@@ -348,6 +348,13 @@ opaque `LogCursor`, caps every response at 200 entries even for an unbounded
 caller request, and resolves a target commit summary only while its object still
 exists. `get_reflog_refs` returns sorted canonical `refs/heads/*` names only when
 Git reports a corresponding log.
+
+Implemented in P9-09: `get_recovery_diff` compares the current `HEAD` tree with
+the selected still-existing commit under the repository read lock. The repository
+overflow menu opens the Recovery Center, which owns the paginated reflog query,
+branch-ref selector, selection, diff, and the permanent recovery-limits text.
+Creating a branch does not check it out. Restore uses the same fresh preflight and
+one-use confirmation-token execution path as every other destructive action.
 
 Recovery Center (a screen reachable from the repository overflow menu and from any
 "not what you wanted?" affordance after a destructive action):

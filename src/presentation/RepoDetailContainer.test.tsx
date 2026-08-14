@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -83,6 +83,7 @@ vi.mock("@/presentation/performance", () => ({
 vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   checkoutBranch: vi.fn(async () => undefined),
+  createBranchAt: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
   runContinueOperation: vi.fn(() => ({
     operationId: "operation-continue",
@@ -130,6 +131,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     actionSuccess,
     operationState,
     onOperationControl,
+    onOpenRecoveryCenter,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -148,6 +150,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     actionSuccess: string | null;
     operationState: import("@/domain/generated").RepoOperationState | null;
     onOperationControl: (control: import("@/domain/generated").OperationControl) => void;
+    onOpenRecoveryCenter: () => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -157,6 +160,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
+      <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
       <button type="button" onClick={() => void onDiscardPatch(
@@ -181,6 +185,20 @@ vi.mock("@/presentation/RepoDetailView", () => ({
   ),
 }));
 
+vi.mock("@/presentation/RecoveryCenter", () => ({
+  RecoveryCenter: ({ onBack, onCreateBranch, onRestore }: {
+    onBack: () => void;
+    onCreateBranch: (name: string, commitId: string) => void;
+    onRestore: (commitId: string) => void;
+  }) => (
+    <div>
+      <button type="button" onClick={onBack}>close recovery</button>
+      <button type="button" onClick={() => onCreateBranch("rescue", "deadbeef")}>recovery branch</button>
+      <button type="button" onClick={() => onRestore("deadbeef")}>recovery restore</button>
+    </div>
+  ),
+}));
+
 const repo: RepositoryEntry = {
   id: "repo-1",
   workspaceId: "workspace-1",
@@ -192,6 +210,7 @@ const repo: RepositoryEntry = {
 describe("RepoDetailContainer checkout confirmation", () => {
   beforeEach(() => {
     vi.mocked(checkoutBranch).mockClear();
+    vi.mocked(createBranchAt).mockClear();
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runContinueOperation).mockClear();
     vi.mocked(runStashAndCheckout).mockReset();
@@ -399,6 +418,52 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "repo-1",
       "workspace-1",
       ["status", "working", "stashes"],
+    );
+  });
+
+  it("creates a recovery branch without checking it out", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "open recovery" }));
+    fireEvent.click(screen.getByRole("button", { name: "recovery branch" }));
+
+    await waitFor(() => expect(createBranchAt).toHaveBeenCalledWith(
+      "repo-1",
+      "rescue",
+      "deadbeef",
+      false,
+    ));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo-1",
+      "workspace-1",
+      ["refs", "history", "reflog"],
+    );
+  });
+
+  it("routes Recovery Center restore through shared preflight and exact execution", async () => {
+    const action = { kind: "recoveryRestore" as const, commitId: "deadbeef" };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "recovery-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "recovery-token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "open recovery" }));
+    fireEvent.click(screen.getByRole("button", { name: "recovery restore" }));
+    expect(await screen.findByText("preflight.recoveryRestore.title")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "preflight.recoveryRestore.confirm" }));
+
+    await waitFor(() => expect(runExecuteDestructiveAction).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "recovery-token-2",
+    ));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo-1",
+      "workspace-1",
+      ["status", "working", "history", "refs", "reflog"],
     );
   });
 

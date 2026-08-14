@@ -337,6 +337,13 @@ pub trait GitBackend: Send + Sync {
         self.diff(repo, commit_id).await
     }
     async fn diff(&self, repo: &RepoPath, commit_id: &str) -> Result<Vec<FileDiff>, GitError>;
+    async fn diff_against_head(
+        &self,
+        _repo: &RepoPath,
+        _commit_id: &str,
+    ) -> Result<Vec<FileDiff>, GitError> {
+        Err(GitError::NotImplemented("diff_against_head"))
+    }
     async fn file_diff(
         &self,
         repo: &RepoPath,

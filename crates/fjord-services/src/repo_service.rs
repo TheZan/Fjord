@@ -622,6 +622,18 @@ impl RepoService {
         Ok(self.git.diff(&RepoPath::new(repo.path), commit_id).await?)
     }
 
+    pub async fn get_recovery_diff(
+        &self,
+        repo_id: RepositoryId,
+        commit_id: &str,
+    ) -> Result<Vec<FileDiff>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .diff_against_head(&RepoPath::new(repo.path), commit_id)
+            .await?)
+    }
+
     pub async fn get_commit_files(
         &self,
         repo_id: RepositoryId,
@@ -2098,6 +2110,19 @@ mod tests {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec!["refs/heads/main".into()])
         }
+        async fn diff_against_head(
+            &self,
+            repo: &RepoPath,
+            _commit_id: &str,
+        ) -> Result<Vec<FileDiff>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec![FileDiff {
+                path: "README.md".into(),
+                change_type: FileChangeType::Modified,
+                additions: 1,
+                deletions: 1,
+            }])
+        }
         async fn search_commits(
             &self,
             repo: &RepoPath,
@@ -2536,6 +2561,16 @@ mod tests {
             service.get_reflog_refs(repo.id).await.unwrap(),
             ["refs/heads/main"]
         );
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn recovery_diff_resolves_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        let files = service.get_recovery_diff(repo.id, "abc123").await.unwrap();
+
+        assert_eq!(files.len(), 1);
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 

@@ -1,6 +1,6 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09.
 
 ## Purpose
 
@@ -25,6 +25,7 @@ pub trait GitBackend: Send + Sync {
     async fn reflog(&self, repo: &RepoPath, ref_name: Option<&str>, from: Option<LogCursor>, limit: u32) -> Result<ReflogPage, GitError>;
     async fn reflog_refs(&self, repo: &RepoPath) -> Result<Vec<String>, GitError>;
     async fn diff(&self, repo: &RepoPath, commit: &CommitId) -> Result<Vec<FileDiff>, GitError>;
+    async fn diff_against_head(&self, repo: &RepoPath, commit: &CommitId) -> Result<Vec<FileDiff>, GitError>;
     async fn file_diff_window(
         &self,
         repo: &RepoPath,
@@ -71,6 +72,7 @@ at 200 entries per response.
 | `reflog` / `reflog_refs` | `git2` | Reads Git's native newest-first reflog entries and signatures directly, under the repository read lock, without parsing localized CLI output. |
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
+| `diff_against_head` | `gix` tree diff + system Git numstat | Read-only Recovery Center comparison from the current `HEAD` tree to the selected commit; system Git supplies bounded line statistics without loading file bodies into IPC. |
 | `file_diff` | `gix` | Read-only; unified line diff via `gix-diff`'s blob platform and `imara-diff`. |
 | Working patch generation | `git2` diff + pure Rust constructor | Read-only. Reuses the working-file diff model, verifies a SHA-256 digest, and produces unified patch bytes for system-Git apply tasks. |
 | `stage_patch` | `git2` diff + system `git apply --cached` | Reconstructs and validates the selection under the repository write lock and Git's resolved per-worktree `index.lock`, applies through an alternate transactional index, verifies the exact original-index fingerprint and current diff, atomically publishes the index, and advances `working_tree` only on success. The shared apply profile explicitly uses `--whitespace=nowarn --no-ignore-whitespace`, independent of user apply configuration. |

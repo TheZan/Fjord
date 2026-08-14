@@ -72,6 +72,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_reflog_refs` | `{ repo_id }` | `GenerationEnvelope<string[]>` | Canonical `refs/heads/*` names that currently have a reflog |
 | `search_commit_log` | `{ repo_id, query, limit }` | `GenerationEnvelope<CommitSummary[]>` | Titles across local and remote refs |
 | `get_commit_diff` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Changed-files summary with line counts |
+| `get_recovery_diff` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Changes from the current `HEAD` tree to the selected recovery commit, with line counts |
 | `get_commit_files` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Fast tree-only list, painted before line counts finish |
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Bounded diff window; `whitespace` is `show`, `ignoreTrailing`, or `ignoreAll` and is applied by the backend so rendered hunks match the selected mode. `load_anyway = true` is an explicit user override of only the 10 MB source-file display ceiling; the 2,000-line and 2 MB response ceilings remain. Every page echoes its authoritative served `offset` and retains its generation envelope for snapshot/continuation validation. |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |

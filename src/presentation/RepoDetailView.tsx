@@ -64,6 +64,7 @@ export function RepoDetailView({
   changesLoading,
   changesError,
   onBack,
+  onOpenRecoveryCenter,
   onAction,
   onOperationControl,
   onConfirmAction,
@@ -122,6 +123,7 @@ export function RepoDetailView({
   changesLoading: boolean;
   changesError: string | null;
   onBack: () => void;
+  onOpenRecoveryCenter: () => void;
   onAction: (action: RepoAction) => void;
   onOperationControl: (control: OperationControl) => void;
   onConfirmAction: () => void;
@@ -252,6 +254,7 @@ export function RepoDetailView({
         operationProgress={operationProgress}
         operationInProgress={operationInProgress}
         onBack={onBack}
+        onOpenRecoveryCenter={onOpenRecoveryCenter}
         onAction={onAction}
         onCancelOperation={onCancelOperation}
         onCreateBranch={onCreateBranch}

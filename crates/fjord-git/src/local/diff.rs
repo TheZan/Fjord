@@ -33,6 +33,20 @@ impl LocalGitBackend {
         Ok((old_tree, new_tree))
     }
 
+    pub(super) fn tree_for_commit<'r>(
+        git: &'r gix::Repository,
+        commit_id: &str,
+    ) -> Result<gix::Tree<'r>, GitError> {
+        let oid = gix::ObjectId::from_hex(commit_id.as_bytes())
+            .map_err(|error| GitError::Gix(error.to_string()))?;
+        git.find_object(oid)
+            .map_err(|error| GitError::Gix(error.to_string()))?
+            .try_into_commit()
+            .map_err(|error| GitError::Gix(error.to_string()))?
+            .tree()
+            .map_err(|error| GitError::Gix(error.to_string()))
+    }
+
     /// Changes between a commit and its first parent. Rewrite (rename/copy) tracking is
     /// deliberately disabled — it's config-dependent and turns this into a fuzzy, expensive
     /// N×M match; a rename shows up as a delete + an add, which P1-04 doesn't need to resolve.
@@ -292,6 +306,50 @@ pub(super) async fn diff(
     })
     .await
     .map_err(|e| GitError::Gix(e.to_string()))?
+}
+
+pub(super) async fn diff_against_head(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    commit_id: &str,
+) -> Result<Vec<FileDiff>, GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let commit_id = commit_id.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        let git = LocalGitBackend::open(&repo)?;
+        let head_tree = git
+            .head_commit()
+            .map_err(LocalGitBackend::map_gix_error)?
+            .tree()
+            .map_err(LocalGitBackend::map_gix_error)?;
+        let selected_tree = LocalGitBackend::tree_for_commit(&git, &commit_id)?;
+        let changes = LocalGitBackend::tree_changes(&git, Some(&head_tree), &selected_tree)?;
+        let mut line_stats = LocalGitBackend::commit_line_stats(
+            &commands,
+            &repo,
+            &commit_id,
+            Some(&head_tree),
+            &selected_tree,
+        )?;
+        let mut out = Vec::with_capacity(changes.len());
+        for change in &changes {
+            let attached = change.attach(&git, &git);
+            let path = attached.location().to_string();
+            let change_type = LocalGitBackend::classify_change(&attached);
+            let (additions, deletions) = line_stats.remove(&path).unwrap_or_default();
+            out.push(FileDiff {
+                path,
+                change_type,
+                additions,
+                deletions,
+            });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|error| GitError::Gix(error.to_string()))?
 }
 
 pub(super) async fn file_diff(

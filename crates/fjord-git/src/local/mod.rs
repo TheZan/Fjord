@@ -255,6 +255,14 @@ impl GitBackend for LocalGitBackend {
         diff::diff(&self.commands, repo, commit_id).await
     }
 
+    async fn diff_against_head(
+        &self,
+        repo: &RepoPath,
+        commit_id: &str,
+    ) -> Result<Vec<FileDiff>, GitError> {
+        diff::diff_against_head(&self.commands, repo, commit_id).await
+    }
+
     async fn file_diff(
         &self,
         repo: &RepoPath,

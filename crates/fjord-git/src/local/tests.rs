@@ -1061,6 +1061,29 @@ async fn diff_reports_changed_files_for_head() {
 }
 
 #[tokio::test]
+async fn recovery_diff_compares_selected_commit_against_current_head() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "first\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let first = backend.commit(&repo_path, "First").await.unwrap();
+    write_file(&repo_path, "README.md", "second\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Second").await.unwrap();
+
+    let files = backend.diff_against_head(&repo_path, &first).await.unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, "README.md");
+    assert_eq!((files[0].additions, files[0].deletions), (1, 1));
+}
+
+#[tokio::test]
 async fn diff_files_returns_tree_metadata_without_line_work() {
     let (_dir, repo_path, head) = repo_with_changed_head().await;
     let backend = LocalGitBackend::new();
@@ -4442,6 +4465,71 @@ async fn confirmed_destructive_execution_is_exact_atomic_and_one_use() {
             .await,
         Err(GitError::PreflightStale)
     ));
+}
+
+#[tokio::test]
+async fn recovery_restore_recovers_the_commit_after_a_wrong_hard_reset() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Base").await.unwrap();
+    write_file(&repo_path, "README.md", "wanted\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let wanted = backend.commit(&repo_path, "Wanted state").await.unwrap();
+
+    backend.reset(&repo_path, &base, "hard").await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+        "base\n"
+    );
+    assert!(backend
+        .reflog(&repo_path, None, None, 20)
+        .await
+        .unwrap()
+        .entries
+        .iter()
+        .any(|entry| entry.old_id.0 == wanted));
+
+    let action = DestructiveAction::RecoveryRestore {
+        commit_id: wanted.clone(),
+    };
+    let generations = backend.generations(&repo_path).unwrap();
+    let token = backend
+        .issue_action_confirmation(&repo_path, &action, generations)
+        .await
+        .unwrap();
+    backend
+        .execute_confirmed_destructive_action(
+            &repo_path,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .target()
+            .unwrap()
+            .to_string(),
+        wanted
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
+        "wanted\n"
+    );
 }
 
 #[tokio::test]

@@ -248,6 +248,16 @@ pub async fn get_commit_diff(
 }
 
 #[tauri::command]
+pub async fn get_recovery_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    commit_id: String,
+) -> Result<GenerationEnvelope<Vec<FileDiff>>, AppError> {
+    let data = state.repos.get_recovery_diff(repo_id, &commit_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
 pub async fn get_commit_files(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

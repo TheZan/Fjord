@@ -44,6 +44,7 @@ function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}
     onCreateBranch: vi.fn(),
     utilities: <button type="button">shell search</button>,
     onOpenInspector: vi.fn(),
+    onOpenRecoveryCenter: vi.fn(),
     ...overrides,
   };
 }
@@ -96,7 +97,8 @@ describe("RepoToolbar", () => {
   });
 
   it("keeps primary and utility actions visible while rare actions live in overflow", () => {
-    render(<RepoToolbar {...props()} />);
+    const toolbarProps = props();
+    render(<RepoToolbar {...toolbarProps} />);
 
     expect(screen.getByRole("button", { name: "shell search" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "toolbar.search" })).not.toBeInTheDocument();
@@ -117,6 +119,9 @@ describe("RepoToolbar", () => {
       "toolbar.noConflicts",
     );
     expect(screen.getByRole("menuitem", { name: "inspector.open" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "recovery.open" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "recovery.open" }));
+    expect(toolbarProps.onOpenRecoveryCenter).toHaveBeenCalledOnce();
   });
 
   it("trims a new branch name and closes the branch popover", () => {

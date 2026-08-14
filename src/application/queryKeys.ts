@@ -19,6 +19,8 @@ export const queryKeys = {
     reflog: (repoId: string, refName: string | null) =>
       [...queryKeys.repos.reflogs(repoId), refName ?? "HEAD"] as const,
     reflogRefs: (repoId: string) => [...queryKeys.repos.reflogs(repoId), "refs"] as const,
+    recoveryDiff: (repoId: string, commitId: string) =>
+      [...queryKeys.repos.reflogs(repoId), "diff", commitId] as const,
     commitSearches: (repoId: string) => [...queryKeys.repos.detail(repoId), "commitSearch"] as const,
     commitSearch: (repoId: string, query: string) =>
       [...queryKeys.repos.commitSearches(repoId), query] as const,
