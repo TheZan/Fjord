@@ -109,7 +109,7 @@ fjord/
 This is the same hybrid GitButler (the closest prior art: also Rust + Tauri) has converged on, with the balance shifting toward gix over time.
 
 Target design: `GitBackend` expresses local operations, `GitRemoteBackend`
-expresses remote operations, and `GitEnvironmentProvider` expresses discovery and
+expresses clone and remote operations, and `GitEnvironmentProvider` expresses discovery and
 read-only diagnostics. **gix serves hot reads**, **git2 serves local mutations and
 merge/fast-forward**, and **system Git serves fetch/push/remote inspection**.
 `pull` remains system fetch followed by local integration, preserving Fjord's

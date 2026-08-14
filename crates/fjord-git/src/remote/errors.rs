@@ -90,6 +90,7 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
         &lowered,
         &[
             "repository not found",
+            "does not exist",
             "does not appear to be a git repository",
             "the project you were looking for could not be found",
         ],
@@ -118,6 +119,15 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
     } else if contains_any(
         &lowered,
         &[
+            "could not create work tree dir",
+            "could not create leading directories",
+            "cannot create directory at",
+        ],
+    ) {
+        GitRemoteError::CloneDestinationInvalid { stderr_tail }
+    } else if contains_any(
+        &lowered,
+        &[
             "requested url returned error: 403",
             "permission denied",
             "you are not allowed to push code",
@@ -137,6 +147,8 @@ pub fn classify_failure(exit_code: Option<i32>, stdout: &str, stderr: &str) -> G
         ],
     ) {
         GitRemoteError::NetworkUnavailable { stderr_tail }
+    } else if lowered.contains("destination path") && lowered.contains("already exists") {
+        GitRemoteError::CloneDestinationExists { stderr_tail }
     } else if contains_any(&lowered, &["remote: error:"]) {
         // Last resort before the generic failure: the remote said something
         // went wrong but none of the specific families matched.
@@ -229,6 +241,14 @@ mod tests {
                 "git_network_unavailable",
             ),
             (
+                "fatal: destination path 'fjord' already exists and is not an empty directory.",
+                "clone_destination_exists",
+            ),
+            (
+                "fatal: could not create work tree dir 'fjord': Permission denied",
+                "clone_destination_invalid",
+            ),
+            (
                 "! [rejected] main -> main (non-fast-forward)",
                 "git_non_fast_forward",
             ),
@@ -252,6 +272,15 @@ mod tests {
         assert_eq!(
             classify_failure(Some(128), "", "unexpected failure").code(),
             "git_remote_error"
+        );
+        assert_eq!(
+            classify_failure(
+                Some(128),
+                "",
+                "fatal: repository '/missing.git' does not exist"
+            )
+            .code(),
+            "git_repository_not_found"
         );
     }
 

@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use fjord_domain::RemoteRef;
+use std::path::Path;
 use thiserror::Error;
 
 use crate::{GitOperationContext, RepoPath};
@@ -32,6 +33,10 @@ pub enum GitRemoteError {
     ProxyFailed { stderr_tail: String },
     #[error("network is unavailable")]
     NetworkUnavailable { stderr_tail: String },
+    #[error("clone destination already exists")]
+    CloneDestinationExists { stderr_tail: String },
+    #[error("clone destination is invalid")]
+    CloneDestinationInvalid { stderr_tail: String },
     #[error("push is not a fast-forward")]
     NonFastForward { stderr_tail: String },
     #[error("force-with-lease failed because the remote ref changed")]
@@ -67,6 +72,8 @@ impl GitRemoteError {
             Self::CertificateFailed { .. } => "git_certificate_failed",
             Self::ProxyFailed { .. } => "git_proxy_failed",
             Self::NetworkUnavailable { .. } => "git_network_unavailable",
+            Self::CloneDestinationExists { .. } => "clone_destination_exists",
+            Self::CloneDestinationInvalid { .. } => "clone_destination_invalid",
             Self::NonFastForward { .. } => "git_non_fast_forward",
             Self::ForceLeaseFailed { .. } => "git_force_lease_failed",
             Self::RemoteRejected { .. } => "git_remote_rejected",
@@ -87,6 +94,8 @@ impl GitRemoteError {
             | Self::CertificateFailed { stderr_tail }
             | Self::ProxyFailed { stderr_tail }
             | Self::NetworkUnavailable { stderr_tail }
+            | Self::CloneDestinationExists { stderr_tail }
+            | Self::CloneDestinationInvalid { stderr_tail }
             | Self::NonFastForward { stderr_tail }
             | Self::ForceLeaseFailed { stderr_tail }
             | Self::RemoteRejected { stderr_tail, .. }
@@ -98,6 +107,14 @@ impl GitRemoteError {
 
 #[async_trait]
 pub trait GitRemoteBackend: Send + Sync {
+    async fn clone_repository(
+        &self,
+        source_url: &str,
+        destination: &Path,
+        branch: Option<&str>,
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError>;
+
     async fn fetch(
         &self,
         repo: &RepoPath,

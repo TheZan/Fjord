@@ -44,6 +44,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `delete_workspace` | `{ id }` | — | Cascades to its `repositories` rows (not the repos on disk) |
 | `list_repositories` | `{ workspace_id }` | `RepositoryEntry[]` | |
 | `add_repository` | `{ workspace_id, path }` | `RepositoryEntry` | Validates `path` is a Git repository before persisting |
+| `clone_repository` | `{ request: { workspace_id, url, destination_parent, directory_name?, branch? }, operation_id? }` | `CloneRepositoryResult` | Cancellable system-Git clone; validates local state before operation creation, registers exactly once, and retains any partial destination on failure/cancel |
 | `import_repositories` | `{ workspace_id, root }` | `RepositoryEntry[]` | Recursively discovers repositories, skips generated directories and duplicates |
 | `remove_repository` | `{ id }` | — | Removes tracking only, never touches disk |
 | `get_workspace_status` | `{ workspace_id }` | `RepoStatusSummary[]` | Reads from `repo_status_cache`; triggers a background refresh, does not block on it |
@@ -154,11 +155,11 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 ## Long-running operations: events, not blocking returns
 
-`fetch`, `pull`, `push`, `publish`, and repository operation controls are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_fetch` and `bulk_pull` run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. Progress/cancellation details live in [`operation-events.md`](operation-events.md): the event name is `fjord-operation-progress`, and cancellation is requested with `cancel_operation`.
+`clone` is workspace-scoped until its successful terminal event supplies the new repository id. `fetch`, `pull`, `push`, `publish`, and repository operation controls are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_fetch` and `bulk_pull` run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. Progress/cancellation details live in [`operation-events.md`](operation-events.md): the event name is `fjord-operation-progress`, and cancellation is requested with `cancel_operation`.
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 ## What's not a command
 

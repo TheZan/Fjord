@@ -34,6 +34,7 @@ pub struct OperationGuard {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperationKind {
+    Clone,
     Fetch,
     Pull,
     Push,
@@ -51,6 +52,7 @@ pub enum OperationKind {
 impl OperationKind {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Clone => "clone",
             Self::Fetch => "fetch",
             Self::Pull => "pull",
             Self::Push => "push",
@@ -175,6 +177,16 @@ impl OperationGuard {
         scope: OperationScope,
         repo_id: RepositoryId,
     ) -> GitOperationContext {
+        self.git_context_for_scope(app, kind, scope, Some(repo_id))
+    }
+
+    pub fn git_context_for_scope(
+        &self,
+        app: AppHandle,
+        kind: OperationKind,
+        scope: OperationScope,
+        repo_id: Option<RepositoryId>,
+    ) -> GitOperationContext {
         let operation_id = self.id.clone();
         let state = self.state.clone();
         GitOperationContext::new(
@@ -186,7 +198,7 @@ impl OperationGuard {
                         kind,
                         scope: scope.clone(),
                         status: OperationStatus::Progress,
-                        repo_id: Some(repo_id),
+                        repo_id,
                         completed: progress.completed,
                         total: progress.total,
                         message: progress.message,

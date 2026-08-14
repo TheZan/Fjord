@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -43,6 +44,16 @@ impl SystemGitRemoteBackend {
         stdout_capture: OutputCapture,
         context: GitOperationContext,
     ) -> Result<GitCommandResult, GitRemoteError> {
+        self.run_at(&repo.0, args, stdout_capture, context).await
+    }
+
+    async fn run_at(
+        &self,
+        cwd: &Path,
+        args: Vec<OsString>,
+        stdout_capture: OutputCapture,
+        context: GitOperationContext,
+    ) -> Result<GitCommandResult, GitRemoteError> {
         let executable = self
             .resolver
             .discover(context.git_executable_path())
@@ -69,7 +80,7 @@ impl SystemGitRemoteBackend {
         });
         let spec = GitCommandSpec {
             executable: executable.path,
-            cwd: repo.0.clone(),
+            cwd: cwd.to_path_buf(),
             args,
             environment: remote_process_environment(&context),
             timeout: Some(REMOTE_OPERATION_TIMEOUT),
@@ -103,8 +114,49 @@ fn force_push_arguments(
     ]
 }
 
+fn clone_arguments(source_url: &str, destination: &Path, branch: Option<&str>) -> Vec<OsString> {
+    let mut args = vec!["clone".into(), "--progress".into()];
+    if let Some(branch) = branch {
+        args.extend(["--branch".into(), branch.into()]);
+    }
+    args.extend([
+        "--".into(),
+        source_url.into(),
+        destination.as_os_str().to_owned(),
+    ]);
+    args
+}
+
 #[async_trait]
 impl GitRemoteBackend for SystemGitRemoteBackend {
+    async fn clone_repository(
+        &self,
+        source_url: &str,
+        destination: &Path,
+        branch: Option<&str>,
+        context: GitOperationContext,
+    ) -> Result<(), GitRemoteError> {
+        let destination = RepoPath::new(destination.to_path_buf());
+        let _guard = locking::write(&destination).await;
+        if std::fs::symlink_metadata(&destination.0).is_ok() {
+            return Err(GitRemoteError::CloneDestinationExists {
+                stderr_tail: String::new(),
+            });
+        }
+        let parent = destination
+            .0
+            .parent()
+            .ok_or_else(|| GitRemoteError::SpawnFailed("clone destination has no parent".into()))?;
+        self.run_at(
+            parent,
+            clone_arguments(source_url, &destination.0, branch),
+            OutputCapture::Tail(TRANSFER_STDOUT_TAIL),
+            context,
+        )
+        .await?;
+        Ok(())
+    }
+
     async fn fetch(
         &self,
         repo: &RepoPath,
@@ -302,6 +354,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn clone_arguments_are_progress_enabled_and_path_safe() {
+        assert_eq!(
+            clone_arguments(
+                "https://example.test/fjord.git",
+                Path::new("/repos/fjord"),
+                Some("release"),
+            ),
+            vec![
+                OsString::from("clone"),
+                OsString::from("--progress"),
+                OsString::from("--branch"),
+                OsString::from("release"),
+                OsString::from("--"),
+                OsString::from("https://example.test/fjord.git"),
+                Path::new("/repos/fjord").as_os_str().to_owned(),
+            ]
+        );
+    }
+
     /// Guards the assumption the progress parser depends on: Git only writes
     /// transfer progress to a piped stderr when `--progress` is passed, so this
     /// exercises the real backend rather than the parser in isolation.
@@ -378,6 +450,103 @@ mod tests {
             )
             .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn clone_uses_system_git_and_honors_branch_selection() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        let destination = temp.path().join("destination");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        std::fs::write(source.join("README.md"), "main\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "main"]);
+        run_git(&source, &["checkout", "-b", "release"]);
+        std::fs::write(source.join("release.txt"), "release\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "release"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&source, &["push", "origin", "main", "release"]);
+
+        SystemGitRemoteBackend::new()
+            .clone_repository(
+                remote.to_str().unwrap(),
+                &destination,
+                Some("release"),
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            git_output(&destination, &["branch", "--show-current"]),
+            "release"
+        );
+        assert!(destination.join("release.txt").is_file());
+        assert_eq!(
+            git_output(&destination, &["remote", "get-url", "origin"]),
+            remote.to_string_lossy()
+        );
+    }
+
+    #[tokio::test]
+    async fn clone_classifies_invalid_remote_and_observes_pre_spawn_cancellation() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing.git");
+        let invalid_destination = temp.path().join("invalid-destination");
+        let backend = SystemGitRemoteBackend::new();
+
+        let invalid = backend
+            .clone_repository(
+                missing.to_str().unwrap(),
+                &invalid_destination,
+                None,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(invalid.code(), "git_repository_not_found");
+
+        let remote = temp.path().join("remote.git");
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        let existing_destination = temp.path().join("existing-destination");
+        std::fs::create_dir(&existing_destination).unwrap();
+        std::fs::write(existing_destination.join("keep.txt"), "keep\n").unwrap();
+        let existing = backend
+            .clone_repository(
+                remote.to_str().unwrap(),
+                &existing_destination,
+                None,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(existing.code(), "clone_destination_exists");
+        assert_eq!(
+            std::fs::read_to_string(existing_destination.join("keep.txt")).unwrap(),
+            "keep\n"
+        );
+
+        let cancelled_destination = temp.path().join("cancelled-destination");
+        let cancelled = GitOperationContext::new(|_| {}, || true);
+        let error = backend
+            .clone_repository(
+                remote.to_str().unwrap(),
+                &cancelled_destination,
+                None,
+                cancelled,
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, GitRemoteError::Cancelled));
+        assert!(!cancelled_destination.exists());
     }
 
     #[tokio::test]

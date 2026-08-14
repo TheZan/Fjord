@@ -1,5 +1,7 @@
 export type {
   BulkRepoResult,
+  CloneRepositoryRequest,
+  CloneRepositoryResult,
   RepoStatusSummary,
   RepositoryEntry,
   RepositoryId,

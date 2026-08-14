@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use fjord_domain::{RebaseKind, RepoOperation, Settings, Theme};
+use fjord_domain::{CloneRepositoryRequest, RebaseKind, RepoOperation, Settings, Theme};
 use fjord_ports::GitOperationContext;
 use git2::{Repository, RepositoryInitOptions, Signature};
 use tempfile::TempDir;
@@ -547,6 +547,184 @@ async fn a_failing_remote_operation_classifies_through_the_stable_table() {
         error.code,
         error.message
     );
+}
+
+#[tokio::test]
+async fn clone_registers_once_and_validates_destination_before_execution() {
+    let (_app_dir, services) = services().await;
+    let (_source_dir, source) = fixture_repo("source");
+    let clone_root = TempDir::new().unwrap();
+    let remote = clone_root.path().join("remote.git");
+    run_git_success(
+        clone_root.path(),
+        &[
+            "clone",
+            "--bare",
+            source.to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+    );
+    let destination_parent = clone_root.path().join("clones");
+    std::fs::create_dir(&destination_parent).unwrap();
+    let unknown_workspace: AppError = services
+        .repos
+        .prepare_clone_repository(CloneRepositoryRequest {
+            workspace_id: fjord_domain::WorkspaceId::new(),
+            url: remote.to_string_lossy().into_owned(),
+            destination_parent: destination_parent.clone(),
+            directory_name: None,
+            branch: None,
+        })
+        .await
+        .expect_err("an unknown workspace must fail before clone execution")
+        .into();
+    assert_eq!(unknown_workspace.code, "workspace_not_found");
+
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let request = CloneRepositoryRequest {
+        workspace_id: workspace.id,
+        url: remote.to_string_lossy().into_owned(),
+        destination_parent: destination_parent.clone(),
+        directory_name: None,
+        branch: None,
+    };
+
+    let prepared = services
+        .repos
+        .prepare_clone_repository(request.clone())
+        .await
+        .unwrap();
+    let result = services
+        .repos
+        .clone_repository_with_context(prepared, GitOperationContext::default())
+        .await
+        .unwrap();
+
+    assert_eq!(result.repository.name, "remote");
+    assert_eq!(result.repository.workspace_id, workspace.id);
+    assert!(result.repository.path.join(".git").is_dir());
+    assert_eq!(
+        services
+            .workspaces
+            .list_repositories(workspace.id)
+            .await
+            .unwrap(),
+        vec![result.repository.clone()]
+    );
+    assert_eq!(
+        services
+            .workspaces
+            .get_workspace_status(workspace.id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let duplicate: AppError = services
+        .repos
+        .prepare_clone_repository(request)
+        .await
+        .expect_err("an existing clone destination must fail before execution")
+        .into();
+    assert_eq!(duplicate.code, "clone_destination_exists");
+}
+
+#[tokio::test]
+async fn clone_preserves_a_completed_checkout_when_registration_fails() {
+    let (_app_dir, services) = services().await;
+    let (_source_dir, source) = fixture_repo("source");
+    let clone_root = TempDir::new().unwrap();
+    let remote = clone_root.path().join("remote.git");
+    run_git_success(
+        clone_root.path(),
+        &[
+            "clone",
+            "--bare",
+            source.to_str().unwrap(),
+            remote.to_str().unwrap(),
+        ],
+    );
+    let destination_parent = clone_root.path().join("clones");
+    std::fs::create_dir(&destination_parent).unwrap();
+    let workspace = services
+        .workspaces
+        .create_workspace("Temporary")
+        .await
+        .unwrap();
+    let prepared = services
+        .repos
+        .prepare_clone_repository(CloneRepositoryRequest {
+            workspace_id: workspace.id,
+            url: remote.to_string_lossy().into_owned(),
+            destination_parent: destination_parent.clone(),
+            directory_name: Some("orphan".into()),
+            branch: None,
+        })
+        .await
+        .unwrap();
+    services
+        .workspaces
+        .delete_workspace(workspace.id)
+        .await
+        .unwrap();
+
+    let error: AppError = services
+        .repos
+        .clone_repository_with_context(prepared, GitOperationContext::default())
+        .await
+        .expect_err("registration must report the workspace disappearing")
+        .into();
+
+    assert_eq!(error.code, "clone_registration_failed");
+    assert!(destination_parent.join("orphan/.git").is_dir());
+    assert!(services
+        .workspaces
+        .list_all_repositories()
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn cancelled_clone_does_not_start_system_git() {
+    let (_app_dir, services) = services().await;
+    let clone_root = TempDir::new().unwrap();
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let prepared = services
+        .repos
+        .prepare_clone_repository(CloneRepositoryRequest {
+            workspace_id: workspace.id,
+            url: clone_root
+                .path()
+                .join("remote.git")
+                .to_string_lossy()
+                .into_owned(),
+            destination_parent: clone_root.path().to_path_buf(),
+            directory_name: Some("cancelled".into()),
+            branch: None,
+        })
+        .await
+        .unwrap();
+    let cancelled = GitOperationContext::new(|_| {}, || true);
+
+    let error: AppError = services
+        .repos
+        .clone_repository_with_context(prepared, cancelled)
+        .await
+        .expect_err("pre-spawn cancellation must stop clone")
+        .into();
+
+    assert_eq!(error.code, "operation_cancelled");
+    assert!(!clone_root.path().join("cancelled").exists());
 }
 
 /// Cancellation is registry-level state, and a cancelled operation must be

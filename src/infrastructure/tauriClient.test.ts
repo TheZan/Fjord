@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 
 import {
+  cloneRepository,
   getBranches,
   getFileDiffPage,
   getWorkingFileDiffPage,
@@ -62,6 +63,26 @@ describe("abortable Tauri queries", () => {
     tauri.invoke.mockResolvedValue(undefined);
     await revealLogFolder();
     expect(tauri.invoke).toHaveBeenCalledWith("reveal_log_folder", {});
+  });
+
+  it("starts clone with a caller-generated cancellable operation id", async () => {
+    tauri.invoke.mockResolvedValue({ repository: {} });
+    const request = {
+      workspaceId: "workspace-1",
+      url: "https://example.test/fjord.git",
+      destinationParent: "/repos",
+      directoryName: "fjord",
+      branch: null,
+    };
+
+    const task = cloneRepository(request);
+    await task.promise;
+
+    expect(task.operationId).toMatch(/^clone:/);
+    expect(tauri.invoke).toHaveBeenCalledWith("clone_repository", {
+      request,
+      operationId: task.operationId,
+    });
   });
 
   it("sends the explicit large-file override for commit diff windows", async () => {

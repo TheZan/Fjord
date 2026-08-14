@@ -1,15 +1,16 @@
 # Spec: long-running operation events
 
-Referenced by: `P4-17`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
+Referenced by: `P4-17`, `P9R-02`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
 
 ## Purpose
 
-Long Git operations (`fetch`, `pull`, `push`) and workspace bulk operations can outlive a normal UI interaction. The frontend starts each operation with a caller-generated `operationId`, listens for progress on one Tauri event, and can request cancellation with a separate command.
+Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operations can outlive a normal UI interaction. The frontend starts each operation with a caller-generated `operationId`, listens for progress on one Tauri event, and can request cancellation with a separate command.
 
 ## Commands
 
 | Command | Input | Output | Notes |
 |---|---|---|---|
+| `clone_repository` | `{ request: { workspace_id, url, destination_parent, directory_name?, branch? }, operation_id? }` | `CloneRepositoryResult` | Workspace/destination validation occurs before operation registration; the successful terminal event carries the new `repoId`. |
 | `fetch_repo` | `{ repo_id, remote?, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `pull_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `push_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
@@ -32,7 +33,7 @@ Payload shape:
 ```ts
 type OperationProgressEvent = {
   operationId: string;
-  kind: "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation";
+  kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation";
   scope:
     | { type: "repo"; repoId: string }
     | { type: "workspace"; workspaceId: string };
@@ -62,6 +63,9 @@ active operation and passes it through `GitOperationContext` to the system-Git
 runner.
 
 - Fetch, pull's fetch phase, and push terminate the complete Git process tree.
+- Clone terminates the complete Git process tree. A partial destination is
+  retained rather than recursively deleted; no repository row is added unless
+  the clone completed and registration succeeded.
 - Continue, skip, and abort use the same process-tree termination; cancellation
   can leave Git's sequencer state in progress, and the next operation-state read
   remains authoritative.

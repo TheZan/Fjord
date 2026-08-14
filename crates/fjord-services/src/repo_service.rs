@@ -1,20 +1,21 @@
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitSummary, Consequence, DestructiveAction,
-    DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
-    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
-    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, ReflogPage, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
+    CommitSummary, Consequence, DestructiveAction, DestructivePreflight, DiffHunk, DiffLineKind,
+    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
+    GlobalSearchResult, LogCursor, PatchSelection, Recoverability, ReflogPage, RepoOperationState,
+    RepoStatus, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
+    WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
     GitExecutableResolution, GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher,
     LaunchError, RepoPath, SettingsStore, StoreError, WorkspaceStore,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -61,12 +62,39 @@ pub enum RepoError {
         actual_bytes: usize,
         max_bytes: usize,
     },
+    #[error("invalid clone request: {0}")]
+    InvalidCloneRequest(String),
+    #[error("clone destination is invalid: {0}")]
+    CloneDestinationInvalid(String),
+    #[error("clone destination already exists")]
+    CloneDestinationExists,
+    #[error("clone completed but repository registration failed: {0}")]
+    CloneRegistrationFailed(String),
 }
 
 #[derive(Debug)]
 pub struct CommitPushOutcome {
     pub commit_id: String,
     pub push_error: Option<RepoError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedCloneRepository {
+    workspace_id: WorkspaceId,
+    source_url: String,
+    destination: PathBuf,
+    directory_name: String,
+    branch: Option<String>,
+}
+
+impl PreparedCloneRepository {
+    pub fn workspace_id(&self) -> WorkspaceId {
+        self.workspace_id
+    }
+
+    pub fn directory_name(&self) -> &str {
+        &self.directory_name
+    }
 }
 
 /// The remote a branch is published to when the caller does not name one.
@@ -89,6 +117,42 @@ fn normalized_diff_limit(limit: u32) -> u32 {
     } else {
         limit.min(DIFF_WINDOW_MAX_LINES)
     }
+}
+
+fn inferred_clone_directory_name(source_url: &str) -> Option<String> {
+    let without_suffix = source_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(source_url)
+        .trim_end_matches(['/', '\\']);
+    let name = without_suffix
+        .rsplit(['/', '\\', ':'])
+        .next()
+        .unwrap_or_default()
+        .strip_suffix(".git")
+        .unwrap_or_else(|| {
+            without_suffix
+                .rsplit(['/', '\\', ':'])
+                .next()
+                .unwrap_or_default()
+        });
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+fn validate_clone_directory_name(name: &str) -> Result<(), RepoError> {
+    let mut components = Path::new(name).components();
+    let one_normal_component = matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none();
+    if name.is_empty()
+        || name.contains(['/', '\\', '\0'])
+        || !one_normal_component
+        || matches!(name, "." | "..")
+    {
+        return Err(RepoError::InvalidCloneRequest(
+            "repository directory name must be one path component".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_diff_response_ceiling(window: FileDiffWindow) -> Result<FileDiffWindow, RepoError> {
@@ -265,6 +329,134 @@ impl RepoService {
             .await
             .ok()
             .map(|repo| repo.name)
+    }
+
+    /// Resolves and validates every local clone fact before the application
+    /// creates an operation. Execution repeats the destination check under the
+    /// target-path lock, but an invalid workspace or target never enters the
+    /// operation registry in the first place.
+    pub async fn prepare_clone_repository(
+        &self,
+        request: CloneRepositoryRequest,
+    ) -> Result<PreparedCloneRepository, RepoError> {
+        let workspaces = self.workspaces.list_workspaces().await?;
+        if !workspaces
+            .iter()
+            .any(|workspace| workspace.id == request.workspace_id)
+        {
+            return Err(StoreError::WorkspaceNotFound(request.workspace_id).into());
+        }
+
+        let source_url = request.url.trim().to_string();
+        if source_url.is_empty() || source_url.contains('\0') {
+            return Err(RepoError::InvalidCloneRequest(
+                "repository URL is required".into(),
+            ));
+        }
+        let branch_supplied = request.branch.is_some();
+        let branch = request
+            .branch
+            .map(|branch| branch.trim().to_string())
+            .filter(|branch| !branch.is_empty());
+        if branch_supplied && branch.as_deref().is_none_or(|branch| branch.contains('\0')) {
+            return Err(RepoError::InvalidCloneRequest(
+                "branch cannot be empty or contain NUL when supplied".into(),
+            ));
+        }
+
+        let destination_parent =
+            std::fs::canonicalize(&request.destination_parent).map_err(|_| {
+                RepoError::CloneDestinationInvalid("parent directory does not exist".into())
+            })?;
+        if !destination_parent.is_dir() {
+            return Err(RepoError::CloneDestinationInvalid(
+                "destination parent is not a directory".into(),
+            ));
+        }
+        let directory_name = match request.directory_name {
+            Some(name) => name.trim().to_string(),
+            None => inferred_clone_directory_name(&source_url).ok_or_else(|| {
+                RepoError::InvalidCloneRequest(
+                    "repository directory name could not be inferred".into(),
+                )
+            })?,
+        };
+        validate_clone_directory_name(&directory_name)?;
+        let destination = destination_parent.join(&directory_name);
+        if std::fs::symlink_metadata(&destination).is_ok() {
+            return Err(RepoError::CloneDestinationExists);
+        }
+        let repositories = self
+            .workspaces
+            .list_repositories(request.workspace_id)
+            .await?;
+        if repositories.iter().any(|repository| {
+            let existing = fjord_fs::canonicalize_path(&repository.path)
+                .unwrap_or_else(|_| repository.path.clone());
+            fjord_fs::paths_equal(&existing, &destination)
+        }) {
+            return Err(RepoError::CloneDestinationExists);
+        }
+
+        Ok(PreparedCloneRepository {
+            workspace_id: request.workspace_id,
+            source_url,
+            destination,
+            directory_name,
+            branch,
+        })
+    }
+
+    /// Runs the prepared system-Git clone and registers it exactly once. Fjord
+    /// deliberately leaves any partial destination produced by Git on failure
+    /// or cancellation; deleting it cannot be proven safe after process exit.
+    pub async fn clone_repository_with_context(
+        &self,
+        prepared: PreparedCloneRepository,
+        context: GitOperationContext,
+    ) -> Result<CloneRepositoryResult, RepoError> {
+        if std::fs::symlink_metadata(&prepared.destination).is_ok() {
+            return Err(RepoError::CloneDestinationExists);
+        }
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        self.remote
+            .clone_repository(
+                &prepared.source_url,
+                &prepared.destination,
+                prepared.branch.as_deref(),
+                context.clone(),
+            )
+            .await?;
+        if context.is_cancelled() {
+            return Err(GitRemoteError::Cancelled.into());
+        }
+
+        let destination = fjord_fs::canonicalize_path(&prepared.destination).map_err(|_| {
+            RepoError::CloneDestinationInvalid("cloned directory is unavailable".into())
+        })?;
+        let status = self.git.status(&RepoPath::new(destination.clone())).await?;
+        if context.is_cancelled() {
+            return Err(GitRemoteError::Cancelled.into());
+        }
+        let repository = self
+            .workspaces
+            .add_repository(
+                prepared.workspace_id,
+                &prepared.directory_name,
+                &destination,
+            )
+            .await
+            .map_err(|error| RepoError::CloneRegistrationFailed(error.to_string()))?;
+        if let Err(error) = self
+            .workspaces
+            .upsert_repo_status(repository.id, &status)
+            .await
+        {
+            tracing::warn!(repository_id = ?repository.id, error = %error, "cloned repository status cache refresh failed");
+        }
+
+        Ok(CloneRepositoryResult { repository })
     }
 
     pub async fn get_generations(&self, repo_id: RepositoryId) -> Result<GenerationSet, RepoError> {
@@ -1572,6 +1764,30 @@ mod tests {
     use time::OffsetDateTime;
 
     #[test]
+    fn clone_directory_name_inference_handles_plain_git_urls() {
+        assert_eq!(
+            inferred_clone_directory_name("https://example.test/team/fjord.git").as_deref(),
+            Some("fjord")
+        );
+        assert_eq!(
+            inferred_clone_directory_name("git@example.test:team/fjord.git").as_deref(),
+            Some("fjord")
+        );
+        assert_eq!(
+            inferred_clone_directory_name("/tmp/remotes/fjord.git/").as_deref(),
+            Some("fjord")
+        );
+    }
+
+    #[test]
+    fn clone_directory_name_must_be_one_component() {
+        assert!(validate_clone_directory_name("fjord").is_ok());
+        for invalid in ["", ".", "..", "nested/fjord", "nested\\fjord"] {
+            assert!(validate_clone_directory_name(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
     fn serialized_diff_windows_never_cross_the_response_ceiling() {
         let oversized = FileDiffWindow {
             path: "large.txt".to_string(),
@@ -1783,6 +1999,16 @@ mod tests {
 
     #[async_trait]
     impl GitRemoteBackend for FakeRemoteGit {
+        async fn clone_repository(
+            &self,
+            _source_url: &str,
+            _destination: &Path,
+            _branch: Option<&str>,
+            _context: GitOperationContext,
+        ) -> Result<(), GitRemoteError> {
+            Ok(())
+        }
+
         async fn fetch(
             &self,
             repo: &RepoPath,

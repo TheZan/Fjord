@@ -2,20 +2,21 @@ use std::fs;
 use std::path::Path;
 
 use fjord_domain::{
-    AmendInfo, BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
-    Consequence, CredentialHelperInfo, DestructiveAction, DestructivePreflight, DiffHunk, DiffLine,
-    DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitAuthPrompt,
-    GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo,
-    GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan,
-    InteractionTrace, LogCursor, OperationControl, OverviewUiState, OverviewUiStatePatch,
-    PatchSelection, PatchSource, RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteRef,
-    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode,
-    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
-    SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
-    Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
-    WorkingFile, Workspace, WorkspaceId,
+    AmendInfo, BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
+    CommitPage, CommitPushResult, CommitSummary, Consequence, CredentialHelperInfo,
+    DestructiveAction, DestructivePreflight, DiffHunk, DiffLine, DiffLineEnding, DiffLineKind,
+    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    ForceWithLeaseDetails, GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
+    GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
+    GlobalSearchResult, HunkSelection, InteractionSpan, InteractionTrace, LogCursor,
+    OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource,
+    RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteRef, RepoOperation,
+    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode, SearchResultKind,
+    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
+    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
+    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -49,6 +50,8 @@ fn generated_types() -> String {
     push::<RepositoryId>(&mut output, &config);
     push::<Workspace>(&mut output, &config);
     push::<RepositoryEntry>(&mut output, &config);
+    push::<CloneRepositoryRequest>(&mut output, &config);
+    push::<CloneRepositoryResult>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
     push::<RepositorySnapshot>(&mut output, &config);
     push::<StoredRepositorySnapshot>(&mut output, &config);

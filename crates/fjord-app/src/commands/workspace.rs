@@ -3,9 +3,17 @@ use std::path::PathBuf;
 use crate::error::AppError;
 use crate::interaction_traces::TracedState;
 use crate::interaction_traces::TracedState as State;
+use crate::operations::{
+    emit_operation, OperationKind, OperationProgress, OperationRegistry, OperationScope,
+    OperationStatus,
+};
 use crate::state::AppState;
-use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_domain::{
+    CloneRepositoryRequest, CloneRepositoryResult, RepoStatusSummary, RepositoryEntry,
+    RepositoryId, Workspace, WorkspaceId,
+};
 use fjord_services::WorkspaceError;
+use tauri::AppHandle;
 
 const IMPORT_REPOSITORY_LIMIT: usize = 200;
 
@@ -87,6 +95,101 @@ pub async fn add_repository(
     let _ = state.workspaces.refresh_repo_status(entry.id).await;
     state.refresh_repository_tiers().await?;
     Ok(entry)
+}
+
+#[tauri::command]
+pub async fn clone_repository(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: CloneRepositoryRequest,
+    operation_id: Option<String>,
+) -> Result<CloneRepositoryResult, AppError> {
+    // Invalid workspace/destination state must fail before an operation exists.
+    let prepared = state.repos.prepare_clone_repository(request).await?;
+    let workspace_id = prepared.workspace_id();
+    let repository_name = prepared.directory_name().to_string();
+    let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
+    let guard = state.operations.begin(operation_id);
+    let kind = OperationKind::Clone;
+    let scope = OperationScope::Workspace { workspace_id };
+    emit_operation(
+        &app,
+        OperationProgress {
+            operation_id: guard.id().to_string(),
+            kind,
+            scope: scope.clone(),
+            status: OperationStatus::Started,
+            repo_id: None,
+            completed: 0,
+            total: 1,
+            message: Some(repository_name.clone()),
+            error: None,
+        },
+    );
+
+    let askpass = state.begin_askpass_operation(
+        guard.id(),
+        Some(repository_name),
+        Some(kind.as_str().to_string()),
+    );
+    let context = guard
+        .git_context_for_scope(app.clone(), kind, scope.clone(), None)
+        .with_askpass(askpass);
+    let result = if guard.is_cancelled() {
+        Err(AppError::operation_cancelled())
+    } else {
+        match state
+            .repos
+            .clone_repository_with_context(prepared, context)
+            .await
+            .map_err(AppError::from)
+        {
+            Ok(result) => state
+                .refresh_repository_tiers()
+                .await
+                .map(|_| result)
+                .map_err(AppError::from),
+            Err(error) => Err(error),
+        }
+    };
+    state.askpass.finish_operation(guard.id());
+
+    let (status, completed, repo_id, error) = match &result {
+        Ok(result) => (
+            OperationStatus::Succeeded,
+            1,
+            Some(result.repository.id),
+            None,
+        ),
+        Err(error) if error.code == "operation_cancelled" => {
+            (OperationStatus::Cancelled, 0, None, None)
+        }
+        Err(error) => (
+            OperationStatus::Failed,
+            0,
+            None,
+            error
+                .diagnostics
+                .clone()
+                .or_else(|| Some(error.message.clone())),
+        ),
+    };
+    emit_operation(
+        &app,
+        OperationProgress {
+            operation_id: guard.id().to_string(),
+            kind,
+            scope,
+            status,
+            repo_id,
+            completed,
+            total: 1,
+            message: None,
+            error,
+        },
+    );
+
+    result
 }
 
 #[tauri::command]

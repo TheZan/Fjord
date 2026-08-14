@@ -22,7 +22,14 @@ import type {
 } from "@/domain/generated";
 import { beginIpcRequest, settleIpcRequest } from "@/infrastructure/ipcInteraction";
 import type { GitConnectionTestResult, GitEnvironmentInfo, Settings } from "@/domain/settings";
-import type { BulkRepoResult, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type {
+  BulkRepoResult,
+  CloneRepositoryRequest,
+  CloneRepositoryResult,
+  RepoStatusSummary,
+  RepositoryEntry,
+  Workspace,
+} from "@/domain/workspace";
 import type {
   BranchInfo,
   CommitPage,
@@ -70,6 +77,7 @@ export interface VersionedFileDiffWindow {
 }
 
 export type OperationKind =
+  | "clone"
   | "fetch"
   | "pull"
   | "push"
@@ -321,6 +329,12 @@ export function revalidateRepositorySnapshot(repoId: string): Promise<SnapshotRe
 
 export function addRepository(workspaceId: string, path: string): Promise<RepositoryEntry> {
   return invoke("add_repository", { workspaceId, path });
+}
+
+export function cloneRepository(
+  request: CloneRepositoryRequest,
+): OperationTask<CloneRepositoryResult> {
+  return invokeOperation("clone", "clone_repository", { request });
 }
 
 export function importRepositories(workspaceId: string, root: string): Promise<RepositoryEntry[]> {

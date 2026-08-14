@@ -91,6 +91,18 @@ impl From<RepoError> for AppError {
             error @ RepoError::DiffWindowTooLarge { .. } => {
                 Self::new("diff_window_too_large", error.to_string())
             }
+            error @ RepoError::InvalidCloneRequest(_) => {
+                Self::new("clone_request_invalid", error.to_string())
+            }
+            error @ RepoError::CloneDestinationInvalid(_) => {
+                Self::new("clone_destination_invalid", error.to_string())
+            }
+            error @ RepoError::CloneDestinationExists => {
+                Self::new("clone_destination_exists", error.to_string())
+            }
+            error @ RepoError::CloneRegistrationFailed(_) => {
+                Self::new("clone_registration_failed", error.to_string())
+            }
         }
     }
 }
@@ -189,6 +201,29 @@ mod tests {
         });
         assert_eq!(error.code, "git_auth_failed");
         assert!(error.diagnostics.unwrap().contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn clone_failures_have_stable_codes() {
+        assert_eq!(
+            AppError::from(RepoError::InvalidCloneRequest("missing URL".into())).code,
+            "clone_request_invalid"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CloneDestinationInvalid("missing parent".into())).code,
+            "clone_destination_invalid"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CloneDestinationExists).code,
+            "clone_destination_exists"
+        );
+        assert_eq!(
+            AppError::from(RepoError::CloneRegistrationFailed(
+                "workspace removed".into()
+            ))
+            .code,
+            "clone_registration_failed"
+        );
     }
 
     #[test]

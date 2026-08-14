@@ -1,6 +1,6 @@
 # Spec: system Git transport
 
-Referenced by: P5-01–P5-19, SDD §5.2, [`git-backend.md`](git-backend.md),
+Referenced by: P5-01–P5-19, P9R-02, SDD §5.2, [`git-backend.md`](git-backend.md),
 [`operation-events.md`](operation-events.md).
 
 ## Scope and dependency boundary
@@ -10,9 +10,9 @@ Fjord separates repository-local work from network transport:
 - `GitBackend` owns reads and local mutations. `gix` serves status, refs, history,
   and committed diffs; `git2` serves working-tree/index mutations, commits,
   checkout, stash, and integration after a fetch.
-- `GitRemoteBackend` owns fetch, refspec fetch, push, remote-branch deletion, and
-  `ls-remote`. Its production implementation invokes the discovered system Git
-  executable without a shell.
+- `GitRemoteBackend` owns clone, fetch, refspec fetch, push, remote-branch
+  deletion, and `ls-remote`. Its production implementation invokes the
+  discovered system Git executable without a shell.
 - `GitEnvironmentProvider` discovers and inspects Git and performs a read-only
   connection test.
 
@@ -173,6 +173,7 @@ logged. Tokens and passwords are never process arguments.
 
 ## Remote operation semantics
 
+- Clone: `git clone --progress [--branch <branch>] -- <url> <destination>`.
 - Fetch: `git fetch --progress --prune <remote> [refspecs...]`.
 - Push: `git push --progress <remote> [refspecs...]`.
 - Publish a branch: `git push --progress --set-upstream <remote> <ref>:<ref>`.
@@ -180,6 +181,23 @@ logged. Tokens and passwords are never process arguments.
 - Inspect remote: `git ls-remote` (and `--symref` for connection tests).
 - Materialize a remote branch: targeted system-Git fetch followed by local
   checkout/branch creation.
+
+Clone is workspace-scoped until it succeeds. `RepoService` validates that the
+workspace exists, the destination parent is an existing directory, the resulting
+name is one path component, and the target does not exist before the application
+registers the operation. The target check is repeated before system Git starts.
+After Git succeeds, Fjord validates the local repository, registers it exactly
+once, and seeds its status cache; the application then refreshes runtime/watcher
+tiering. A registration failure is explicit `clone_registration_failed`, never a
+silent success.
+
+Fjord never recursively removes a failed or cancelled clone destination. Git may
+clean up a directory it created itself, but any partial directory that remains is
+left for the user because Fjord cannot prove that every item in it still belongs
+to the operation. Retrying therefore first reports `clone_destination_exists`.
+Other local validation failures use `clone_request_invalid` or
+`clone_destination_invalid`; authentication and network failures retain the
+shared stable transport codes above.
 
 Pull intentionally remains a composed operation:
 

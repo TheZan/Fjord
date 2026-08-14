@@ -71,6 +71,25 @@ pub struct RepositoryEntry {
     pub sort_order: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CloneRepositoryRequest {
+    pub workspace_id: WorkspaceId,
+    pub url: String,
+    #[ts(type = "string")]
+    pub destination_parent: PathBuf,
+    pub directory_name: Option<String>,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CloneRepositoryResult {
+    pub repository: RepositoryEntry,
+}
+
 /// Monotonic in-memory versions of independently observable repository data.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
