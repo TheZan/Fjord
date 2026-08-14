@@ -750,7 +750,7 @@ mod tests {
         assert!(error.contains("cache state"), "unexpected error: {error}");
 
         let other_platform = Comparability {
-            os: "linux".into(),
+            os: format!("{}-other", warm.os),
             ..warm.clone()
         };
         assert!(warm.require_comparable(&other_platform).is_err());
