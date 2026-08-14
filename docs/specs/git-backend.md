@@ -1,6 +1,6 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03.
 
 ## Purpose
 
@@ -17,6 +17,9 @@ See [`system-git-transport.md`](system-git-transport.md).
 pub trait GitBackend: Send + Sync {
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn abort_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn log(&self, repo: &RepoPath, from: LogCursor, limit: u32) -> Result<CommitPage, GitError>;
     async fn diff(&self, repo: &RepoPath, commit: &CommitId) -> Result<Vec<FileDiff>, GitError>;
@@ -58,6 +61,7 @@ Exact types (`RepoStatus`, `BranchInfo`, `CommitPage`, ...) live in `fjord-domai
 |---|---|---|
 | `status` | `gix` | Hot path, run per-repo on every dashboard refresh — this is the operation the "fast on large repos" claim lives or dies on. |
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
+| `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
@@ -121,6 +125,7 @@ crates/fjord-git/src/
 │   ├── repository.rs     # handles, locking, shared error/command plumbing
 │   ├── status.rs
 │   ├── operation_state.rs
+│   ├── operation_control.rs
 │   ├── refs.rs
 │   ├── history.rs
 │   ├── diff.rs

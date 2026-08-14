@@ -198,6 +198,12 @@ pub enum GitError {
     MergeToolFailed(String),
     #[error("operation cancelled")]
     Cancelled,
+    #[error("no repository operation is in progress")]
+    OperationNotInProgress,
+    #[error("repository operation still has unresolved conflicts in {paths:?}")]
+    OperationHasConflicts { paths: Vec<String> },
+    #[error("repository operation step failed: {0}")]
+    OperationStepFailed(String),
     #[error("the selected patch no longer matches the current diff")]
     PatchStale,
     #[error("the destructive preflight no longer matches the repository state")]
@@ -230,6 +236,39 @@ pub trait GitBackend: Send + Sync {
     /// Implementations must not infer this solely from cached status.
     async fn operation_state(&self, _repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         Err(GitError::NotImplemented("operation_state"))
+    }
+    async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
+        self.continue_operation_with_context(repo, GitOperationContext::default())
+            .await
+    }
+    async fn continue_operation_with_context(
+        &self,
+        _repo: &RepoPath,
+        _context: GitOperationContext,
+    ) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("continue_operation"))
+    }
+    async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
+        self.skip_operation_with_context(repo, GitOperationContext::default())
+            .await
+    }
+    async fn skip_operation_with_context(
+        &self,
+        _repo: &RepoPath,
+        _context: GitOperationContext,
+    ) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("skip_operation"))
+    }
+    async fn abort_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
+        self.abort_operation_with_context(repo, GitOperationContext::default())
+            .await
+    }
+    async fn abort_operation_with_context(
+        &self,
+        _repo: &RepoPath,
+        _context: GitOperationContext,
+    ) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("abort_operation"))
     }
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;

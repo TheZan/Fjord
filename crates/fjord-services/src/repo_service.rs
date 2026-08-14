@@ -360,6 +360,66 @@ impl RepoService {
         Ok(self.git.operation_state(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn continue_operation(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<RepoOperationState, RepoError> {
+        self.continue_operation_with_context(repo_id, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn continue_operation_with_context(
+        &self,
+        repo_id: RepositoryId,
+        context: GitOperationContext,
+    ) -> Result<RepoOperationState, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .continue_operation_with_context(&RepoPath::new(repo.path), context)
+            .await?)
+    }
+
+    pub async fn skip_operation(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<RepoOperationState, RepoError> {
+        self.skip_operation_with_context(repo_id, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn skip_operation_with_context(
+        &self,
+        repo_id: RepositoryId,
+        context: GitOperationContext,
+    ) -> Result<RepoOperationState, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .skip_operation_with_context(&RepoPath::new(repo.path), context)
+            .await?)
+    }
+
+    pub async fn abort_operation(
+        &self,
+        repo_id: RepositoryId,
+    ) -> Result<RepoOperationState, RepoError> {
+        self.abort_operation_with_context(repo_id, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn abort_operation_with_context(
+        &self,
+        repo_id: RepositoryId,
+        context: GitOperationContext,
+    ) -> Result<RepoOperationState, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .abort_operation_with_context(&RepoPath::new(repo.path), context)
+            .await?)
+    }
+
     pub async fn get_git_environment(&self) -> Result<GitEnvironmentInfo, RepoError> {
         let settings = self.settings.get_settings().await?;
         Ok(self

@@ -78,6 +78,64 @@ pub async fn get_repo_operation_state(
 }
 
 #[tauri::command]
+pub async fn continue_operation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    operation_id: Option<String>,
+) -> Result<RepoOperationState, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::ContinueOperation,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .continue_operation_with_context(repo_id, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn skip_operation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    operation_id: Option<String>,
+) -> Result<RepoOperationState, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::SkipOperation,
+        repo_id,
+        |context| state.repos.skip_operation_with_context(repo_id, context),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn abort_operation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    operation_id: Option<String>,
+) -> Result<RepoOperationState, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::AbortOperation,
+        repo_id,
+        |context| state.repos.abort_operation_with_context(repo_id, context),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn get_repository_snapshot(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -862,16 +920,16 @@ pub async fn test_git_connection(
     Ok(result?)
 }
 
-async fn run_repo_operation<Fut>(
+async fn run_repo_operation<T, Fut>(
     app: &AppHandle,
     state: &AppState,
     operation_id: Option<String>,
     kind: OperationKind,
     repo_id: RepositoryId,
     run: impl FnOnce(fjord_ports::GitOperationContext) -> Fut,
-) -> Result<(), AppError>
+) -> Result<T, AppError>
 where
-    Fut: Future<Output = Result<(), fjord_services::RepoError>>,
+    Fut: Future<Output = Result<T, fjord_services::RepoError>>,
 {
     let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
     let guard = state.operations.begin(operation_id);
@@ -912,7 +970,7 @@ where
 
     state.askpass.finish_operation(guard.id());
     let (status, completed, error) = match &result {
-        Ok(()) => (OperationStatus::Succeeded, 1, None),
+        Ok(_) => (OperationStatus::Succeeded, 1, None),
         Err(error) if error.code == "operation_cancelled" => (OperationStatus::Cancelled, 0, None),
         Err(error) => (
             OperationStatus::Failed,

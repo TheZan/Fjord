@@ -101,6 +101,9 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stash_push` | `{ repo_id, message? }` | — | |
 | `stash_pop` | `{ repo_id }` | — | Applies and drops `stash@{0}` |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
+| `continue_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected merge/rebase/cherry-pick/revert sequencer and returns its new state; refuses unresolved conflicts |
+| `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
+| `abort_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected operation (`bisect reset` for bisect) and returns its new state; destructive preflight is added by P9-05 |
 
 ### Remote operations (system Git)
 
@@ -144,7 +147,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `get_repo_operation_state`, `continue_operation`, `skip_operation`, `abort_operation` | [`repository-safety.md`](repository-safety.md) §1–2 | 9 |
 | `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | [`workspace-workflows.md`](workspace-workflows.md) §1 | 10 |
 | `start_rebase` | [`workspace-workflows.md`](workspace-workflows.md) §2 | 10 |
@@ -153,11 +155,11 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 ## Long-running operations: events, not blocking returns
 
-`fetch`, `pull`, `push`, and `publish` are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_fetch` and `bulk_pull` run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. Progress/cancellation details live in [`operation-events.md`](operation-events.md): the event name is `fjord-operation-progress`, and cancellation is requested with `cancel_operation`.
+`fetch`, `pull`, `push`, `publish`, and repository operation controls are repo-scoped operations; the UI keeps them off the render path while awaiting completion. `bulk_fetch` and `bulk_pull` run through a bounded Tokio worker pool and return per-repo results once the batch completes, so one failed repository does not abort the rest. Progress/cancellation details live in [`operation-events.md`](operation-events.md): the event name is `fjord-operation-progress`, and cancellation is requested with `cancel_operation`.
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics? }` (SDD §8). `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 ## What's not a command
 

@@ -141,6 +141,7 @@ pub(crate) enum MutationKind {
     Push,
     PublishBranch,
     DeleteRemoteBranch,
+    OperationStep,
 }
 
 pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
@@ -173,6 +174,7 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             GenerationMask::REFS_HISTORY
         }
         MutationKind::PublishBranch => GenerationMask::REFS_HISTORY_CONFIG,
+        MutationKind::OperationStep => GenerationMask::WORKING_REFS_HISTORY,
     }
 }
 
@@ -237,6 +239,10 @@ mod tests {
             (
                 MutationKind::PublishBranch,
                 GenerationMask::REFS_HISTORY_CONFIG,
+            ),
+            (
+                MutationKind::OperationStep,
+                GenerationMask::WORKING_REFS_HISTORY,
             ),
             (
                 MutationKind::DeleteRemoteBranch,

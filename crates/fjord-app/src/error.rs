@@ -107,6 +107,16 @@ fn launch_error_to_app_error(err: LaunchError) -> AppError {
 }
 
 fn git_error_to_app_error(err: GitError) -> AppError {
+    let err = match err {
+        GitError::OperationStepFailed(diagnostics) => {
+            return AppError {
+                code: "operation_step_failed".to_string(),
+                message: "repository operation step failed".to_string(),
+                diagnostics: Some(diagnostics),
+            };
+        }
+        other => other,
+    };
     let code = match &err {
         GitError::RepoNotFound(_) => "repository_not_found",
         GitError::NotAGitRepository(_) => "not_a_git_repository",
@@ -124,6 +134,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::StashEmpty => "stash_empty",
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::Cancelled => "operation_cancelled",
+        GitError::OperationNotInProgress => "operation_not_in_progress",
+        GitError::OperationHasConflicts { .. } => "operation_has_conflicts",
+        GitError::OperationStepFailed(_) => unreachable!("handled above"),
         GitError::PatchStale => "patch_stale",
         GitError::PreflightStale => "preflight_stale",
         GitError::PatchApplyFailed(_) => "patch_apply_failed",
@@ -186,5 +199,28 @@ mod tests {
         assert_eq!(preflight_stale.code, "preflight_stale");
         assert_eq!(apply.code, "patch_apply_failed");
         assert_eq!(unsupported.code, "patch_unsupported");
+    }
+
+    #[test]
+    fn repository_operation_failures_have_distinct_stable_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::OperationNotInProgress).code,
+            "operation_not_in_progress"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::OperationHasConflicts {
+                paths: vec!["src/main.rs".into()],
+            })
+            .code,
+            "operation_has_conflicts"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::OperationStepFailed("failed".into())).code,
+            "operation_step_failed"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::OperationStepFailed("sanitized".into())).diagnostics,
+            Some("sanitized".into())
+        );
     }
 }

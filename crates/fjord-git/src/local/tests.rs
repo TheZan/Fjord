@@ -4833,3 +4833,191 @@ async fn operation_state_detects_cli_created_detached_and_unborn_heads() {
         RepoOperation::UnbornBranch
     );
 }
+
+fn resolve_operation_conflict(backend: &LocalGitBackend, repo: &RepoPath) {
+    write_file(repo, "operation.txt", "resolved\n");
+    run_git_success(backend, repo, &["add", "operation.txt"]);
+}
+
+fn assert_normal_operation(state: &fjord_domain::RepoOperationState) {
+    assert_eq!(state.operation, RepoOperation::Normal);
+    assert!(state.conflicted_paths.is_empty());
+    assert!(state.available.is_empty());
+}
+
+fn start_revert_conflict() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "one\n", "one");
+    commit_with_cli(&backend, &repo, "two\n", "two");
+    let reverted = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    commit_with_cli(&backend, &repo, "three\n", "three");
+    assert!(!run_git_status(&backend, &repo, &["revert", "--no-edit", &reverted]).success());
+    (directory, repo, backend)
+}
+
+#[tokio::test]
+async fn merge_controls_refuse_conflicts_then_continue_or_abort_to_normal() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&backend, &repo, &["merge", "topic"]).success());
+    let before = backend.generations(&repo).unwrap();
+
+    let error = backend.continue_operation(&repo).await.unwrap_err();
+    assert!(matches!(
+        error,
+        GitError::OperationHasConflicts { paths } if paths == ["operation.txt"]
+    ));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    assert!(matches!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Merge { .. }
+    ));
+
+    resolve_operation_conflict(&backend, &repo);
+    let completed = backend.continue_operation(&repo).await.unwrap();
+    assert_normal_operation(&completed);
+    assert_eq!(
+        backend.generations(&repo).unwrap(),
+        GenerationSet {
+            working_tree: before.working_tree + 1,
+            refs: before.refs + 1,
+            history: before.history + 1,
+            ..before
+        }
+    );
+
+    let (_abort_directory, abort_repo, abort_backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&abort_backend, &abort_repo, &["merge", "topic"]).success());
+    assert_normal_operation(&abort_backend.abort_operation(&abort_repo).await.unwrap());
+}
+
+#[tokio::test]
+async fn rebase_controls_continue_skip_and_abort_to_normal() {
+    let (_continue_directory, continue_repo, continue_backend) = divergent_operation_fixture();
+    run_git_success(&continue_backend, &continue_repo, &["checkout", "topic"]);
+    assert!(!run_git_status(
+        &continue_backend,
+        &continue_repo,
+        &["rebase", "--merge", "main"]
+    )
+    .success());
+    resolve_operation_conflict(&continue_backend, &continue_repo);
+    assert_normal_operation(
+        &continue_backend
+            .continue_operation(&continue_repo)
+            .await
+            .unwrap(),
+    );
+
+    let (_skip_directory, skip_repo, skip_backend) = divergent_operation_fixture();
+    run_git_success(&skip_backend, &skip_repo, &["checkout", "topic"]);
+    assert!(!run_git_status(&skip_backend, &skip_repo, &["rebase", "--apply", "main"]).success());
+    assert_normal_operation(&skip_backend.skip_operation(&skip_repo).await.unwrap());
+
+    let (_abort_directory, abort_repo, abort_backend) = divergent_operation_fixture();
+    run_git_success(&abort_backend, &abort_repo, &["checkout", "topic"]);
+    assert!(!run_git_status(&abort_backend, &abort_repo, &["rebase", "--merge", "main"]).success());
+    assert_normal_operation(&abort_backend.abort_operation(&abort_repo).await.unwrap());
+}
+
+#[tokio::test]
+async fn cherry_pick_controls_continue_skip_and_abort_to_normal() {
+    let (_continue_directory, continue_repo, continue_backend) = divergent_operation_fixture();
+    assert!(
+        !run_git_status(&continue_backend, &continue_repo, &["cherry-pick", "topic"]).success()
+    );
+    resolve_operation_conflict(&continue_backend, &continue_repo);
+    assert_normal_operation(
+        &continue_backend
+            .continue_operation(&continue_repo)
+            .await
+            .unwrap(),
+    );
+
+    let (_skip_directory, skip_repo, skip_backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&skip_backend, &skip_repo, &["cherry-pick", "topic"]).success());
+    assert_normal_operation(&skip_backend.skip_operation(&skip_repo).await.unwrap());
+
+    let (_abort_directory, abort_repo, abort_backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&abort_backend, &abort_repo, &["cherry-pick", "topic"]).success());
+    assert_normal_operation(&abort_backend.abort_operation(&abort_repo).await.unwrap());
+}
+
+#[tokio::test]
+async fn revert_controls_continue_skip_and_abort_to_normal() {
+    let (_continue_directory, continue_repo, continue_backend) = start_revert_conflict();
+    resolve_operation_conflict(&continue_backend, &continue_repo);
+    assert_normal_operation(
+        &continue_backend
+            .continue_operation(&continue_repo)
+            .await
+            .unwrap(),
+    );
+
+    // The product does not advertise Skip for a single revert, but the port
+    // still dispatches it correctly for externally-created sequencer state.
+    let (_skip_directory, skip_repo, skip_backend) = start_revert_conflict();
+    assert_normal_operation(&skip_backend.skip_operation(&skip_repo).await.unwrap());
+
+    let (_abort_directory, abort_repo, abort_backend) = start_revert_conflict();
+    assert_normal_operation(&abort_backend.abort_operation(&abort_repo).await.unwrap());
+}
+
+#[tokio::test]
+async fn bisect_abort_resets_to_normal() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "one\n", "one");
+    commit_with_cli(&backend, &repo, "two\n", "two");
+    commit_with_cli(&backend, &repo, "three\n", "three");
+    run_git_success(&backend, &repo, &["bisect", "start", "HEAD", "HEAD~2"]);
+
+    assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+}
+
+#[tokio::test]
+async fn operation_controls_report_when_nothing_is_in_progress() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+
+    assert!(matches!(
+        backend.abort_operation(&repo).await,
+        Err(GitError::OperationNotInProgress)
+    ));
+}
+
+#[tokio::test]
+async fn failed_operation_step_returns_sanitized_diagnostics_and_detectable_state() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&backend, &repo, &["merge", "topic"]).success());
+    resolve_operation_conflict(&backend, &repo);
+    let hook = repo.0.join(".git").join("hooks").join("pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\necho 'hook rejected https://secret@example.test/repo' >&2\nexit 1\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&hook, permissions).unwrap();
+    }
+
+    let error = backend.continue_operation(&repo).await.unwrap_err();
+    let GitError::OperationStepFailed(diagnostics) = error else {
+        panic!("expected operation step failure, got {error:?}");
+    };
+    assert!(diagnostics.contains("[REDACTED]"));
+    assert!(!diagnostics.contains("secret"));
+    assert!(matches!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Merge { .. }
+    ));
+    assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+}

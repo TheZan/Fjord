@@ -13,6 +13,9 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "git_repository_ownership", message: "raw path" })).toBe(
       "errors.git_repository_ownership",
     );
+    expect(errorTranslationKey({ code: "operation_step_failed", message: "raw git" })).toBe(
+      "errors.operation_step_failed",
+    );
   });
 
   it("never exposes unknown backend or JavaScript messages", () => {

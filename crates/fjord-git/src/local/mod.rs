@@ -39,6 +39,7 @@ mod destructive_confirmation;
 mod diff;
 mod history;
 mod mutations;
+mod operation_control;
 mod operation_state;
 mod patch;
 mod patch_transaction;
@@ -134,6 +135,51 @@ impl GitBackend for LocalGitBackend {
         repo: &RepoPath,
     ) -> Result<fjord_domain::RepoOperationState, GitError> {
         operation_state::state(self.operation_origins.clone(), repo).await
+    }
+
+    async fn continue_operation_with_context(
+        &self,
+        repo: &RepoPath,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RepoOperationState, GitError> {
+        operation_control::run(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            operation_control::OperationAction::Continue,
+            context,
+        )
+        .await
+    }
+
+    async fn skip_operation_with_context(
+        &self,
+        repo: &RepoPath,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RepoOperationState, GitError> {
+        operation_control::run(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            operation_control::OperationAction::Skip,
+            context,
+        )
+        .await
+    }
+
+    async fn abort_operation_with_context(
+        &self,
+        repo: &RepoPath,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RepoOperationState, GitError> {
+        operation_control::run(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            operation_control::OperationAction::Abort,
+            context,
+        )
+        .await
     }
 
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {

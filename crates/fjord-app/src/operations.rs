@@ -41,6 +41,9 @@ pub enum OperationKind {
     CommitPush,
     BulkFetch,
     BulkPull,
+    ContinueOperation,
+    SkipOperation,
+    AbortOperation,
 }
 
 impl OperationKind {
@@ -53,6 +56,9 @@ impl OperationKind {
             Self::CommitPush => "commit-push",
             Self::BulkFetch => "bulk-fetch",
             Self::BulkPull => "bulk-pull",
+            Self::ContinueOperation => "continue-operation",
+            Self::SkipOperation => "skip-operation",
+            Self::AbortOperation => "abort-operation",
         }
     }
 }

@@ -65,7 +65,7 @@ resolution.
 
 | Area | State |
 |---|---|
-| Operation state | ✅ P9-01/P9-02 implement the domain model, local `GitBackend::operation_state` detector, typed IPC/query, and snapshot-schema-v2 inclusion for `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, and unborn branches. The query invalidates on either `refs` or `working_tree`; P9-04 still owns the banner. |
+| Operation state | ✅ P9-01–P9-03 implement the domain model, local detector, typed IPC/query and snapshot-schema-v2 inclusion, plus cancellable continue/skip/abort controls through the shared system Git. Controls return the newly detected state and advance `working_tree`/`refs`/`history` generations after a launched step; P9-04 still owns the banner. |
 | Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
 | Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
@@ -135,9 +135,9 @@ banner paints with the first frame. The state invalidates on the `refs` and
 `detected_externally` exists because the UI wording differs: a state Fjord did not
 create needs an explanatory sentence, not just controls.
 
-### 2. Continue / Skip / Abort
+### 2. Continue / Skip / Abort (implemented by P9-03)
 
-New local port methods and IPC commands:
+The local port methods and IPC commands are:
 
 ```rust
 async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
@@ -149,13 +149,22 @@ Each dispatches on the detected state to the corresponding Git invocation
 (`rebase --continue|--skip|--abort`, `merge --continue|--abort`,
 `cherry-pick --continue|--skip|--abort`, `revert --continue|--skip|--abort`,
 `bisect reset`), through the shared resolved executable, with `GIT_EDITOR` set to
-a non-interactive no-op so a continue can never block on an editor. Each returns
+a non-interactive no-op so a continue can never block on an editor. The context
+variants run through the existing operation registry and cancellable process-tree
+runner. Each returns
 the *new* state, so the UI updates from the operation's own result rather than a
 follow-up poll.
 
 Failure modes are typed: `operation_not_in_progress`, `operation_has_conflicts`
 (continue attempted with unresolved paths), `operation_step_failed` with sanitized
 diagnostics.
+
+The repository write lock covers detection, subprocess execution, generation
+invalidation, and final redetection. Once Git has been launched, Fjord advances
+the `working_tree`, `refs`, and `history` generations even when Git exits with a
+failure or is cancelled, because a sequencer can already have advanced to a new
+conflicted step. Cancellation never erases Git's markers; the next state read is
+therefore authoritative.
 
 UI: a persistent **operation banner** above the repository content, showing the
 operation, its progress where known (`rebase 3/7`), the conflicted files, and the

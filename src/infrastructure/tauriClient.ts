@@ -75,7 +75,10 @@ export type OperationKind =
   | "publish"
   | "commit-push"
   | "bulk-fetch"
-  | "bulk-pull";
+  | "bulk-pull"
+  | "continue-operation"
+  | "skip-operation"
+  | "abort-operation";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -380,6 +383,39 @@ export function getRepoOperationState(
   signal?: AbortSignal,
 ): Promise<RepoOperationState> {
   return invokeVersioned("get_repo_operation_state", { repoId }, repoId, "operation", signal);
+}
+
+export function continueOperation(
+  repoId: string,
+  operationId: string | null = null,
+): Promise<RepoOperationState> {
+  return invoke("continue_operation", { repoId, operationId });
+}
+
+export function runContinueOperation(repoId: string): OperationTask<RepoOperationState> {
+  return invokeOperation("continue-operation", "continue_operation", { repoId });
+}
+
+export function skipOperation(
+  repoId: string,
+  operationId: string | null = null,
+): Promise<RepoOperationState> {
+  return invoke("skip_operation", { repoId, operationId });
+}
+
+export function runSkipOperation(repoId: string): OperationTask<RepoOperationState> {
+  return invokeOperation("skip-operation", "skip_operation", { repoId });
+}
+
+export function abortOperation(
+  repoId: string,
+  operationId: string | null = null,
+): Promise<RepoOperationState> {
+  return invoke("abort_operation", { repoId, operationId });
+}
+
+export function runAbortOperation(repoId: string): OperationTask<RepoOperationState> {
+  return invokeOperation("abort-operation", "abort_operation", { repoId });
 }
 
 export function getCommitLog(

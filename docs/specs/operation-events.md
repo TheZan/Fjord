@@ -14,6 +14,7 @@ Long Git operations (`fetch`, `pull`, `push`) and workspace bulk operations can 
 | `pull_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `push_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | Uses one operation id for both phases. A push failure after commit is a partial result and terminal `failed` event, not a rollback. |
+| `continue_operation` / `skip_operation` / `abort_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Runs the local system-Git sequencer command and returns the newly detected state. |
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
@@ -31,7 +32,7 @@ Payload shape:
 ```ts
 type OperationProgressEvent = {
   operationId: string;
-  kind: "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull";
+  kind: "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation";
   scope:
     | { type: "repo"; repoId: string }
     | { type: "workspace"; workspaceId: string };
@@ -61,6 +62,9 @@ active operation and passes it through `GitOperationContext` to the system-Git
 runner.
 
 - Fetch, pull's fetch phase, and push terminate the complete Git process tree.
+- Continue, skip, and abort use the same process-tree termination; cancellation
+  can leave Git's sequencer state in progress, and the next operation-state read
+  remains authoritative.
 - Reader tasks drain/finish, the runner returns `Cancelled`, and only then is the
   final `cancelled` event emitted and the registry entry removed.
 - Bulk operations stop scheduling queued repositories and cancel already-started
