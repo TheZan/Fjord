@@ -79,6 +79,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Fresh-install lifecycle smoke
+        run: cargo test -p fjord-app fresh_install_smoke_restores_each_repository_once_after_restart
+
       - name: Tests
         run: cargo test --workspace
 

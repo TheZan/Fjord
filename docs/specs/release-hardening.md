@@ -174,6 +174,7 @@ A release build fails unless:
 |---|---|
 | All CI jobs green on three OSes | `.github/workflows/ci.yml` |
 | Bundle smoke passes with the sidecar present | existing |
+| Fresh-install lifecycle smoke passes on the three CI operating systems and the candidate packages have manual clean-machine evidence | [`../v0.1-fresh-install-smoke.md`](../v0.1-fresh-install-smoke.md) |
 | Gated SLOs within budget on all three OSes | §1, §2, [`performance.md`](performance.md) §10 |
 | No memory-growth violation in the sustained session | §2 |
 | Manual Git compatibility matrix complete for the target environments | [`../manual-git-compatibility.md`](../manual-git-compatibility.md) |

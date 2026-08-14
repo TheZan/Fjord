@@ -748,6 +748,163 @@ async fn publish_sets_upstream_while_rejection_and_cancellation_preserve_local_w
 }
 
 #[tokio::test]
+async fn fresh_install_smoke_restores_each_repository_once_after_restart() {
+    let app_dir = TempDir::new().unwrap();
+    let services = compose_services(app_dir.path()).await.unwrap();
+    let workspace = services
+        .workspaces
+        .create_workspace("Fresh install")
+        .await
+        .unwrap();
+
+    let (_existing_dir, existing_path) = fixture_repo("existing");
+    let existing = services
+        .workspaces
+        .add_repository(workspace.id, existing_path)
+        .await
+        .unwrap();
+
+    let (_clone_source_dir, clone_source) = fixture_repo("clone-source");
+    let fixture_root = TempDir::new().unwrap();
+    let clone_remote = fixture_root.path().join("clone-remote.git");
+    run_git_success(
+        fixture_root.path(),
+        &[
+            "clone",
+            "--bare",
+            clone_source.to_str().unwrap(),
+            clone_remote.to_str().unwrap(),
+        ],
+    );
+    let clone_parent = fixture_root.path().join("clones");
+    std::fs::create_dir(&clone_parent).unwrap();
+    let prepared = services
+        .repos
+        .prepare_clone_repository(CloneRepositoryRequest {
+            workspace_id: workspace.id,
+            url: clone_remote.to_string_lossy().into_owned(),
+            destination_parent: clone_parent,
+            directory_name: Some("cloned".into()),
+            branch: Some("main".into()),
+        })
+        .await
+        .unwrap();
+    let cloned = services
+        .repos
+        .clone_repository_with_context(prepared, GitOperationContext::default())
+        .await
+        .unwrap()
+        .repository;
+
+    let created_root = TempDir::new().unwrap();
+    let created = services
+        .repos
+        .create_repository(CreateRepositoryRequest {
+            workspace_id: workspace.id,
+            destination_parent: created_root.path().to_path_buf(),
+            directory_name: "created".into(),
+            initial_branch: Some("main".into()),
+        })
+        .await
+        .unwrap()
+        .repository;
+    std::fs::write(created.path.join("README.md"), b"fresh repository\n").unwrap();
+    services
+        .repos
+        .stage_files(created.id, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    services
+        .repos
+        .commit(created.id, "Initial local commit", false)
+        .await
+        .unwrap();
+
+    let publish_remote = fixture_root.path().join("publish-remote.git");
+    run_git_success(
+        fixture_root.path(),
+        &["init", "--bare", publish_remote.to_str().unwrap()],
+    );
+    services
+        .repos
+        .add_remote(created.id, "origin", publish_remote.to_str().unwrap())
+        .await
+        .unwrap();
+    services
+        .repos
+        .publish_branch(created.id, None)
+        .await
+        .unwrap();
+    Repository::open_bare(&publish_remote)
+        .unwrap()
+        .set_head("refs/heads/main")
+        .unwrap();
+
+    let peer = fixture_root.path().join("peer");
+    run_git_success(
+        fixture_root.path(),
+        &[
+            "clone",
+            publish_remote.to_str().unwrap(),
+            peer.to_str().unwrap(),
+        ],
+    );
+    std::fs::write(peer.join("upstream.txt"), b"from peer\n").unwrap();
+    run_git_success(&peer, &["add", "upstream.txt"]);
+    run_git_success(
+        &peer,
+        &[
+            "-c",
+            "user.name=Fjord Smoke",
+            "-c",
+            "user.email=smoke@fjord.invalid",
+            "commit",
+            "-m",
+            "Upstream update",
+        ],
+    );
+    run_git_success(&peer, &["push", "origin", "main"]);
+    services.repos.fetch(created.id, "origin").await.unwrap();
+    services.repos.pull(created.id).await.unwrap();
+    assert_eq!(
+        std::fs::read(created.path.join("upstream.txt")).unwrap(),
+        b"from peer\n"
+    );
+
+    let expected_ids = [existing.id, cloned.id, created.id]
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    drop(services);
+
+    let restarted = compose_services(app_dir.path()).await.unwrap();
+    assert_eq!(
+        restarted.workspaces.list_workspaces().await.unwrap(),
+        vec![workspace.clone()]
+    );
+    let restored = restarted
+        .workspaces
+        .list_repositories(workspace.id)
+        .await
+        .unwrap();
+    assert_eq!(restored.len(), 3);
+    assert_eq!(
+        restored
+            .iter()
+            .map(|repo| repo.id)
+            .collect::<std::collections::HashSet<_>>(),
+        expected_ids
+    );
+    assert_eq!(
+        restored
+            .iter()
+            .map(|repo| repo.path.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3
+    );
+}
+
+#[tokio::test]
 async fn clone_registers_once_and_validates_destination_before_execution() {
     let (_app_dir, services) = services().await;
     let (_source_dir, source) = fixture_repo("source");

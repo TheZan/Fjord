@@ -90,6 +90,11 @@ bundle and checks that the helper is present.
 
 ## Public release checklist
 
+Complete the automated and platform-manual lifecycle in
+[`v0.1-fresh-install-smoke.md`](v0.1-fresh-install-smoke.md) against the exact
+candidate artifacts. Its evidence notes are required inputs to the public launch
+gate; a developer checkout is not a substitute for the packaged pass.
+
 Before publishing a draft release:
 
 - Confirm every item in `docs/tasks.md` Phase 3 is closed or deliberately
