@@ -1,6 +1,6 @@
 # Spec: application shell, navigation, and keyboard model
 
-Referenced by: P7-01–P7-16, SDD §6, §15.
+Referenced by: P7-01–P7-16, P9R-01, SDD §6, §15.
 Related: [`performance.md`](performance.md), [`theming.md`](theming.md),
 [`i18n.md`](i18n.md), [`data-model.md`](data-model.md),
 [`ipc-commands.md`](ipc-commands.md).
@@ -154,7 +154,18 @@ Rules that keep the hierarchy from decaying:
 ### 3. Overview screen
 
 Header reduces to: **Fetch all · Pull all · Add repository · `⋯`**. The overflow
-carries "Open all in IDE" and "Import repositories from folder".
+carries "Open all in IDE". **Add repository** opens the single app-owned
+repository-onboarding surface; scanning a folder is no longer a separate action
+with a second owner.
+
+The onboarding surface has four stable choices: **Open Existing Repository**,
+**Scan Folder for Repositories**, **Clone Repository**, and **Create Repository**.
+It is also reached after creating a workspace during first run. Actions not yet
+implemented remain visible with a localized disabled reason so the structure does
+not change as Phase 9.5 fills them in. The dialog follows the shell overlay
+contract: first-action focus, trapped Tab order, Escape dismissal, invoker focus
+restoration, and localized labels/descriptions. P9R-01 reuses the existing Open
+and Scan operations and adds no IPC or Git mutation.
 
 The three metric cards are replaced by a single summary line:
 

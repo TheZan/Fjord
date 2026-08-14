@@ -222,13 +222,24 @@
   },
   "onboarding": {
     "title": "Set up your first workspace",
-    "body": "Create a workspace, then import existing Git repositories from a folder on disk.",
+    "body": "Create a workspace, then choose how to add a Git repository.",
     "workspacePlaceholder": "Workspace name",
     "defaultWorkspaceName": "My workspace",
-    "createAndImport": "Create and import",
+    "createAndAdd": "Create and add repository",
     "createOnly": "Create only",
     "creating": "Creating…",
-    "importing": "Importing…"
+    "openingRepositorySetup": "Opening repository setup…"
+  },
+  "repositoryOnboarding": {
+    "title": "Add a repository",
+    "description": "Choose how you want to add a Git repository to this workspace.",
+    "unavailable": "Available in a later onboarding step",
+    "actions": {
+      "openExisting": { "label": "Open existing repository", "description": "Choose one existing Git repository on disk." },
+      "scanFolder": { "label": "Scan folder for repositories", "description": "Find existing Git repositories directly inside a folder." },
+      "clone": { "label": "Clone repository", "description": "Clone a repository from a Git URL." },
+      "create": { "label": "Create repository", "description": "Initialize a new local Git repository." }
+    }
   },
   "operations": {
     "running": "Running…",
@@ -327,8 +338,6 @@
   "repositories": {
     "label": "Repositories",
     "addButton": "Add repository",
-    "importButton": "Import folder",
-    "importingButton": "Importing…",
     "removeButton": "Remove",
     "empty": "No repositories yet — open one to get started.",
     "notAGitRepository": "That folder isn't a Git repository."

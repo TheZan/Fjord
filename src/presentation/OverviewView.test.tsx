@@ -73,12 +73,10 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
     bulkProgress: null,
     onCancelBulk: vi.fn(),
     onBulk: vi.fn(),
-    onOpenRepository: vi.fn(),
-    onImport: vi.fn(),
+    onAddRepository: vi.fn(),
     onSelectRepo: vi.fn(),
     onWarmRepo: vi.fn(),
     onRemoveRepo: vi.fn(),
-    importPending: false,
     utilities: <div data-testid="shell-utilities" />,
     ...overrides,
   };
@@ -143,8 +141,11 @@ describe("OverviewView", () => {
 
     fireEvent.click(within(header).getByRole("button", { name: "toolbar.moreActions" }));
     expect(screen.getByRole("menuitem", { name: "bulk.openIde" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "repositories.importButton" }));
-    expect(overviewProps.onImport).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("menuitem", { name: "repositories.importButton" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(within(header).getByRole("button", { name: "repositories.addButton" }));
+    expect(overviewProps.onAddRepository).toHaveBeenCalledOnce();
   });
 
   it("groups repositories into measured columns and renders only virtual rows", () => {

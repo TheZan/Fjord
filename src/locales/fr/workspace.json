@@ -220,13 +220,24 @@
   },
   "onboarding": {
     "title": "Configurez votre premier workspace",
-    "body": "Créez un workspace, puis importez des dépôts Git existants depuis un dossier sur le disque.",
+    "body": "Créez un workspace, puis choisissez comment ajouter un dépôt Git.",
     "workspacePlaceholder": "Nom du workspace",
     "defaultWorkspaceName": "Mon workspace",
-    "createAndImport": "Créer et importer",
+    "createAndAdd": "Créer et ajouter un dépôt",
     "createOnly": "Créer seulement",
     "creating": "Création…",
-    "importing": "Importation…"
+    "openingRepositorySetup": "Ouverture de la configuration du dépôt…"
+  },
+  "repositoryOnboarding": {
+    "title": "Ajouter un dépôt",
+    "description": "Choisissez comment ajouter un dépôt Git à ce workspace.",
+    "unavailable": "Disponible dans une prochaine étape de l’accueil",
+    "actions": {
+      "openExisting": { "label": "Ouvrir un dépôt existant", "description": "Choisissez un dépôt Git existant sur le disque." },
+      "scanFolder": { "label": "Rechercher des dépôts dans un dossier", "description": "Trouvez les dépôts Git existants directement dans un dossier." },
+      "clone": { "label": "Cloner un dépôt", "description": "Clonez un dépôt depuis une URL Git." },
+      "create": { "label": "Créer un dépôt", "description": "Initialisez un nouveau dépôt Git local." }
+    }
   },
   "operations": {
     "running": "En cours…",
@@ -325,8 +336,6 @@
   "repositories": {
     "label": "Dépôts",
     "addButton": "Ajouter un dépôt",
-    "importButton": "Importer un dossier",
-    "importingButton": "Importation…",
     "removeButton": "Retirer",
     "empty": "Aucun dépôt pour le moment; ouvrez-en un pour commencer.",
     "notAGitRepository": "Ce dossier n'est pas un dépôt Git."

@@ -220,13 +220,24 @@
   },
   "onboarding": {
     "title": "Ersten Workspace einrichten",
-    "body": "Erstelle einen Workspace und importiere dann vorhandene Git-Repositorys aus einem Ordner auf der Festplatte.",
+    "body": "Erstelle einen Workspace und wähle dann, wie ein Git-Repository hinzugefügt werden soll.",
     "workspacePlaceholder": "Workspace-Name",
     "defaultWorkspaceName": "Mein Workspace",
-    "createAndImport": "Erstellen und importieren",
+    "createAndAdd": "Erstellen und Repository hinzufügen",
     "createOnly": "Nur erstellen",
     "creating": "Wird erstellt…",
-    "importing": "Wird importiert…"
+    "openingRepositorySetup": "Repository-Einrichtung wird geöffnet…"
+  },
+  "repositoryOnboarding": {
+    "title": "Repository hinzufügen",
+    "description": "Wähle, wie ein Git-Repository zu diesem Workspace hinzugefügt werden soll.",
+    "unavailable": "In einem späteren Onboarding-Schritt verfügbar",
+    "actions": {
+      "openExisting": { "label": "Vorhandenes Repository öffnen", "description": "Wähle ein vorhandenes Git-Repository auf der Festplatte." },
+      "scanFolder": { "label": "Ordner nach Repositorys durchsuchen", "description": "Finde vorhandene Git-Repositorys direkt in einem Ordner." },
+      "clone": { "label": "Repository klonen", "description": "Klone ein Repository von einer Git-URL." },
+      "create": { "label": "Repository erstellen", "description": "Initialisiere ein neues lokales Git-Repository." }
+    }
   },
   "operations": {
     "running": "Läuft…",
@@ -325,8 +336,6 @@
   "repositories": {
     "label": "Repositorys",
     "addButton": "Repository hinzufügen",
-    "importButton": "Ordner importieren",
-    "importingButton": "Wird importiert…",
     "removeButton": "Entfernen",
     "empty": "Noch keine Repositorys; öffne eines, um loszulegen.",
     "notAGitRepository": "Dieser Ordner ist kein Git-Repository."

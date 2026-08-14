@@ -22,12 +22,10 @@ interface OverviewProps {
   } | null;
   onCancelBulk: () => void;
   onBulk: (action: "fetch" | "pull" | "open-ide") => void;
-  onOpenRepository: () => void;
-  onImport: () => void;
+  onAddRepository: () => void;
   onSelectRepo: (repoId: string) => void;
   onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
-  importPending: boolean;
   utilities: ReactNode;
 }
 
@@ -45,12 +43,10 @@ export function OverviewView({
   bulkProgress,
   onCancelBulk,
   onBulk,
-  onOpenRepository,
-  onImport,
+  onAddRepository,
   onSelectRepo,
   onWarmRepo,
   onRemoveRepo,
-  importPending,
   utilities,
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
@@ -105,7 +101,7 @@ export function OverviewView({
         <Button disabled={!workspace || bulkPending !== null} onClick={() => onBulk("pull")}>
           {bulkPending === "pull" ? t("bulk.pulling") : t("bulk.pull")}
         </Button>
-        <Button variant="primary" disabled={!workspace} onClick={onOpenRepository}>
+        <Button variant="primary" disabled={!workspace} onClick={onAddRepository}>
           {t("repositories.addButton")}
         </Button>
         <OverflowMenu
@@ -116,12 +112,6 @@ export function OverviewView({
               label: bulkPending === "open-ide" ? t("bulk.openingIde") : t("bulk.openIde"),
               disabled: !workspace || bulkPending !== null,
               onSelect: () => onBulk("open-ide"),
-            },
-            {
-              id: "import",
-              label: importPending ? t("repositories.importingButton") : t("repositories.importButton"),
-              disabled: !workspace || importPending,
-              onSelect: onImport,
             },
           ]}
         />

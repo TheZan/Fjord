@@ -46,6 +46,7 @@ import { GitAuthPromptDialog } from "@/presentation/GitAuthPromptDialog";
 import { MainShell, ShellUtilities } from "@/presentation/MainShell";
 import { ResizableSidebar } from "@/presentation/ResizableSidebar";
 import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
+import { RepositoryOnboardingDialog } from "@/presentation/RepositoryOnboardingDialog";
 import { Sidebar } from "@/presentation/Sidebar";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
@@ -87,6 +88,7 @@ export function App() {
   const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [repositoryOnboardingOpen, setRepositoryOnboardingOpen] = useState(false);
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [repoDetailCommand, setRepoDetailCommand] = useState<RepoDetailCommand | null>(null);
@@ -423,9 +425,9 @@ export function App() {
   if (isFirstRun) {
     return (
       <Onboarding
-        onCreate={async (name, withImport) => {
+        onCreate={async (name, withRepository) => {
           const created = await createWorkspace(name || tw("onboarding.defaultWorkspaceName"));
-          if (created && withImport) await importRepositories(created.id);
+          if (created && withRepository) setRepositoryOnboardingOpen(true);
         }}
       />
     );
@@ -520,9 +522,7 @@ export function App() {
               if (bulkOperationId) void cancelOperation(bulkOperationId);
             }}
             onBulk={onBulk}
-            onOpenRepository={openRepository}
-            onImport={() => void importRepositories()}
-            importPending={workspaceActionPending === "import"}
+            onAddRepository={() => setRepositoryOnboardingOpen(true)}
             onSelectRepo={(repoId) =>
               selectedWorkspaceId ? void selectRepository(selectedWorkspaceId, repoId) : undefined
             }
@@ -599,6 +599,14 @@ export function App() {
             setAutoFetch(settings.autoFetch);
             setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
           }}
+        />
+      )}
+
+      {repositoryOnboardingOpen && (
+        <RepositoryOnboardingDialog
+          onOpenExisting={() => void openRepository()}
+          onScanFolder={() => void importRepositories()}
+          onClose={() => setRepositoryOnboardingOpen(false)}
         />
       )}
 

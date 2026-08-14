@@ -220,13 +220,24 @@
   },
   "onboarding": {
     "title": "Configura tu primer workspace",
-    "body": "Crea un workspace y luego importa repositorios Git existentes desde una carpeta del disco.",
+    "body": "Crea un workspace y luego elige cómo añadir un repositorio Git.",
     "workspacePlaceholder": "Nombre del workspace",
     "defaultWorkspaceName": "Mi workspace",
-    "createAndImport": "Crear e importar",
+    "createAndAdd": "Crear y añadir repositorio",
     "createOnly": "Crear solo",
     "creating": "Creando…",
-    "importing": "Importando…"
+    "openingRepositorySetup": "Abriendo configuración del repositorio…"
+  },
+  "repositoryOnboarding": {
+    "title": "Añadir un repositorio",
+    "description": "Elige cómo añadir un repositorio Git a este workspace.",
+    "unavailable": "Disponible en un paso posterior de la incorporación",
+    "actions": {
+      "openExisting": { "label": "Abrir repositorio existente", "description": "Elige un repositorio Git existente en el disco." },
+      "scanFolder": { "label": "Buscar repositorios en una carpeta", "description": "Encuentra repositorios Git existentes directamente dentro de una carpeta." },
+      "clone": { "label": "Clonar repositorio", "description": "Clona un repositorio desde una URL de Git." },
+      "create": { "label": "Crear repositorio", "description": "Inicializa un nuevo repositorio Git local." }
+    }
   },
   "operations": {
     "running": "Ejecutando…",
@@ -325,8 +336,6 @@
   "repositories": {
     "label": "Repositorios",
     "addButton": "Añadir repositorio",
-    "importButton": "Importar carpeta",
-    "importingButton": "Importando…",
     "removeButton": "Quitar",
     "empty": "Todavía no hay repositorios; abre uno para empezar.",
     "notAGitRepository": "Esa carpeta no es un repositorio Git."
