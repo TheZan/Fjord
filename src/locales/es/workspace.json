@@ -195,6 +195,25 @@
     "cancel": "Cancelar",
     "cancelled": "Cancelado."
   },
+  "operationBanner": {
+    "label": "Operación del repositorio",
+    "external": "Este estado se inició fuera de Fjord. Revísalo antes de elegir una acción.",
+    "startedHere": "Esta operación se inició en Fjord.",
+    "blockedActions": "Checkout, pull y stash pop no están disponibles hasta que termine esta operación.",
+    "conflicts": "Archivos con conflictos ({{count}})",
+    "moreConflicts": "Y {{count}} más…",
+    "controls": { "continue": "Continuar", "skip": "Omitir", "abort": "Abortar" },
+    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "interactivo" },
+    "states": {
+      "merge": "Fusión en curso",
+      "rebase": "Rebase en curso · {{current}} / {{total}} · {{kind}}",
+      "cherryPick": "Cherry-pick {{commit}} en curso",
+      "revert": "Reversión de {{commit}} en curso",
+      "bisect": "Bisect en curso · {{good}} buenos / {{bad}} malos",
+      "detached": "HEAD separado en {{commit}}",
+      "unbornBranch": "Esta rama aún no tiene commits"
+    }
+  },
   "preflight": {
     "description": "Revisa las consecuencias concretas calculadas a partir del estado actual del repositorio.",
     "loading": "Comprobando el repositorio…",

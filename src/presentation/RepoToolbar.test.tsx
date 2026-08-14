@@ -37,6 +37,7 @@ function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}
     dataValidated: true,
     actionPending: null,
     operationProgress: null,
+    operationInProgress: false,
     onBack: vi.fn(),
     onAction: vi.fn(),
     onCancelOperation: vi.fn(),
@@ -143,5 +144,30 @@ describe("RepoToolbar", () => {
     expect(container.querySelector('[style*="width: 100%"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "operations.cancel" }));
     expect(toolbarProps.onCancelOperation).toHaveBeenCalledOnce();
+  });
+
+  it("disables actions Git refuses during an operation and exposes the reason", () => {
+    vi.mocked(useStashes).mockReturnValue({
+      stashes: [{ index: 0, message: "WIP" }],
+      loading: false,
+      error: null,
+    });
+    render(<RepoToolbar {...props({ operationInProgress: true })} />);
+
+    expect(screen.getByRole("button", { name: "repoActions.pull" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "repoActions.pull" })).toHaveAttribute(
+      "title",
+      "operationBanner.blockedActions",
+    );
+    expect(screen.getByRole("button", { name: "toolbar.branch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "repoActions.fetch" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "repoActions.push" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
+    expect(screen.getByRole("menuitem", { name: /toolbar.pop/ })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /toolbar.pop/ })).toHaveAttribute(
+      "title",
+      "operationBanner.blockedActions",
+    );
   });
 });

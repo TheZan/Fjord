@@ -195,6 +195,25 @@
     "cancel": "Annuler",
     "cancelled": "Annulé."
   },
+  "operationBanner": {
+    "label": "Opération du dépôt",
+    "external": "Cet état a été créé en dehors de Fjord. Vérifiez-le avant de choisir une action.",
+    "startedHere": "Cette opération a été lancée dans Fjord.",
+    "blockedActions": "Le checkout, le pull et le stash pop sont indisponibles jusqu'à la fin de cette opération.",
+    "conflicts": "Fichiers en conflit ({{count}})",
+    "moreConflicts": "Et {{count}} de plus…",
+    "controls": { "continue": "Continuer", "skip": "Ignorer", "abort": "Abandonner" },
+    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "interactif" },
+    "states": {
+      "merge": "Fusion en cours",
+      "rebase": "Rebase en cours · {{current}} / {{total}} · {{kind}}",
+      "cherryPick": "Cherry-pick {{commit}} en cours",
+      "revert": "Revert de {{commit}} en cours",
+      "bisect": "Bisect en cours · {{good}} bons / {{bad}} mauvais",
+      "detached": "HEAD détachée sur {{commit}}",
+      "unbornBranch": "Cette branche n'a pas encore de commit"
+    }
+  },
   "preflight": {
     "description": "Vérifiez les conséquences concrètes calculées à partir de l’état actuel du dépôt.",
     "loading": "Vérification du dépôt…",

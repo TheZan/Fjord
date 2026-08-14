@@ -17,6 +17,7 @@ export interface ContextMenuItem {
   icon?: ContextMenuIcon;
   shortcut?: string;
   disabled?: boolean;
+  disabledReason?: string;
   danger?: boolean;
   separatorBefore?: boolean;
 }
@@ -127,6 +128,7 @@ export function ContextMenu({
               role="menuitem"
               tabIndex={index === activeIndex ? 0 : -1}
               disabled={item.disabled}
+              title={item.disabled ? item.disabledReason : undefined}
               className="interactive-row flex h-8 w-full items-center gap-2 px-2.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ color: item.danger ? "var(--rust-ink)" : "var(--ink)" }}
               onMouseEnter={() => {

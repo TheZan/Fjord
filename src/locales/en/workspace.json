@@ -197,6 +197,25 @@
     "cancel": "Cancel",
     "cancelled": "Cancelled."
   },
+  "operationBanner": {
+    "label": "Repository operation",
+    "external": "This state was started outside Fjord. Review it before choosing an action.",
+    "startedHere": "This operation was started in Fjord.",
+    "blockedActions": "Checkout, pull, and stash pop are unavailable until this operation finishes.",
+    "conflicts": "Conflicted files ({{count}})",
+    "moreConflicts": "And {{count}} more…",
+    "controls": { "continue": "Continue", "skip": "Skip", "abort": "Abort" },
+    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "interactive" },
+    "states": {
+      "merge": "Merge in progress",
+      "rebase": "Rebase in progress · {{current}} / {{total}} · {{kind}}",
+      "cherryPick": "Cherry-pick {{commit}} in progress",
+      "revert": "Revert {{commit}} in progress",
+      "bisect": "Bisect in progress · {{good}} good / {{bad}} bad",
+      "detached": "Detached HEAD at {{commit}}",
+      "unbornBranch": "This branch has no commits yet"
+    }
+  },
   "preflight": {
     "description": "Review the concrete consequences computed from the current repository state.",
     "loading": "Checking the repository…",

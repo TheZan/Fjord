@@ -197,6 +197,25 @@
     "cancel": "Отмена",
     "cancelled": "Отменено."
   },
+  "operationBanner": {
+    "label": "Операция репозитория",
+    "external": "Это состояние создано вне Fjord. Проверьте его перед выбором действия.",
+    "startedHere": "Эта операция запущена во Fjord.",
+    "blockedActions": "Переключение ветки, pull и применение stash недоступны до завершения операции.",
+    "conflicts": "Файлы с конфликтами ({{count}})",
+    "moreConflicts": "И ещё {{count}}…",
+    "controls": { "continue": "Продолжить", "skip": "Пропустить", "abort": "Прервать" },
+    "rebaseKinds": { "apply": "apply", "merge": "merge", "interactive": "интерактивный" },
+    "states": {
+      "merge": "Выполняется слияние",
+      "rebase": "Выполняется rebase · {{current}} / {{total}} · {{kind}}",
+      "cherryPick": "Выполняется cherry-pick {{commit}}",
+      "revert": "Выполняется отмена коммита {{commit}}",
+      "bisect": "Выполняется bisect · хороших: {{good}}, плохих: {{bad}}",
+      "detached": "Отсоединённый HEAD на {{commit}}",
+      "unbornBranch": "В этой ветке ещё нет коммитов"
+    }
+  },
   "preflight": {
     "description": "Проверьте конкретные последствия, рассчитанные по текущему состоянию репозитория.",
     "loading": "Проверка репозитория…",

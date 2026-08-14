@@ -297,7 +297,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 6 — Performance foundation | ⚠️ implementation complete through `P6-22`; only report-to-gate promotion `P6-20` remains ([`specs/performance.md`](specs/performance.md)) |
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
 | Phase 8 — Daily-driver essentials | ✅ done (`P8-00`–`P8-15`, `P8-FIX-07`; [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
-| Phase 9 — Safety & recovery | 🚧 P9-01–P9-03 implemented; remaining work designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
+| Phase 9 — Safety & recovery | 🚧 P9-01–P9-04 implemented; remaining work designed ([`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
 
@@ -335,7 +335,7 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
   - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
   - Implemented: [`ui-shell.md`](specs/ui-shell.md) (Phase 7).
   - Implemented except for the explicit `P6-20` gate-promotion task: [`performance.md`](specs/performance.md) (Phase 6).
-  - Implemented: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (`P8-00`–`P8-15`, `P8-FIX-07`). [`repository-safety.md`](specs/repository-safety.md) implements that Phase 8 foundation plus P9-01–P9-03 operation detection, snapshot delivery, and cancellable continue/skip/abort controls, and designs the remaining Phase 9 extensions; [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10) and [`release-hardening.md`](specs/release-hardening.md) (Phase 11) remain designed.
+  - Implemented: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (`P8-00`–`P8-15`, `P8-FIX-07`). [`repository-safety.md`](specs/repository-safety.md) implements that Phase 8 foundation plus P9-01–P9-04 operation detection, snapshot delivery, cancellable controls, and the persistent operation banner, and designs the remaining Phase 9 extensions; [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10) and [`release-hardening.md`](specs/release-hardening.md) (Phase 11) remain designed.
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
 - [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
 

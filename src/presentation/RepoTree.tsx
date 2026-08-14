@@ -22,6 +22,7 @@ export function RepoTree({
   focusedBranch,
   onSelectBranch,
   onCheckout,
+  checkoutDisabledReason,
   onBranchContextAction,
   onPublishBranch,
   onTagContextAction,
@@ -30,6 +31,7 @@ export function RepoTree({
   focusedBranch?: string | null;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
+  checkoutDisabledReason?: string;
   onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo, upstreamChoices: string[]) => void;
   onPublishBranch?: (branch: string) => void;
   onTagContextAction?: (action: TagContextAction, tag: TagInfo) => void;
@@ -141,6 +143,7 @@ export function RepoTree({
                   focused={branch.name === focusedBranch}
                   onSelectBranch={onSelectBranch}
                   onCheckout={onCheckout}
+                  checkoutDisabledReason={checkoutDisabledReason}
                   onPublishBranch={onPublishBranch}
                   onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
                 />
@@ -169,6 +172,7 @@ export function RepoTree({
                     focused={branch.name === focusedBranch}
                     onSelectBranch={onSelectBranch}
                     onCheckout={onCheckout}
+                    checkoutDisabledReason={checkoutDisabledReason}
                     onPublishBranch={onPublishBranch}
                     onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
                   />
@@ -199,7 +203,7 @@ export function RepoTree({
       {menu && (
         <ContextMenu
           position={menu}
-          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t, visibleRemoteBranches.length > 0) : tagMenuItems(menu.tag, t)}
+          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason) : tagMenuItems(menu.tag, t)}
           onClose={() => setMenu(null)}
           onSelect={(action) => {
             const selection = menu;
@@ -287,6 +291,7 @@ function BranchRow({
   focused,
   onSelectBranch,
   onCheckout,
+  checkoutDisabledReason,
   onPublishBranch,
   onContextMenu,
 }: {
@@ -296,6 +301,7 @@ function BranchRow({
   focused: boolean;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
+  checkoutDisabledReason?: string;
   onPublishBranch?: (branch: string) => void;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
 }) {
@@ -309,13 +315,13 @@ function BranchRow({
         type="button"
         onClick={() => onSelectBranch?.(branch.name)}
         onDoubleClick={() => {
-          if (!branch.isCurrent) onCheckout?.(branch.name);
+          if (!branch.isCurrent && !checkoutDisabledReason) onCheckout?.(branch.name);
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
           onSelectBranch?.(branch.name);
-          if (event.ctrlKey && !branch.isCurrent) onCheckout?.(branch.name);
+          if (event.ctrlKey && !branch.isCurrent && !checkoutDisabledReason) onCheckout?.(branch.name);
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -323,6 +329,7 @@ function BranchRow({
         }}
         data-selected={branch.isCurrent}
         data-focused={focused}
+        title={!branch.isCurrent ? checkoutDisabledReason : undefined}
         className="interactive-row flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1 text-left"
         style={branch.isCurrent ? { color: "var(--fjord-ink)" } : undefined}
       >
@@ -422,10 +429,25 @@ function branchMenuItems(
   branch: BranchInfo,
   t: (key: string) => string,
   hasRemoteBranches: boolean,
+  checkoutDisabledReason?: string,
 ): ContextMenuItem[] {
   return [
-    { id: "checkout", label: t("context.checkout"), icon: "checkout", shortcut: "Ctrl+Enter", disabled: branch.isCurrent },
-    { id: "createBranch", label: t("context.createBranchHere"), icon: "branch", separatorBefore: true },
+    {
+      id: "checkout",
+      label: t("context.checkout"),
+      icon: "checkout",
+      shortcut: "Ctrl+Enter",
+      disabled: branch.isCurrent || Boolean(checkoutDisabledReason),
+      disabledReason: checkoutDisabledReason,
+    },
+    {
+      id: "createBranch",
+      label: t("context.createBranchHere"),
+      icon: "branch",
+      separatorBefore: true,
+      disabled: Boolean(checkoutDisabledReason),
+      disabledReason: checkoutDisabledReason,
+    },
     { id: "rename", label: t("context.renameBranch"), icon: "branch", disabled: branch.isRemote },
     { id: "setUpstream", label: t("context.setUpstream"), icon: "branch", disabled: branch.isRemote || !hasRemoteBranches },
     { id: "unsetUpstream", label: t("context.unsetUpstream"), icon: "branch", disabled: branch.isRemote || !branch.upstream },

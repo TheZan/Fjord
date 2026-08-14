@@ -131,4 +131,26 @@ describe("RepoTree", () => {
       ["origin/release"],
     );
   });
+
+  it("blocks checkout gestures and explains the disabled context action", () => {
+    const onCheckout = vi.fn();
+    render(
+      <RepoTree
+        repoId="repo-1"
+        onCheckout={onCheckout}
+        checkoutDisabledReason="operation in progress"
+      />,
+    );
+    const feature = screen.getByRole("button", { name: "feature/ui" });
+
+    fireEvent.doubleClick(feature);
+    fireEvent.keyDown(feature, { key: "Enter", ctrlKey: true });
+    expect(onCheckout).not.toHaveBeenCalled();
+    expect(feature).toHaveAttribute("title", "operation in progress");
+
+    fireEvent.contextMenu(feature);
+    const checkout = screen.getByRole("menuitem", { name: /context.checkout/ });
+    expect(checkout).toBeDisabled();
+    expect(checkout).toHaveAttribute("title", "operation in progress");
+  });
 });

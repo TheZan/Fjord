@@ -40,6 +40,7 @@ export function RepoToolbar({
   dataValidated,
   actionPending,
   operationProgress,
+  operationInProgress,
   onBack,
   onAction,
   onCancelOperation,
@@ -52,6 +53,7 @@ export function RepoToolbar({
   dataValidated: boolean;
   actionPending: string | null;
   operationProgress: RepoOperationProgress | null;
+  operationInProgress: boolean;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
   onCancelOperation: () => void;
@@ -67,6 +69,7 @@ export function RepoToolbar({
 
   const busy = actionPending !== null;
   const mutationBlocked = busy || !dataValidated;
+  const operationBlockedReason = t("operationBanner.blockedActions");
 
   useEffect(() => {
     if (!branchOpen) return;
@@ -126,8 +129,12 @@ export function RepoToolbar({
             icon={<IconPull />}
             badge={status && status.behind > 0 ? status.behind : undefined}
             pending={actionPending === "pull"}
-            disabled={mutationBlocked}
-            disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
+            disabled={mutationBlocked || operationInProgress}
+            disabledReason={!dataValidated
+              ? t("snapshot.validationFailed")
+              : busy
+                ? t("operations.running")
+                : operationBlockedReason}
             onClick={() => onAction("pull")}
           />
           <PrimaryToolButton
@@ -143,8 +150,12 @@ export function RepoToolbar({
             <PrimaryToolButton
               label={t("toolbar.branch")}
               icon={<IconBranch />}
-              disabled={mutationBlocked}
-              disabledReason={!dataValidated ? t("snapshot.validationFailed") : t("operations.running")}
+              disabled={mutationBlocked || operationInProgress}
+              disabledReason={!dataValidated
+                ? t("snapshot.validationFailed")
+                : busy
+                  ? t("operations.running")
+                  : operationBlockedReason}
               active={branchOpen}
               onClick={() => setBranchOpen((open) => !open)}
             />
@@ -204,12 +215,14 @@ export function RepoToolbar({
               {
                 id: "stash-pop",
                 label: `${t("toolbar.pop")}${stashes.length > 0 ? ` (${stashes.length})` : ""}`,
-                disabled: mutationBlocked || stashes.length === 0,
+                disabled: mutationBlocked || operationInProgress || stashes.length === 0,
                 disabledReason: !dataValidated
                   ? t("snapshot.validationFailed")
                   : busy
                     ? t("operations.running")
-                    : t("toolbar.noStashes"),
+                    : operationInProgress
+                      ? operationBlockedReason
+                      : t("toolbar.noStashes"),
                 onSelect: () => onAction("stash-pop"),
               },
               {

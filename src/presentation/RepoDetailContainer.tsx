@@ -11,9 +11,11 @@ import {
 } from "@/application/diffSnapshotAuthority";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useRepoStatus } from "@/application/useRepoStatus";
+import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
+import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -37,6 +39,9 @@ import {
   runPullRepo,
   runPublishBranch,
   runPushRepo,
+  runContinueOperation,
+  runSkipOperation,
+  runAbortOperation,
   setBranchUpstream,
   renameBranch,
   resetToCommit,
@@ -56,6 +61,8 @@ import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightD
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
+import { isOperationInProgress } from "@/presentation/OperationBanner";
+import { queryKeys } from "@/application/queryKeys";
 
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
@@ -85,6 +92,10 @@ export function RepoDetailContainer({
   const operations = useOperationProgress();
   const snapshot = useRepositorySnapshot(repo.id);
   const { status, error: statusError } = useRepoStatus(repo.id, snapshot.ready);
+  const { state: operationState, error: operationStateError } = useRepoOperationState(
+    repo.id,
+    snapshot.ready,
+  );
   const { commits, loading: commitsLoading } = useCommitLog(repo.id, snapshot.ready);
   const {
     changes,
@@ -104,26 +115,36 @@ export function RepoDetailContainer({
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
+  const operationInProgress = isOperationInProgress(operationState?.operation);
+  const actionsValidated = snapshot.validated && operationState !== null;
 
   async function runRepoAction(
     action: string,
     run: () => Promise<void>,
     scopes: RepoDataScope[] = [],
     handleError?: (error: unknown) => boolean | Promise<boolean>,
+    invalidateOnFailure = false,
   ): Promise<boolean> {
     if (actionInFlight.current) return false;
     actionInFlight.current = true;
     setActionError(null);
     setActionPending(action);
     try {
-      if (
-        action !== "terminal" &&
-        action !== "open-ide" &&
-        !snapshot.validated &&
-        !(await snapshot.ensureValidated())
-      ) {
-        setActionError(t("snapshot.validationFailed"));
-        return false;
+      if (action !== "terminal" && action !== "open-ide") {
+        let validatedOperationState = operationState;
+        if (!snapshot.validated) {
+          if (!(await snapshot.ensureValidated())) {
+            setActionError(t("snapshot.validationFailed"));
+            return false;
+          }
+          validatedOperationState = queryClient.getQueryData<RepoOperationState>(
+            queryKeys.repos.operationState(repo.id),
+          ) ?? null;
+        }
+        if (!validatedOperationState) {
+          setActionError(t("snapshot.validationFailed"));
+          return false;
+        }
       }
       await run();
       if (scopes.length > 0) {
@@ -132,6 +153,14 @@ export function RepoDetailContainer({
       }
       return true;
     } catch (e) {
+      if (invalidateOnFailure && scopes.length > 0) {
+        try {
+          await invalidateRepoData(queryClient, repo.id, repo.workspaceId, scopes);
+        } catch {
+          // The original operation error remains authoritative. Query errors
+          // are rendered through their ordinary read hooks.
+        }
+      }
       const handled = await (handleError?.(e) ?? false);
       if (!handled && invokeErrorCode(e) !== "operation_cancelled") {
         setActionError(userErrorMessage(e));
@@ -211,6 +240,10 @@ export function RepoDetailContainer({
   ]);
 
   function onAction(action: RepoAction) {
+    if (operationInProgress && (action === "pull" || action === "stash-pop")) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
     if (needsConfirmation(action)) {
       setActionConfirmation({ kind: "origin", action });
       return;
@@ -232,6 +265,7 @@ export function RepoDetailContainer({
         // branch that has never been published. Offer to publish it instead
         // of pushing somewhere the user never configured.
         action === "push" ? offerPushRecovery : undefined,
+        action === "pull",
       );
       return;
     }
@@ -284,10 +318,18 @@ export function RepoDetailContainer({
   }
 
   function onCreateBranch(name: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
     void runRepoAction("create-branch", () => createBranch(repo.id, name, true), ["status", "working", "history", "refs"]);
   }
 
   function onCreateBranchAt(name: string, target: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
     void runRepoAction("create-branch", () => createBranchAt(repo.id, name, target, true), ["status", "working", "history", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(name);
     });
@@ -316,11 +358,23 @@ export function RepoDetailContainer({
   }
 
   function onCherryPick(commitId: string) {
-    void runRepoAction("cherry-pick", () => cherryPick(repo.id, commitId), ["status", "working", "history", "refs"]);
+    void runRepoAction(
+      "cherry-pick",
+      () => cherryPick(repo.id, commitId),
+      ["status", "operation", "working", "history", "refs"],
+      undefined,
+      true,
+    );
   }
 
   function onRevertCommit(commitId: string) {
-    void runRepoAction("revert", () => revertCommit(repo.id, commitId), ["status", "working", "history", "refs"]);
+    void runRepoAction(
+      "revert",
+      () => revertCommit(repo.id, commitId),
+      ["status", "operation", "working", "history", "refs"],
+      undefined,
+      true,
+    );
   }
 
   function onResetToCommit(commitId: string, mode: "soft" | "mixed" | "hard") {
@@ -333,6 +387,10 @@ export function RepoDetailContainer({
   }
 
   function checkoutAndScrollToBranch(branch: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
     if (isOriginBranch(branch)) {
       setActionConfirmation({ kind: "remote-checkout", branch });
       return;
@@ -341,6 +399,10 @@ export function RepoDetailContainer({
   }
 
   function performCheckoutAndScrollToBranch(branch: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
     requestBranchGraphScroll(branch);
     void runRepoAction("checkout", () => checkoutBranch(repo.id, branch), ["status", "working", "history", "refs"]).then((ok) => {
       if (ok) requestBranchGraphScroll(branch);
@@ -353,6 +415,31 @@ export function RepoDetailContainer({
 
   function onUnstage(paths: string[]) {
     void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
+  }
+
+  function onOperationControl(control: OperationControl) {
+    const start = (): OperationTask<RepoOperationState> => {
+      switch (control) {
+        case "continue":
+          return runContinueOperation(repo.id);
+        case "skip":
+          return runSkipOperation(repo.id);
+        case "abort":
+          return runAbortOperation(repo.id);
+      }
+    };
+    void runRepoAction(
+      `operation-${control}`,
+      async () => {
+        const task = start();
+        setActionOperationId(task.operationId);
+        const nextState = await task.promise;
+        queryClient.setQueryData(queryKeys.repos.operationState(repo.id), nextState);
+      },
+      ["status", "operation", "working", "history", "refs"],
+      undefined,
+      true,
+    );
   }
 
   function onSetBranchUpstream(branch: string, upstream: string) {
@@ -473,8 +560,14 @@ export function RepoDetailContainer({
       repo={repo}
       snapshotValidated={snapshot.validated}
       snapshotCapturedAt={snapshot.capturedAt}
+      actionsValidated={actionsValidated}
       status={status}
       statusError={statusError}
+      operationState={operationState}
+      operationStateError={operationStateError}
+      operationInProgress={operationInProgress}
+      operationControlPending={pendingOperationControl(actionPending)}
+      onOperationControl={onOperationControl}
       actionPending={actionPending}
       actionError={
         actionError ??
@@ -582,7 +675,7 @@ function scopesForRepoAction(action: RepoAction): RepoDataScope[] {
     case "fetch":
       return ["status", "history", "refs"];
     case "pull":
-      return ["status", "working", "history", "refs"];
+      return ["status", "operation", "working", "history", "refs"];
     case "push":
       return ["status", "refs"];
     case "stash":
@@ -615,4 +708,11 @@ function toToolbarProgress(event: OperationProgressEvent | null) {
     error: event.error,
     status: event.status,
   };
+}
+
+function pendingOperationControl(action: string | null): OperationControl | null {
+  if (action === "operation-continue") return "continue";
+  if (action === "operation-skip") return "skip";
+  if (action === "operation-abort") return "abort";
+  return null;
 }

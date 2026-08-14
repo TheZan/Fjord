@@ -12,6 +12,7 @@ import type { BranchContextAction, TagContextAction } from "@/presentation/RepoT
 import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
+import { OperationBanner } from "@/presentation/OperationBanner";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
@@ -22,6 +23,7 @@ import type {
   RepoStatus,
   WorkingChanges,
 } from "@/domain/git";
+import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
@@ -40,8 +42,13 @@ export function RepoDetailView({
   repo,
   snapshotValidated,
   snapshotCapturedAt,
+  actionsValidated,
   status,
   statusError,
+  operationState,
+  operationStateError,
+  operationInProgress,
+  operationControlPending,
   actionPending,
   actionError,
   actionConfirmation,
@@ -55,6 +62,7 @@ export function RepoDetailView({
   changesError,
   onBack,
   onAction,
+  onOperationControl,
   onConfirmAction,
   onCancelActionConfirmation,
   onCancelOperation,
@@ -87,8 +95,13 @@ export function RepoDetailView({
   repo: RepositoryEntry;
   snapshotValidated: boolean;
   snapshotCapturedAt: string | null;
+  actionsValidated: boolean;
   status: RepoStatus | null;
   statusError: string | null;
+  operationState: RepoOperationState | null;
+  operationStateError: string | null;
+  operationInProgress: boolean;
+  operationControlPending: OperationControl | null;
   actionPending: string | null;
   actionError: string | null;
   actionConfirmation: ActionConfirmation | null;
@@ -107,6 +120,7 @@ export function RepoDetailView({
   changesError: string | null;
   onBack: () => void;
   onAction: (action: RepoAction) => void;
+  onOperationControl: (control: OperationControl) => void;
   onConfirmAction: () => void;
   onCancelActionConfirmation: () => void;
   onCancelOperation: () => void;
@@ -204,7 +218,7 @@ export function RepoDetailView({
       loading={changesLoading}
       error={changesError}
       busy={actionPending !== null}
-      validated={snapshotValidated}
+      validated={actionsValidated}
       selectedFile={selectedWorkingFile}
       onSelectFile={setSelectedWorkingFile}
       onStage={onStage}
@@ -228,9 +242,10 @@ export function RepoDetailView({
       <RepoToolbar
         repo={repo}
         status={status}
-        dataValidated={snapshotValidated}
+        dataValidated={actionsValidated}
         actionPending={actionPending}
         operationProgress={operationProgress}
+        operationInProgress={operationInProgress}
         onBack={onBack}
         onAction={onAction}
         onCancelOperation={onCancelOperation}
@@ -248,13 +263,22 @@ export function RepoDetailView({
         capturedAt={snapshotCapturedAt}
       />
 
-      {statusError && (
+      <OperationBanner
+        state={operationState}
+        validated={actionsValidated}
+        pendingControl={operationControlPending}
+        onControl={onOperationControl}
+        onOpenMergeTool={() => onAction("merge-tool")}
+      />
+
+      {(statusError || operationStateError) && (
         <p className="text-[13px]" style={{ color: "var(--rust-ink)" }}>
-          {statusError}
+          {statusError ?? operationStateError}
         </p>
       )}
 
-      {status?.hasConflict && (
+      {status?.hasConflict &&
+        (!operationState || operationState.operation.kind === "normal") && (
         <div
           className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px]"
           style={{ background: "var(--rust-tint)", color: "var(--rust-ink)" }}
@@ -262,7 +286,12 @@ export function RepoDetailView({
           <span><span aria-hidden="true">⚠</span> {t("repoStatus.conflict")}</span>
           <Button
             size="sm"
-            disabled={actionPending !== null || !snapshotValidated}
+            disabled={actionPending !== null || !actionsValidated}
+            title={!actionsValidated
+              ? t("snapshot.validationFailed")
+              : actionPending !== null
+                ? t("operations.running")
+                : undefined}
             onClick={() => onAction("merge-tool")}
           >
             {actionPending === "merge-tool"
@@ -287,6 +316,9 @@ export function RepoDetailView({
               focusedBranch={branchScrollRequest?.branch ?? null}
               onSelectBranch={onSelectBranch}
               onCheckout={onCheckout}
+              checkoutDisabledReason={
+                operationInProgress ? t("operationBanner.blockedActions") : undefined
+              }
               onPublishBranch={onPublishBranch}
               onBranchContextAction={handleBranchContextAction}
               onTagContextAction={handleTagContextAction}
@@ -301,7 +333,7 @@ export function RepoDetailView({
               repoId={repo.id}
               path={diffTarget.path}
               source={diffTarget.source}
-              actionDisabled={!snapshotValidated || actionPending !== null}
+              actionDisabled={!actionsValidated || actionPending !== null}
               onApplyFile={applyDiffFile}
               onApplyHunk={diffTarget.source.kind === "working" ? onApplyHunk : undefined}
               onDiscardPatch={
@@ -327,7 +359,7 @@ export function RepoDetailView({
                 selectedCommitId={selectedCommit?.id ?? null}
                 onSelectCommit={handleSelectCommit}
                 onRevealCommit={handleRevealCommit}
-                onCheckout={onCheckout}
+                onCheckout={operationInProgress ? undefined : onCheckout}
                 onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}

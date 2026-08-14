@@ -65,8 +65,8 @@ resolution.
 
 | Area | State |
 |---|---|
-| Operation state | ✅ P9-01–P9-03 implement the domain model, local detector, typed IPC/query and snapshot-schema-v2 inclusion, plus cancellable continue/skip/abort controls through the shared system Git. Controls return the newly detected state and advance `working_tree`/`refs`/`history` generations after a launched step; P9-04 still owns the banner. |
-| Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
+| Operation state | ✅ P9-01–P9-04 implement the domain model, local detector, typed IPC/query and snapshot-schema-v2 inclusion, cancellable continue/skip/abort controls, and the persistent operation banner. Controls return the newly detected state and advance `working_tree`/`refs`/`history` generations after a launched step. |
+| Conflict UI | ✅ The operation banner identifies the sequencer, rebase progress, external origin, bounded conflicted-file sample, legal controls, and merge-tool handoff. Conflicted files remain flagged in the working list (`WorkingFile.conflicted`); conflict content stays owned by the external merge tool. |
 | Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
 | Branch deletion | ✅ `delete_branch`, `delete_remote_branch`. No merged/unmerged check surfaced. |
@@ -166,12 +166,17 @@ failure or is cancelled, because a sequencer can already have advanced to a new
 conflicted step. Cancellation never erases Git's markers; the next state read is
 therefore authoritative.
 
-UI: a persistent **operation banner** above the repository content, showing the
+UI: a persistent **operation banner** above the repository content shows the
 operation, its progress where known (`rebase 3/7`), the conflicted files, and the
 available controls. Per [`ui-shell.md`](ui-shell.md) §2, the banner is the one
 place allowed to promote actions out of the overflow menu. While an operation is
 in progress, actions that Git would refuse anyway (checkout, pull, stash pop) are
-disabled with the reason shown.
+disabled with the reason shown. States detected outside Fjord use explicit
+wording, conflict paths are bounded in the banner, and detached/unborn states are
+visible without being treated as active sequencer operations. A successful
+control writes its returned `RepoOperationState` into the query cache before
+scope invalidation; cancellation/failure still refreshes affected scopes because
+Git may already have advanced its sequencer.
 
 ### 3. Destructive preflight (foundation starts at P8-00)
 

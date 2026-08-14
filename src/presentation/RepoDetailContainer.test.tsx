@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -11,6 +11,18 @@ const snapshotMock = vi.hoisted(() => ({
   ensureValidated: vi.fn<() => Promise<boolean>>(async () => true),
 }));
 const authorityMock = vi.hoisted(() => ({ rejected: false }));
+const operationStateMock = vi.hoisted(() => ({
+  state: {
+    operation: { kind: "normal" as const },
+    conflictedPaths: [],
+    available: [],
+    detectedExternally: false,
+  } as import("@/domain/generated").RepoOperationState,
+}));
+const queryClientMock = vi.hoisted(() => ({
+  setQueryData: vi.fn(),
+  getQueryData: vi.fn(() => operationStateMock.state),
+}));
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
@@ -18,7 +30,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({}),
+  useQueryClient: () => queryClientMock,
 }));
 
 vi.mock("@/application/useAutoFetch", () => ({
@@ -35,6 +47,9 @@ vi.mock("@/application/useRepoStatus", () => ({
     status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: false },
     error: null,
   }),
+}));
+vi.mock("@/application/useRepoOperationState", () => ({
+  useRepoOperationState: () => ({ state: operationStateMock.state, loading: false, error: null }),
 }));
 vi.mock("@/application/useRepositorySnapshot", () => ({
   useRepositorySnapshot: () => ({
@@ -65,6 +80,15 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   checkoutBranch: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
+  runContinueOperation: vi.fn(() => ({
+    operationId: "operation-continue",
+    promise: Promise.resolve({
+      operation: { kind: "normal" },
+      conflictedPaths: [],
+      available: [],
+      detectedExternally: false,
+    }),
+  })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -91,6 +115,8 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onCommit,
     actionPending,
     actionError,
+    operationState,
+    onOperationControl,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push") => void;
@@ -106,6 +132,8 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
     actionPending: string | null;
     actionError: string | null;
+    operationState: import("@/domain/generated").RepoOperationState | null;
+    onOperationControl: (control: import("@/domain/generated").OperationControl) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -121,6 +149,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
         "confirmation-token",
       )}>discard lines</button>
       <button type="button" onClick={() => void onCommit("Ship it", false, true)}>commit and push</button>
+      {operationState?.operation.kind !== "normal" ? (
+        <button type="button" onClick={() => onOperationControl("continue")}>continue operation</button>
+      ) : null}
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
           confirm {actionConfirmation.kind} {actionConfirmation.branch}
@@ -142,6 +173,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
   beforeEach(() => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(runPushRepo).mockClear();
+    vi.mocked(runContinueOperation).mockClear();
     vi.mocked(runCommitAndPushRepo).mockReset();
     vi.mocked(runCommitAndPushRepo).mockReturnValue({
       operationId: "operation-commit-push",
@@ -162,6 +194,14 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(invalidateRepoData).mockClear();
     vi.mocked(rejectWorkingDiffSnapshot).mockClear();
     authorityMock.rejected = false;
+    operationStateMock.state = {
+      operation: { kind: "normal" },
+      conflictedPaths: [],
+      available: [],
+      detectedExternally: false,
+    };
+    queryClientMock.setQueryData.mockClear();
+    queryClientMock.getQueryData.mockClear();
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
@@ -410,6 +450,42 @@ describe("RepoDetailContainer checkout confirmation", () => {
     await waitFor(() => expect(screen.getByTestId("action-error")).toHaveTextContent("working.commitPushFailed"));
     expect(invalidateRepoData).toHaveBeenCalledWith(
       expect.anything(), "repo-1", "workspace-1", ["status", "working", "history", "refs"],
+    );
+  });
+
+  it("runs an operation control and publishes its returned state before invalidation", async () => {
+    operationStateMock.state = {
+      operation: {
+        kind: "rebase",
+        rebaseKind: "merge",
+        onto: "base",
+        current: 1,
+        total: 2,
+        headName: "refs/heads/topic",
+      },
+      conflictedPaths: [],
+      available: ["continue", "skip", "abort"],
+      detectedExternally: true,
+    };
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "continue operation" }));
+
+    await waitFor(() => expect(runContinueOperation).toHaveBeenCalledWith("repo-1"));
+    expect(queryClientMock.setQueryData).toHaveBeenCalledWith(
+      ["repos", "repo-1", "operationState"],
+      {
+        operation: { kind: "normal" },
+        conflictedPaths: [],
+        available: [],
+        detectedExternally: false,
+      },
+    );
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo-1",
+      "workspace-1",
+      ["status", "operation", "working", "history", "refs"],
     );
   });
 });
