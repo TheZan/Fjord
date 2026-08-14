@@ -127,6 +127,12 @@ jobs:
           FJORD_SIDECAR_PROFILE: release
         run: node scripts/prepare-askpass-sidecar.mjs
 
+      # Platform code-signing (this step, and Apple's APPLE_CERTIFICATE below)
+      # is optional — many OSS projects ship unsigned. Absence here only
+      # means Windows SmartScreen/macOS Gatekeeper show an unknown-publisher
+      # warning on first run; it has no effect on the *updater*'s own
+      # cryptographic signature, which stays mandatory (see "Prepare release
+      # Tauri config" below and docs/release.md).
       - name: Import Windows signing certificate
         if: runner.os == 'Windows'
         shell: pwsh
@@ -135,7 +141,8 @@ jobs:
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
           if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
-            throw "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD secrets are required for signed Windows releases."
+            Write-Host "::notice::WINDOWS_CERTIFICATE/WINDOWS_CERTIFICATE_PASSWORD are not set — building an unsigned Windows installer."
+            exit 0
           }
 
           $certPath = Join-Path $env:RUNNER_TEMP "fjord-signing.pfx"

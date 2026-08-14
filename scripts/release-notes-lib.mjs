@@ -70,10 +70,15 @@ Fjord is a cross-platform, workspace-first Git desktop application.
 
 ## Supported platforms
 
-- Windows [fill in supported version] x64: signed NSIS installer.
-- macOS [fill in supported version] or newer: signed and notarized package for
-  Intel and Apple Silicon.
+- Windows [fill in supported version] x64: NSIS installer.
+- macOS [fill in supported version] or newer: package for Intel and Apple
+  Silicon.
 - Ubuntu [fill in supported version] or newer x64: AppImage.
+
+[Confirm this candidate's actual code-signing status here — e.g. "packages
+are not code-signed; Windows SmartScreen and macOS Gatekeeper will show an
+unknown-publisher warning on first run" or, once signing is configured,
+"Windows and macOS packages are signed" / "...and notarized".]
 
 Remote operations require an installed system Git; local repository reads
 remain available when network access is unavailable.

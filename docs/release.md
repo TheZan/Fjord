@@ -104,14 +104,17 @@ Fjord has one channel.
 
 ## Platform signing secrets
 
-Windows releases require:
+Platform code-signing (this section) is **optional** and independent of
+updater signing (`TAURI_SIGNING_PRIVATE_KEY` above, which is always
+mandatory — the updater's cryptographic verification is never disabled).
+Windows requires:
 
 - `WINDOWS_CERTIFICATE`: base64-encoded PFX signing certificate.
 - `WINDOWS_CERTIFICATE_PASSWORD`: PFX password.
 - optional repository variable `WINDOWS_TIMESTAMP_URL`; defaults to
   `http://timestamp.digicert.com`.
 
-macOS releases require:
+macOS signing + notarization require:
 
 - `APPLE_CERTIFICATE`: base64-encoded Apple Developer ID Application
   certificate.
@@ -123,6 +126,24 @@ macOS releases require:
 Linux packages are not code-signed by Tauri itself. The workflow still produces
 signed updater artifacts; distribution-channel signing for `.deb`/`.rpm`
 repositories should be added when Fjord has an external package repository.
+
+### Unsigned builds
+
+If `WINDOWS_CERTIFICATE`/`WINDOWS_CERTIFICATE_PASSWORD` are unset, `release.yml`
+logs a notice and builds an unsigned NSIS installer instead of failing. If the
+`APPLE_*` secrets are unset, `tauri-action` produces an unsigned, unnotarized
+`.app`/`.dmg` the same way — this is upstream Tauri behavior, not something
+this workflow special-cases. Many open-source projects ship this way; the
+practical effect is that Windows SmartScreen and macOS Gatekeeper show an
+unknown-publisher warning on first run, which users click through (Windows:
+"More info" → "Run anyway"; macOS: `xattr -cr` the `.app` or allow it under
+System Settings → Privacy & Security). This has no effect on update security:
+`latest.json` and every update artifact are still cryptographically signed by
+the mandatory Tauri updater key regardless of platform signing status, and the
+updater plugin still refuses anything that doesn't verify. State the actual
+signing status of each release explicitly in its release notes — the
+`release:prepare` skeleton has a placeholder for this so it can't be
+forgotten.
 
 ## Local verification
 

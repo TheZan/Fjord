@@ -11,9 +11,16 @@ the same application.
 
 ## Supported platforms
 
-- Windows 11 x64: signed NSIS installer.
-- macOS 13 or newer: signed and notarized package for Intel and Apple Silicon.
+- Windows 11 x64: NSIS installer.
+- macOS 13 or newer: package for Intel and Apple Silicon.
 - Ubuntu 22.04 or newer x64: AppImage.
+
+Packages are not code-signed for v0.1: Windows SmartScreen and macOS
+Gatekeeper will show an unknown-publisher warning on first run (Windows:
+"More info" → "Run anyway"; macOS: allow the app under System Settings →
+Privacy & Security, or run `xattr -cr` on it). This does not affect update
+security — every update artifact is still cryptographically signed and
+verified by the mandatory Tauri updater key regardless of platform signing.
 
 The exact candidate is eligible only after all three packages and the
 [clean-machine smoke matrix](../v0.1-fresh-install-smoke.md) pass. Remote
