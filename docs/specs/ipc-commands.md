@@ -68,6 +68,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
 | `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `GenerationEnvelope<CommitPage>` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
+| `get_reflog` | `{ repo_id, ref_name?, cursor?, limit }` | `GenerationEnvelope<ReflogPage>` | Newest-first, capped at 200 entries per page; omitted `ref_name` reads `HEAD`, and `cursor` is the opaque value from `nextCursor` |
+| `get_reflog_refs` | `{ repo_id }` | `GenerationEnvelope<string[]>` | Canonical `refs/heads/*` names that currently have a reflog |
 | `search_commit_log` | `{ repo_id, query, limit }` | `GenerationEnvelope<CommitSummary[]>` | Titles across local and remote refs |
 | `get_commit_diff` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Changed-files summary with line counts |
 | `get_commit_files` | `{ repo_id, commit_id }` | `GenerationEnvelope<FileDiff[]>` | Fast tree-only list, painted before line counts finish |
@@ -150,7 +152,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Spec | Phase |
 |---|---|---|
-| `get_reflog` / `get_reflog_refs` | [`repository-safety.md`](repository-safety.md) §5 | 9 |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | [`workspace-workflows.md`](workspace-workflows.md) §1 | 10 |
 | `start_rebase` | [`workspace-workflows.md`](workspace-workflows.md) §2 | 10 |
 | `remotes` / `add_remote` / `set_remote_url` / `rename_remote` / `remove_remote` | [`workspace-workflows.md`](workspace-workflows.md) §3 | 10 |

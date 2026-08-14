@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-    PatchSelection, Recoverability, RepoOperationState, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges,
+    PatchSelection, Recoverability, ReflogPage, RepoOperationState, RepoStatus, StashEntry,
+    TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -290,6 +290,18 @@ pub trait GitBackend: Send + Sync {
         from: Option<LogCursor>,
         limit: u32,
     ) -> Result<CommitPage, GitError>;
+    async fn reflog(
+        &self,
+        _repo: &RepoPath,
+        _ref_name: Option<&str>,
+        _from: Option<LogCursor>,
+        _limit: u32,
+    ) -> Result<ReflogPage, GitError> {
+        Err(GitError::NotImplemented("reflog"))
+    }
+    async fn reflog_refs(&self, _repo: &RepoPath) -> Result<Vec<String>, GitError> {
+        Err(GitError::NotImplemented("reflog_refs"))
+    }
     async fn search_commits(
         &self,
         repo: &RepoPath,

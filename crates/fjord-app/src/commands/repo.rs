@@ -1,9 +1,9 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, RepoOperationState, RepoStatus, RepositoryId,
-    ResetMode, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
-    WorkspaceId,
+    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RepoOperationState, RepoStatus,
+    RepositoryId, ResetMode, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -183,6 +183,30 @@ pub async fn get_commit_log(
     limit: u32,
 ) -> Result<GenerationEnvelope<CommitPage>, AppError> {
     let data = state.repos.get_commit_log(repo_id, cursor, limit).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_reflog(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    ref_name: Option<String>,
+    cursor: Option<LogCursor>,
+    limit: u32,
+) -> Result<GenerationEnvelope<ReflogPage>, AppError> {
+    let data = state
+        .repos
+        .get_reflog(repo_id, ref_name.as_deref(), cursor, limit)
+        .await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_reflog_refs(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<GenerationEnvelope<Vec<String>>, AppError> {
+    let data = state.repos.get_reflog_refs(repo_id).await?;
     versioned(&state, repo_id, data).await
 }
 

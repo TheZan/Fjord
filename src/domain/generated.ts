@@ -57,6 +57,10 @@ export type LogCursor = string;
 
 export type CommitPage = { commits: Array<CommitSummary>, nextCursor: LogCursor | null, };
 
+export type ReflogEntry = { index: number, oldId: CommitId, newId: CommitId, committerName: string, timestamp: string, operation: string, message: string, commit: CommitSummary | null, };
+
+export type ReflogPage = { entries: Array<ReflogEntry>, nextCursor: LogCursor | null, };
+
 export type AmendInfo = { message: string, publishedUpstream: string | null, };
 
 export type CommitPushResult = { commitId: string, commitSucceeded: boolean, pushSucceeded: boolean, pushErrorCode: string | null, };

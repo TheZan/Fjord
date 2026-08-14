@@ -5,7 +5,7 @@ use fjord_domain::{
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
+    Recoverability, ReflogPage, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
     RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
@@ -526,6 +526,25 @@ impl RepoService {
             .git
             .log(&RepoPath::new(repo.path), cursor, limit)
             .await?)
+    }
+
+    pub async fn get_reflog(
+        &self,
+        repo_id: RepositoryId,
+        ref_name: Option<&str>,
+        cursor: Option<LogCursor>,
+        limit: u32,
+    ) -> Result<ReflogPage, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .reflog(&RepoPath::new(repo.path), ref_name, cursor, limit)
+            .await?)
+    }
+
+    pub async fn get_reflog_refs(&self, repo_id: RepositoryId) -> Result<Vec<String>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.reflog_refs(&RepoPath::new(repo.path)).await?)
     }
 
     pub async fn search_commit_log(
@@ -1614,7 +1633,7 @@ mod tests {
     use fjord_domain::{
         CommitId, CommitPage, CommitSummary, Consequence, DestructiveAction, DiscardSelection,
         FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-        RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
+        ReflogPage, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
         WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
     use fjord_ports::{DestructiveActionFacts, ForcePushPlan, PushTarget};
@@ -2062,6 +2081,23 @@ mod tests {
                 next_cursor: None,
             })
         }
+        async fn reflog(
+            &self,
+            repo: &RepoPath,
+            _ref_name: Option<&str>,
+            _from: Option<LogCursor>,
+            _limit: u32,
+        ) -> Result<ReflogPage, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(ReflogPage {
+                entries: vec![],
+                next_cursor: None,
+            })
+        }
+        async fn reflog_refs(&self, repo: &RepoPath) -> Result<Vec<String>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec!["refs/heads/main".into()])
+        }
         async fn search_commits(
             &self,
             repo: &RepoPath,
@@ -2487,6 +2523,19 @@ mod tests {
         let (repo, git, _, service) = service_with_fake_git();
 
         service.get_commit_log(repo.id, None, 20).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+    }
+
+    #[tokio::test]
+    async fn reflog_reads_resolve_the_repo_id_too() {
+        let (repo, git, _, service) = service_with_fake_git();
+
+        service.get_reflog(repo.id, None, None, 20).await.unwrap();
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
+        assert_eq!(
+            service.get_reflog_refs(repo.id).await.unwrap(),
+            ["refs/heads/main"]
+        );
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 

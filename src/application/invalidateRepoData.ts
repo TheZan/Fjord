@@ -23,6 +23,7 @@ export async function invalidateRepoData(
   if (requested.has("history")) {
     keys.push(queryKeys.repos.commits(repoId), queryKeys.repos.commitSearches(repoId));
   }
+  if (requested.has("reflog")) keys.push(queryKeys.repos.reflogs(repoId));
   if (requested.has("refs")) {
     keys.push(queryKeys.repos.branches(repoId), queryKeys.repos.tags(repoId));
   }

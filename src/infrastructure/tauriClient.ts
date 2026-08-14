@@ -31,6 +31,7 @@ import type {
   FileDiff,
   FileDiffWindow,
   GlobalSearchResult,
+  ReflogPage,
   RepoStatus,
   StashEntry,
   TagInfo,
@@ -440,6 +441,20 @@ export function getCommitLog(
   signal?: AbortSignal,
 ): Promise<CommitPage> {
   return invokeVersioned("get_commit_log", { repoId, cursor, limit }, repoId, "history", signal);
+}
+
+export function getReflog(
+  repoId: string,
+  refName: string | null,
+  cursor: string | null,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<ReflogPage> {
+  return invokeVersioned("get_reflog", { repoId, refName, cursor, limit }, repoId, "reflog", signal);
+}
+
+export function getReflogRefs(repoId: string, signal?: AbortSignal): Promise<string[]> {
+  return invokeVersioned("get_reflog_refs", { repoId }, repoId, "reflog", signal);
 }
 
 export function searchCommitLog(

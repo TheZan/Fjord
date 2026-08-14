@@ -313,9 +313,9 @@ pub struct CommitSummary {
     pub refs: Vec<String>,
 }
 
-/// Opaque pagination cursor for `GitBackend::log`. Callers must not parse
-/// or construct one themselves — round-trip whatever `CommitPage.next_cursor`
-/// returned. See docs/specs/git-backend.md and docs/specs/ipc-commands.md.
+/// Opaque pagination cursor for commit-log and reflog reads. Callers must not
+/// parse or construct one themselves — round-trip the page's `next_cursor`.
+/// See docs/specs/git-backend.md and docs/specs/ipc-commands.md.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct LogCursor(pub String);
 
@@ -324,6 +324,32 @@ pub struct LogCursor(pub String);
 #[ts(rename_all = "camelCase")]
 pub struct CommitPage {
     pub commits: Vec<CommitSummary>,
+    pub next_cursor: Option<LogCursor>,
+}
+
+/// One newest-first entry from a Git reference log. `index` is the stable
+/// display position for the snapshot being paged (`HEAD@{0}`, `HEAD@{1}`, …).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ReflogEntry {
+    pub index: u32,
+    pub old_id: CommitId,
+    pub new_id: CommitId,
+    pub committer_name: String,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub timestamp: OffsetDateTime,
+    pub operation: String,
+    pub message: String,
+    pub commit: Option<CommitSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ReflogPage {
+    pub entries: Vec<ReflogEntry>,
     pub next_cursor: Option<LogCursor>,
 }
 

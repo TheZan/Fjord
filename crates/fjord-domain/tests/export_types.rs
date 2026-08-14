@@ -9,13 +9,13 @@ use fjord_domain::{
     GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo,
     GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan,
     InteractionTrace, LogCursor, OperationControl, OverviewUiState, OverviewUiStatePatch,
-    PatchSelection, PatchSource, RebaseKind, Recoverability, RemoteRef, RepoOperation,
-    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode, SearchResultKind,
-    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
-    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
-    Workspace, WorkspaceId,
+    PatchSelection, PatchSource, RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteRef,
+    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode,
+    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
+    WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -70,6 +70,8 @@ fn generated_types() -> String {
     push::<CommitSummary>(&mut output, &config);
     push::<LogCursor>(&mut output, &config);
     push::<CommitPage>(&mut output, &config);
+    push::<ReflogEntry>(&mut output, &config);
+    push::<ReflogPage>(&mut output, &config);
     push::<AmendInfo>(&mut output, &config);
     push::<CommitPushResult>(&mut output, &config);
     push::<FileChangeType>(&mut output, &config);

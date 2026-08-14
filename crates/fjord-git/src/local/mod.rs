@@ -20,7 +20,7 @@ use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
     FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource,
-    RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    ReflogEntry, ReflogPage, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -45,6 +45,7 @@ mod operation_control;
 mod operation_state;
 mod patch;
 mod patch_transaction;
+mod reflog;
 mod refs;
 mod repository;
 mod runtime;
@@ -199,6 +200,20 @@ impl GitBackend for LocalGitBackend {
         limit: u32,
     ) -> Result<CommitPage, GitError> {
         history::log(repo, from, limit).await
+    }
+
+    async fn reflog(
+        &self,
+        repo: &RepoPath,
+        ref_name: Option<&str>,
+        from: Option<LogCursor>,
+        limit: u32,
+    ) -> Result<ReflogPage, GitError> {
+        reflog::reflog(repo, ref_name, from, limit).await
+    }
+
+    async fn reflog_refs(&self, repo: &RepoPath) -> Result<Vec<String>, GitError> {
+        reflog::reflog_refs(repo).await
     }
 
     async fn search_commits(

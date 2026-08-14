@@ -38,6 +38,19 @@ describe("invalidateRepoData", () => {
       queryKey: queryKeys.repos.operationState("repo-1"),
     });
   });
+
+  it("invalidates every reflog page and the branch-ref list together", async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateRepoData(queryClient.client, "repo-1", "workspace-1", ["reflog"]);
+
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.reflogs("repo-1"),
+    });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.reflogs("repo-1"),
+    });
+  });
 });
 
 function fakeQueryClient() {

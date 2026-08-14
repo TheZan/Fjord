@@ -99,6 +99,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::capture_repository_snapshot,
             commands::revalidate_repository_snapshot,
             commands::get_commit_log,
+            commands::get_reflog,
+            commands::get_reflog_refs,
             commands::search_commit_log,
             commands::global_search,
             commands::get_commit_diff,

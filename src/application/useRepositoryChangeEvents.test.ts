@@ -67,6 +67,37 @@ describe("repositoryChangeScopes", () => {
       }),
     ).toEqual(["status", "operation", "history", "refs"]);
   });
+
+  it("invalidates reflog reads when either refs or history advances", () => {
+    forgetRepositoryGenerations();
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "reflog");
+
+    expect(repositoryChangeScopes({
+      repoId: "repo-1",
+      status: false,
+      working: false,
+      history: false,
+      refs: true,
+      stashes: false,
+      config: false,
+      generations: { ...zeroGenerations(), refs: 1 },
+      statusSummary: null,
+    })).toEqual(["reflog"]);
+
+    forgetRepositoryGenerations();
+    observeRepositoryGenerations("repo-1", zeroGenerations(), "reflog");
+    expect(repositoryChangeScopes({
+      repoId: "repo-1",
+      status: false,
+      working: false,
+      history: true,
+      refs: false,
+      stashes: false,
+      config: false,
+      generations: { ...zeroGenerations(), history: 1 },
+      statusSummary: null,
+    })).toEqual(["reflog"]);
+  });
 });
 
 describe("useRepositoryChangeEvents", () => {

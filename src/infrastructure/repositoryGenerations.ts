@@ -5,6 +5,7 @@ export type RepositoryGenerationScope =
   | "operation"
   | "working"
   | "history"
+  | "reflog"
   | "refs"
   | "stashes";
 export type GenerationDomain = keyof GenerationSet;
@@ -14,6 +15,7 @@ const dependencies: Record<RepositoryGenerationScope, GenerationDomain[]> = {
   operation: ["workingTree", "refs"],
   working: ["workingTree"],
   history: ["history"],
+  reflog: ["refs", "history"],
   refs: ["refs", "config"],
   stashes: ["stash"],
 };

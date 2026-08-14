@@ -859,6 +859,106 @@ async fn log_paginates_without_repeating_commits() {
 }
 
 #[tokio::test]
+async fn reflog_pages_reset_entries_with_operation_and_resolved_commit() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "one\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let first_id = backend.commit(&repo_path, "First").await.unwrap();
+    write_file(&repo_path, "README.md", "two\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Second").await.unwrap();
+    backend.reset(&repo_path, &first_id, "hard").await.unwrap();
+
+    let first = backend.reflog(&repo_path, None, None, 2).await.unwrap();
+    assert_eq!(first.entries.len(), 2);
+    assert_eq!(first.entries[0].index, 0);
+    assert_eq!(first.entries[0].operation, "reset");
+    assert!(first.entries[0].message.starts_with("moving to"));
+    assert_eq!(first.entries[0].new_id.0, first_id);
+    assert_eq!(
+        first.entries[0]
+            .commit
+            .as_ref()
+            .map(|commit| commit.message.as_str()),
+        Some("First")
+    );
+
+    let second = backend
+        .reflog(&repo_path, None, first.next_cursor.clone(), 2)
+        .await
+        .unwrap();
+    assert!(!second.entries.is_empty());
+    assert_eq!(second.entries[0].index, 2);
+    assert!(first.entries.iter().all(|entry| second
+        .entries
+        .iter()
+        .all(|other| entry.index != other.index)));
+}
+
+#[tokio::test]
+async fn reflog_refs_lists_branch_logs_and_selected_branch_pages() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    backend
+        .create_branch(&repo_path, "feature", true)
+        .await
+        .unwrap();
+
+    let refs = backend.reflog_refs(&repo_path).await.unwrap();
+    assert_eq!(refs, ["refs/heads/feature", "refs/heads/main"]);
+    let feature = backend
+        .reflog(&repo_path, Some("refs/heads/feature"), None, 20)
+        .await
+        .unwrap();
+    assert!(!feature.entries.is_empty());
+    assert!(feature.entries.iter().all(|entry| entry.commit.is_some()));
+}
+
+#[tokio::test]
+async fn reflog_pages_remain_bounded_when_the_caller_requests_everything() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "README.md", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("README.md")])
+        .await
+        .unwrap();
+    let id = backend.commit(&repo_path, "Base").await.unwrap();
+    let git = Repository::open(&repo_path.0).unwrap();
+    let mut reflog = git.reflog("HEAD").unwrap();
+    let signature = git.signature().unwrap();
+    let oid = git2::Oid::from_str(&id).unwrap();
+    for index in 0..205 {
+        reflog
+            .append(oid, &signature, Some(&format!("test: entry {index}")))
+            .unwrap();
+    }
+    reflog.write().unwrap();
+    drop(reflog);
+    drop(git);
+
+    let page = backend
+        .reflog(&repo_path, None, None, u32::MAX)
+        .await
+        .unwrap();
+    assert_eq!(page.entries.len(), 200);
+    assert!(page.next_cursor.is_some());
+}
+
+#[tokio::test]
 async fn tenth_log_page_is_served_from_the_bounded_cursor_window() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();

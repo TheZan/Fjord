@@ -72,7 +72,7 @@ resolution.
 | Branch deletion | ✅ Local/remote deletion reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability, then executes only the confirmed action. |
 | Checkout | ✅ `checkout_branch` detects and returns bounded overwrite paths before switching, rechecks under the write lock after any targeted fetch, and offers cancel, retained stash-and-checkout, or confirmed discard. |
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. |
-| Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
+| Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery. Recovery Center UI remains P9-09. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
@@ -340,6 +340,14 @@ pub struct ReflogEntry {
 Commands: `get_reflog(repo_id, ref_name?, limit, cursor?)` — paginated exactly like
 `get_commit_log`, defaulting to `HEAD`'s reflog; and
 `get_reflog_refs(repo_id)` for per-branch reflogs.
+
+Implemented in P9-08: both reads run under the repository read lock, return full
+generation envelopes, and observe a frontend `reflog` scope backed by both the
+`refs` and `history` generations. `get_reflog` is newest-first, uses the shared
+opaque `LogCursor`, caps every response at 200 entries even for an unbounded
+caller request, and resolves a target commit summary only while its object still
+exists. `get_reflog_refs` returns sorted canonical `refs/heads/*` names only when
+Git reports a corresponding log.
 
 Recovery Center (a screen reachable from the repository overflow menu and from any
 "not what you wanted?" affordance after a destructive action):
