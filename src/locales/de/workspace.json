@@ -175,6 +175,20 @@
     "back": "Zurück",
     "resizeSidebar": "Seitenleiste skalieren"
   },
+  "checkoutOverwrite": {
+    "title": "Lokale Änderungen würden überschrieben",
+    "description_one": "Beim Auschecken von {{branch}} würde {{count}} Datei überschrieben.",
+    "description_other": "Beim Auschecken von {{branch}} würden {{count}} Dateien überschrieben.",
+    "files": "Dateien, die überschrieben würden",
+    "moreFiles_one": "Und {{count}} weitere Datei…",
+    "moreFiles_other": "Und {{count}} weitere Dateien…",
+    "stashExplanation": "Du kannst versionierte und unversionierte Arbeit in einem benannten Stash speichern. Fjord wendet ihn nicht automatisch an.",
+    "discard": "Verwerfen und auschecken",
+    "stash": "Stashen und auschecken",
+    "stashing": "Arbeit wird gespeichert…",
+    "stashed": "Deine Arbeit befindet sich in {{stashRef}}.",
+    "pop": "Stash anwenden"
+  },
   "notifications": {
     "operationCompleted": "Vorgang abgeschlossen.",
     "close": "Benachrichtigung schließen"

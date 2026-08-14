@@ -105,6 +105,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_commit_files,
             commands::get_file_diff,
             commands::checkout_branch,
+            commands::stash_and_checkout,
             commands::get_working_changes,
             commands::get_working_file_diff,
             commands::preflight_destructive_action,

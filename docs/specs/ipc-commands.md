@@ -82,7 +82,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 
 | Command | Input | Output | Notes |
 |---|---|---|---|
-| `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch first when needed |
+| `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch when needed; before switching, returns `checkout_would_overwrite` with at most 100 affected paths if local work would be replaced |
+| `stash_and_checkout` | `{ repo_id, branch, operation_id? }` | `string` | Saves tracked and untracked work with a source→target message, checks out the target, never auto-pops, and returns `stash@{0}` |
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |

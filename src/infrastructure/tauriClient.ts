@@ -79,7 +79,8 @@ export type OperationKind =
   | "continue-operation"
   | "skip-operation"
   | "abort-operation"
-  | "destructive-action";
+  | "destructive-action"
+  | "stash-checkout";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -115,6 +116,13 @@ export function invokeErrorCode(error: unknown): string | null {
     return String(error.code);
   }
   return null;
+}
+
+export function invokeErrorPaths(error: unknown): string[] {
+  if (!error || typeof error !== "object" || !("paths" in error) || !Array.isArray(error.paths)) {
+    return [];
+  }
+  return error.paths.filter((path): path is string => typeof path === "string").slice(0, 100);
 }
 
 function invoke<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -547,6 +555,10 @@ export function observeDiffPage(
 
 export function checkoutBranch(repoId: string, branch: string): Promise<void> {
   return invoke("checkout_branch", { repoId, branch });
+}
+
+export function runStashAndCheckout(repoId: string, branch: string): OperationTask<string> {
+  return invokeOperation("stash-checkout", "stash_and_checkout", { repoId, branch });
 }
 
 export function getWorkingChanges(repoId: string, signal?: AbortSignal): Promise<WorkingChanges> {

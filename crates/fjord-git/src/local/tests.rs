@@ -1362,6 +1362,115 @@ async fn checkout_remote_branch_creates_local_tracking_branch() {
 }
 
 #[tokio::test]
+async fn safe_checkout_reports_exact_overwritten_paths_before_switching() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "shared.txt", "base\n");
+    write_file(&repo_path, "preserved.txt", "base\n");
+    backend
+        .stage(
+            &repo_path,
+            &[PathBuf::from("shared.txt"), PathBuf::from("preserved.txt")],
+        )
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    backend
+        .create_branch(&repo_path, "target", true)
+        .await
+        .unwrap();
+    write_file(&repo_path, "shared.txt", "target\n");
+    write_file(&repo_path, "blocking.txt", "target file\n");
+    backend
+        .stage(
+            &repo_path,
+            &[PathBuf::from("shared.txt"), PathBuf::from("blocking.txt")],
+        )
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Target").await.unwrap();
+    backend.checkout(&repo_path, "main").await.unwrap();
+    write_file(&repo_path, "shared.txt", "local\n");
+    write_file(&repo_path, "preserved.txt", "local but same target blob\n");
+    write_file(&repo_path, "blocking.txt", "untracked local file\n");
+
+    let paths = backend
+        .checkout_overwrite_paths(&repo_path, "target")
+        .await
+        .unwrap();
+    assert_eq!(paths, ["blocking.txt", "shared.txt"]);
+    assert!(matches!(
+        backend.checkout(&repo_path, "target").await,
+        Err(GitError::CheckoutWouldOverwrite { paths }) if paths == ["blocking.txt", "shared.txt"]
+    ));
+    assert_eq!(
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .shorthand(),
+        Ok("main")
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("preserved.txt")).unwrap(),
+        "local but same target blob\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("blocking.txt")).unwrap(),
+        "untracked local file\n"
+    );
+}
+
+#[tokio::test]
+async fn stash_and_checkout_names_and_retains_the_stash_without_auto_pop() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "shared.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("shared.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Base").await.unwrap();
+    backend
+        .create_branch(&repo_path, "target", true)
+        .await
+        .unwrap();
+    write_file(&repo_path, "shared.txt", "target\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("shared.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Target").await.unwrap();
+    backend.checkout(&repo_path, "main").await.unwrap();
+    write_file(&repo_path, "shared.txt", "local work\n");
+    write_file(&repo_path, "untracked.txt", "also saved\n");
+
+    backend
+        .stash_and_checkout(&repo_path, "target", "Fjord checkout: main -> target")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .shorthand(),
+        Ok("target")
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.0.join("shared.txt")).unwrap(),
+        "target\n"
+    );
+    assert!(!repo_path.0.join("untracked.txt").exists());
+    let stashes = backend.stashes(&repo_path).await.unwrap();
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0]
+        .message
+        .contains("Fjord checkout: main -> target"));
+}
+
+#[tokio::test]
 async fn working_changes_separates_staged_from_unstaged() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();

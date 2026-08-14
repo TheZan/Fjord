@@ -51,6 +51,9 @@ export function RepoDetailView({
   operationControlPending,
   actionPending,
   actionError,
+  actionSuccess,
+  actionNoticeSuppressed,
+  onPopRetainedStash,
   actionConfirmation,
   operationProgress,
   branchScrollRequest,
@@ -101,6 +104,9 @@ export function RepoDetailView({
   operationControlPending: OperationControl | null;
   actionPending: string | null;
   actionError: string | null;
+  actionSuccess: string | null;
+  actionNoticeSuppressed: boolean;
+  onPopRetainedStash: () => void;
   actionConfirmation: ActionConfirmation | null;
   operationProgress: {
     completed: number;
@@ -155,7 +161,7 @@ export function RepoDetailView({
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
-  const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error" } | null>(null);
+  const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error"; retainedStash: boolean } | null>(null);
   const previousPendingAction = useRef<string | null>(null);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -181,14 +187,19 @@ export function RepoDetailView({
   useEffect(() => {
     const completedAction = previousPendingAction.current;
     if (completedAction && !actionPending) {
+      if (actionNoticeSuppressed) {
+        previousPendingAction.current = actionPending;
+        return;
+      }
       setNotice({
         id: Date.now(),
-        message: actionError ?? t("notifications.operationCompleted"),
+        message: actionError ?? actionSuccess ?? t("notifications.operationCompleted"),
         tone: actionError ? "error" : "success",
+        retainedStash: Boolean(actionSuccess),
       });
     }
     previousPendingAction.current = actionPending;
-  }, [actionError, actionPending, t]);
+  }, [actionError, actionNoticeSuppressed, actionPending, actionSuccess, t]);
 
   const diffTarget: { path: string; source: DiffSource } | null = workingSelected
     ? selectedWorkingFile
@@ -453,6 +464,11 @@ export function RepoDetailView({
           tone={notice.tone}
           closeLabel={t("notifications.close")}
           onClose={() => setNotice(null)}
+          actionLabel={notice.retainedStash ? t("checkoutOverwrite.pop") : undefined}
+          onAction={notice.retainedStash ? () => {
+            setNotice(null);
+            onPopRetainedStash();
+          } : undefined}
         />
       ) : null}
     </ScreenSurface>

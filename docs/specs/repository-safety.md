@@ -70,8 +70,8 @@ resolution.
 | Destructive preflight | ✅ One bounded domain/IPC/dialog contract computes generation-coherent facts for Phase 8 discard/force-with-lease and every P9-05 action. P9-06 renders every action/blocker/recovery label through the shared dialog, re-runs preflight at confirmation, and consumes the exact one-use binding before execution. |
 | Reset | ✅ Soft/mixed/hard and Recovery Center restore have concrete facts and execute only through a fresh confirmation token. |
 | Branch deletion | ✅ Local/remote deletion reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability, then executes only the confirmed action. |
-| Checkout | ⚠️ `checkout_branch`; remote branches materialize via a targeted fetch first (`remote_checkout_refspec` + `checkout_local`). No overwrite preflight, no stash-and-checkout. |
-| Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, and exact stash-entry consumption facts. |
+| Checkout | ✅ `checkout_branch` detects and returns bounded overwrite paths before switching, rechecks under the write lock after any targeted fetch, and offers cancel, retained stash-and-checkout, or confirmed discard. |
+| Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. |
 | Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 
@@ -311,6 +311,14 @@ The UI then offers, and only what Git semantics actually permit:
 Auto-popping the stash after a successful checkout is deliberately **not** done:
 it can conflict, and resolving a conflict the user did not ask for is worse than
 one explicit "your changes are in stash@{0}" message with a Pop button.
+
+Implemented in P9-07: the local adapter computes the bounded intersection before
+checkout and repeats it under the repository write lock immediately before the
+ref/worktree mutation. Remote checkout performs the same locked check after its
+targeted fetch. The frontend consumes the typed path list in one accessible
+recovery dialog; discard is delegated to the shared §3 confirmation flow, while
+stash-and-checkout saves tracked and untracked files with a source→target message
+and returns the retained `stash@{0}` reference for the completion notice.
 
 ### 5. Reflog and Recovery Center
 

@@ -175,6 +175,20 @@
     "back": "Atrás",
     "resizeSidebar": "Cambiar el ancho de la barra lateral"
   },
+  "checkoutOverwrite": {
+    "title": "Se sobrescribirían cambios locales",
+    "description_one": "Cambiar a {{branch}} sobrescribiría {{count}} archivo.",
+    "description_other": "Cambiar a {{branch}} sobrescribiría {{count}} archivos.",
+    "files": "Archivos que se sobrescribirían",
+    "moreFiles_one": "Y {{count}} archivo más…",
+    "moreFiles_other": "Y {{count}} archivos más…",
+    "stashExplanation": "Puedes guardar el trabajo con y sin seguimiento en un stash con nombre. Fjord no lo aplicará automáticamente.",
+    "discard": "Descartar y cambiar",
+    "stash": "Guardar en stash y cambiar",
+    "stashing": "Guardando trabajo…",
+    "stashed": "Tu trabajo está en {{stashRef}}.",
+    "pop": "Aplicar stash"
+  },
   "notifications": {
     "operationCompleted": "Operación completada.",
     "close": "Cerrar notificación"

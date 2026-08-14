@@ -661,6 +661,16 @@ impl RepoService {
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let repo_path = RepoPath::new(repo.path);
+        let overwrite_paths = self
+            .git
+            .checkout_overwrite_paths(&repo_path, branch)
+            .await?;
+        if !overwrite_paths.is_empty() {
+            return Err(GitError::CheckoutWouldOverwrite {
+                paths: overwrite_paths,
+            }
+            .into());
+        }
         if let Some((remote, refspec)) =
             self.git.remote_checkout_refspec(&repo_path, branch).await?
         {
@@ -675,6 +685,40 @@ impl RepoService {
                 .await?;
         }
         Ok(self.git.checkout_local(&repo_path, branch).await?)
+    }
+
+    pub async fn stash_and_checkout_with_context(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+        context: GitOperationContext,
+    ) -> Result<String, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let source = self
+            .git
+            .status(&repo_path)
+            .await?
+            .branch
+            .unwrap_or_else(|| "HEAD".to_string());
+        if let Some((remote, refspec)) =
+            self.git.remote_checkout_refspec(&repo_path, branch).await?
+        {
+            let settings = self.settings.get_settings().await?;
+            self.remote
+                .fetch(
+                    &repo_path,
+                    &remote,
+                    &[refspec],
+                    context.with_git_executable_path(settings.git_executable_path),
+                )
+                .await?;
+        }
+        let message = format!("Fjord checkout: {source} -> {branch}");
+        self.git
+            .stash_and_checkout(&repo_path, branch, &message)
+            .await?;
+        Ok("stash@{0}".to_string())
     }
 
     pub async fn get_working_changes(
@@ -2130,6 +2174,14 @@ mod tests {
         async fn checkout(&self, repo: &RepoPath, _branch: &str) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
+        }
+        async fn checkout_overwrite_paths(
+            &self,
+            repo: &RepoPath,
+            _branch: &str,
+        ) -> Result<Vec<String>, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            Ok(vec![])
         }
         async fn working_changes(&self, repo: &RepoPath) -> Result<WorkingChanges, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());

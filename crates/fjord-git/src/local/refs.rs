@@ -1,6 +1,7 @@
 //! Branches, tags, and checkout — every operation that reads or moves a reference.
 
 use super::*;
+use std::collections::BTreeSet;
 
 impl LocalGitBackend {
     /// Point the worktree and HEAD at `refname`. Shared by `checkout` and by
@@ -43,6 +44,76 @@ impl LocalGitBackend {
         git.find_reference(&local_refname)
             .map_err(Self::map_git2_error)?;
         Ok(local_refname)
+    }
+
+    fn checkout_target_refname(git: &git2::Repository, branch: &str) -> Result<String, GitError> {
+        if branch.starts_with("refs/") {
+            git.find_reference(branch).map_err(Self::map_git2_error)?;
+            return Ok(branch.to_string());
+        }
+        let local = format!("refs/heads/{branch}");
+        if git.find_reference(&local).is_ok() {
+            return Ok(local);
+        }
+        let remote = branch.strip_prefix("refs/remotes/").unwrap_or(branch);
+        if Self::remote_branch_parts(git, remote).is_some() {
+            return Ok(format!("refs/remotes/{remote}"));
+        }
+        git.find_reference(&local).map_err(Self::map_git2_error)?;
+        Ok(local)
+    }
+
+    fn checkout_overwrite_paths_inner(
+        git: &git2::Repository,
+        branch: &str,
+    ) -> Result<Vec<String>, GitError> {
+        let refname = Self::checkout_target_refname(git, branch)?;
+        let target = git
+            .find_reference(&refname)
+            .map_err(Self::map_git2_error)?
+            .peel(git2::ObjectType::Commit)
+            .map_err(Self::map_git2_error)?;
+        let target_tree = target.peel_to_tree().map_err(Self::map_git2_error)?;
+        let head_tree = git
+            .head()
+            .map_err(Self::map_git2_error)?
+            .peel_to_tree()
+            .map_err(Self::map_git2_error)?;
+        let target_changes = git
+            .diff_tree_to_tree(Some(&head_tree), Some(&target_tree), None)
+            .map_err(Self::map_git2_error)?;
+        let mut changed_paths = BTreeSet::new();
+        for delta in target_changes.deltas() {
+            if let Some(path) = delta.old_file().path() {
+                changed_paths.insert(path.to_path_buf());
+            }
+            if let Some(path) = delta.new_file().path() {
+                changed_paths.insert(path.to_path_buf());
+            }
+        }
+
+        let mut status_options = git2::StatusOptions::new();
+        status_options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .renames_head_to_index(true)
+            .renames_index_to_workdir(true);
+        let statuses = git
+            .statuses(Some(&mut status_options))
+            .map_err(Self::map_git2_error)?;
+        let mut paths = BTreeSet::new();
+        for entry in statuses.iter() {
+            let Ok(path) = entry.path().map(std::path::Path::new) else {
+                continue;
+            };
+            let status = entry.status();
+            let target_writes_untracked =
+                status.contains(git2::Status::WT_NEW) && target_tree.get_path(path).is_ok();
+            if changed_paths.contains(path) || target_writes_untracked {
+                paths.insert(path.to_string_lossy().into_owned());
+            }
+        }
+        Ok(paths.into_iter().take(100).collect())
     }
 
     pub(super) fn checkout_remote_tracking_branch(
@@ -300,12 +371,32 @@ pub(super) async fn checkout(repo: &RepoPath, branch: &str) -> Result<(), GitErr
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
         LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let paths = LocalGitBackend::checkout_overwrite_paths_inner(git, &branch)?;
+            if !paths.is_empty() {
+                return Err(GitError::CheckoutWouldOverwrite { paths });
+            }
             let refname = LocalGitBackend::checkout_refname_for_branch(git, &branch)?;
             LocalGitBackend::checkout_refname(git, &refname)
         })
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+pub(super) async fn checkout_overwrite_paths(
+    repo: &RepoPath,
+    branch: &str,
+) -> Result<Vec<String>, GitError> {
+    let repo = repo.clone();
+    let branch = branch.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            LocalGitBackend::checkout_overwrite_paths_inner(git, &branch)
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
 pub(super) async fn remote_checkout_refspec(
@@ -338,6 +429,48 @@ pub(super) async fn checkout_local(repo: &RepoPath, branch: &str) -> Result<(), 
     let branch = branch.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            let paths = LocalGitBackend::checkout_overwrite_paths_inner(git, &branch)?;
+            if !paths.is_empty() {
+                return Err(GitError::CheckoutWouldOverwrite { paths });
+            }
+            let refname = LocalGitBackend::checkout_refname_for_branch(git, &branch)?;
+            LocalGitBackend::checkout_refname(git, &refname)
+        })
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+pub(super) async fn stash_and_checkout(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    branch: &str,
+    message: &str,
+) -> Result<(), GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let branch = branch.to_string();
+    let message = message.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        // Resolve before touching the working tree. Besides failing early for
+        // a stale target, this keeps the user-supplied branch name out of the
+        // system Git argument parser entirely.
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            LocalGitBackend::checkout_target_refname(git, &branch).map(|_| ())
+        })?;
+        LocalGitBackend::run_local_git(
+            &commands,
+            &repo,
+            &[
+                "stash",
+                "push",
+                "--include-untracked",
+                "--message",
+                &message,
+            ],
+        )?;
         LocalGitBackend::with_runtime_git2(&repo, |git| {
             let refname = LocalGitBackend::checkout_refname_for_branch(git, &branch)?;
             LocalGitBackend::checkout_refname(git, &refname)

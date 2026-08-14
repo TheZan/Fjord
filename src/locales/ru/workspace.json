@@ -177,6 +177,20 @@
     "back": "Назад",
     "resizeSidebar": "Изменить ширину боковой панели"
   },
+  "checkoutOverwrite": {
+    "title": "Локальные изменения будут перезаписаны",
+    "description_one": "Переход на {{branch}} перезапишет {{count}} файл.",
+    "description_other": "Переход на {{branch}} перезапишет {{count}} файлов.",
+    "files": "Файлы, которые будут перезаписаны",
+    "moreFiles_one": "И ещё {{count}} файл…",
+    "moreFiles_other": "И ещё {{count}} файлов…",
+    "stashExplanation": "Можно сохранить отслеживаемые и неотслеживаемые изменения в именованный stash. Fjord не применит его автоматически.",
+    "discard": "Отбросить и перейти",
+    "stash": "Сохранить в stash и перейти",
+    "stashing": "Сохраняем изменения…",
+    "stashed": "Ваши изменения находятся в {{stashRef}}.",
+    "pop": "Применить stash"
+  },
   "notifications": {
     "operationCompleted": "Операция завершена.",
     "close": "Закрыть уведомление"

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -26,7 +26,11 @@ const queryClientMock = vi.hoisted(() => ({
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) => key === "checkoutOverwrite.stashed"
+      ? `Your work is in ${values?.stashRef}.`
+      : key,
+  }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -93,6 +97,10 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     operationId: "operation-destructive",
     promise: Promise.resolve(null),
   })),
+  runStashAndCheckout: vi.fn(() => ({
+    operationId: "operation-stash-checkout",
+    promise: Promise.resolve("stash@{0}"),
+  })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -119,6 +127,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onCommit,
     actionPending,
     actionError,
+    actionSuccess,
     operationState,
     onOperationControl,
   }: {
@@ -136,12 +145,15 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
     actionPending: string | null;
     actionError: string | null;
+    actionSuccess: string | null;
     operationState: import("@/domain/generated").RepoOperationState | null;
     onOperationControl: (control: import("@/domain/generated").OperationControl) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
       <output data-testid="action-error">{actionError ?? ""}</output>
+      <output data-testid="action-success">{actionSuccess ?? ""}</output>
+      <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
@@ -182,6 +194,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runContinueOperation).mockClear();
+    vi.mocked(runStashAndCheckout).mockReset();
+    vi.mocked(runStashAndCheckout).mockReturnValue({
+      operationId: "operation-stash-checkout",
+      promise: Promise.resolve("stash@{0}"),
+    });
     vi.mocked(runExecuteDestructiveAction).mockReset();
     vi.mocked(runExecuteDestructiveAction).mockReturnValue({
       operationId: "operation-destructive",
@@ -236,6 +253,39 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(checkoutBranch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "confirm remote-checkout origin/feature" }));
     await waitFor(() => expect(checkoutBranch).toHaveBeenCalledWith("repo-1", "origin/feature"));
+  });
+
+  it("offers safe checkout recovery and reports the retained stash exactly", async () => {
+    vi.mocked(checkoutBranch).mockRejectedValueOnce({
+      code: "checkout_would_overwrite",
+      paths: ["src/main.rs"],
+    });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "local checkout" }));
+
+    expect(await screen.findByRole("dialog", { name: "checkoutOverwrite.title" })).toBeInTheDocument();
+    expect(screen.getByText("src/main.rs")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "checkoutOverwrite.stash" }));
+
+    await waitFor(() => expect(runStashAndCheckout).toHaveBeenCalledWith("repo-1", "feature"));
+    expect(await screen.findByText("Your work is in stash@{0}.")).toBeInTheDocument();
+  });
+
+  it("routes safe-checkout discard through the shared preflight", async () => {
+    const action = { kind: "checkoutDiscard" as const, branch: "feature" };
+    vi.mocked(checkoutBranch).mockRejectedValueOnce({
+      code: "checkout_would_overwrite",
+      paths: ["src/main.rs"],
+    });
+    vi.mocked(preflightDestructiveAction).mockResolvedValue(actionPreflight(action, "checkout-token"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "local checkout" }));
+    fireEvent.click(await screen.findByRole("button", { name: "checkoutOverwrite.discard" }));
+
+    expect(await screen.findByRole("dialog", { name: "preflight.checkoutDiscard.title" })).toBeInTheDocument();
+    expect(preflightDestructiveAction).toHaveBeenCalledWith("repo-1", action, null);
   });
 
   it("does not create a network operation when snapshot revalidation fails", async () => {

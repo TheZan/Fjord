@@ -28,6 +28,7 @@ import {
   discardPatch,
   getAmendInfo,
   invokeErrorCode,
+  invokeErrorPaths,
   openInIde,
   openMergeTool,
   openTerminal,
@@ -39,6 +40,7 @@ import {
   runContinueOperation,
   runSkipOperation,
   runExecuteDestructiveAction,
+  runStashAndCheckout,
   setBranchUpstream,
   renameBranch,
   revertCommit,
@@ -53,6 +55,7 @@ import {
 } from "@/infrastructure/tauriClient";
 import { RepoDetailView } from "@/presentation/RepoDetailView";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
+import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
@@ -102,12 +105,15 @@ export function RepoDetailContainer({
   const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
   const [commitSearchRequestId, setCommitSearchRequestId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [actionNoticeSuppressed, setActionNoticeSuppressed] = useState(false);
   const [actionPending, setActionPending] = useState<string | null>(null);
   const actionInFlight = useRef(false);
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
+  const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -124,6 +130,8 @@ export function RepoDetailContainer({
     if (actionInFlight.current) return false;
     actionInFlight.current = true;
     setActionError(null);
+    setActionSuccess(null);
+    setActionNoticeSuppressed(false);
     setActionPending(action);
     try {
       if (action !== "terminal" && action !== "open-ide") {
@@ -387,7 +395,17 @@ export function RepoDetailContainer({
       return;
     }
     requestBranchGraphScroll(branch);
-    void runRepoAction("checkout", () => checkoutBranch(repo.id, branch), ["status", "working", "history", "refs"]).then((ok) => {
+    void runRepoAction(
+      "checkout",
+      () => checkoutBranch(repo.id, branch),
+      ["status", "working", "history", "refs"],
+      (error) => {
+        if (invokeErrorCode(error) !== "checkout_would_overwrite") return false;
+        setActionNoticeSuppressed(true);
+        setCheckoutOverwrite({ branch, paths: invokeErrorPaths(error) });
+        return true;
+      },
+    ).then((ok) => {
       if (ok) requestBranchGraphScroll(branch);
     });
   }
@@ -554,6 +572,9 @@ export function RepoDetailContainer({
       operationControlPending={pendingOperationControl(actionPending)}
       onOperationControl={onOperationControl}
       actionPending={actionPending}
+      actionSuccess={actionSuccess}
+      actionNoticeSuppressed={actionNoticeSuppressed}
+      onPopRetainedStash={() => setDestructiveAction({ kind: "stashPop", index: 0 })}
       actionError={
         actionError ??
         (autoFetchError ? t("sync.autoFetchError", { error: autoFetchError }) : null)
@@ -626,6 +647,37 @@ export function RepoDetailContainer({
         }}
       />
     ) : null}
+    {checkoutOverwrite ? (
+      <CheckoutOverwriteDialog
+        branch={checkoutOverwrite.branch}
+        paths={checkoutOverwrite.paths}
+        pending={actionPending === "stash-checkout"}
+        onCancel={() => setCheckoutOverwrite(null)}
+        onDiscard={() => {
+          const { branch } = checkoutOverwrite;
+          setCheckoutOverwrite(null);
+          setDestructiveAction({ kind: "checkoutDiscard", branch });
+        }}
+        onStash={() => {
+          const { branch } = checkoutOverwrite;
+          void runRepoAction(
+            "stash-checkout",
+            async () => {
+              const task = runStashAndCheckout(repo.id, branch);
+              setActionOperationId(task.operationId);
+              const stashRef = await task.promise;
+              setActionSuccess(t("checkoutOverwrite.stashed", { stashRef }));
+            },
+            ["status", "working", "history", "refs", "stashes"],
+          ).then((ok) => {
+            if (ok) {
+              setCheckoutOverwrite(null);
+              requestBranchGraphScroll(branch);
+            }
+          });
+        }}
+      />
+    ) : null}
     {destructiveAction ? (
       <DestructivePreflightDialog
         repoId={repo.id}
@@ -669,6 +721,7 @@ export function RepoDetailContainer({
 type ConfirmableAction = "fetch" | "pull" | "push";
 const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
+type CheckoutOverwrite = { branch: string; paths: string[] };
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }

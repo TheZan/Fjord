@@ -45,6 +45,7 @@ pub enum OperationKind {
     SkipOperation,
     AbortOperation,
     DestructiveAction,
+    StashCheckout,
 }
 
 impl OperationKind {
@@ -61,6 +62,7 @@ impl OperationKind {
             Self::SkipOperation => "skip-operation",
             Self::AbortOperation => "abort-operation",
             Self::DestructiveAction => "destructive-action",
+            Self::StashCheckout => "stash-checkout",
         }
     }
 }

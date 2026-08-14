@@ -289,6 +289,29 @@ pub async fn checkout_branch(
 }
 
 #[tauri::command]
+pub async fn stash_and_checkout(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    branch: String,
+    operation_id: Option<String>,
+) -> Result<String, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::StashCheckout,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .stash_and_checkout_with_context(repo_id, &branch, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn get_working_changes(
     state: State<'_, AppState>,
     repo_id: RepositoryId,

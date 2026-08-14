@@ -177,6 +177,20 @@
     "back": "Back",
     "resizeSidebar": "Resize sidebar"
   },
+  "checkoutOverwrite": {
+    "title": "Local changes would be overwritten",
+    "description_one": "Checking out {{branch}} would overwrite {{count}} file.",
+    "description_other": "Checking out {{branch}} would overwrite {{count}} files.",
+    "files": "Files that would be overwritten",
+    "moreFiles_one": "And {{count}} more file…",
+    "moreFiles_other": "And {{count}} more files…",
+    "stashExplanation": "You can save tracked and untracked work in a named stash. Fjord will not pop it automatically.",
+    "discard": "Discard and check out",
+    "stash": "Stash and check out",
+    "stashing": "Saving work…",
+    "stashed": "Your work is in {{stashRef}}.",
+    "pop": "Pop stash"
+  },
   "notifications": {
     "operationCompleted": "Operation completed.",
     "close": "Dismiss notification"

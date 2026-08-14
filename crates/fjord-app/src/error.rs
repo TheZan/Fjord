@@ -11,6 +11,8 @@ pub struct AppError {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diagnostics: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paths: Option<Vec<String>>,
 }
 
 impl AppError {
@@ -19,6 +21,7 @@ impl AppError {
             code: code.to_string(),
             message,
             diagnostics: None,
+            paths: None,
         }
     }
 
@@ -113,6 +116,15 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 code: "operation_step_failed".to_string(),
                 message: "repository operation step failed".to_string(),
                 diagnostics: Some(diagnostics),
+                paths: None,
+            };
+        }
+        GitError::CheckoutWouldOverwrite { paths } => {
+            return AppError {
+                code: "checkout_would_overwrite".to_string(),
+                message: "checkout would overwrite local changes".to_string(),
+                diagnostics: None,
+                paths: Some(paths),
             };
         }
         other => other,
@@ -132,6 +144,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::BranchExists(_) => "branch_exists",
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
+        GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::Cancelled => "operation_cancelled",
         GitError::OperationNotInProgress => "operation_not_in_progress",
@@ -151,6 +164,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
         code: err.code().to_string(),
         message: err.to_string(),
         diagnostics: err.diagnostics().map(ToString::to_string),
+        paths: None,
     }
 }
 
@@ -199,6 +213,19 @@ mod tests {
         assert_eq!(preflight_stale.code, "preflight_stale");
         assert_eq!(apply.code, "patch_apply_failed");
         assert_eq!(unsupported.code, "patch_unsupported");
+    }
+
+    #[test]
+    fn checkout_overwrite_error_exposes_paths() {
+        let error = git_error_to_app_error(GitError::CheckoutWouldOverwrite {
+            paths: vec!["src/main.rs".into(), "README.md".into()],
+        });
+
+        assert_eq!(error.code, "checkout_would_overwrite");
+        assert_eq!(
+            error.paths,
+            Some(vec!["src/main.rs".into(), "README.md".into()])
+        );
     }
 
     #[test]

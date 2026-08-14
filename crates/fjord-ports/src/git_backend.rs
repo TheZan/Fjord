@@ -204,6 +204,8 @@ pub enum GitError {
     NothingToStash,
     #[error("stash is empty")]
     StashEmpty,
+    #[error("checkout would overwrite local changes in {paths:?}")]
+    CheckoutWouldOverwrite { paths: Vec<String> },
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
     #[error("operation cancelled")]
@@ -367,6 +369,15 @@ pub trait GitBackend: Send + Sync {
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
+    /// Returns the bounded repository-relative dirty paths that checkout would
+    /// overwrite. The mutation rechecks this under its write lock.
+    async fn checkout_overwrite_paths(
+        &self,
+        _repo: &RepoPath,
+        _branch: &str,
+    ) -> Result<Vec<String>, GitError> {
+        Err(GitError::NotImplemented("checkout_overwrite_paths"))
+    }
     /// Returns `(remote, refspec)` when checkout needs a remote branch to be
     /// materialized first. No network I/O is performed.
     async fn remote_checkout_refspec(
@@ -379,6 +390,14 @@ pub trait GitBackend: Send + Sync {
     /// Performs checkout after any required remote ref was fetched.
     async fn checkout_local(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {
         self.checkout(repo, branch).await
+    }
+    async fn stash_and_checkout(
+        &self,
+        _repo: &RepoPath,
+        _branch: &str,
+        _message: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("stash_and_checkout"))
     }
     /// Creates `name` at the current HEAD, optionally switching to it.
     async fn create_branch(

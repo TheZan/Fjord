@@ -254,11 +254,15 @@ export function NotificationToast({
   tone,
   closeLabel,
   onClose,
+  actionLabel,
+  onAction,
 }: {
   message: string;
   tone: "success" | "error";
   closeLabel: string;
   onClose: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   useEffect(() => {
     const timeout = window.setTimeout(onClose, tone === "error" ? 7000 : 4000);
@@ -284,6 +288,9 @@ export function NotificationToast({
         {tone === "error" ? "!" : "✓"}
       </span>
       <span className="selectable-text min-w-0 flex-1 whitespace-pre-wrap">{message}</span>
+      {actionLabel && onAction ? (
+        <Button size="sm" onClick={onAction}>{actionLabel}</Button>
+      ) : null}
       <button
         type="button"
         aria-label={closeLabel}

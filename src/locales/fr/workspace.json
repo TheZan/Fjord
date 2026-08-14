@@ -175,6 +175,20 @@
     "back": "Retour",
     "resizeSidebar": "Redimensionner la barre latérale"
   },
+  "checkoutOverwrite": {
+    "title": "Des modifications locales seraient écrasées",
+    "description_one": "Le checkout de {{branch}} écraserait {{count}} fichier.",
+    "description_other": "Le checkout de {{branch}} écraserait {{count}} fichiers.",
+    "files": "Fichiers qui seraient écrasés",
+    "moreFiles_one": "Et {{count}} fichier de plus…",
+    "moreFiles_other": "Et {{count}} fichiers de plus…",
+    "stashExplanation": "Vous pouvez enregistrer le travail suivi et non suivi dans un stash nommé. Fjord ne l'appliquera pas automatiquement.",
+    "discard": "Abandonner et changer de branche",
+    "stash": "Stasher et changer de branche",
+    "stashing": "Enregistrement du travail…",
+    "stashed": "Votre travail se trouve dans {{stashRef}}.",
+    "pop": "Appliquer le stash"
+  },
   "notifications": {
     "operationCompleted": "Opération terminée.",
     "close": "Fermer la notification"

@@ -306,6 +306,14 @@ impl GitBackend for LocalGitBackend {
         Ok(())
     }
 
+    async fn checkout_overwrite_paths(
+        &self,
+        repo: &RepoPath,
+        branch: &str,
+    ) -> Result<Vec<String>, GitError> {
+        refs::checkout_overwrite_paths(repo, branch).await
+    }
+
     async fn remote_checkout_refspec(
         &self,
         repo: &RepoPath,
@@ -318,6 +326,18 @@ impl GitBackend for LocalGitBackend {
         refs::checkout_local(repo, branch).await?;
         runtime::bump_mutation(repo, MutationKind::Checkout);
         Ok(())
+    }
+
+    async fn stash_and_checkout(
+        &self,
+        repo: &RepoPath,
+        branch: &str,
+        message: &str,
+    ) -> Result<(), GitError> {
+        let result = refs::stash_and_checkout(&self.commands, repo, branch, message).await;
+        runtime::bump_mutation(repo, MutationKind::StashPush);
+        runtime::bump_mutation(repo, MutationKind::Checkout);
+        result
     }
 
     async fn create_branch(
