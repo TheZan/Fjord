@@ -2,7 +2,7 @@ use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
     GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RepoOperationState, RepoStatus,
-    RepositoryId, ResetMode, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
     WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
@@ -113,40 +113,6 @@ pub async fn skip_operation(
         OperationKind::SkipOperation,
         repo_id,
         |context| state.repos.skip_operation_with_context(repo_id, context),
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn abort_operation(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    operation_id: Option<String>,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<RepoOperationState, AppError> {
-    let repos = state.repos.clone();
-    run_repo_operation(
-        &app,
-        &state,
-        operation_id,
-        OperationKind::AbortOperation,
-        repo_id,
-        |context| async move {
-            repos
-                .execute_destructive_action(
-                    repo_id,
-                    &DestructiveAction::AbortOperation,
-                    expected_generations,
-                    &confirmation_token,
-                    context,
-                )
-                .await?
-                .ok_or({
-                    fjord_services::RepoError::Git(fjord_ports::GitError::OperationNotInProgress)
-                })
-        },
     )
     .await
 }
@@ -465,27 +431,6 @@ pub async fn rename_branch(
 }
 
 #[tauri::command]
-pub async fn delete_branch(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    name: String,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<(), AppError> {
-    Ok(state
-        .repos
-        .execute_destructive_action(
-            repo_id,
-            &DestructiveAction::DeleteBranch { name },
-            expected_generations,
-            &confirmation_token,
-            fjord_ports::GitOperationContext::default(),
-        )
-        .await
-        .map(|_| ())?)
-}
-
-#[tauri::command]
 pub async fn set_branch_upstream(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -508,45 +453,6 @@ pub async fn unset_branch_upstream(
 }
 
 #[tauri::command]
-pub async fn delete_remote_branch(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    name: String,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<(), AppError> {
-    let operation_id = OperationRegistry::next_id();
-    let askpass = state.begin_askpass_operation(
-        &operation_id,
-        state.repos.repository_name(repo_id).await,
-        Some("delete-remote-branch".to_string()),
-    );
-    let (remote, branch) = name
-        .split_once('/')
-        .filter(|(remote, branch)| !remote.is_empty() && !branch.is_empty())
-        .ok_or_else(|| {
-            AppError::from(fjord_services::RepoError::Git(
-                fjord_ports::GitError::PreflightStale,
-            ))
-        })?;
-    let result = state
-        .repos
-        .execute_destructive_action(
-            repo_id,
-            &DestructiveAction::DeleteRemoteBranch {
-                remote: remote.to_string(),
-                branch: branch.to_string(),
-            },
-            expected_generations,
-            &confirmation_token,
-            fjord_ports::GitOperationContext::default().with_askpass(askpass),
-        )
-        .await;
-    state.askpass.finish_operation(&operation_id);
-    Ok(result.map(|_| ())?)
-}
-
-#[tauri::command]
 pub async fn create_tag(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -554,27 +460,6 @@ pub async fn create_tag(
     target: String,
 ) -> Result<(), AppError> {
     Ok(state.repos.create_tag(repo_id, &name, &target).await?)
-}
-
-#[tauri::command]
-pub async fn delete_tag(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    name: String,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<(), AppError> {
-    Ok(state
-        .repos
-        .execute_destructive_action(
-            repo_id,
-            &DestructiveAction::DeleteTag { name },
-            expected_generations,
-            &confirmation_token,
-            fjord_ports::GitOperationContext::default(),
-        )
-        .await
-        .map(|_| ())?)
 }
 
 #[tauri::command]
@@ -596,38 +481,6 @@ pub async fn revert_commit(
 }
 
 #[tauri::command]
-pub async fn reset_to_commit(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    commit_id: String,
-    mode: String,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<(), AppError> {
-    let mode = match mode.as_str() {
-        "soft" => ResetMode::Soft,
-        "mixed" => ResetMode::Mixed,
-        "hard" => ResetMode::Hard,
-        _ => {
-            return Err(
-                fjord_services::RepoError::Git(fjord_ports::GitError::PreflightStale).into(),
-            )
-        }
-    };
-    Ok(state
-        .repos
-        .execute_destructive_action(
-            repo_id,
-            &DestructiveAction::Reset { commit_id, mode },
-            expected_generations,
-            &confirmation_token,
-            fjord_ports::GitOperationContext::default(),
-        )
-        .await
-        .map(|_| ())?)
-}
-
-#[tauri::command]
 pub async fn get_stashes(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -643,26 +496,6 @@ pub async fn stash_push(
     message: Option<String>,
 ) -> Result<(), AppError> {
     Ok(state.repos.stash_push(repo_id, message.as_deref()).await?)
-}
-
-#[tauri::command]
-pub async fn stash_pop(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    expected_generations: GenerationSet,
-    confirmation_token: String,
-) -> Result<(), AppError> {
-    Ok(state
-        .repos
-        .execute_destructive_action(
-            repo_id,
-            &DestructiveAction::StashPop { index: 0 },
-            expected_generations,
-            &confirmation_token,
-            fjord_ports::GitOperationContext::default(),
-        )
-        .await
-        .map(|_| ())?)
 }
 
 #[tauri::command]

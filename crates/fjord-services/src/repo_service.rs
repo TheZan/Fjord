@@ -400,26 +400,6 @@ impl RepoService {
             .await?)
     }
 
-    pub async fn abort_operation(
-        &self,
-        repo_id: RepositoryId,
-    ) -> Result<RepoOperationState, RepoError> {
-        self.abort_operation_with_context(repo_id, GitOperationContext::default())
-            .await
-    }
-
-    pub async fn abort_operation_with_context(
-        &self,
-        repo_id: RepositoryId,
-        context: GitOperationContext,
-    ) -> Result<RepoOperationState, RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
-            .git
-            .abort_operation_with_context(&RepoPath::new(repo.path), context)
-            .await?)
-    }
-
     pub async fn get_git_environment(&self) -> Result<GitEnvironmentInfo, RepoError> {
         let settings = self.settings.get_settings().await?;
         Ok(self
@@ -1020,14 +1000,6 @@ impl RepoService {
             .await?)
     }
 
-    pub async fn delete_branch(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
-            .git
-            .delete_branch(&RepoPath::new(repo.path), name)
-            .await?)
-    }
-
     pub async fn set_branch_upstream(
         &self,
         repo_id: RepositoryId,
@@ -1053,38 +1025,6 @@ impl RepoService {
             .await?)
     }
 
-    pub async fn delete_remote_branch(
-        &self,
-        repo_id: RepositoryId,
-        name: &str,
-    ) -> Result<(), RepoError> {
-        self.delete_remote_branch_with_context(repo_id, name, GitOperationContext::default())
-            .await
-    }
-
-    pub async fn delete_remote_branch_with_context(
-        &self,
-        repo_id: RepositoryId,
-        name: &str,
-        context: GitOperationContext,
-    ) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        let (remote, branch) = name
-            .split_once('/')
-            .filter(|(remote, branch)| !remote.is_empty() && !branch.is_empty())
-            .ok_or_else(|| GitError::Git2(format!("remote branch name is invalid: {name}")))?;
-        let settings = self.settings.get_settings().await?;
-        Ok(self
-            .remote
-            .delete_remote_branch(
-                &RepoPath::new(repo.path),
-                remote,
-                branch,
-                context.with_git_executable_path(settings.git_executable_path),
-            )
-            .await?)
-    }
-
     pub async fn create_tag(
         &self,
         repo_id: RepositoryId,
@@ -1096,11 +1036,6 @@ impl RepoService {
             .git
             .create_tag(&RepoPath::new(repo.path), name, target)
             .await?)
-    }
-
-    pub async fn delete_tag(&self, repo_id: RepositoryId, name: &str) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.delete_tag(&RepoPath::new(repo.path), name).await?)
     }
 
     pub async fn cherry_pick(
@@ -1123,19 +1058,6 @@ impl RepoService {
             .await?)
     }
 
-    pub async fn reset(
-        &self,
-        repo_id: RepositoryId,
-        commit_id: &str,
-        mode: &str,
-    ) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self
-            .git
-            .reset(&RepoPath::new(repo.path), commit_id, mode)
-            .await?)
-    }
-
     pub async fn get_stashes(&self, repo_id: RepositoryId) -> Result<Vec<StashEntry>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.stashes(&RepoPath::new(repo.path)).await?)
@@ -1151,11 +1073,6 @@ impl RepoService {
             .git
             .stash_push(&RepoPath::new(repo.path), message)
             .await?)
-    }
-
-    pub async fn stash_pop(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
-        let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.git.stash_pop(&RepoPath::new(repo.path)).await?)
     }
 
     pub async fn open_terminal(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
@@ -1812,6 +1729,8 @@ mod tests {
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         discard_patch_call: Mutex<Option<RecordedDiscard>>,
         destructive_action_call: Mutex<Option<RecordedDestructive>>,
+        reject_action_confirmation: bool,
+        reject_force_confirmation: bool,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -1822,6 +1741,7 @@ mod tests {
         seen_path: Arc<Mutex<Option<PathBuf>>>,
         pushes: Arc<Mutex<Vec<RecordedPush>>>,
         publishes: Arc<Mutex<Vec<(String, String)>>>,
+        deletes: Arc<Mutex<Vec<(String, String)>>>,
     }
 
     struct FakeEnvironment;
@@ -1927,11 +1847,15 @@ mod tests {
         async fn delete_remote_branch(
             &self,
             repo: &RepoPath,
-            _remote: &str,
-            _branch: &str,
+            remote: &str,
+            branch: &str,
             _context: GitOperationContext,
         ) -> Result<(), GitRemoteError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.deletes
+                .lock()
+                .unwrap()
+                .push((remote.to_string(), branch.to_string()));
             Ok(())
         }
 
@@ -2393,6 +2317,20 @@ mod tests {
             Ok("action-confirmation-token".to_string())
         }
 
+        async fn consume_action_confirmation(
+            &self,
+            _repo: &RepoPath,
+            _action: &DestructiveAction,
+            _expected_generations: GenerationSet,
+            _confirmation_token: &str,
+        ) -> Result<(), GitError> {
+            if self.reject_action_confirmation {
+                Err(GitError::PreflightStale)
+            } else {
+                Ok(())
+            }
+        }
+
         async fn execute_confirmed_destructive_action(
             &self,
             repo: &RepoPath,
@@ -2479,6 +2417,9 @@ mod tests {
             _expected_generations: GenerationSet,
             _confirmation_token: &str,
         ) -> Result<ForcePushPlan, GitError> {
+            if self.reject_force_confirmation {
+                return Err(GitError::PreflightStale);
+            }
             self.force_push_plan(_repo).await
         }
         async fn current_branch_ref(&self, repo: &RepoPath) -> Result<String, GitError> {
@@ -3433,6 +3374,7 @@ mod tests {
                 path: "src/main.rs".into(),
                 count: 2,
             }));
+        assert_eq!(discard.recoverable, Recoverability::NotRecoverable);
 
         let force = service
             .preflight_destructive_action(repo.id, DestructiveAction::ForceWithLease, None)
@@ -3450,6 +3392,7 @@ mod tests {
             force.confirmation_token.as_deref(),
             Some("force-confirmation-token")
         );
+        assert_eq!(force.recoverable, Recoverability::NotRecoverable);
         assert_eq!(force.force_with_lease.as_ref().unwrap().remote, "company");
         assert_eq!(
             force.force_with_lease.as_ref().unwrap().ref_name,
@@ -3514,6 +3457,67 @@ mod tests {
             git.destructive_action_call.lock().unwrap().as_ref(),
             Some(&(repo.path, action, generations, "bound-token".to_string(),))
         );
+    }
+
+    #[tokio::test]
+    async fn safety_regression_remote_mutations_never_run_without_backend_confirmation() {
+        let repo = repo_entry();
+        let seen_path = Arc::new(Mutex::new(None));
+        let git = Arc::new(FakeGit {
+            seen_path: seen_path.clone(),
+            reject_action_confirmation: true,
+            reject_force_confirmation: true,
+            ..FakeGit::default()
+        });
+        let remote = Arc::new(FakeRemoteGit {
+            seen_path,
+            ..FakeRemoteGit::default()
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            git,
+            remote.clone(),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+        let generations = GenerationSet::default();
+        let delete = DestructiveAction::DeleteRemoteBranch {
+            remote: "origin".into(),
+            branch: "topic".into(),
+        };
+
+        assert!(matches!(
+            service
+                .execute_destructive_action(
+                    repo.id,
+                    &delete,
+                    generations,
+                    "not-issued-by-preflight",
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(RepoError::Git(GitError::PreflightStale))
+        ));
+        assert!(remote.deletes.lock().unwrap().is_empty());
+
+        assert!(matches!(
+            service
+                .force_push_with_context(
+                    repo.id,
+                    generations,
+                    "not-issued-by-preflight",
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(RepoError::Git(GitError::PreflightStale))
+        ));
+        assert!(remote.pushes.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -3620,7 +3624,6 @@ mod tests {
         service.stash_push(repo.id, Some("wip")).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path.clone()));
 
-        service.stash_pop(repo.id).await.unwrap();
         assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
     }
 

@@ -74,11 +74,18 @@ resolution.
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. |
 | Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery; P9-09 exposes them through the Recovery Center with HEAD-relative diffs and safe/confirmed recovery actions. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
+| Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Its supported
 cross-process guarantee is limited to concurrent Fjord operations, standard Git
 commands, and Git clients that respect Git's index/ref locking protocol.
+
+P9-10 also removes the obsolete per-action destructive IPC aliases and unchecked
+`RepoService` wrappers. Production command code can reach destructive behavior
+only through `execute_destructive_action`, token-bound `discard_patch`, or the
+token-bound force-with-lease service. This makes preflight enforcement part of
+the service API shape instead of a UI convention.
 
 ## Proposed design
 
@@ -445,7 +452,7 @@ naming it teaches the user something transferable.
 | Level | Coverage |
 |---|---|
 | Unit (Rust) | State detection from synthesized `.git` layouts for every variant, including partially-written rebase directories; `available` control computation; preflight consequence assembly and sampling caps. |
-| Integration (Rust) | Real fixtures for each state, created by the Git CLI (proving external detection): conflicted merge, `rebase --continue`/`--skip`/`--abort` round trips, cherry-pick and revert sequences, bisect start/reset, detached HEAD, unborn branch. Checkout-would-overwrite detection and stash-and-checkout. Reflog paging and entries after reset/amend/rebase. Assertion that every *Reflog*-labeled action leaves a reflog entry. |
+| Integration (Rust) | Real fixtures for each state, created by the Git CLI (proving external detection): conflicted merge, `rebase --continue`/`--skip`/`--abort` round trips, cherry-pick and revert sequences, bisect start/reset, detached HEAD, unborn branch. Checkout-would-overwrite detection and stash-and-checkout. Reflog paging and entries after reset/amend/rebase. Every destructive path is exercised through preflight/confirmation; labels are checked against resulting state, and forged tokens must be atomic no-ops. |
 | Frontend/component | Operation banner per state, including `detected_externally` wording; disabled actions with reasons; preflight dialog renders counts, samples, and the correct recoverability label; blockers disable confirmation. |
 | E2E | Start a rebase in a terminal, open Fjord, resolve and continue entirely in the UI. Reset to a wrong commit, recover via the Recovery Center, verify the working state matches the pre-reset state. |
 | OS-specific / manual | Non-interactive editor behavior on Windows (`GIT_EDITOR` quoting), and a repository whose `.git` is a file (worktree/submodule) on all three OSes. |

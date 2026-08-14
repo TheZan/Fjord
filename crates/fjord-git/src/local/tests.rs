@@ -4,7 +4,8 @@
 use super::*;
 use crate::GenerationSet;
 use fjord_domain::{
-    Consequence, OperationControl, RebaseKind, Recoverability, RepoOperation, ResetMode,
+    Consequence, OperationControl, RebaseKind, Recoverability, RepoOperation, RepoOperationState,
+    ResetMode,
 };
 use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
@@ -4465,6 +4466,379 @@ async fn confirmed_destructive_execution_is_exact_atomic_and_one_use() {
             .await,
         Err(GitError::PreflightStale)
     ));
+}
+
+async fn safety_commit(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    content: &str,
+    message: &str,
+) -> String {
+    write_file(repo, "safety.txt", content);
+    backend
+        .stage(repo, &[PathBuf::from("safety.txt")])
+        .await
+        .unwrap();
+    backend.commit(repo, message).await.unwrap()
+}
+
+async fn safety_fingerprint(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, RepoOperationState) {
+    (
+        git_output(backend, repo, &["rev-parse", "HEAD"]),
+        git_output(
+            backend,
+            repo,
+            &[
+                "for-each-ref",
+                "--format=%(refname):%(objectname)",
+                "refs/heads",
+                "refs/tags",
+            ],
+        ),
+        git_output(
+            backend,
+            repo,
+            &["status", "--porcelain=v1", "--untracked-files=all"],
+        ),
+        git_output(backend, repo, &["stash", "list", "--format=%gd:%H:%gs"]),
+        backend.operation_state(repo).await.unwrap(),
+    )
+}
+
+async fn safety_preflight(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    action: &DestructiveAction,
+    expected_recoverability: Recoverability,
+) -> (GenerationSet, String) {
+    let facts = backend
+        .destructive_action_facts(repo, action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.recoverable, expected_recoverability, "{action:?}");
+    assert!(
+        facts.blockers.is_empty(),
+        "{action:?}: {:?}",
+        facts.blockers
+    );
+
+    let generations = backend.generations(repo).unwrap();
+    let unchanged = safety_fingerprint(backend, repo).await;
+    assert!(matches!(
+        backend
+            .execute_confirmed_destructive_action(
+                repo,
+                action,
+                generations,
+                "not-issued-by-preflight",
+                GitOperationContext::default(),
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(
+        safety_fingerprint(backend, repo).await,
+        unchanged,
+        "{action:?}"
+    );
+
+    let token = backend
+        .issue_action_confirmation(repo, action, generations)
+        .await
+        .unwrap();
+    (generations, token)
+}
+
+#[tokio::test]
+async fn safety_regression_reset_and_recovery_restore_are_preflight_bound_and_reflog_real() {
+    for recovery in [false, true] {
+        let (_dir, repo) = empty_repo();
+        let backend = LocalGitBackend::new();
+        let base = safety_commit(&backend, &repo, "base\n", "Base").await;
+        safety_commit(&backend, &repo, "later\n", "Later").await;
+        let action = if recovery {
+            DestructiveAction::RecoveryRestore {
+                commit_id: base.clone(),
+            }
+        } else {
+            DestructiveAction::Reset {
+                commit_id: base.clone(),
+                mode: ResetMode::Hard,
+            }
+        };
+        let before = Repository::open(&repo.0)
+            .unwrap()
+            .reflog("HEAD")
+            .unwrap()
+            .len();
+        let (generations, token) =
+            safety_preflight(&backend, &repo, &action, Recoverability::Reflog).await;
+        backend
+            .execute_confirmed_destructive_action(
+                &repo,
+                &action,
+                generations,
+                &token,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+            format!("{base}\n").as_bytes()
+        );
+        assert_eq!(
+            Repository::open(&repo.0)
+                .unwrap()
+                .reflog("HEAD")
+                .unwrap()
+                .len(),
+            before + 1
+        );
+    }
+}
+
+#[tokio::test]
+async fn safety_regression_branch_and_tag_deletion_are_preflight_bound_and_not_promised_recovery() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let head = safety_commit(&backend, &repo, "base\n", "Base").await;
+    backend.create_branch(&repo, "topic", false).await.unwrap();
+    backend.create_tag(&repo, "v1", &head).await.unwrap();
+
+    for action in [
+        DestructiveAction::DeleteBranch {
+            name: "topic".into(),
+        },
+        DestructiveAction::DeleteTag { name: "v1".into() },
+    ] {
+        let (generations, token) =
+            safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
+        backend
+            .execute_confirmed_destructive_action(
+                &repo,
+                &action,
+                generations,
+                &token,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+    }
+    assert!(Repository::open(&repo.0)
+        .unwrap()
+        .find_branch("topic", BranchType::Local)
+        .is_err());
+    assert!(Repository::open(&repo.0)
+        .unwrap()
+        .find_reference("refs/tags/v1")
+        .is_err());
+}
+
+#[tokio::test]
+async fn safety_regression_stash_pop_is_preflight_bound_and_consumption_is_not_recoverable() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    safety_commit(&backend, &repo, "base\n", "Base").await;
+    write_file(&repo, "safety.txt", "stashed\n");
+    backend
+        .stash_push(&repo, Some("safety fixture"))
+        .await
+        .unwrap();
+    let action = DestructiveAction::StashPop { index: 0 };
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(backend.stashes(&repo).await.unwrap().is_empty());
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("safety.txt")).unwrap(),
+        "stashed\n"
+    );
+}
+
+#[tokio::test]
+async fn safety_regression_checkout_discard_is_preflight_bound_and_lost_work_is_not_recoverable() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = safety_commit(&backend, &repo, "base\n", "Base").await;
+    backend
+        .create_branch_at(&repo, "target", &base, false)
+        .await
+        .unwrap();
+    safety_commit(&backend, &repo, "main\n", "Main").await;
+    write_file(&repo, "safety.txt", "uncommitted\n");
+    let action = DestructiveAction::CheckoutDiscard {
+        branch: "target".into(),
+    };
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        Repository::open(&repo.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .shorthand(),
+        Ok("target")
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("safety.txt")).unwrap(),
+        "base\n"
+    );
+}
+
+#[tokio::test]
+async fn safety_regression_operation_abort_is_preflight_bound_and_not_promised_recovery() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let base = safety_commit(&backend, &repo, "0\n", "Base").await;
+    for revision in 1..=4 {
+        safety_commit(&backend, &repo, &format!("{revision}\n"), "Revision").await;
+    }
+    run_git_success(&backend, &repo, &["bisect", "start"]);
+    run_git_success(&backend, &repo, &["bisect", "bad", "HEAD"]);
+    run_git_success(&backend, &repo, &["bisect", "good", &base]);
+    assert!(matches!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Bisect { .. }
+    ));
+
+    let action = DestructiveAction::AbortOperation;
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
+    let state = backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.operation, RepoOperation::Normal);
+}
+
+#[tokio::test]
+async fn safety_regression_remote_delete_confirmation_is_preflight_bound_and_not_recoverable() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let head = safety_commit(&backend, &repo, "base\n", "Base").await;
+    Repository::open(&repo.0)
+        .unwrap()
+        .reference(
+            "refs/remotes/origin/topic",
+            Oid::from_str(&head).unwrap(),
+            true,
+            "safety fixture",
+        )
+        .unwrap();
+    let action = DestructiveAction::DeleteRemoteBranch {
+        remote: "origin".into(),
+        branch: "topic".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+    assert!(facts.blockers.is_empty());
+    let generations = backend.generations(&repo).unwrap();
+    assert!(matches!(
+        backend
+            .consume_action_confirmation(&repo, &action, generations, "not-issued-by-preflight")
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    let token = backend
+        .issue_action_confirmation(&repo, &action, generations)
+        .await
+        .unwrap();
+    backend
+        .consume_action_confirmation(&repo, &action, generations, &token)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn safety_regression_discard_and_force_reject_unvalidated_unconfirmed_execution() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    let head = safety_commit(&backend, &repo, "base\n", "Base").await;
+    write_file(&repo, "safety.txt", "changed\n");
+    let detail = backend
+        .working_file_diff(&repo, "safety.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, [0]);
+    let discard = discard_action(&selection);
+    let generations = backend.generations(&repo).unwrap();
+    let unchanged = patch_state(&backend, &repo);
+    assert!(matches!(
+        backend
+            .discard_patch(
+                &repo,
+                &discard,
+                &selection,
+                generations,
+                "not-issued-by-preflight"
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(patch_state(&backend, &repo), unchanged);
+
+    let git = Repository::open(&repo.0).unwrap();
+    git.remote("origin", "https://example.invalid/repo.git")
+        .unwrap();
+    git.reference(
+        "refs/remotes/origin/main",
+        Oid::from_str(&head).unwrap(),
+        true,
+        "safety fixture",
+    )
+    .unwrap();
+    git.find_branch("main", BranchType::Local)
+        .unwrap()
+        .set_upstream(Some("origin/main"))
+        .unwrap();
+    drop(git);
+    let plan = backend.force_push_plan(&repo).await.unwrap();
+    let force = DestructiveAction::ForceWithLease;
+    assert!(matches!(
+        backend
+            .consume_force_push_confirmation(
+                &repo,
+                &force,
+                backend.generations(&repo).unwrap(),
+                "not-issued-by-preflight",
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    assert_eq!(plan.remote, "origin");
 }
 
 #[tokio::test]

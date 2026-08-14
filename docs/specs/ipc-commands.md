@@ -90,11 +90,9 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |
-| `delete_branch` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound local branch deletion |
 | `set_branch_upstream` | `{ repo_id, branch, upstream }` | — | Local config write; `upstream` must name an existing remote-tracking branch |
 | `unset_branch_upstream` | `{ repo_id, branch }` | — | Local config write; no network operation |
 | `create_tag` | `{ repo_id, name, target }` | — | Lightweight tag |
-| `delete_tag` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound tag deletion |
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
@@ -103,13 +101,10 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
-| `reset_to_commit` | `{ repo_id, commit_id, mode, expected_generations, confirmation_token }` | — | Confirmation-bound `soft` \| `mixed` \| `hard` reset |
 | `stash_push` | `{ repo_id, message? }` | — | |
-| `stash_pop` | `{ repo_id, expected_generations, confirmation_token }` | — | Confirmation-bound apply and drop of `stash@{0}` |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `continue_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected merge/rebase/cherry-pick/revert sequencer and returns its new state; refuses unresolved conflicts |
 | `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
-| `abort_operation` | `{ repo_id, expected_generations, confirmation_token, operation_id? }` | `RepoOperationState` | Confirmation-bound dispatch to the detected operation (`bisect reset` for bisect), returning its new state |
 
 ### Remote operations (system Git)
 
@@ -119,7 +114,6 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `pull_repo` | `{ repo_id, operation_id? }` | — | System fetch + local integration; never `git pull` |
 | `push_repo` | `{ repo_id, force_with_lease, expected_generations?, confirmation_token?, operation_id? }` | — | Normal target is resolved from the branch's upstream; `no_upstream` → publish. Force mode requires the one-use preflight token and executes only its backend-bound remote/ref/OIDs. |
 | `publish_branch` | `{ repo_id, remote?, operation_id? }` | — | The only operation allowed to name a default remote |
-| `delete_remote_branch` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound `git push <remote> --delete` |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Bounded worker pool; per-repo results, one failure does not abort the batch |
 
 ### Operations, authentication, and tools

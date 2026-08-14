@@ -417,23 +417,6 @@ export function runSkipOperation(repoId: string): OperationTask<RepoOperationSta
   return invokeOperation("skip-operation", "skip_operation", { repoId });
 }
 
-export function abortOperation(
-  repoId: string,
-  expectedGenerations: GenerationSet,
-  confirmationToken: string,
-  operationId: string | null = null,
-): Promise<RepoOperationState> {
-  return invoke("abort_operation", { repoId, expectedGenerations, confirmationToken, operationId });
-}
-
-export function runAbortOperation(
-  repoId: string,
-  expectedGenerations: GenerationSet,
-  confirmationToken: string,
-): OperationTask<RepoOperationState> {
-  return invokeOperation("abort-operation", "abort_operation", { repoId, expectedGenerations, confirmationToken });
-}
-
 export function getCommitLog(
   repoId: string,
   cursor: string | null,
@@ -660,20 +643,8 @@ export function renameBranch(repoId: string, oldName: string, newName: string): 
   return invoke("rename_branch", { repoId, oldName, newName });
 }
 
-export function deleteBranch(repoId: string, name: string, expectedGenerations: GenerationSet, confirmationToken: string): Promise<void> {
-  return invoke("delete_branch", { repoId, name, expectedGenerations, confirmationToken });
-}
-
-export function deleteRemoteBranch(repoId: string, name: string, expectedGenerations: GenerationSet, confirmationToken: string): Promise<void> {
-  return invoke("delete_remote_branch", { repoId, name, expectedGenerations, confirmationToken });
-}
-
 export function createTag(repoId: string, name: string, target: string): Promise<void> {
   return invoke("create_tag", { repoId, name, target });
-}
-
-export function deleteTag(repoId: string, name: string, expectedGenerations: GenerationSet, confirmationToken: string): Promise<void> {
-  return invoke("delete_tag", { repoId, name, expectedGenerations, confirmationToken });
 }
 
 export function cherryPick(repoId: string, commitId: string): Promise<void> {
@@ -682,10 +653,6 @@ export function cherryPick(repoId: string, commitId: string): Promise<void> {
 
 export function revertCommit(repoId: string, commitId: string): Promise<void> {
   return invoke("revert_commit", { repoId, commitId });
-}
-
-export function resetToCommit(repoId: string, commitId: string, mode: "soft" | "mixed" | "hard", expectedGenerations: GenerationSet, confirmationToken: string): Promise<void> {
-  return invoke("reset_to_commit", { repoId, commitId, mode, expectedGenerations, confirmationToken });
 }
 
 export function getStashes(repoId: string, signal?: AbortSignal): Promise<StashEntry[]> {
@@ -702,10 +669,6 @@ export function unsetBranchUpstream(repoId: string, branch: string): Promise<voi
 
 export function stashPush(repoId: string, message: string | null = null): Promise<void> {
   return invoke("stash_push", { repoId, message });
-}
-
-export function stashPop(repoId: string, expectedGenerations: GenerationSet, confirmationToken: string): Promise<void> {
-  return invoke("stash_pop", { repoId, expectedGenerations, confirmationToken });
 }
 
 export function openTerminal(repoId: string): Promise<void> {
