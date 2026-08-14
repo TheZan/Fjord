@@ -21,9 +21,8 @@ export interface SelectedWorkingFile {
 
 /**
  * The commit panel: what's staged, what isn't, and the message that will turn
- * the staged half into a commit. Mirrors GitKraken's right-hand pane — the
- * previous UI could stage and commit through the backend but had no screen
- * that ever showed uncommitted work.
+ * the staged half into a commit. The previous UI could stage and commit through
+ * the backend but had no screen that ever showed uncommitted work.
  */
 export function WorkingChangesPanel({
   changes,

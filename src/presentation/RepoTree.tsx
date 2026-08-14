@@ -12,10 +12,10 @@ type SectionKey = "local" | "remote" | "tags";
 const TREE_ROW_HEIGHT = 40;
 
 /**
- * Branches + tags, GitKraken-style: collapsible sections with a filter box,
- * each section's body capped at a fixed height so a repo with a hundred
- * branches stays a compact scrollable list instead of stretching the whole
- * column — the flat always-expanded `BranchesPanel` it replaces didn't.
+ * Branches + tags: collapsible sections with a filter box, each section's body
+ * capped at a fixed height so a repo with a hundred branches stays a compact
+ * scrollable list instead of stretching the whole column — the flat
+ * always-expanded `BranchesPanel` it replaces didn't.
  */
 export function RepoTree({
   repoId,

@@ -112,7 +112,7 @@ function IconButton({
   );
 }
 
-/** Segmented Path/Tree switch, matching the pair GitKraken puts over its file list. */
+/** Segmented Path/Tree switch sitting over the file list. */
 export function FileViewTabs({
   mode,
   onChange,

@@ -67,10 +67,9 @@ const required = [
   "CONTRIBUTING.md",
   "SECURITY.md",
   "LICENSE-MIT",
-  "LICENSE-APACHE",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/ISSUE_TEMPLATE/feature_request.yml",
-  "assets/screenshots/fjord-workspace-overview.png",
+  "assets/screenshots/workspace-overview.png",
 ];
 for (const file of required) {
   if (!fs.existsSync(path.join(root, file))) findings.push(`${file}: required public file missing`);
@@ -79,8 +78,8 @@ if (files.some((file) => file.startsWith(".testagent/"))) {
   findings.push(".testagent/: internal planning artifacts remain in the publication tree");
 }
 const cargo = fs.readFileSync(path.join(root, "Cargo.toml"), "utf8");
-if (!cargo.includes('license = "MIT OR Apache-2.0"')) {
-  findings.push("Cargo.toml: dual-license declaration drifted");
+if (!cargo.includes('license = "MIT"')) {
+  findings.push("Cargo.toml: MIT license declaration drifted");
 }
 
 if (findings.length > 0) {

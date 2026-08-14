@@ -558,8 +558,8 @@ function SearchIcon() {
 }
 
 /**
- * The uncommitted-work row pinned above history — GitKraken's "// WIP" entry.
- * Drawn with a hollow dot on the first lane to read as "not a commit yet".
+ * The uncommitted-work row pinned above history. Drawn with a hollow dot on
+ * the first lane to read as "not a commit yet".
  */
 function WorkingRow({
   gutterWidth,
@@ -841,8 +841,7 @@ function RefBadge({
  * A commit can carry a dozen branches/tags at once (long-lived integration
  * branches, release tags). Rendering them all inline used to spill the badge
  * row into the graph gutter. Show only the front-most ref (already sorted
- * active-branch-first) plus a "+N" count, and reveal the rest on hover —
- * GitKraken's treatment for the same problem.
+ * active-branch-first) plus a "+N" count, and reveal the rest on hover.
  */
 function RefBadgeGroup({
   refs,

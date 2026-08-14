@@ -8,18 +8,18 @@ visibility, default branch, description, or topics.
 
 | Check | Evidence | Result |
 |---|---|---|
-| English README and Russian parity | `README.md`, `README.ru.md` contain the same Early Preview warning, install/source-build paths, supported platforms, shipped scope/limitations, screenshot, contribution/security links, and dual license | Pass |
-| Product visual | `assets/screenshots/fjord-workspace-overview.png`, rendered at 1440×900 from the current `OverviewView`/`RepoCard` UI with explicitly seeded local demo data | Pass |
+| English README and Russian parity | `README.md`, `README.ru.md` contain the same interface walkthrough, capability and performance sections, install/source-build paths, supported platforms, Git/authentication guidance, contribution/security links, and the MIT license | Pass |
+| Product visuals | `assets/screenshots/workspace-overview.png`, `repository-history.png`, `staging.png`, `diff-dark.png`, rendered at 1600 CSS px from the current shipped UI with explicitly seeded local demo data | Pass |
 | Download/install near top | Both READMEs link Releases and state Windows 11 x64, macOS 13+ Intel/Apple Silicon, Ubuntu 22.04+ x64, plus source prerequisites | Pass |
-| Honest Early Preview claims | Broad “fast” and stale roadmap claims were replaced by bounded/measured implementation language and a concrete included/not-included list | Pass |
+| Performance claims | Every figure in the README performance tables is quoted from the recorded release-profile runs in [`benchmarks/`](benchmarks/); no roadmap or unmeasured claims remain | Pass |
 | Contribution path | `CONTRIBUTING.md` documents setup, checks, architecture, localization, security, and focused work | Pass |
 | Issue reporting | Structured bug and feature forms; public blanks disabled; private advisory link is first in `config.yml` | Pass |
 | Security guidance | `SECURITY.md` defines private reporting, supported-version policy, sensitive-data rules, and links the transport threat contract | Pass |
-| License consistency | Root MIT and Apache-2.0 texts, Cargo `MIT OR Apache-2.0`, and both README license sections agree | Pass |
+| License consistency | Root `LICENSE-MIT`, Cargo `MIT`, and both README license sections agree; the former Apache-2.0 option was dropped | Pass |
 | Internal working files | `.testagent/` research/plan artifacts removed from the publication tree; `AGENTS.md` is retained as non-secret contributor/automation guidance | Pass |
 | Automated current-tree/history scan | `npm run audit:public`; scans current tracked/untracked publication files and full reachable patch history for high-confidence credential/key patterns and credential-bearing URLs; CI uses full checkout history | Pass locally; CI evidence required at launch |
 
-The screenshot is not a claim about a packaged build. Clean-machine package
+The screenshots are not a claim about a packaged build. Clean-machine package
 screenshots remain part of [`v0.1-fresh-install-smoke.md`](v0.1-fresh-install-smoke.md).
 A video/GIF was judged non-essential for v0.1 and is deferred until a signed
 candidate can be recorded without developer chrome.

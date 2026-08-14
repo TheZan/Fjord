@@ -63,8 +63,8 @@ function hunkActionStyle(tone: "stage" | "discard"): CSSProperties {
 
 /**
  * Full-detail diff for one file, meant to take over the center column when a
- * file is selected (see RepoDetailView) — GitKraken's diff view replaces the
- * commit graph rather than squeezing into a narrow side panel.
+ * file is selected (see RepoDetailView): the diff replaces the commit graph
+ * rather than squeezing into a narrow side panel.
  */
 export function FileDiffView({
   repoId,

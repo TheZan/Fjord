@@ -26,9 +26,9 @@ export interface RepoOperationProgress {
 }
 
 /**
- * The repository action bar, shaped after GitKraken's: one horizontal strip
- * of icon-over-label buttons in related groups (sync · branch/stash · tools)
- * rather than a row of undifferentiated text buttons.
+ * The repository action bar: one horizontal strip of icon-over-label buttons
+ * in related groups (sync · branch/stash · tools) rather than a row of
+ * undifferentiated text buttons.
  *
  * Only actions the backend actually implements appear here — there is no
  * Undo/Redo, because nothing in `GitBackend` models an operation log to undo

@@ -27,7 +27,7 @@ designed. Their contracts live in [`specs/`](specs/) and their goals in §15.
 
 ## 1. Vision
 
-Fjord is an open-source, cross-platform Git **workspace manager** — not a single-repo Git GUI, but a control center for many repositories at once. Users group repositories into Workspaces (Backend, Frontend, Infrastructure, ...), see unified status across all of them, run bulk operations, and drill into any single repository for a full history/graph/diff view comparable to GitKraken.
+Fjord is an open-source, cross-platform Git **workspace manager** — not a single-repo Git GUI, but a control center for many repositories at once. Users group repositories into Workspaces (Backend, Frontend, Infrastructure, ...), see unified status across all of them, run bulk operations, and drill into any single repository for a full history/graph/diff view.
 
 Design language: minimalist, premium, in the spirit of Linear / Raycast / Arc Browser. Native-feeling desktop app, not a wrapped website.
 
@@ -359,8 +359,8 @@ position. Tasks live in [`tasks.md`](tasks.md).
 
 **Admission rule for any new roadmap item.** A feature is added only if it
 answers one of two questions: *which reason to leave Fjord does it remove?*, or
-*how does it strengthen speed, safety, or multi-repository workflow?* "GitKraken
-has it" is not an answer.
+*how does it strengthen speed, safety, or multi-repository workflow?* "Another
+client has it" is not an answer.
 
 **Deliberately out of scope** (revisit only as an explicit proposal, never as a
 drive-by addition): GitHub/GitLab pull- and merge-request UI, issues, CI/CD
