@@ -124,6 +124,12 @@ gate; a developer checkout is not a substitute for the packaged pass.
 Complete the publication-tree and GitHub-settings review in
 [`public-readiness.md`](public-readiness.md); its external settings/default-branch
 items remain human-owned.
+Review [`v0.1-launch-decision.md`](v0.1-launch-decision.md) and update its
+machine-readable [`v0.1-launch-evidence.json`](v0.1-launch-evidence.json) only
+when the linked exact-candidate evidence exists. `npm run gate:v0.1` must emit
+the ready decision and exit successfully before a human publishes or changes
+repository visibility; a non-zero blocked result is the expected fail-closed
+state while any evidence is absent.
 
 Before publishing a draft release:
 
