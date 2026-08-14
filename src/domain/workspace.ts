@@ -4,6 +4,7 @@ export type {
   CloneRepositoryResult,
   CreateRepositoryRequest,
   CreateRepositoryResult,
+  RemoteInfo,
   RepoStatusSummary,
   RepositoryEntry,
   RepositoryId,

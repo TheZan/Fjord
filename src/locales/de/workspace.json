@@ -400,6 +400,18 @@
     "noMatches": "Keine Treffer.",
     "empty": "Keine Branches oder Tags gefunden."
   },
+  "remotes": {
+    "title": "Remotes",
+    "add": "Remote hinzufügen",
+    "loading": "Remotes werden geladen…",
+    "empty": "Keine Remotes konfiguriert.",
+    "name": "Name",
+    "url": "Repository-URL",
+    "fetchImmediately": "Nach dem Hinzufügen abrufen",
+    "cancel": "Abbrechen",
+    "submit": "Hinzufügen",
+    "adding": "Wird hinzugefügt…"
+  },
   "working": {
     "title": "Nicht committete Änderungen",
     "fileCount_one": "{{count}} Datei",

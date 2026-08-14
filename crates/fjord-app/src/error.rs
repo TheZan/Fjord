@@ -169,6 +169,8 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::InvalidRepositoryInitialization(_) => "create_repository_request_invalid",
         GitError::RepositoryDestinationInvalid(_) => "create_repository_destination_invalid",
         GitError::RepositoryDestinationNotEmpty => "create_repository_destination_not_empty",
+        GitError::RemoteAlreadyExists(_) => "remote_name_exists",
+        GitError::InvalidRemote(_) => "remote_request_invalid",
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),

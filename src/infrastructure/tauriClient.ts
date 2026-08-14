@@ -28,6 +28,7 @@ import type {
   CloneRepositoryResult,
   CreateRepositoryRequest,
   CreateRepositoryResult,
+  RemoteInfo,
   RepoStatusSummary,
   RepositoryEntry,
   Workspace,
@@ -404,6 +405,14 @@ export function listenRepositoryChanges(
 
 export function getTags(repoId: string, signal?: AbortSignal): Promise<TagInfo[]> {
   return invokeVersioned("get_tags", { repoId }, repoId, "refs", signal);
+}
+
+export function listRemotes(repoId: string): Promise<RemoteInfo[]> {
+  return invoke("list_remotes", { repoId });
+}
+
+export function addRemote(repoId: string, name: string, url: string): Promise<RemoteInfo> {
+  return invoke("add_remote", { repoId, name, url });
 }
 
 export function getRepoStatus(repoId: string, signal?: AbortSignal): Promise<RepoStatus> {

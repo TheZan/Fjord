@@ -400,6 +400,18 @@
     "noMatches": "Aucune correspondance.",
     "empty": "Aucune branche ni tag trouvé."
   },
+  "remotes": {
+    "title": "Dépôts distants",
+    "add": "Ajouter",
+    "loading": "Chargement…",
+    "empty": "Aucun dépôt distant configuré.",
+    "name": "Nom",
+    "url": "URL du dépôt",
+    "fetchImmediately": "Récupérer après l’ajout",
+    "cancel": "Annuler",
+    "submit": "Ajouter",
+    "adding": "Ajout…"
+  },
   "working": {
     "title": "Changements non commités",
     "fileCount_one": "{{count}} fichier",

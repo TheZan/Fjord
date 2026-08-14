@@ -11,6 +11,7 @@ export const queryKeys = {
     detail: (repoId: string) => [...queryKeys.repos.all, repoId] as const,
     branches: (repoId: string) => [...queryKeys.repos.detail(repoId), "branches"] as const,
     tags: (repoId: string) => [...queryKeys.repos.detail(repoId), "tags"] as const,
+    remotes: (repoId: string) => [...queryKeys.repos.detail(repoId), "remotes"] as const,
     status: (repoId: string) => [...queryKeys.repos.detail(repoId), "status"] as const,
     operationState: (repoId: string) =>
       [...queryKeys.repos.detail(repoId), "operationState"] as const,

@@ -107,6 +107,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `continue_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected merge/rebase/cherry-pick/revert sequencer and returns its new state; refuses unresolved conflicts |
 | `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
+| `list_remotes` | `{ repo_id }` | `RemoteInfo[]` | Lists configured remotes with URL userinfo redacted before IPC |
+| `add_remote` | `{ repo_id, name, url }` | `RemoteInfo` | Local Git config write; refuses duplicate names and never fetches, pushes, or rewrites another remote |
 
 ### Remote operations (system Git)
 
@@ -151,7 +153,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 |---|---|---|
 | `list_worktrees` / `create_worktree` / `remove_worktree` | [`workspace-workflows.md`](workspace-workflows.md) §1 | 10 |
 | `start_rebase` | [`workspace-workflows.md`](workspace-workflows.md) §2 | 10 |
-| `remotes` / `add_remote` / `set_remote_url` / `rename_remote` / `remove_remote` | [`workspace-workflows.md`](workspace-workflows.md) §3 | 10 |
+| `set_remote_url` / `rename_remote` / `remove_remote` | [`workspace-workflows.md`](workspace-workflows.md) §3 | 10 |
 | `get_workspace_health` | [`workspace-workflows.md`](workspace-workflows.md) §4 | 10 |
 
 ## Long-running operations: events, not blocking returns

@@ -6,8 +6,8 @@ use fjord_domain::{
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, ReflogPage, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus, RepositoryEntry,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
     StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
@@ -587,6 +587,29 @@ impl RepoService {
     pub async fn get_generations(&self, repo_id: RepositoryId) -> Result<GenerationSet, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.generations(&RepoPath::new(repo.path))?)
+    }
+
+    pub async fn list_remotes(&self, repo_id: RepositoryId) -> Result<Vec<RemoteInfo>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.remotes(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn add_remote(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        url: &str,
+    ) -> Result<RemoteInfo, RepoError> {
+        let name = name.trim();
+        let url = url.trim();
+        if name.is_empty() || url.is_empty() || name.contains('\0') || url.contains('\0') {
+            return Err(GitError::InvalidRemote("remote name and URL are required".into()).into());
+        }
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .add_remote(&RepoPath::new(repo.path), name, url)
+            .await?)
     }
 
     pub async fn load_repository_snapshot(

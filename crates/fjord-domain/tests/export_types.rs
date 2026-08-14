@@ -11,12 +11,12 @@ use fjord_domain::{
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
     InteractionSpan, InteractionTrace, LogCursor, OperationControl, OverviewUiState,
     OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability, ReflogEntry,
-    ReflogPage, RemoteRef, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary,
-    RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode,
-    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
-    SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
-    Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
-    WorkingFile, Workspace, WorkspaceId,
+    ReflogPage, RemoteInfo, RemoteRef, RepoOperation, RepoOperationState, RepoStatus,
+    RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
+    RepositorySnapshot, ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
+    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
+    UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -54,6 +54,7 @@ fn generated_types() -> String {
     push::<CloneRepositoryResult>(&mut output, &config);
     push::<CreateRepositoryRequest>(&mut output, &config);
     push::<CreateRepositoryResult>(&mut output, &config);
+    push::<RemoteInfo>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
     push::<RepositorySnapshot>(&mut output, &config);
     push::<StoredRepositorySnapshot>(&mut output, &config);

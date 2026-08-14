@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-    PatchSelection, Recoverability, ReflogPage, RepoOperationState, RepoStatus, StashEntry,
-    TagInfo, WorkingChanges,
+    PatchSelection, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
+    StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -206,6 +206,10 @@ pub enum GitError {
     RepositoryDestinationInvalid(String),
     #[error("repository destination is not empty")]
     RepositoryDestinationNotEmpty,
+    #[error("remote already exists: {0}")]
+    RemoteAlreadyExists(String),
+    #[error("invalid remote configuration: {0}")]
+    InvalidRemote(String),
     #[error("nothing to stash")]
     NothingToStash,
     #[error("stash is empty")]
@@ -258,6 +262,19 @@ pub trait GitBackend: Send + Sync {
         _initial_branch: &str,
     ) -> Result<(), GitError> {
         Err(GitError::NotImplemented("init_repository"))
+    }
+
+    async fn remotes(&self, _repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError> {
+        Err(GitError::NotImplemented("remotes"))
+    }
+
+    async fn add_remote(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _url: &str,
+    ) -> Result<RemoteInfo, GitError> {
+        Err(GitError::NotImplemented("add_remote"))
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;

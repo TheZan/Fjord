@@ -71,6 +71,8 @@
     "repository_already_added": "Este repositorio ya está en el workspace seleccionado.",
     "repository_discovery_failed": "No se pudieron buscar repositorios en la carpeta seleccionada.",
     "repository_not_found": "No se encontró el repositorio. Puede haberse movido o eliminado.",
+    "remote_name_exists": "Ya existe un remoto con este nombre.",
+    "remote_request_invalid": "Comprueba el nombre del remoto y la URL del repositorio.",
     "stash_empty": "No hay stashes guardados para aplicar.",
     "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
     "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo.",

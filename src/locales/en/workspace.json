@@ -402,6 +402,18 @@
     "noMatches": "No matches.",
     "empty": "No branches or tags found."
   },
+  "remotes": {
+    "title": "Remotes",
+    "add": "Add remote",
+    "loading": "Loading remotes…",
+    "empty": "No remotes configured.",
+    "name": "Name",
+    "url": "Repository URL",
+    "fetchImmediately": "Fetch after adding",
+    "cancel": "Cancel",
+    "submit": "Add",
+    "adding": "Adding…"
+  },
   "working": {
     "title": "Uncommitted changes",
     "fileCount_one": "{{count}} file",

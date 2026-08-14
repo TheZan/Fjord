@@ -8,6 +8,7 @@ import { PerformanceBoundary } from "@/presentation/performance";
 import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
 import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
+import { RemoteSection } from "@/presentation/RemoteSection";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
 import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
@@ -332,6 +333,7 @@ export function RepoDetailView({
               onTagContextAction={handleTagContextAction}
             />
           </PerformanceBoundary>
+          <RemoteSection repoId={repo.id} />
           </div>
         }
         center={

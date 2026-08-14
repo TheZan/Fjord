@@ -71,6 +71,8 @@
     "repository_already_added": "Ce dépôt est déjà présent dans l'espace de travail sélectionné.",
     "repository_discovery_failed": "Impossible de rechercher des dépôts dans le dossier sélectionné.",
     "repository_not_found": "Le dépôt est introuvable. Il a peut-être été déplacé ou supprimé.",
+    "remote_name_exists": "Un dépôt distant portant ce nom existe déjà.",
+    "remote_request_invalid": "Vérifiez le nom du dépôt distant et l’URL du dépôt.",
     "stash_empty": "Aucun stash enregistré n'est disponible.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
     "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez.",

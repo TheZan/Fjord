@@ -71,6 +71,8 @@
     "repository_already_added": "Dieses Repository ist bereits im ausgewählten Workspace enthalten.",
     "repository_discovery_failed": "Im ausgewählten Ordner konnten keine Repositories durchsucht werden.",
     "repository_not_found": "Das Repository wurde nicht gefunden. Es wurde möglicherweise verschoben oder entfernt.",
+    "remote_name_exists": "Ein Remote mit diesem Namen ist bereits vorhanden.",
+    "remote_request_invalid": "Prüfen Sie den Remote-Namen und die Repository-URL.",
     "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
     "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut.",

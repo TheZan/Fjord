@@ -50,6 +50,8 @@ const USER_ERROR_CODES = new Set([
   "repository_already_added",
   "repository_discovery_failed",
   "repository_not_found",
+  "remote_name_exists",
+  "remote_request_invalid",
   "stash_empty",
   "workspace_not_found",
 ]);

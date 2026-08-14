@@ -1,6 +1,6 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04, P9R-06.
 
 ## Purpose
 
@@ -22,6 +22,8 @@ pub trait GitBackend: Send + Sync {
     async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn abort_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
+    async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError>;
+    async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<RemoteInfo, GitError>;
     async fn log(&self, repo: &RepoPath, from: Option<LogCursor>, limit: u32) -> Result<CommitPage, GitError>;
     async fn reflog(&self, repo: &RepoPath, ref_name: Option<&str>, from: Option<LogCursor>, limit: u32) -> Result<ReflogPage, GitError>;
     async fn reflog_refs(&self, repo: &RepoPath) -> Result<Vec<String>, GitError>;
@@ -71,6 +73,7 @@ at 200 entries per response.
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
 | `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |
+| `remotes` / `add_remote` | `git2` | Reads and writes only local Git configuration under repository locks. Duplicate names are refused, unrelated keys are preserved, and returned URLs are sanitized before crossing IPC. |
 | `reflog` / `reflog_refs` | `git2` | Reads Git's native newest-first reflog entries and signatures directly, under the repository read lock, without parsing localized CLI output. |
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |

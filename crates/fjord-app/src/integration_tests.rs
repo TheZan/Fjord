@@ -552,6 +552,80 @@ async fn a_failing_remote_operation_classifies_through_the_stable_table() {
 }
 
 #[tokio::test]
+async fn remote_connection_lists_adds_preserves_config_and_can_fetch() {
+    let (_app_dir, services) = services().await;
+    let (_source_dir, source) = fixture_repo("source");
+    let remote_root = TempDir::new().unwrap();
+    let bare = remote_root.path().join("remote.git");
+    run_git_success(
+        remote_root.path(),
+        &[
+            "clone",
+            "--bare",
+            source.to_str().unwrap(),
+            bare.to_str().unwrap(),
+        ],
+    );
+    let (_local_dir, local) = fixture_repo("local");
+    let repository = Repository::open(&local).unwrap();
+    repository
+        .config()
+        .unwrap()
+        .set_str("fjord.preserved", "yes")
+        .unwrap();
+    let workspace = services
+        .workspaces
+        .create_workspace("Connected")
+        .await
+        .unwrap();
+    let entry = services
+        .workspaces
+        .add_repository(workspace.id, local.clone())
+        .await
+        .unwrap();
+
+    let added = services
+        .repos
+        .add_remote(entry.id, " origin ", bare.to_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(added.name, "origin");
+    assert_eq!(
+        services.repos.list_remotes(entry.id).await.unwrap(),
+        vec![added]
+    );
+    assert_eq!(
+        Repository::open(&local)
+            .unwrap()
+            .config()
+            .unwrap()
+            .get_string("fjord.preserved")
+            .unwrap(),
+        "yes"
+    );
+    services.repos.fetch(entry.id, "origin").await.unwrap();
+
+    let duplicate: AppError = services
+        .repos
+        .add_remote(entry.id, "origin", "other")
+        .await
+        .expect_err("duplicate remote names must be typed")
+        .into();
+    assert_eq!(duplicate.code, "remote_name_exists");
+    let invalid: AppError = services
+        .repos
+        .add_remote(entry.id, "", "")
+        .await
+        .expect_err("empty remote inputs must fail before config mutation")
+        .into();
+    assert_eq!(invalid.code, "remote_request_invalid");
+    assert_eq!(
+        services.repos.list_remotes(entry.id).await.unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn clone_registers_once_and_validates_destination_before_execution() {
     let (_app_dir, services) = services().await;
     let (_source_dir, source) = fixture_repo("source");

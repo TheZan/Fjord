@@ -1,8 +1,8 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RepoOperationState, RepoStatus,
-    RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RemoteInfo, RepoOperationState,
+    RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
     WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
@@ -22,6 +22,24 @@ use crate::operations::{
 use crate::state::AppState;
 
 const BULK_WORKER_LIMIT: usize = 6;
+
+#[tauri::command]
+pub async fn list_remotes(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<Vec<RemoteInfo>, AppError> {
+    Ok(state.repos.list_remotes(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn add_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    url: String,
+) -> Result<RemoteInfo, AppError> {
+    Ok(state.repos.add_remote(repo_id, &name, &url).await?)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

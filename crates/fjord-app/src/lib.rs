@@ -90,6 +90,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::create_repository,
             commands::import_repositories,
             commands::remove_repository,
+            commands::list_remotes,
+            commands::add_remote,
             commands::get_branches,
             commands::get_tags,
             commands::get_repo_status,

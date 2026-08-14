@@ -64,7 +64,7 @@ most are the ones still missing:
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
-| Remotes | ⚠️ Read paths plus local upstream selection: `current_push_target`, `upstream_remote`, `set_branch_upstream`, `unset_branch_upstream`, `ls_remote`, `delete_remote_branch`, and `publish_branch`'s default `origin`. No remote CRUD. |
+| Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
 | Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
 | Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |
@@ -176,7 +176,11 @@ async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<(
 async fn remove_remote(&self, repo: &RepoPath, name: &str) -> Result<(), GitError>;
 ```
 
-All are configuration writes — local, no network. IPC mirrors them one-to-one.
+Listing and adding are shipped by `P9R-06`; the remaining mutations stay in
+Phase 10. Configuration writes are local and never imply network access. The
+v0.1 add flow may start a separate fetch only when the user selects that option;
+it never pulls, merges unrelated histories, overwrites another remote, or pushes.
+IPC mirrors the shipped methods one-to-one.
 
 UI: a Remotes section in the repository tree with add/edit/remove, and a
 remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs are

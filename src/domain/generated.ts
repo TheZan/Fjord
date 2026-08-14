@@ -23,6 +23,8 @@ export type CreateRepositoryRequest = { workspaceId: WorkspaceId, destinationPar
 
 export type CreateRepositoryResult = { repository: RepositoryEntry, };
 
+export type RemoteInfo = { name: string, fetchUrl: string, pushUrl: string | null, };
+
 export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };
 
 export type RepositorySnapshot = { status: RepoStatus, operationState: RepoOperationState, branches: Array<BranchInfo>, tags: Array<TagInfo>, firstHistoryPage: CommitPage, workingChanges: WorkingChanges, generations: GenerationSet, };

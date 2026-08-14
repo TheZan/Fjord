@@ -1,6 +1,6 @@
 # Spec: system Git transport
 
-Referenced by: P5-01–P5-19, P9R-02, SDD §5.2, [`git-backend.md`](git-backend.md),
+Referenced by: P5-01–P5-19, P9R-02, P9R-06, SDD §5.2, [`git-backend.md`](git-backend.md),
 [`operation-events.md`](operation-events.md).
 
 ## Scope and dependency boundary

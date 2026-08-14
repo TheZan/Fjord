@@ -20,7 +20,8 @@ use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
     FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource,
-    ReflogEntry, ReflogPage, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    ReflogEntry, ReflogPage, RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -48,6 +49,7 @@ mod patch;
 mod patch_transaction;
 mod reflog;
 mod refs;
+mod remotes;
 mod repository;
 mod runtime;
 mod status;
@@ -132,6 +134,21 @@ impl GitBackend for LocalGitBackend {
 
     async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError> {
         initialization::init_repository(repo, initial_branch).await
+    }
+
+    async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError> {
+        remotes::list(repo).await
+    }
+
+    async fn add_remote(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        url: &str,
+    ) -> Result<RemoteInfo, GitError> {
+        let remote = remotes::add(repo, name, url).await?;
+        bump_repository_mutation(repo, MutationKind::AddRemote);
+        Ok(remote)
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {

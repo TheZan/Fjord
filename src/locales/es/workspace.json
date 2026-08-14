@@ -400,6 +400,18 @@
     "noMatches": "Sin coincidencias.",
     "empty": "No se encontraron ramas ni tags."
   },
+  "remotes": {
+    "title": "Remotos",
+    "add": "Añadir remoto",
+    "loading": "Cargando remotos…",
+    "empty": "No hay remotos configurados.",
+    "name": "Nombre",
+    "url": "URL del repositorio",
+    "fetchImmediately": "Obtener después de añadir",
+    "cancel": "Cancelar",
+    "submit": "Añadir",
+    "adding": "Añadiendo…"
+  },
   "working": {
     "title": "Cambios sin commit",
     "fileCount_one": "{{count}} archivo",
