@@ -40,10 +40,12 @@ export function Onboarding({
         </p>
 
         <Input
+          autoFocus
+          disabled={pending !== null}
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void submit(false);
+            if (event.key === "Enter" && pending === null) void submit(false);
           }}
           placeholder={t("onboarding.workspacePlaceholder")}
           className="mt-5 w-full"

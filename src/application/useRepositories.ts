@@ -59,10 +59,10 @@ export interface UseRepositoriesResult {
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
   moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
-  openRepository: () => Promise<void>;
+  openRepository: () => Promise<boolean>;
   cloneRepository: (request: CloneRepositoryRequest) => OperationTask<CloneRepositoryResult>;
   createRepository: (request: CreateRepositoryRequest) => Promise<CreateRepositoryResult>;
-  importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
+  importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[] | null>;
   removeRepository: (id: string) => Promise<void>;
 }
 
@@ -305,26 +305,28 @@ export function useRepositories(): UseRepositoriesResult {
   );
 
   const openRepository = useCallback(async () => {
-    if (!selectedWorkspaceId) return;
+    if (!selectedWorkspaceId) return false;
 
     const path = await pickFolder();
-    if (!path) return;
+    if (!path) return false;
 
     setLocalError(null);
     try {
       await addRepositoryMutation.mutateAsync({ workspaceId: selectedWorkspaceId, path });
       await invalidateWorkspace(selectedWorkspaceId);
+      return true;
     } catch (e) {
       setLocalError(userErrorMessage(e));
+      return false;
     }
   }, [addRepositoryMutation, invalidateWorkspace, selectedWorkspaceId]);
 
   const importRepositories = useCallback(
     async (workspaceId = selectedWorkspaceId) => {
-      if (!workspaceId) return [];
+      if (!workspaceId) return null;
 
       const root = await pickFolder();
-      if (!root) return [];
+      if (!root) return null;
 
       setLocalError(null);
       setWorkspaceActionPending("import");

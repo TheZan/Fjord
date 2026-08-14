@@ -229,4 +229,20 @@ describe("useRepositories", () => {
     act(() => result.current.clearError());
     expect(result.current.error).toBeNull();
   });
+
+  it("reports picker cancellation so onboarding can remain open", async () => {
+    vi.mocked(tauriClient.addRepository).mockClear();
+    vi.mocked(tauriClient.importRepositories).mockClear();
+    vi.mocked(dialog.pickFolder).mockResolvedValue(null);
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      expect(await result.current.openRepository()).toBe(false);
+      expect(await result.current.importRepositories()).toBeNull();
+    });
+
+    expect(tauriClient.addRepository).not.toHaveBeenCalled();
+    expect(tauriClient.importRepositories).not.toHaveBeenCalled();
+  });
 });

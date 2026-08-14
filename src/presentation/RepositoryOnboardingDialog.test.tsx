@@ -35,7 +35,10 @@ describe("RepositoryOnboardingDialog", () => {
     expect(callbacks.onScanFolder).toHaveBeenCalledOnce();
     expect(callbacks.onClone).toHaveBeenCalledOnce();
     expect(callbacks.onCreate).toHaveBeenCalledOnce();
-    expect(callbacks.onClose).toHaveBeenCalledTimes(4);
+    expect(callbacks.onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "context.cancel" }));
+    expect(callbacks.onClose).toHaveBeenCalledOnce();
   });
 
   it("keeps future mutation entries visible with an accessible disabled reason", () => {

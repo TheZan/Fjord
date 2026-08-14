@@ -11,6 +11,8 @@ describe("Onboarding", () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<Onboarding onCreate={onCreate} />);
 
+    expect(screen.getByPlaceholderText("onboarding.workspacePlaceholder")).toHaveFocus();
+
     fireEvent.change(screen.getByPlaceholderText("onboarding.workspacePlaceholder"), {
       target: { value: "Projects" },
     });

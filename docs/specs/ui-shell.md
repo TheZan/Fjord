@@ -167,6 +167,12 @@ reuses the existing Open and Scan operations and adds no IPC or Git mutation;
 P9R-03 and P9R-05 fill the stable Clone and Create slots without adding a second
 owner for repository onboarding.
 
+The first-run workspace screen is a choice, not a wizard: **Create only** enters
+an empty workspace, while **Create and add repository** opens the same four-choice
+surface. The empty Overview explains all four paths and links back to that owner.
+Cancelling a native Open/Scan picker keeps the choices visible; Back/Escape from
+Clone or Create returns to them without creating or registering anything.
+
 Clone opens a second app-owned overlay with Repository URL, destination-parent
 picker, and repository-folder-name fields. Common HTTPS, SSH, and SCP-style Git
 URLs seed the editable folder name; the operation cannot start until all three

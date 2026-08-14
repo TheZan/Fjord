@@ -610,8 +610,16 @@ export function App() {
 
       {repositoryOnboardingStep === "choices" && (
         <RepositoryOnboardingDialog
-          onOpenExisting={() => void openRepository()}
-          onScanFolder={() => void importRepositories()}
+          onOpenExisting={() => {
+            void openRepository().then((added) => {
+              if (added) setRepositoryOnboardingStep(null);
+            });
+          }}
+          onScanFolder={() => {
+            void importRepositories().then((repositories) => {
+              if (repositories !== null) setRepositoryOnboardingStep(null);
+            });
+          }}
           onClone={() => setRepositoryOnboardingStep("clone")}
           onCreate={() => setRepositoryOnboardingStep("create")}
           onClose={() => setRepositoryOnboardingStep(null)}

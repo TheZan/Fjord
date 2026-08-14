@@ -68,7 +68,6 @@ export function RepositoryOnboardingDialog({
                 aria-label={t(`repositoryOnboarding.actions.${action.id}.label`)}
                 aria-describedby={`${actionDescriptionId}${available ? "" : ` ${unavailableId}`}`}
                 onClick={() => {
-                  onClose();
                   action.onSelect?.();
                 }}
                 className="interactive-control flex min-h-24 flex-col items-start rounded-lg border p-3 text-left transition-colors disabled:opacity-60"

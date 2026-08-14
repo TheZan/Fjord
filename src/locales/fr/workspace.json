@@ -364,8 +364,9 @@
   "repositories": {
     "label": "Dépôts",
     "addButton": "Ajouter un dépôt",
+    "emptyTitle": "Ajoutez votre premier dépôt",
     "removeButton": "Retirer",
-    "empty": "Aucun dépôt pour le moment; ouvrez-en un pour commencer.",
+    "empty": "Ouvrez, recherchez, clonez ou créez un dépôt Git. Vous pouvez annuler à tout moment.",
     "notAGitRepository": "Ce dossier n'est pas un dépôt Git."
   },
   "settings": {

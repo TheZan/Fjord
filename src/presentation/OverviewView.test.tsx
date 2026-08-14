@@ -247,9 +247,21 @@ describe("OverviewView", () => {
     render(<OverviewView {...props({ workspace: null })} />);
 
     expect(screen.getByRole("button", { name: "bulk.fetch" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "repositories.addButton" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "repositories.addButton" })).toHaveLength(2);
+    for (const button of screen.getAllByRole("button", { name: "repositories.addButton" })) {
+      expect(button).toBeDisabled();
+    }
     fireEvent.click(screen.getByRole("button", { name: "toolbar.moreActions" }));
     expect(screen.getByRole("menuitem", { name: "bulk.openIde" })).toBeDisabled();
     expect(screen.getByText("repositories.empty")).toBeInTheDocument();
+  });
+
+  it("explains the empty workspace and reopens the shared repository choices", () => {
+    const onAddRepository = vi.fn();
+    render(<OverviewView {...props({ onAddRepository })} />);
+
+    expect(screen.getByText("repositories.emptyTitle")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "repositories.addButton" })[1]);
+    expect(onAddRepository).toHaveBeenCalledOnce();
   });
 });

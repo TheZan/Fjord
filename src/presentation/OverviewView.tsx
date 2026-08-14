@@ -128,9 +128,19 @@ export function OverviewView({
       />
 
       {filteredRepositories.length === 0 ? (
-        <Muted className="text-[13px]">
-          {repositories.length === 0 ? t("repositories.empty") : t("dashboard.noFilterMatches")}
-        </Muted>
+        repositories.length === 0 ? (
+          <Surface className="flex flex-col items-start gap-3 p-4" style={{ background: "var(--paper)" }}>
+            <div>
+              <h3 className="text-[13px] font-medium">{t("repositories.emptyTitle")}</h3>
+              <Muted className="mt-1 text-[12px]">{t("repositories.empty")}</Muted>
+            </div>
+            <Button variant="primary" disabled={!workspace} onClick={onAddRepository}>
+              {t("repositories.addButton")}
+            </Button>
+          </Surface>
+        ) : (
+          <Muted className="text-[13px]">{t("dashboard.noFilterMatches")}</Muted>
+        )
       ) : (
         <VirtualRepoGrid
           repositories={filteredRepositories}

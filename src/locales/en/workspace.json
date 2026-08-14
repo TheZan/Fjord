@@ -366,8 +366,9 @@
   "repositories": {
     "label": "Repositories",
     "addButton": "Add repository",
+    "emptyTitle": "Add your first repository",
     "removeButton": "Remove",
-    "empty": "No repositories yet — open one to get started.",
+    "empty": "Open, scan, clone, or create a Git repository. You can cancel at any time.",
     "notAGitRepository": "That folder isn't a Git repository."
   },
   "settings": {

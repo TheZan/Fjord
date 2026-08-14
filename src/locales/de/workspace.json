@@ -364,8 +364,9 @@
   "repositories": {
     "label": "Repositorys",
     "addButton": "Repository hinzufügen",
+    "emptyTitle": "Erstes Repository hinzufügen",
     "removeButton": "Entfernen",
-    "empty": "Noch keine Repositorys; öffne eines, um loszulegen.",
+    "empty": "Öffne, suche, klone oder erstelle ein Git-Repository. Du kannst jederzeit abbrechen.",
     "notAGitRepository": "Dieser Ordner ist kein Git-Repository."
   },
   "settings": {
