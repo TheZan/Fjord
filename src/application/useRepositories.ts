@@ -7,6 +7,7 @@ import { pickFolder } from "@/infrastructure/dialog";
 import {
   addRepository as addRepositoryCommand,
   cloneRepository as cloneRepositoryCommand,
+  createRepository as createRepositoryCommand,
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
@@ -21,6 +22,8 @@ import {
 import type {
   CloneRepositoryRequest,
   CloneRepositoryResult,
+  CreateRepositoryRequest,
+  CreateRepositoryResult,
   RepoStatusSummary,
   RepositoryEntry,
   Workspace,
@@ -58,6 +61,7 @@ export interface UseRepositoriesResult {
   moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
   openRepository: () => Promise<void>;
   cloneRepository: (request: CloneRepositoryRequest) => OperationTask<CloneRepositoryResult>;
+  createRepository: (request: CreateRepositoryRequest) => Promise<CreateRepositoryResult>;
   importRepositories: (workspaceId?: string) => Promise<RepositoryEntry[]>;
   removeRepository: (id: string) => Promise<void>;
 }
@@ -377,6 +381,24 @@ export function useRepositories(): UseRepositoriesResult {
     [queryClient],
   );
 
+  const createRepository = useCallback(
+    async (request: CreateRepositoryRequest): Promise<CreateRepositoryResult> => {
+      const result = await createRepositoryCommand(request);
+      queryClient.setQueryData<RepositoryEntry[]>(
+        queryKeys.workspaces.repositories(request.workspaceId),
+        (current = []) =>
+          current.some((repository) => repository.id === result.repository.id)
+            ? current
+            : [...current, result.repository],
+      );
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.status(request.workspaceId),
+      });
+      return result;
+    },
+    [queryClient],
+  );
+
   const queryBackedError =
     workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
 
@@ -403,6 +425,7 @@ export function useRepositories(): UseRepositoriesResult {
     moveWorkspaceTo,
     openRepository,
     cloneRepository,
+    createRepository,
     importRepositories,
     removeRepository,
   };

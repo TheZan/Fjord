@@ -117,6 +117,9 @@ directory. The completed repository is atomically renamed into a missing target,
 or its `.git` directory is renamed into a still-empty existing target. App-owned
 staging is removed on failure, while a successfully initialized repository is
 never recursively deleted merely because later database registration failed.
+Until the first commit, `operation_state` reports `UnbornBranch`, `log` returns
+an empty page, and working-tree reads remain available; an unborn symbolic
+`HEAD` is not treated as repository corruption.
 
 The local trait has no fetch, push, or remote-branch deletion methods. This is a
 compile-time guard against reintroducing libgit2 transport or hidden network I/O.

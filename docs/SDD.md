@@ -20,7 +20,7 @@ replaces libgit2 network transport with the installed system Git (implementation
 complete; manual sign-off and a small residual list remain — see §5.2 and
 [`tasks.md`](tasks.md)). Phase 6 implementation is complete except for `P6-20`
 (promotion of stable report-only baselines to gates); Phases 7–9 plus their review
-fixes are complete. Phase 9.5 is in progress (`P9R-01`–`P9R-04` complete); Phases 10–11
+fixes are complete. Phase 9.5 is in progress (`P9R-01`–`P9R-05` complete); Phases 10–11
 remain designed. Their contracts live in [`specs/`](specs/) and their goals in
 §15.
 

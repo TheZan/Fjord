@@ -21,6 +21,7 @@ impl LocalGitBackend {
     /// point at the commit rather than the tag object.
     fn collect_log_refs(
         git: &gix::Repository,
+        repo: &RepoPath,
     ) -> Result<(Vec<gix::ObjectId>, CommitRefs), GitError> {
         let mut tips = Vec::new();
         let mut refs_by_commit: CommitRefs = HashMap::new();
@@ -47,7 +48,18 @@ impl LocalGitBackend {
         }
 
         if tips.is_empty() {
-            tips.push(git.head_id().map_err(Self::map_gix_error)?.detach());
+            match git.head_id() {
+                Ok(head) => tips.push(head.detach()),
+                Err(error) => {
+                    let unborn = Self::with_runtime_git2(repo, |git| {
+                        Ok(Self::current_head_commit(git)?.is_none())
+                    })?;
+                    if unborn {
+                        return Ok((tips, refs_by_commit));
+                    }
+                    return Err(Self::map_gix_error(error));
+                }
+            }
         }
         tips.sort();
         tips.dedup();
@@ -176,7 +188,13 @@ pub(super) async fn log(
         git.object_cache_size_if_unset(4 * 1024 * 1024);
         let limit = limit as usize;
         let cursor = LocalGitBackend::parse_log_cursor(from);
-        let (tips, mut refs_by_commit) = LocalGitBackend::collect_log_refs(&git)?;
+        let (tips, mut refs_by_commit) = LocalGitBackend::collect_log_refs(&git, &repo)?;
+        if tips.is_empty() {
+            return Ok(CommitPage {
+                commits: vec![],
+                next_cursor: None,
+            });
+        }
         let (page_ids, next_cursor) = match cursor {
             ParsedLogCursor::Window {
                 continuation_offset,
@@ -235,7 +253,10 @@ pub(super) async fn search_commits(
 
         let mut git = LocalGitBackend::open(&repo)?;
         git.object_cache_size_if_unset(4 * 1024 * 1024);
-        let (tips, mut refs_by_commit) = LocalGitBackend::collect_log_refs(&git)?;
+        let (tips, mut refs_by_commit) = LocalGitBackend::collect_log_refs(&git, &repo)?;
+        if tips.is_empty() {
+            return Ok(vec![]);
+        }
         let walk = LocalGitBackend::history_walk(&git, tips)?;
 
         let mut commits = Vec::new();

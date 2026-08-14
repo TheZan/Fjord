@@ -721,6 +721,18 @@ async fn create_repository_supports_empty_or_new_destinations_and_registers_once
             .operation,
         RepoOperation::UnbornBranch
     ));
+    assert!(services
+        .repos
+        .get_commit_log(existing.repository.id, None, 50)
+        .await
+        .unwrap()
+        .commits
+        .is_empty());
+    assert!(services
+        .repos
+        .get_working_changes(existing.repository.id)
+        .await
+        .is_ok());
     let repository = Repository::open(&existing.repository.path).unwrap();
     assert_eq!(
         repository.find_reference("HEAD").unwrap().symbolic_target(),

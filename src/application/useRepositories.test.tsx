@@ -15,6 +15,7 @@ vi.mock("@/infrastructure/dialog", () => ({
 vi.mock("@/infrastructure/tauriClient", () => ({
   addRepository: vi.fn(),
   cloneRepository: vi.fn(),
+  createRepository: vi.fn(),
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
   getWorkspaceStatus: vi.fn(),
@@ -179,6 +180,32 @@ describe("useRepositories", () => {
     expect(tauriClient.cloneRepository).toHaveBeenCalledWith(request);
     await waitFor(() =>
       expect(result.current.repositories.filter((repo) => repo.id === "fjord")).toHaveLength(1),
+    );
+  });
+
+  it("publishes one created repository into the workspace query", async () => {
+    const created: RepositoryEntry = {
+      id: "new-local",
+      workspaceId: "frontend",
+      name: "new-local",
+      path: "/dev/new-local",
+      sortOrder: 1,
+    };
+    vi.mocked(tauriClient.createRepository).mockResolvedValue({ repository: created });
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const request = {
+      workspaceId: "frontend",
+      destinationParent: "/dev",
+      directoryName: "new-local",
+      initialBranch: "main",
+    };
+    await act(async () => result.current.createRepository(request));
+
+    expect(tauriClient.createRepository).toHaveBeenCalledWith(request);
+    await waitFor(() =>
+      expect(result.current.repositories.filter((repo) => repo.id === "new-local")).toHaveLength(1),
     );
   });
 

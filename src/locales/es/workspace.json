@@ -254,6 +254,19 @@
     "cloning": "Clonando…",
     "validation": { "url": "Introduce la URL del repositorio.", "destination": "Elige una carpeta de destino.", "name": "Introduce un nombre de carpeta válido." }
   },
+  "createRepository": {
+    "title": "Crear repositorio",
+    "description": "Inicializa un repositorio Git local sin crear un commit inicial.",
+    "name": "Nombre del repositorio",
+    "namePlaceholder": "mi-proyecto",
+    "destination": "Carpeta principal",
+    "choose": "Elegir…",
+    "initialBranch": "Rama inicial",
+    "back": "Atrás",
+    "submit": "Crear y abrir",
+    "creating": "Creando…",
+    "validation": { "name": "Introduce un nombre de repositorio válido.", "destination": "Elige una carpeta principal.", "branch": "Introduce un nombre de rama inicial válido." }
+  },
   "operations": {
     "running": "Ejecutando…",
     "progress": "{{completed}} / {{total}}",

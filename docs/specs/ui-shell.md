@@ -160,12 +160,12 @@ with a second owner.
 
 The onboarding surface has four stable choices: **Open Existing Repository**,
 **Scan Folder for Repositories**, **Clone Repository**, and **Create Repository**.
-It is also reached after creating a workspace during first run. The Create action
-remains visible with a localized disabled reason until its Phase 9.5 task lands, so
-the structure does not change as the remaining flow is filled in. The dialog follows the shell overlay
-contract: first-action focus, trapped Tab order, Escape dismissal, invoker focus
-restoration, and localized labels/descriptions. P9R-01 reuses the existing Open
-and Scan operations and adds no IPC or Git mutation.
+It is also reached after creating a workspace during first run. The dialog follows
+the shell overlay contract: first-action focus, trapped Tab order, Escape
+dismissal, invoker focus restoration, and localized labels/descriptions. P9R-01
+reuses the existing Open and Scan operations and adds no IPC or Git mutation;
+P9R-03 and P9R-05 fill the stable Clone and Create slots without adding a second
+owner for repository onboarding.
 
 Clone opens a second app-owned overlay with Repository URL, destination-parent
 picker, and repository-folder-name fields. Common HTTPS, SSH, and SCP-style Git
@@ -176,6 +176,17 @@ message-only phase), and Cancel targets the same operation ID. Stable transport
 and destination errors are localized without exposing raw Git output. Success
 publishes the returned repository into the workspace query at most once, closes
 the overlay, and selects it through the normal repository-detail navigation path.
+
+Create opens the corresponding app-owned overlay with repository name,
+parent-folder picker, and initial-branch fields. `main` is the visible default;
+unsafe directory or ref-like names and an absent parent folder keep **Create and
+open** disabled. The fields and navigation are locked while the local operation
+runs, and stable destination/registration failures are localized. Success
+publishes the returned repository into the workspace query at most once and
+selects it through the same navigation path as every other repository. An unborn
+`HEAD` is a normal repository state: the operation banner names it, history is an
+empty page rather than a read failure, and the ordinary working-changes/commit
+surface remains available for the first commit.
 
 The three metric cards are replaced by a single summary line:
 

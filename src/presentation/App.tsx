@@ -28,6 +28,7 @@ import { loadUiState, saveSelection } from "@/infrastructure/uiState";
 import { AllReposView } from "@/presentation/AllReposView";
 import { CommandPalette, type PaletteItem } from "@/presentation/CommandPalette";
 import { CloneRepositoryDialog } from "@/presentation/CloneRepositoryDialog";
+import { CreateRepositoryDialog } from "@/presentation/CreateRepositoryDialog";
 import { ErrorBoundary } from "@/presentation/ErrorBoundary";
 import { GlobalSearchDialog } from "@/presentation/GlobalSearchDialog";
 import { Onboarding } from "@/presentation/Onboarding";
@@ -82,6 +83,7 @@ export function App() {
     moveWorkspaceTo,
     openRepository,
     cloneRepository,
+    createRepository,
     importRepositories,
     removeRepository,
   } = useRepositories();
@@ -90,7 +92,9 @@ export function App() {
   const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<"choices" | "clone" | null>(null);
+  const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<
+    "choices" | "clone" | "create" | null
+  >(null);
   const [repoFilter, setRepoFilter] = useState("");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [repoDetailCommand, setRepoDetailCommand] = useState<RepoDetailCommand | null>(null);
@@ -609,6 +613,7 @@ export function App() {
           onOpenExisting={() => void openRepository()}
           onScanFolder={() => void importRepositories()}
           onClone={() => setRepositoryOnboardingStep("clone")}
+          onCreate={() => setRepositoryOnboardingStep("create")}
           onClose={() => setRepositoryOnboardingStep(null)}
         />
       )}
@@ -619,6 +624,18 @@ export function App() {
           operations={operations}
           onClone={cloneRepository}
           onCancelOperation={(operationId) => void cancelOperation(operationId)}
+          onSuccess={(result) => {
+            setRepositoryOnboardingStep(null);
+            void selectRepository(result.repository.workspaceId, result.repository.id);
+          }}
+          onBack={() => setRepositoryOnboardingStep("choices")}
+        />
+      )}
+
+      {repositoryOnboardingStep === "create" && selectedWorkspaceId && (
+        <CreateRepositoryDialog
+          workspaceId={selectedWorkspaceId}
+          onCreate={createRepository}
           onSuccess={(result) => {
             setRepositoryOnboardingStep(null);
             void selectRepository(result.repository.workspaceId, result.repository.id);

@@ -254,6 +254,19 @@
     "cloning": "Wird geklont…",
     "validation": { "url": "Repository-URL eingeben.", "destination": "Zielordner auswählen.", "name": "Einen gültigen Ordnernamen eingeben." }
   },
+  "createRepository": {
+    "title": "Repository erstellen",
+    "description": "Initialisiere ein lokales Git-Repository ohne ersten Commit.",
+    "name": "Repository-Name",
+    "namePlaceholder": "mein-projekt",
+    "destination": "Übergeordneter Ordner",
+    "choose": "Auswählen…",
+    "initialBranch": "Anfänglicher Branch",
+    "back": "Zurück",
+    "submit": "Erstellen und öffnen",
+    "creating": "Wird erstellt…",
+    "validation": { "name": "Gib einen gültigen Repository-Namen ein.", "destination": "Wähle einen übergeordneten Ordner.", "branch": "Gib einen gültigen anfänglichen Branch-Namen ein." }
+  },
   "operations": {
     "running": "Läuft…",
     "progress": "{{completed}} / {{total}}",

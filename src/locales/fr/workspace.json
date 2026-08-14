@@ -254,6 +254,19 @@
     "cloning": "Clonage…",
     "validation": { "url": "Saisissez l’URL du dépôt.", "destination": "Choisissez un dossier de destination.", "name": "Saisissez un nom de dossier valide." }
   },
+  "createRepository": {
+    "title": "Créer un dépôt",
+    "description": "Initialisez un dépôt Git local sans créer de commit initial.",
+    "name": "Nom du dépôt",
+    "namePlaceholder": "mon-projet",
+    "destination": "Dossier parent",
+    "choose": "Choisir…",
+    "initialBranch": "Branche initiale",
+    "back": "Retour",
+    "submit": "Créer et ouvrir",
+    "creating": "Création…",
+    "validation": { "name": "Saisissez un nom de dépôt valide.", "destination": "Choisissez un dossier parent.", "branch": "Saisissez un nom de branche initiale valide." }
+  },
   "operations": {
     "running": "En cours…",
     "progress": "{{completed}} / {{total}}",
