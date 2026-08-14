@@ -626,6 +626,128 @@ async fn remote_connection_lists_adds_preserves_config_and_can_fetch() {
 }
 
 #[tokio::test]
+async fn publish_sets_upstream_while_rejection_and_cancellation_preserve_local_work() {
+    let (_app_dir, services) = services().await;
+    let workspace = services
+        .workspaces
+        .create_workspace("Publish")
+        .await
+        .unwrap();
+
+    let (_success_dir, success_path) = fixture_repo("success");
+    let success = services
+        .workspaces
+        .add_repository(workspace.id, success_path.clone())
+        .await
+        .unwrap();
+    let bare_root = TempDir::new().unwrap();
+    let bare_path = bare_root.path().join("remote.git");
+    run_git_success(
+        bare_root.path(),
+        &["init", "--bare", bare_path.to_str().unwrap()],
+    );
+    services
+        .repos
+        .add_remote(success.id, "origin", bare_path.to_str().unwrap())
+        .await
+        .unwrap();
+
+    services
+        .repos
+        .publish_branch(success.id, None)
+        .await
+        .unwrap();
+
+    let local = Repository::open(&success_path).unwrap();
+    let local_head = local.head().unwrap().target().unwrap();
+    let config = local.config().unwrap();
+    assert_eq!(config.get_string("branch.main.remote").unwrap(), "origin");
+    assert_eq!(
+        config.get_string("branch.main.merge").unwrap(),
+        "refs/heads/main"
+    );
+    assert_eq!(
+        Repository::open_bare(&bare_path)
+            .unwrap()
+            .find_reference("refs/heads/main")
+            .unwrap()
+            .target()
+            .unwrap(),
+        local_head
+    );
+
+    let (_rejected_dir, rejected_path) = fixture_repo("rejected");
+    let rejected = services
+        .workspaces
+        .add_repository(workspace.id, rejected_path.clone())
+        .await
+        .unwrap();
+    let remote_dir = TempDir::new().unwrap();
+    let checked_out_remote = remote_dir.path().join("checked-out-remote");
+    run_git_success(
+        remote_dir.path(),
+        &[
+            "clone",
+            rejected_path.to_str().unwrap(),
+            checked_out_remote.to_str().unwrap(),
+        ],
+    );
+    services
+        .repos
+        .add_remote(rejected.id, "origin", checked_out_remote.to_str().unwrap())
+        .await
+        .unwrap();
+    std::fs::write(rejected_path.join("published.txt"), b"new commit\n").unwrap();
+    run_git_success(&rejected_path, &["add", "published.txt"]);
+    run_git_success(&rejected_path, &["commit", "-m", "Local commit"]);
+    std::fs::write(rejected_path.join("local-work.txt"), b"keep me\n").unwrap();
+    let rejected_head = Repository::open(&rejected_path)
+        .unwrap()
+        .head()
+        .unwrap()
+        .target()
+        .unwrap();
+
+    let rejection: AppError = services
+        .repos
+        .publish_branch(rejected.id, None)
+        .await
+        .expect_err("a checked-out non-bare destination must reject the push")
+        .into();
+    assert_eq!(rejection.code, "git_remote_rejected");
+    assert_eq!(
+        std::fs::read(rejected_path.join("local-work.txt")).unwrap(),
+        b"keep me\n"
+    );
+    let local = Repository::open(&rejected_path).unwrap();
+    assert_eq!(local.head().unwrap().target().unwrap(), rejected_head);
+    assert!(local
+        .config()
+        .unwrap()
+        .get_string("branch.main.remote")
+        .is_err());
+
+    let cancelled: AppError = services
+        .repos
+        .publish_branch_with_context(rejected.id, None, GitOperationContext::new(|_| {}, || true))
+        .await
+        .expect_err("pre-cancelled publish must not start or mutate local state")
+        .into();
+    assert_eq!(cancelled.code, "operation_cancelled");
+    assert_eq!(
+        std::fs::read(rejected_path.join("local-work.txt")).unwrap(),
+        b"keep me\n"
+    );
+    let local = Repository::open(&rejected_path).unwrap();
+    assert_eq!(local.head().unwrap().target().unwrap(), rejected_head);
+    assert!(local
+        .config()
+        .unwrap()
+        .get_string("branch.main.remote")
+        .is_err());
+}
+
+#[tokio::test]
 async fn clone_registers_once_and_validates_destination_before_execution() {
     let (_app_dir, services) = services().await;
     let (_source_dir, source) = fixture_repo("source");

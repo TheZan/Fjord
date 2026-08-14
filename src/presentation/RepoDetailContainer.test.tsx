@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPublishBranch, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -85,6 +85,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   checkoutBranch: vi.fn(async () => undefined),
   createBranchAt: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
+  runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
   runContinueOperation: vi.fn(() => ({
     operationId: "operation-continue",
     promise: Promise.resolve({
@@ -132,6 +133,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     operationState,
     onOperationControl,
     onOpenRecoveryCenter,
+    onPublishBranch,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -151,6 +153,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     operationState: import("@/domain/generated").RepoOperationState | null;
     onOperationControl: (control: import("@/domain/generated").OperationControl) => void;
     onOpenRecoveryCenter: () => void;
+    onPublishBranch: (branch: string) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -159,6 +162,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
+      <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
@@ -212,6 +216,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(createBranchAt).mockClear();
     vi.mocked(runPushRepo).mockClear();
+    vi.mocked(runPublishBranch).mockReset();
+    vi.mocked(runPublishBranch).mockReturnValue({
+      operationId: "publish-1",
+      promise: Promise.resolve(),
+    });
     vi.mocked(runContinueOperation).mockClear();
     vi.mocked(runStashAndCheckout).mockReset();
     vi.mocked(runStashAndCheckout).mockReturnValue({
@@ -272,6 +281,22 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(checkoutBranch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "confirm remote-checkout origin/feature" }));
     await waitFor(() => expect(checkoutBranch).toHaveBeenCalledWith("repo-1", "origin/feature"));
+  });
+
+  it("publishes explicitly and refreshes upstream state after success", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "push and set upstream" }));
+    expect(runPublishBranch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "confirm publish main" }));
+
+    await waitFor(() => expect(runPublishBranch).toHaveBeenCalledWith("repo-1"));
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock,
+      "repo-1",
+      "workspace-1",
+      ["status", "refs"],
+    ));
   });
 
   it("offers safe checkout recovery and reports the retained stash exactly", async () => {

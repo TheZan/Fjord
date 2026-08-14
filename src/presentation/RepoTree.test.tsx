@@ -64,7 +64,7 @@ describe("RepoTree", () => {
     const { rerender } = render(<RepoTree repoId="repo-1" onPublishBranch={onPublishBranch} />);
 
     expect(screen.getByText(/origin\/main.*↑2.*↓1/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "context.publishBranch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "remotes.pushAndSetUpstream" })).not.toBeInTheDocument();
 
     vi.mocked(useBranches).mockReturnValue({
       branches: [{ ...branches[0], upstream: null, ahead: 0, behind: 0 }],
@@ -72,8 +72,17 @@ describe("RepoTree", () => {
       error: null,
     });
     rerender(<RepoTree repoId="repo-1" onPublishBranch={onPublishBranch} />);
-    fireEvent.click(screen.getByRole("button", { name: "context.publishBranch" }));
+    fireEvent.click(screen.getByRole("button", { name: "remotes.pushAndSetUpstream" }));
     expect(onPublishBranch).toHaveBeenCalledWith("main");
+
+    vi.mocked(useBranches).mockReturnValue({
+      branches: [{ ...branches[0], upstream: "origin/main", ahead: 0, behind: 0 }],
+      loading: false,
+      error: null,
+    });
+    rerender(<RepoTree repoId="repo-1" onPublishBranch={onPublishBranch} />);
+    expect(screen.getByText(/origin\/main/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "remotes.pushAndSetUpstream" })).not.toBeInTheDocument();
   });
 
   it("selects, checks out, and moves keyboard focus between visible branches", () => {

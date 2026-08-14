@@ -410,7 +410,8 @@
     "fetchImmediately": "Nach dem Hinzufügen abrufen",
     "cancel": "Abbrechen",
     "submit": "Hinzufügen",
-    "adding": "Wird hinzugefügt…"
+    "adding": "Wird hinzugefügt…",
+    "pushAndSetUpstream": "Push & Upstream festlegen"
   },
   "working": {
     "title": "Nicht committete Änderungen",

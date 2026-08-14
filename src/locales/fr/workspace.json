@@ -410,7 +410,8 @@
     "fetchImmediately": "Récupérer après l’ajout",
     "cancel": "Annuler",
     "submit": "Ajouter",
-    "adding": "Ajout…"
+    "adding": "Ajout…",
+    "pushAndSetUpstream": "Envoyer et définir l’upstream"
   },
   "working": {
     "title": "Changements non commités",

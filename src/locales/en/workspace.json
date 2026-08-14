@@ -412,7 +412,8 @@
     "fetchImmediately": "Fetch after adding",
     "cancel": "Cancel",
     "submit": "Add",
-    "adding": "Adding…"
+    "adding": "Adding…",
+    "pushAndSetUpstream": "Push & Set Upstream"
   },
   "working": {
     "title": "Uncommitted changes",

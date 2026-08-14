@@ -420,7 +420,8 @@
     "fetchImmediately": "Получить изменения после добавления",
     "cancel": "Отмена",
     "submit": "Добавить",
-    "adding": "Добавление…"
+    "adding": "Добавление…",
+    "pushAndSetUpstream": "Отправить и задать upstream"
   },
   "working": {
     "title": "Незакоммиченные изменения",

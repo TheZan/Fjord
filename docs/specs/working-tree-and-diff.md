@@ -332,9 +332,12 @@ review" message.
 - Branch context gains **Set upstream…** (choose remote + remote branch) and
   **Unset upstream**, backed by new local commands `set_branch_upstream` /
   `unset_branch_upstream` — configuration writes, no network.
-- The existing `publish_branch` flow becomes reachable from branch context and
-  from a persistent affordance when the current branch has no upstream, instead of
-  only as a recovery from a failed push.
+- The existing `publish_branch` flow is exposed explicitly as **Push & Set
+  Upstream** from branch context and from a persistent affordance when the
+  current branch has no upstream, instead of only as recovery from a failed
+  push. Success refreshes refs/status so the row immediately names its new
+  upstream; cancellation or remote rejection leaves local work and upstream
+  configuration unchanged.
 - The branch row shows its upstream and divergence, so "which remote does this go
   to" is answerable without opening a dialog.
 

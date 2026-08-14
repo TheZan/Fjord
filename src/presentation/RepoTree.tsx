@@ -139,7 +139,7 @@ export function RepoTree({
                 <BranchRow
                   branch={branch}
                   currentLabel={t("branches.current")}
-                  publishLabel={t("context.publishBranch")}
+                  publishLabel={t("remotes.pushAndSetUpstream")}
                   focused={branch.name === focusedBranch}
                   onSelectBranch={onSelectBranch}
                   onCheckout={onCheckout}
@@ -168,7 +168,7 @@ export function RepoTree({
                   <BranchRow
                     branch={branch}
                     currentLabel={t("branches.current")}
-                    publishLabel={t("context.publishBranch")}
+                    publishLabel={t("remotes.pushAndSetUpstream")}
                     focused={branch.name === focusedBranch}
                     onSelectBranch={onSelectBranch}
                     onCheckout={onCheckout}
@@ -451,7 +451,7 @@ function branchMenuItems(
     { id: "rename", label: t("context.renameBranch"), icon: "branch", disabled: branch.isRemote },
     { id: "setUpstream", label: t("context.setUpstream"), icon: "branch", disabled: branch.isRemote || !hasRemoteBranches },
     { id: "unsetUpstream", label: t("context.unsetUpstream"), icon: "branch", disabled: branch.isRemote || !branch.upstream },
-    { id: "publish", label: t("context.publishBranch"), icon: "branch", disabled: branch.isRemote || !branch.isCurrent || Boolean(branch.upstream) },
+    { id: "publish", label: t("remotes.pushAndSetUpstream"), icon: "branch", disabled: branch.isRemote || !branch.isCurrent || Boolean(branch.upstream) },
     {
       id: branch.isRemote ? "deleteRemote" : "delete",
       label: branch.isRemote ? t("context.deleteRemoteBranch") : t("context.deleteBranch"),

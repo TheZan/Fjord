@@ -456,7 +456,9 @@ export function RepoDetailView({
         <ConfirmActionDialog
           title={t(`context.confirm.${confirmationKey(actionConfirmation)}.title`)}
           description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "origin" ? undefined : actionConfirmation.branch })}
-          confirmLabel={t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
+          confirmLabel={actionConfirmation.kind === "publish"
+            ? t("remotes.pushAndSetUpstream")
+            : t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
           danger={actionConfirmation.kind === "origin" && actionConfirmation.action === "stash-pop"}
           onClose={onCancelActionConfirmation}
           onConfirm={onConfirmAction}
