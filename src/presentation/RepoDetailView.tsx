@@ -71,16 +71,13 @@ export function RepoDetailView({
   onCreateBranch,
   onCreateBranchAt,
   onRenameBranch,
-  onDeleteBranch,
+  onPreflightAction,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
   onPublishBranch,
-  onDeleteRemoteBranch,
   onCreateTag,
-  onDeleteTag,
   onCherryPick,
   onRevertCommit,
-  onResetToCommit,
   utilities,
   onSelectCommit,
   onRevealCommit,
@@ -129,16 +126,13 @@ export function RepoDetailView({
   onCreateBranch: (name: string) => void;
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
-  onDeleteBranch: (name: string) => void;
+  onPreflightAction: (action: DestructiveAction) => void;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
   onPublishBranch: (branch: string) => void;
-  onDeleteRemoteBranch: (name: string) => void;
   onCreateTag: (name: string, target: string) => void;
-  onDeleteTag: (name: string) => void;
   onCherryPick: (commitId: string) => void;
   onRevertCommit: (commitId: string) => void;
-  onResetToCommit: (commitId: string, mode: "soft" | "mixed" | "hard") => void;
   utilities: ReactNode;
   onSelectCommit: (commit: CommitSummary) => void;
   onRevealCommit: (commit: CommitSummary) => void;
@@ -429,17 +423,16 @@ export function RepoDetailView({
           title={t(`context.confirm.${dialog.action}.title`)}
           description={t(`context.confirm.${dialog.action}.description`, { target: dialog.target })}
           confirmLabel={t(`context.confirm.${dialog.action}.button`)}
-          danger={dialog.action === "deleteBranch" || dialog.action === "deleteRemoteBranch" || dialog.action === "deleteTag" || dialog.action === "reset"}
+          danger={dialog.action === "reset"}
           resetModes={dialog.action === "reset"}
           onClose={() => setDialog(null)}
           onConfirm={(mode) => {
             setDialog(null);
-            if (dialog.action === "deleteBranch") onDeleteBranch(dialog.target);
-            if (dialog.action === "deleteRemoteBranch") onDeleteRemoteBranch(dialog.target);
-            if (dialog.action === "deleteTag") onDeleteTag(dialog.target);
             if (dialog.action === "cherryPick") onCherryPick(dialog.target);
             if (dialog.action === "revert") onRevertCommit(dialog.target);
-            if (dialog.action === "reset") onResetToCommit(dialog.target, mode ?? "mixed");
+            if (dialog.action === "reset") {
+              onPreflightAction({ kind: "reset", commitId: dialog.target, mode: mode ?? "mixed" });
+            }
           }}
         />
       )}
@@ -477,15 +470,19 @@ export function RepoDetailView({
       case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;
       case "unsetUpstream": onUnsetBranchUpstream(branch.name); break;
       case "publish": onPublishBranch(branch.name); break;
-      case "delete": setDialog({ kind: "confirm", action: "deleteBranch", target: branch.name }); break;
-      case "deleteRemote": setDialog({ kind: "confirm", action: "deleteRemoteBranch", target: branch.name }); break;
+      case "delete": onPreflightAction({ kind: "deleteBranch", name: branch.name }); break;
+      case "deleteRemote": {
+        const [remote, ...branchParts] = branch.name.split("/");
+        onPreflightAction({ kind: "deleteRemoteBranch", remote, branch: branchParts.join("/") });
+        break;
+      }
       case "copy": void copyText(branch.name); break;
     }
   }
 
   function handleTagContextAction(action: TagContextAction, tag: import("@/domain/git").TagInfo) {
     if (action === "createBranch") setDialog({ kind: "createBranch", target: tag.targetCommitId });
-    if (action === "delete") setDialog({ kind: "confirm", action: "deleteTag", target: tag.name });
+    if (action === "delete") onPreflightAction({ kind: "deleteTag", name: tag.name });
     if (action === "copy") void copyText(tag.name);
   }
 
@@ -547,7 +544,7 @@ type ContextDialog =
   | { kind: "renameBranch"; branch: string }
   | { kind: "createTag"; target: string }
   | { kind: "setUpstream"; branch: string; options: string[] }
-  | { kind: "confirm"; action: "deleteBranch" | "deleteRemoteBranch" | "deleteTag" | "cherryPick" | "revert" | "reset"; target: string };
+  | { kind: "confirm"; action: "cherryPick" | "revert" | "reset"; target: string };
 
 async function copyText(value: string) {
   await navigator.clipboard?.writeText(value);

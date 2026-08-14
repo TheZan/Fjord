@@ -224,15 +224,27 @@
     "commitSample": "Beispiel-Commits",
     "discard": { "title": "Änderungen verwerfen?", "confirm": "Änderungen verwerfen" },
     "forceWithLease": { "title": "Push mit Lease erzwingen?", "confirm": "Push erzwingen", "expectedOid": "Erwarteter Remote-Commit: {{oid}}" },
+    "reset": { "title": "Auf diesen Commit zurücksetzen?", "confirm": "Zurücksetzen" },
+    "deleteBranch": { "title": "Diesen Branch löschen?", "confirm": "Branch löschen" },
+    "deleteRemoteBranch": { "title": "Diesen Remote-Branch löschen?", "confirm": "Remote-Branch löschen" },
+    "deleteTag": { "title": "Dieses Tag löschen?", "confirm": "Tag löschen" },
+    "stashPop": { "title": "Diesen Stash anwenden und entfernen?", "confirm": "Stash anwenden" },
+    "checkoutDiscard": { "title": "Änderungen verwerfen und wechseln?", "confirm": "Verwerfen und wechseln" },
+    "abortOperation": { "title": "Diesen Git-Vorgang abbrechen?", "confirm": "Vorgang abbrechen" },
+    "recoveryRestore": { "title": "HEAD auf diesen Stand wiederherstellen?", "confirm": "HEAD wiederherstellen" },
     "recoverability": {
       "reflog": "Die Commits bleiben über das Reflog erreichbar und können im Wiederherstellungscenter wiederhergestellt werden.",
       "stash": "Ihre Änderungen werden im Stash gespeichert.",
-      "notRecoverable": "Diese nicht committeten Änderungen sind nirgends gespeichert und können nicht wiederhergestellt werden."
+      "notRecoverable": "Git bewahrt keine garantierte Wiederherstellungskopie dieser Änderungen auf. Fjord kann ihre Wiederherstellung nicht versprechen."
     },
     "blockers": {
       "binary_changes_unsupported": "Binäre Änderungen können in dieser Granularität nicht verworfen werden.",
       "selection_changed": "Der ausgewählte Diff stimmt nicht mehr mit der Datei überein.",
-      "no_changes_selected": "Die Auswahl enthält keine geänderten Zeilen."
+      "no_changes_selected": "Die Auswahl enthält keine geänderten Zeilen.",
+      "current_branch_cannot_be_deleted": "Der aktuell ausgecheckte Branch kann nicht gelöscht werden.",
+      "operation_not_in_progress": "Es gibt keinen Git-Vorgang zum Abbrechen.",
+      "ref_not_found": "Die Ziel-Referenz existiert nicht mehr.",
+      "stash_not_found": "Der ausgewählte Stash-Eintrag existiert nicht mehr."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Änderungen in {{count}} geänderter Datei verwerfen: {{sample}}.",
@@ -242,9 +254,11 @@
       "untrackedFilesDeleted_one": "{{count}} nicht verfolgte Datei löschen: {{sample}}.",
       "untrackedFilesDeleted_other": "{{count}} nicht verfolgte Dateien löschen: {{sample}}.",
       "stagedChangesDiscarded": "{{count}} bereitgestellte Änderungen verwerfen.",
-      "commitsUnreachable_one": "{{count}} Commit von der Remote-Referenz unerreichbar machen.",
-      "commitsUnreachable_other": "{{count}} Commits von der Remote-Referenz unerreichbar machen.",
+      "commitsUnreachable_one": "{{count}} Commit von den betroffenen Referenzen unerreichbar machen.",
+      "commitsUnreachable_other": "{{count}} Commits von den betroffenen Referenzen unerreichbar machen.",
       "branchDeleted": "Branch {{name}} löschen.",
+      "branchDeletedUnmerged": "Branch {{name}} löschen, der nicht in {{unmergedInto}} zusammengeführt ist.",
+      "tagDeleted": "Tag {{name}} löschen.",
       "stashEntryConsumed": "Stash {{index}} anwenden und verbrauchen: {{message}}.",
       "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen."
     }

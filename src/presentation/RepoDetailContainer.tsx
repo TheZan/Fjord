@@ -25,9 +25,6 @@ import {
   createBranch,
   createBranchAt,
   createTag,
-  deleteBranch,
-  deleteRemoteBranch,
-  deleteTag,
   discardPatch,
   getAmendInfo,
   invokeErrorCode,
@@ -41,14 +38,12 @@ import {
   runPushRepo,
   runContinueOperation,
   runSkipOperation,
-  runAbortOperation,
+  runExecuteDestructiveAction,
   setBranchUpstream,
   renameBranch,
-  resetToCommit,
   revertCommit,
   stageFiles,
   stagePatch,
-  stashPop,
   stashPush,
   unstageFiles,
   unstagePatch,
@@ -112,6 +107,7 @@ export function RepoDetailContainer({
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
+  const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const { error: autoFetchError } = useAutoFetch(repo.id, autoFetch);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -244,6 +240,10 @@ export function RepoDetailContainer({
       setActionError(t("operationBanner.blockedActions"));
       return;
     }
+    if (action === "stash-pop") {
+      setDestructiveAction({ kind: "stashPop", index: 0 });
+      return;
+    }
     if (needsConfirmation(action)) {
       setActionConfirmation({ kind: "origin", action });
       return;
@@ -270,14 +270,13 @@ export function RepoDetailContainer({
       return;
     }
 
-    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push">, () => Promise<void>> = {
+    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">, () => Promise<void>> = {
       stash: () => stashPush(repo.id),
-      "stash-pop": () => stashPop(repo.id),
       terminal: () => openTerminal(repo.id),
       "open-ide": () => openInIde(repo.id),
       "merge-tool": () => openMergeTool(repo.id),
     };
-    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push">;
+    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">;
     void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
@@ -341,20 +340,8 @@ export function RepoDetailContainer({
     });
   }
 
-  function onDeleteBranch(name: string) {
-    void runRepoAction("delete-branch", () => deleteBranch(repo.id, name), ["status", "refs"]);
-  }
-
-  function onDeleteRemoteBranch(name: string) {
-    void runRepoAction("delete-remote-branch", () => deleteRemoteBranch(repo.id, name), ["status", "refs"]);
-  }
-
   function onCreateTag(name: string, target: string) {
     void runRepoAction("create-tag", () => createTag(repo.id, name, target), ["refs"]);
-  }
-
-  function onDeleteTag(name: string) {
-    void runRepoAction("delete-tag", () => deleteTag(repo.id, name), ["refs"]);
   }
 
   function onCherryPick(commitId: string) {
@@ -375,10 +362,6 @@ export function RepoDetailContainer({
       undefined,
       true,
     );
-  }
-
-  function onResetToCommit(commitId: string, mode: "soft" | "mixed" | "hard") {
-    void runRepoAction("reset", () => resetToCommit(repo.id, commitId, mode), ["status", "working", "history", "refs"]);
   }
 
   function requestBranchGraphScroll(branch: string) {
@@ -418,14 +401,16 @@ export function RepoDetailContainer({
   }
 
   function onOperationControl(control: OperationControl) {
+    if (control === "abort") {
+      setDestructiveAction({ kind: "abortOperation" });
+      return;
+    }
     const start = (): OperationTask<RepoOperationState> => {
       switch (control) {
         case "continue":
           return runContinueOperation(repo.id);
         case "skip":
           return runSkipOperation(repo.id);
-        case "abort":
-          return runAbortOperation(repo.id);
       }
     };
     void runRepoAction(
@@ -601,16 +586,13 @@ export function RepoDetailContainer({
       onCreateBranch={onCreateBranch}
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
-      onDeleteBranch={onDeleteBranch}
+      onPreflightAction={setDestructiveAction}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
       onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
-      onDeleteRemoteBranch={onDeleteRemoteBranch}
       onCreateTag={onCreateTag}
-      onDeleteTag={onDeleteTag}
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}
-      onResetToCommit={onResetToCommit}
       utilities={utilities}
       onSelectCommit={onSelectCommit}
       onRevealCommit={onRevealCommit}
@@ -644,6 +626,36 @@ export function RepoDetailContainer({
         }}
       />
     ) : null}
+    {destructiveAction ? (
+      <DestructivePreflightDialog
+        repoId={repo.id}
+        action={destructiveAction}
+        onClose={() => setDestructiveAction(null)}
+        onConfirm={async (generations, confirmationToken) => {
+          const action = destructiveAction;
+          const ok = await runRepoAction(
+            `destructive-${action.kind}`,
+            async () => {
+              const task = runExecuteDestructiveAction(
+                repo.id,
+                action,
+                generations,
+                confirmationToken,
+              );
+              setActionOperationId(task.operationId);
+              const nextState = await task.promise;
+              if (nextState) {
+                queryClient.setQueryData(queryKeys.repos.operationState(repo.id), nextState);
+              }
+            },
+            scopesForDestructiveAction(action),
+            undefined,
+            action.kind === "abortOperation" || action.kind === "stashPop",
+          );
+          if (ok) setDestructiveAction(null);
+        }}
+      />
+    ) : null}
     </> : (
       <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <span className="text-[13px]" style={{ color: "var(--mist)" }}>
@@ -654,7 +666,7 @@ export function RepoDetailContainer({
   );
 }
 
-type ConfirmableAction = "fetch" | "pull" | "push" | "stash-pop";
+type ConfirmableAction = "fetch" | "pull" | "push";
 const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
 type ActionConfirmation =
@@ -663,11 +675,31 @@ type ActionConfirmation =
   | { kind: "publish"; branch: string };
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
-  return action === "fetch" || action === "pull" || action === "push" || action === "stash-pop";
+  return action === "fetch" || action === "pull" || action === "push";
 }
 
 function isNetworkAction(action: RepoAction): action is NetworkRepoAction {
   return action === "fetch" || action === "pull" || action === "push";
+}
+
+function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] {
+  switch (action.kind) {
+    case "deleteBranch":
+    case "deleteRemoteBranch":
+    case "deleteTag":
+      return ["status", "history", "refs"];
+    case "stashPop":
+      return ["status", "working", "stashes"];
+    case "reset":
+    case "checkoutDiscard":
+    case "recoveryRestore":
+      return ["status", "working", "history", "refs"];
+    case "abortOperation":
+      return ["status", "operation", "working", "history", "refs"];
+    case "discard":
+    case "forceWithLease":
+      return [];
+  }
 }
 
 function scopesForRepoAction(action: RepoAction): RepoDataScope[] {

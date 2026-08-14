@@ -226,15 +226,27 @@
     "commitSample": "Example commits",
     "discard": { "title": "Discard changes?", "confirm": "Discard changes" },
     "forceWithLease": { "title": "Force push with lease?", "confirm": "Force push", "expectedOid": "Expected remote commit: {{oid}}" },
+    "reset": { "title": "Reset to this commit?", "confirm": "Reset" },
+    "deleteBranch": { "title": "Delete this branch?", "confirm": "Delete branch" },
+    "deleteRemoteBranch": { "title": "Delete this remote branch?", "confirm": "Delete remote branch" },
+    "deleteTag": { "title": "Delete this tag?", "confirm": "Delete tag" },
+    "stashPop": { "title": "Apply and remove this stash?", "confirm": "Pop stash" },
+    "checkoutDiscard": { "title": "Discard changes and check out?", "confirm": "Discard and check out" },
+    "abortOperation": { "title": "Abort this Git operation?", "confirm": "Abort operation" },
+    "recoveryRestore": { "title": "Restore HEAD to this state?", "confirm": "Restore HEAD" },
     "recoverability": {
       "reflog": "The commits remain reachable through the reflog and can be restored from the Recovery Center.",
       "stash": "Your changes will be saved to the stash.",
-      "notRecoverable": "These uncommitted changes are not stored anywhere and cannot be restored."
+      "notRecoverable": "Git does not retain a guaranteed recovery copy of these changes. Fjord cannot promise they can be restored."
     },
     "blockers": {
       "binary_changes_unsupported": "Binary changes cannot be discarded at this granularity.",
       "selection_changed": "The selected diff no longer matches the file.",
-      "no_changes_selected": "The selection contains no changed lines."
+      "no_changes_selected": "The selection contains no changed lines.",
+      "current_branch_cannot_be_deleted": "The currently checked-out branch cannot be deleted.",
+      "operation_not_in_progress": "There is no Git operation to abort.",
+      "ref_not_found": "The target ref no longer exists.",
+      "stash_not_found": "The selected stash entry no longer exists."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Discard changes in {{count}} modified file: {{sample}}.",
@@ -244,9 +256,11 @@
       "untrackedFilesDeleted_one": "Delete {{count}} untracked file: {{sample}}.",
       "untrackedFilesDeleted_other": "Delete {{count}} untracked files: {{sample}}.",
       "stagedChangesDiscarded": "Discard {{count}} staged changes.",
-      "commitsUnreachable_one": "Make {{count}} commit unreachable from the remote ref.",
-      "commitsUnreachable_other": "Make {{count}} commits unreachable from the remote ref.",
+      "commitsUnreachable_one": "Make {{count}} commit unreachable from the affected refs.",
+      "commitsUnreachable_other": "Make {{count}} commits unreachable from the affected refs.",
       "branchDeleted": "Delete branch {{name}}.",
+      "branchDeletedUnmerged": "Delete branch {{name}}, which is not merged into {{unmergedInto}}.",
+      "tagDeleted": "Delete tag {{name}}.",
       "stashEntryConsumed": "Apply and consume stash {{index}}: {{message}}.",
       "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits."
     }

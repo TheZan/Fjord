@@ -224,15 +224,27 @@
     "commitSample": "Exemples de commits",
     "discard": { "title": "Abandonner les modifications ?", "confirm": "Abandonner les modifications" },
     "forceWithLease": { "title": "Forcer le push avec lease ?", "confirm": "Forcer le push", "expectedOid": "Commit distant attendu : {{oid}}" },
+    "reset": { "title": "Réinitialiser sur ce commit ?", "confirm": "Réinitialiser" },
+    "deleteBranch": { "title": "Supprimer cette branche ?", "confirm": "Supprimer la branche" },
+    "deleteRemoteBranch": { "title": "Supprimer cette branche distante ?", "confirm": "Supprimer la branche distante" },
+    "deleteTag": { "title": "Supprimer ce tag ?", "confirm": "Supprimer le tag" },
+    "stashPop": { "title": "Appliquer et retirer ce stash ?", "confirm": "Appliquer le stash" },
+    "checkoutDiscard": { "title": "Abandonner les modifications et changer de branche ?", "confirm": "Abandonner et changer" },
+    "abortOperation": { "title": "Abandonner cette opération Git ?", "confirm": "Abandonner l’opération" },
+    "recoveryRestore": { "title": "Restaurer HEAD à cet état ?", "confirm": "Restaurer HEAD" },
     "recoverability": {
       "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
       "stash": "Vos modifications seront enregistrées dans le stash.",
-      "notRecoverable": "Ces modifications non commitées ne sont enregistrées nulle part et ne peuvent pas être restaurées."
+      "notRecoverable": "Git ne conserve aucune copie de récupération garantie de ces changements. Fjord ne peut pas promettre leur restauration."
     },
     "blockers": {
       "binary_changes_unsupported": "Les modifications binaires ne peuvent pas être abandonnées à cette granularité.",
       "selection_changed": "Le diff sélectionné ne correspond plus au fichier.",
-      "no_changes_selected": "La sélection ne contient aucune ligne modifiée."
+      "no_changes_selected": "La sélection ne contient aucune ligne modifiée.",
+      "current_branch_cannot_be_deleted": "La branche actuellement extraite ne peut pas être supprimée.",
+      "operation_not_in_progress": "Aucune opération Git n’est en cours d’abandon.",
+      "ref_not_found": "La référence cible n’existe plus.",
+      "stash_not_found": "L’entrée de stash sélectionnée n’existe plus."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Abandonner les modifications dans {{count}} fichier modifié : {{sample}}.",
@@ -242,9 +254,11 @@
       "untrackedFilesDeleted_one": "Supprimer {{count}} fichier non suivi : {{sample}}.",
       "untrackedFilesDeleted_other": "Supprimer {{count}} fichiers non suivis : {{sample}}.",
       "stagedChangesDiscarded": "Abandonner {{count}} modifications indexées.",
-      "commitsUnreachable_one": "Rendre {{count}} commit inaccessible depuis la référence distante.",
-      "commitsUnreachable_other": "Rendre {{count}} commits inaccessibles depuis la référence distante.",
+      "commitsUnreachable_one": "Rendre {{count}} commit inaccessible depuis les références concernées.",
+      "commitsUnreachable_other": "Rendre {{count}} commits inaccessibles depuis les références concernées.",
       "branchDeleted": "Supprimer la branche {{name}}.",
+      "branchDeletedUnmerged": "Supprimer la branche {{name}}, qui n’est pas fusionnée dans {{unmergedInto}}.",
+      "tagDeleted": "Supprimer le tag {{name}}.",
       "stashEntryConsumed": "Appliquer et consommer le stash {{index}} : {{message}}.",
       "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants."
     }

@@ -36,6 +36,7 @@ use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
 mod destructive_confirmation;
+mod destructive_execution;
 mod destructive_preflight;
 mod diff;
 mod history;
@@ -499,6 +500,47 @@ impl GitBackend for LocalGitBackend {
         }
         self.destructive_confirmations
             .issue_action(repo, action, generations)
+    }
+
+    async fn consume_action_confirmation(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        expected_generations: crate::GenerationSet,
+        confirmation_token: &str,
+    ) -> Result<(), GitError> {
+        if runtime::generations(repo)? != expected_generations {
+            return Err(GitError::PreflightStale);
+        }
+        self.destructive_confirmations.consume_action(
+            confirmation_token,
+            repo,
+            action,
+            expected_generations,
+        )
+    }
+
+    async fn execute_confirmed_destructive_action(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        expected_generations: crate::GenerationSet,
+        confirmation_token: &str,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<Option<fjord_domain::RepoOperationState>, GitError> {
+        destructive_execution::execute(
+            destructive_execution::ExecutionDependencies {
+                commands: &self.commands,
+                confirmations: &self.destructive_confirmations,
+                origins: &self.operation_origins,
+            },
+            repo,
+            action,
+            expected_generations,
+            confirmation_token,
+            context,
+        )
+        .await
     }
 
     async fn discard_patch(

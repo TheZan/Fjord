@@ -6,6 +6,7 @@ use crate::GenerationSet;
 use fjord_domain::{
     Consequence, OperationControl, RebaseKind, Recoverability, RepoOperation, ResetMode,
 };
+use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
 use std::io::Write as _;
 use std::path::Path;
@@ -4147,6 +4148,91 @@ async fn every_new_reflog_labeled_action_writes_a_head_reflog_entry() {
             .len();
         assert_eq!(after, before + 1, "{action:?} promised a reflog entry");
     }
+}
+
+#[tokio::test]
+async fn confirmed_destructive_execution_is_exact_atomic_and_one_use() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.txt", "base\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    let base = backend.commit(&repo_path, "Base").await.unwrap();
+    write_file(&repo_path, "tracked.txt", "next\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Next").await.unwrap();
+    let action = DestructiveAction::Reset {
+        commit_id: base.clone(),
+        mode: ResetMode::Hard,
+    };
+    let generations = backend.generations(&repo_path).unwrap();
+    let token = backend
+        .issue_action_confirmation(&repo_path, &action, generations)
+        .await
+        .unwrap();
+
+    let substituted = backend
+        .execute_confirmed_destructive_action(
+            &repo_path,
+            &DestructiveAction::DeleteTag { name: "v1".into() },
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(substituted, Err(GitError::PreflightStale)));
+    assert_ne!(
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .target()
+            .unwrap()
+            .to_string(),
+        base
+    );
+
+    let token = backend
+        .issue_action_confirmation(&repo_path, &action, generations)
+        .await
+        .unwrap();
+    backend
+        .execute_confirmed_destructive_action(
+            &repo_path,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        Repository::open(&repo_path.0)
+            .unwrap()
+            .head()
+            .unwrap()
+            .target()
+            .unwrap()
+            .to_string(),
+        base
+    );
+    assert!(matches!(
+        backend
+            .execute_confirmed_destructive_action(
+                &repo_path,
+                &action,
+                generations,
+                &token,
+                GitOperationContext::default(),
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
 }
 
 #[tokio::test]

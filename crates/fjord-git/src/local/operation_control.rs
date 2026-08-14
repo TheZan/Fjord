@@ -34,15 +34,25 @@ pub(super) async fn run(
 ) -> Result<RepoOperationState, GitError> {
     let repo = repo.clone();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
-    let before = current_state(&repo, &origins)?;
+    run_locked(commands, origins, &repo, action, context).await
+}
+
+pub(super) async fn run_locked(
+    commands: GitCommandFactory,
+    origins: Arc<OperationOriginTracker>,
+    repo: &RepoPath,
+    action: OperationAction,
+    context: GitOperationContext,
+) -> Result<RepoOperationState, GitError> {
+    let before = current_state(repo, &origins)?;
     let args = command_args(action, &before)?;
-    let spec = command_spec(commands.executable()?, &repo, args);
+    let spec = command_spec(commands.executable()?, repo, args);
 
     // Even a command that exits unsuccessfully can advance a sequencer to its
     // next (possibly conflicted) step. Invalidate every observable domain once
     // Git has been given control so the detectable state is never hidden.
     let process_result = GitProcessRunner.run(&spec, context, None).await;
-    bump_repository_mutation(&repo, MutationKind::OperationStep);
+    bump_repository_mutation(repo, MutationKind::OperationStep);
     let result = process_result.map_err(map_process_error)?;
     if result.exit_code != Some(0) {
         return Err(GitError::OperationStepFailed(step_diagnostics(
@@ -51,7 +61,7 @@ pub(super) async fn run(
         )));
     }
 
-    current_state(&repo, &origins)
+    current_state(repo, &origins)
 }
 
 fn current_state(

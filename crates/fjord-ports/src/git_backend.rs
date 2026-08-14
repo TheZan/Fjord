@@ -485,6 +485,32 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<String, GitError> {
         Err(GitError::NotImplemented("issue_action_confirmation"))
     }
+    /// Consumes an action-only confirmation after checking the complete
+    /// repository/action/generation binding. Used when execution belongs to a
+    /// different adapter, such as remote transport.
+    async fn consume_action_confirmation(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _expected_generations: GenerationSet,
+        _confirmation_token: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("consume_action_confirmation"))
+    }
+    /// Atomically consumes a confirmation and executes a local destructive
+    /// action under the repository write lock.
+    async fn execute_confirmed_destructive_action(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _expected_generations: GenerationSet,
+        _confirmation_token: &str,
+        _context: GitOperationContext,
+    ) -> Result<Option<RepoOperationState>, GitError> {
+        Err(GitError::NotImplemented(
+            "execute_confirmed_destructive_action",
+        ))
+    }
     /// Discards a verified index-to-worktree selection only after atomically
     /// validating and consuming its backend-issued confirmation.
     async fn discard_patch(

@@ -75,7 +75,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Backend `whitespace` flags determine the displayed hunk structure. `load_anyway` overrides only the source-file display ceiling; response bounds remain mandatory. Every page independently carries its served `offset`, the full diff's `baseDigest`, and complete `GenerationSet`; the digest and existing `working_tree` generation are captured coherently and retained for cross-page validation. Partial patch actions are unavailable unless `whitespace = show`. |
 | `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
-| `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Phase 8 consequences. Discard binds the exact `PatchSelection`; force-with-lease accepts only the action intent and returns display facts resolved from backend Git state. Both return a short-lived token bound to repository, action, authoritative facts, and coherent generation stamp. |
+| `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Bounded consequences for all destructive actions. Returns a short-lived token bound to repository, exact action/scope, authoritative facts, and coherent generation stamp. |
+| `execute_destructive_action` | `{ repo_id, action, expected_generations, confirmation_token, operation_id? }` | `RepoOperationState?` | Atomically consumes the exact P9 confirmation before local execution; remote deletion consumes it before transport. Returns the new state for operation abort and `null` otherwise. |
 
 ### Repository mutations (local)
 
@@ -85,10 +86,11 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |
-| `delete_branch` | `{ repo_id, name }` | — | Local branch |
+| `delete_branch` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound local branch deletion |
 | `set_branch_upstream` | `{ repo_id, branch, upstream }` | — | Local config write; `upstream` must name an existing remote-tracking branch |
 | `unset_branch_upstream` | `{ repo_id, branch }` | — | Local config write; no network operation |
-| `create_tag` / `delete_tag` | `{ repo_id, name, target? }` | — | Lightweight tags |
+| `create_tag` | `{ repo_id, name, target }` | — | Lightweight tag |
+| `delete_tag` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound tag deletion |
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
@@ -97,13 +99,13 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
-| `reset_to_commit` | `{ repo_id, commit_id, mode }` | — | `soft` \| `mixed` \| `hard` |
+| `reset_to_commit` | `{ repo_id, commit_id, mode, expected_generations, confirmation_token }` | — | Confirmation-bound `soft` \| `mixed` \| `hard` reset |
 | `stash_push` | `{ repo_id, message? }` | — | |
-| `stash_pop` | `{ repo_id }` | — | Applies and drops `stash@{0}` |
+| `stash_pop` | `{ repo_id, expected_generations, confirmation_token }` | — | Confirmation-bound apply and drop of `stash@{0}` |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `continue_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected merge/rebase/cherry-pick/revert sequencer and returns its new state; refuses unresolved conflicts |
 | `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
-| `abort_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected operation (`bisect reset` for bisect) and returns its new state; destructive preflight is added by P9-05 |
+| `abort_operation` | `{ repo_id, expected_generations, confirmation_token, operation_id? }` | `RepoOperationState` | Confirmation-bound dispatch to the detected operation (`bisect reset` for bisect), returning its new state |
 
 ### Remote operations (system Git)
 
@@ -113,7 +115,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `pull_repo` | `{ repo_id, operation_id? }` | — | System fetch + local integration; never `git pull` |
 | `push_repo` | `{ repo_id, force_with_lease, expected_generations?, confirmation_token?, operation_id? }` | — | Normal target is resolved from the branch's upstream; `no_upstream` → publish. Force mode requires the one-use preflight token and executes only its backend-bound remote/ref/OIDs. |
 | `publish_branch` | `{ repo_id, remote?, operation_id? }` | — | The only operation allowed to name a default remote |
-| `delete_remote_branch` | `{ repo_id, name }` | — | `git push <remote> --delete` |
+| `delete_remote_branch` | `{ repo_id, name, expected_generations, confirmation_token }` | — | Confirmation-bound `git push <remote> --delete` |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Bounded worker pool; per-repo results, one failure does not abort the batch |
 
 ### Operations, authentication, and tools

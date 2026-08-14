@@ -58,7 +58,7 @@ export function DestructivePreflightDialog({
     };
   }, [action, loadPreflight, patchSelection, repoId]);
 
-  const actionName = action.kind === "discard" ? "discard" : "forceWithLease";
+  const actionName = action.kind;
   const blocked = Boolean(preflight?.blockers.length);
 
   async function confirm() {
@@ -188,7 +188,14 @@ function ConsequenceItem({ consequence }: { consequence: Consequence }) {
         </li>
       );
     case "branchDeleted":
-      return <li>{t("preflight.consequences.branchDeleted", consequence)}</li>;
+      return <li>{t(
+        consequence.unmergedInto
+          ? "preflight.consequences.branchDeletedUnmerged"
+          : "preflight.consequences.branchDeleted",
+        consequence,
+      )}</li>;
+    case "tagDeleted":
+      return <li>{t("preflight.consequences.tagDeleted", consequence)}</li>;
     case "stashEntryConsumed":
       return <li>{t("preflight.consequences.stashEntryConsumed", consequence)}</li>;
     case "remoteRefUpdated":

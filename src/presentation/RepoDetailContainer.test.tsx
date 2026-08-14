@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPushRepo, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -89,6 +89,10 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
       detectedExternally: false,
     }),
   })),
+  runExecuteDestructiveAction: vi.fn(() => ({
+    operationId: "operation-destructive",
+    promise: Promise.resolve(null),
+  })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -119,7 +123,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOperationControl,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
-    onAction: (action: "push") => void;
+    onAction: (action: "push" | "stash-pop") => void;
     onCheckout: (branch: string) => void;
     onConfirmAction: () => void;
     onApplyHunk: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
@@ -140,6 +144,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <output data-testid="action-error">{actionError ?? ""}</output>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
+      <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
       <button type="button" onClick={() => void onDiscardPatch(
@@ -150,7 +155,10 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       )}>discard lines</button>
       <button type="button" onClick={() => void onCommit("Ship it", false, true)}>commit and push</button>
       {operationState?.operation.kind !== "normal" ? (
-        <button type="button" onClick={() => onOperationControl("continue")}>continue operation</button>
+        <>
+          <button type="button" onClick={() => onOperationControl("continue")}>continue operation</button>
+          <button type="button" onClick={() => onOperationControl("abort")}>abort operation</button>
+        </>
       ) : null}
       {actionConfirmation ? (
         <button type="button" onClick={onConfirmAction}>
@@ -174,6 +182,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(checkoutBranch).mockClear();
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runContinueOperation).mockClear();
+    vi.mocked(runExecuteDestructiveAction).mockReset();
+    vi.mocked(runExecuteDestructiveAction).mockReturnValue({
+      operationId: "operation-destructive",
+      promise: Promise.resolve(null),
+    });
     vi.mocked(runCommitAndPushRepo).mockReset();
     vi.mocked(runCommitAndPushRepo).mockReturnValue({
       operationId: "operation-commit-push",
@@ -312,6 +325,31 @@ describe("RepoDetailContainer checkout confirmation", () => {
     await waitFor(() => expect(screen.getByTestId("action-pending").textContent).toBe(""));
     expect(screen.queryByText("preflight.forceWithLease.title")).not.toBeInTheDocument();
     expect(preflightDestructiveAction).not.toHaveBeenCalled();
+  });
+
+  it("routes stash pop through fresh shared preflight facts and the bound executor", async () => {
+    const action = { kind: "stashPop" as const, index: 0 };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "stash-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "stash-token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "stash pop" }));
+    expect(await screen.findByText("preflight.stashPop.title")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "preflight.stashPop.confirm" }));
+
+    await waitFor(() => expect(runExecuteDestructiveAction).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "stash-token-2",
+    ));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo-1",
+      "workspace-1",
+      ["status", "working", "stashes"],
+    );
   });
 
   it("refreshes rather than retrying a stale hunk selection", async () => {
@@ -488,6 +526,31 @@ describe("RepoDetailContainer checkout confirmation", () => {
       ["status", "operation", "working", "history", "refs"],
     );
   });
+
+  it("routes operation abort through destructive preflight", async () => {
+    operationStateMock.state = {
+      operation: { kind: "merge", head: "topic", incoming: ["topic"] },
+      conflictedPaths: ["conflict.txt"],
+      available: ["abort"],
+      detectedExternally: true,
+    };
+    const action = { kind: "abortOperation" as const };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "abort-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "abort-token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "abort operation" }));
+    expect(await screen.findByText("preflight.abortOperation.title")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "preflight.abortOperation.confirm" }));
+
+    await waitFor(() => expect(runExecuteDestructiveAction).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "abort-token-2",
+    ));
+  });
 });
 
 function renderContainer() {
@@ -519,6 +582,21 @@ function forcePreflight(confirmationToken: string) {
       refName: "refs/heads/main",
       expectedOid: "abc123",
     },
+    confirmationToken,
+  };
+}
+
+function actionPreflight(
+  action: import("@/domain/git").DestructiveAction,
+  confirmationToken: string,
+) {
+  return {
+    action,
+    consequences: [],
+    recoverable: "notRecoverable" as const,
+    blockers: [],
+    generations: { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+    forceWithLease: null,
     confirmationToken,
   };
 }

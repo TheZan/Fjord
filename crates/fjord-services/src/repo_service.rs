@@ -860,6 +860,51 @@ impl RepoService {
         Err(RepoError::PreflightChangedDuringCapture)
     }
 
+    /// Executes only the exact action confirmed by the backend-issued token.
+    /// Local mutations consume and act under one repository write lock; remote
+    /// deletion consumes the same binding before entering transport.
+    pub async fn execute_destructive_action(
+        &self,
+        repo_id: RepositoryId,
+        action: &DestructiveAction,
+        expected_generations: GenerationSet,
+        confirmation_token: &str,
+        context: GitOperationContext,
+    ) -> Result<Option<RepoOperationState>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let path = RepoPath::new(repo.path);
+        if let DestructiveAction::DeleteRemoteBranch { remote, branch } = action {
+            self.git
+                .consume_action_confirmation(
+                    &path,
+                    action,
+                    expected_generations,
+                    confirmation_token,
+                )
+                .await?;
+            let settings = self.settings.get_settings().await?;
+            self.remote
+                .delete_remote_branch(
+                    &path,
+                    remote,
+                    branch,
+                    context.with_git_executable_path(settings.git_executable_path),
+                )
+                .await?;
+            return Ok(None);
+        }
+        Ok(self
+            .git
+            .execute_confirmed_destructive_action(
+                &path,
+                action,
+                expected_generations,
+                confirmation_token,
+                context,
+            )
+            .await?)
+    }
+
     pub async fn create_branch(
         &self,
         repo_id: RepositoryId,
@@ -1680,6 +1725,7 @@ mod tests {
         GenerationSet,
         String,
     );
+    type RecordedDestructive = (PathBuf, DestructiveAction, GenerationSet, String);
 
     #[derive(Default)]
     struct FakeGit {
@@ -1690,6 +1736,7 @@ mod tests {
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         discard_patch_call: Mutex<Option<RecordedDiscard>>,
+        destructive_action_call: Mutex<Option<RecordedDestructive>>,
     }
 
     /// Remote and refspecs of one recorded call.
@@ -2231,6 +2278,23 @@ mod tests {
             _generations: GenerationSet,
         ) -> Result<String, GitError> {
             Ok("action-confirmation-token".to_string())
+        }
+
+        async fn execute_confirmed_destructive_action(
+            &self,
+            repo: &RepoPath,
+            action: &DestructiveAction,
+            expected_generations: GenerationSet,
+            confirmation_token: &str,
+            _context: GitOperationContext,
+        ) -> Result<Option<RepoOperationState>, GitError> {
+            *self.destructive_action_call.lock().unwrap() = Some((
+                repo.0.clone(),
+                action.clone(),
+                expected_generations,
+                confirmation_token.to_string(),
+            ));
+            Ok(None)
         }
 
         async fn discard_patch(
@@ -3282,6 +3346,38 @@ mod tests {
             Consequence::CommitsUnreachable { count: 7, sample }
                 if sample.len() == PREFLIGHT_SAMPLE_LIMIT
         )));
+    }
+
+    #[tokio::test]
+    async fn confirmed_destructive_execution_forwards_the_exact_backend_binding() {
+        let (repo, git, _, service) = service_with_fake_git();
+        let action = DestructiveAction::Reset {
+            commit_id: "target".into(),
+            mode: fjord_domain::ResetMode::Hard,
+        };
+        let generations = GenerationSet {
+            working_tree: 3,
+            refs: 2,
+            history: 1,
+            stash: 0,
+            config: 0,
+        };
+
+        service
+            .execute_destructive_action(
+                repo.id,
+                &action,
+                generations,
+                "bound-token",
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            git.destructive_action_call.lock().unwrap().as_ref(),
+            Some(&(repo.path, action, generations, "bound-token".to_string(),))
+        );
     }
 
     #[tokio::test]

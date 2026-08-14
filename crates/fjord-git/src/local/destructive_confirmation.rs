@@ -138,6 +138,30 @@ impl DestructiveConfirmationStore {
         Ok(token)
     }
 
+    pub(super) fn consume_action(
+        &self,
+        token: &str,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: GenerationSet,
+    ) -> Result<(), GitError> {
+        let pending = self
+            .entries
+            .lock()
+            .map_err(|_| GitError::PreflightStale)?
+            .remove(token)
+            .ok_or(GitError::PreflightStale)?;
+        if Instant::now() >= pending.expires_at
+            || pending.repo != repository_key(repo)
+            || pending.action != *action
+            || pending.generations != generations
+            || !matches!(pending.binding, ConfirmationBinding::Action)
+        {
+            return Err(GitError::PreflightStale);
+        }
+        Ok(())
+    }
+
     pub(super) fn consume_force_push(
         &self,
         token: &str,

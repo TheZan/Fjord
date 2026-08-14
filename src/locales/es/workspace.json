@@ -224,15 +224,27 @@
     "commitSample": "Commits de ejemplo",
     "discard": { "title": "¿Descartar cambios?", "confirm": "Descartar cambios" },
     "forceWithLease": { "title": "¿Forzar push con lease?", "confirm": "Forzar push", "expectedOid": "Commit remoto esperado: {{oid}}" },
+    "reset": { "title": "¿Restablecer a este commit?", "confirm": "Restablecer" },
+    "deleteBranch": { "title": "¿Eliminar esta rama?", "confirm": "Eliminar rama" },
+    "deleteRemoteBranch": { "title": "¿Eliminar esta rama remota?", "confirm": "Eliminar rama remota" },
+    "deleteTag": { "title": "¿Eliminar esta etiqueta?", "confirm": "Eliminar etiqueta" },
+    "stashPop": { "title": "¿Aplicar y eliminar este stash?", "confirm": "Aplicar stash" },
+    "checkoutDiscard": { "title": "¿Descartar cambios y cambiar de rama?", "confirm": "Descartar y cambiar" },
+    "abortOperation": { "title": "¿Abortar esta operación de Git?", "confirm": "Abortar operación" },
+    "recoveryRestore": { "title": "¿Restaurar HEAD a este estado?", "confirm": "Restaurar HEAD" },
     "recoverability": {
       "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
       "stash": "Tus cambios se guardarán en el stash.",
-      "notRecoverable": "Estos cambios sin commit no están guardados en ningún lugar y no se pueden restaurar."
+      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración."
     },
     "blockers": {
       "binary_changes_unsupported": "Los cambios binarios no se pueden descartar con esta granularidad.",
       "selection_changed": "El diff seleccionado ya no coincide con el archivo.",
-      "no_changes_selected": "La selección no contiene líneas modificadas."
+      "no_changes_selected": "La selección no contiene líneas modificadas.",
+      "current_branch_cannot_be_deleted": "No se puede eliminar la rama actualmente activa.",
+      "operation_not_in_progress": "No hay ninguna operación de Git que abortar.",
+      "ref_not_found": "La referencia de destino ya no existe.",
+      "stash_not_found": "La entrada de stash seleccionada ya no existe."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
@@ -242,9 +254,11 @@
       "untrackedFilesDeleted_one": "Eliminar {{count}} archivo sin seguimiento: {{sample}}.",
       "untrackedFilesDeleted_other": "Eliminar {{count}} archivos sin seguimiento: {{sample}}.",
       "stagedChangesDiscarded": "Descartar {{count}} cambios preparados.",
-      "commitsUnreachable_one": "Hacer que {{count}} commit deje de ser accesible desde la referencia remota.",
-      "commitsUnreachable_other": "Hacer que {{count}} commits dejen de ser accesibles desde la referencia remota.",
+      "commitsUnreachable_one": "Hacer que {{count}} commit deje de ser accesible desde las referencias afectadas.",
+      "commitsUnreachable_other": "Hacer que {{count}} commits dejen de ser accesibles desde las referencias afectadas.",
       "branchDeleted": "Eliminar la rama {{name}}.",
+      "branchDeletedUnmerged": "Eliminar la rama {{name}}, que no está fusionada en {{unmergedInto}}.",
+      "tagDeleted": "Eliminar la etiqueta {{name}}.",
       "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
       "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos."
     }

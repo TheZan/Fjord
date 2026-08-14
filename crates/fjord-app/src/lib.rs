@@ -108,6 +108,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_working_changes,
             commands::get_working_file_diff,
             commands::preflight_destructive_action,
+            commands::execute_destructive_action,
             commands::create_branch,
             commands::create_branch_at,
             commands::rename_branch,

@@ -67,9 +67,9 @@ resolution.
 |---|---|
 | Operation state | ✅ P9-01–P9-04 implement the domain model, local detector, typed IPC/query and snapshot-schema-v2 inclusion, cancellable continue/skip/abort controls, and the persistent operation banner. Controls return the newly detected state and advance `working_tree`/`refs`/`history` generations after a launched step. |
 | Conflict UI | ✅ The operation banner identifies the sequencer, rebase progress, external origin, bounded conflicted-file sample, legal controls, and merge-tool handoff. Conflicted files remain flagged in the working list (`WorkingFile.conflicted`); conflict content stays owned by the external merge tool. |
-| Destructive preflight | ✅ One bounded domain/IPC contract now computes generation-coherent backend facts for Phase 8 discard/force-with-lease and every P9-05 action: reset, local/remote branch and tag deletion, stash pop, checkout discard, operation abort, and Recovery Center restore. Phase 9 actions receive short-lived action-bound tokens; P9-06 still owns shared-dialog rendering and confirmation-time execution wiring. |
-| Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)` plus P9-05 preflight facts for soft/mixed/hard and Recovery Center restore. P9-06 still wires execution through the shared confirmation. |
-| Branch deletion | ✅ `delete_branch`, `delete_remote_branch`; P9-05 preflight reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability. P9-06 still wires execution through it. |
+| Destructive preflight | ✅ One bounded domain/IPC/dialog contract computes generation-coherent facts for Phase 8 discard/force-with-lease and every P9-05 action. P9-06 renders every action/blocker/recovery label through the shared dialog, re-runs preflight at confirmation, and consumes the exact one-use binding before execution. |
+| Reset | ✅ Soft/mixed/hard and Recovery Center restore have concrete facts and execute only through a fresh confirmation token. |
+| Branch deletion | ✅ Local/remote deletion reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability, then executes only the confirmed action. |
 | Checkout | ⚠️ `checkout_branch`; remote branches materialize via a targeted fetch first (`remote_checkout_refspec` + `checkout_local`). No overwrite preflight, no stash-and-checkout. |
 | Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, and exact stash-entry consumption facts. |
 | Reflog | 🚧 Absent from the domain, ports, IPC, and UI. |
@@ -252,6 +252,14 @@ commits from that plan and binds the complete plan to the same short-lived,
 one-use confirmation model. Execution consumes the token and re-resolves the
 plan; it never accepts remote/ref/OID facts from IPC.
 
+For Phase 9 action-only confirmations, the token is bound to the repository,
+complete `DestructiveAction`, and `GenerationSet`. Local execution rechecks and
+consumes the token while holding the repository write lock, then runs the exact
+bound command before releasing that lock. Remote branch deletion consumes the
+same binding before entering `GitRemoteBackend`; remote and branch names come
+from the bound action, never from a second untrusted parameter. Substitution,
+expiry, generation drift, and replay all fail as `preflight_stale`.
+
 Discard execution additionally holds Git's resolved per-worktree `index.lock`
 from repository reconstruction through the final contextual worktree apply.
 This is the lock standard index/worktree Git mutations honor, so an external
@@ -276,9 +284,10 @@ Ownership is intentionally split without splitting the contract: `P8-00`
 implements the model, IPC command, shared dialog, and confirmation-time generation
 revalidation for Phase 8 discard and force-with-lease. `P9-05` extends the same
 exhaustive action enum and backend fact/token path to reset, deletion, stash pop,
-checkout, operation abort, and recovery; `P9-06` extends the dialog and execution
-wiring. Therefore no Phase 8 destructive action waits for a future phase, while
-Phase 9 does not create a competing preflight abstraction.
+checkout, operation abort, and recovery; `P9-06` extends the dialog and exact
+confirmation-bound execution wiring. Therefore no Phase 8 destructive action
+waits for a future phase, while Phase 9 does not create a competing preflight
+abstraction.
 
 ### 4. Safe checkout
 

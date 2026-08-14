@@ -226,15 +226,27 @@
     "commitSample": "Примеры коммитов",
     "discard": { "title": "Отменить изменения?", "confirm": "Отменить изменения" },
     "forceWithLease": { "title": "Принудительно отправить с lease?", "confirm": "Принудительно отправить", "expectedOid": "Ожидаемый коммит в remote: {{oid}}" },
+    "reset": { "title": "Сбросить состояние до этого коммита?", "confirm": "Сбросить" },
+    "deleteBranch": { "title": "Удалить эту ветку?", "confirm": "Удалить ветку" },
+    "deleteRemoteBranch": { "title": "Удалить ветку в remote?", "confirm": "Удалить ветку в remote" },
+    "deleteTag": { "title": "Удалить этот тег?", "confirm": "Удалить тег" },
+    "stashPop": { "title": "Применить и удалить этот stash?", "confirm": "Применить stash" },
+    "checkoutDiscard": { "title": "Отменить изменения и переключиться?", "confirm": "Отменить и переключиться" },
+    "abortOperation": { "title": "Прервать операцию Git?", "confirm": "Прервать операцию" },
+    "recoveryRestore": { "title": "Восстановить HEAD до этого состояния?", "confirm": "Восстановить HEAD" },
     "recoverability": {
       "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
       "stash": "Изменения будут сохранены в stash.",
-      "notRecoverable": "Эти незакоммиченные изменения нигде не сохранены, и восстановить их будет нельзя."
+      "notRecoverable": "Git не гарантирует сохранение резервной копии этих изменений. Fjord не может обещать их восстановление."
     },
     "blockers": {
       "binary_changes_unsupported": "Двоичные изменения нельзя отменить с такой детализацией.",
       "selection_changed": "Выбранный diff больше не соответствует файлу.",
-      "no_changes_selected": "В выбранном диапазоне нет изменённых строк."
+      "no_changes_selected": "В выбранном диапазоне нет изменённых строк.",
+      "current_branch_cannot_be_deleted": "Нельзя удалить ветку, на которую сейчас переключён репозиторий.",
+      "operation_not_in_progress": "Нет операции Git, которую можно прервать.",
+      "ref_not_found": "Целевая ссылка больше не существует.",
+      "stash_not_found": "Выбранная запись stash больше не существует."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Отменить изменения в {{count}} изменённом файле: {{sample}}.",
@@ -250,11 +262,13 @@
       "untrackedFilesDeleted_many": "Удалить {{count}} неотслеживаемых файлов: {{sample}}.",
       "untrackedFilesDeleted_other": "Удалить {{count}} неотслеживаемого файла: {{sample}}.",
       "stagedChangesDiscarded": "Отменить подготовленные изменения: {{count}}.",
-      "commitsUnreachable_one": "Сделать {{count}} коммит недостижимым из remote-ссылки.",
-      "commitsUnreachable_few": "Сделать {{count}} коммита недостижимыми из remote-ссылки.",
-      "commitsUnreachable_many": "Сделать {{count}} коммитов недостижимыми из remote-ссылки.",
-      "commitsUnreachable_other": "Сделать {{count}} коммита недостижимыми из remote-ссылки.",
+      "commitsUnreachable_one": "Сделать {{count}} коммит недостижимым из затронутых ссылок.",
+      "commitsUnreachable_few": "Сделать {{count}} коммита недостижимыми из затронутых ссылок.",
+      "commitsUnreachable_many": "Сделать {{count}} коммитов недостижимыми из затронутых ссылок.",
+      "commitsUnreachable_other": "Сделать {{count}} коммита недостижимыми из затронутых ссылок.",
       "branchDeleted": "Удалить ветку {{name}}.",
+      "branchDeletedUnmerged": "Удалить ветку {{name}}, не слитую с {{unmergedInto}}.",
+      "tagDeleted": "Удалить тег {{name}}.",
       "stashEntryConsumed": "Применить и удалить stash {{index}}: {{message}}.",
       "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}."
     }

@@ -27,10 +27,12 @@ function preflight(
   count = 3,
   blockers: string[] = [],
   confirmationToken: string | null = "confirmation-token",
+  requestedAction: DestructiveAction = action,
+  consequences: DestructivePreflight["consequences"] = [{ kind: "modifiedLinesDiscarded", path: "src/main.rs", count }],
 ): DestructivePreflight {
   return {
-    action,
-    consequences: [{ kind: "modifiedLinesDiscarded", path: "src/main.rs", count }],
+    action: requestedAction,
+    consequences,
     recoverable: "notRecoverable",
     blockers,
     generations: { workingTree, refs: 0, history: 0, stash: 0, config: 0 },
@@ -87,5 +89,55 @@ describe("DestructivePreflightDialog", () => {
     expect(screen.getByRole("button", { name: "preflight.discard.confirm" })).toBeDisabled();
     expect(dialog).toHaveAttribute("aria-describedby");
     expect((await axe.run(container)).violations).toEqual([]);
+  });
+
+  it.each([
+    [{ kind: "reset", commitId: "abc", mode: "hard" }, { kind: "commitsUnreachable", count: 2, sample: [] }],
+    [{ kind: "deleteBranch", name: "topic" }, { kind: "branchDeleted", name: "topic", unmergedInto: "main" }],
+    [{ kind: "deleteRemoteBranch", remote: "origin", branch: "topic" }, { kind: "remoteRefUpdated", remote: "origin", refName: "refs/heads/topic", droppedCommits: 1 }],
+    [{ kind: "deleteTag", name: "v1" }, { kind: "tagDeleted", name: "v1", targetCommitId: "abc" }],
+    [{ kind: "stashPop", index: 0 }, { kind: "stashEntryConsumed", index: 0, message: "WIP" }],
+    [{ kind: "checkoutDiscard", branch: "topic" }, { kind: "modifiedFilesDiscarded", count: 1, sample: ["a.txt"] }],
+    [{ kind: "abortOperation" }, { kind: "stagedChangesDiscarded", count: 1 }],
+    [{ kind: "recoveryRestore", commitId: "abc" }, { kind: "commitsUnreachable", count: 1, sample: [] }],
+  ] as const)("renders the %s action through the shared dialog", async (requestedAction, consequence) => {
+    render(
+      <DestructivePreflightDialog
+        repoId="repo-1"
+        action={requestedAction}
+        loadPreflight={vi.fn().mockResolvedValue(
+          preflight(1, 1, [], "token", requestedAction, [consequence] as DestructivePreflight["consequences"]),
+        )}
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("dialog", { name: `preflight.${requestedAction.kind}.title` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `preflight.${requestedAction.kind}.confirm` })).toBeEnabled();
+    const consequenceKey = consequence.kind === "branchDeleted" && consequence.unmergedInto
+      ? "branchDeletedUnmerged"
+      : consequence.kind;
+    expect(screen.getByText(`preflight.consequences.${consequenceKey}${"count" in consequence ? `:${consequence.count}` : ""}`)).toBeInTheDocument();
+  });
+
+  it("renders Phase 9 blockers and disables confirmation", async () => {
+    const blockedAction: DestructiveAction = { kind: "deleteBranch", name: "main" };
+    render(
+      <DestructivePreflightDialog
+        repoId="repo-1"
+        action={blockedAction}
+        loadPreflight={vi.fn().mockResolvedValue(
+          preflight(1, 0, ["current_branch_cannot_be_deleted"], null, blockedAction, []),
+        )}
+        onConfirm={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "preflight.blockers.current_branch_cannot_be_deleted",
+    );
+    expect(screen.getByRole("button", { name: "preflight.deleteBranch.confirm" })).toBeDisabled();
   });
 });
