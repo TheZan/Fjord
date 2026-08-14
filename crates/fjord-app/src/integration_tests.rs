@@ -42,6 +42,9 @@ fn fixture_repo(name: &str) -> (TempDir, PathBuf) {
     let mut options = RepositoryInitOptions::new();
     options.initial_head("main");
     let repo = Repository::init_opts(&path, &options).unwrap();
+    let mut config = repo.config().unwrap();
+    config.set_str("user.name", "Fjord Test").unwrap();
+    config.set_str("user.email", "test@fjord.invalid").unwrap();
 
     std::fs::write(path.join("README.md"), b"fixture\n").unwrap();
     let mut index = repo.index().unwrap();
