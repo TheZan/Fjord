@@ -39,6 +39,7 @@ mod destructive_confirmation;
 mod diff;
 mod history;
 mod mutations;
+mod operation_state;
 mod patch;
 mod patch_transaction;
 mod refs;
@@ -52,6 +53,7 @@ pub struct LocalGitBackend {
     /// used by local subprocess commands too, not just remote transport.
     commands: GitCommandFactory,
     destructive_confirmations: Arc<destructive_confirmation::DestructiveConfirmationStore>,
+    operation_origins: Arc<operation_state::OperationOriginTracker>,
 }
 
 impl LocalGitBackend {
@@ -67,6 +69,7 @@ impl LocalGitBackend {
                     destructive_confirmation::DEFAULT_CONFIRMATION_TTL,
                 ),
             ),
+            operation_origins: Arc::new(operation_state::OperationOriginTracker::default()),
         }
     }
 
@@ -77,6 +80,7 @@ impl LocalGitBackend {
             destructive_confirmations: Arc::new(
                 destructive_confirmation::DestructiveConfirmationStore::new(ttl),
             ),
+            operation_origins: Arc::new(operation_state::OperationOriginTracker::default()),
         }
     }
 }
@@ -90,6 +94,7 @@ impl Default for LocalGitBackend {
                     destructive_confirmation::DEFAULT_CONFIRMATION_TTL,
                 ),
             ),
+            operation_origins: Arc::new(operation_state::OperationOriginTracker::default()),
         }
     }
 }
@@ -122,6 +127,13 @@ impl GitBackend for LocalGitBackend {
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {
         status::status(repo).await
+    }
+
+    async fn operation_state(
+        &self,
+        repo: &RepoPath,
+    ) -> Result<fjord_domain::RepoOperationState, GitError> {
+        operation_state::state(self.operation_origins.clone(), repo).await
     }
 
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
@@ -321,13 +333,27 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn cherry_pick(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::cherry_pick(&self.commands, repo, commit_id).await?;
+        let result = mutations::cherry_pick(&self.commands, repo, commit_id).await;
+        if result.is_err() {
+            self.operation_origins
+                .record_if_in_progress(repo, operation_state::OperationFamily::CherryPick);
+        } else {
+            self.operation_origins.clear(repo);
+        }
+        result?;
         runtime::bump_mutation(repo, MutationKind::CherryPick);
         Ok(())
     }
 
     async fn revert(&self, repo: &RepoPath, commit_id: &str) -> Result<(), GitError> {
-        mutations::revert(&self.commands, repo, commit_id).await?;
+        let result = mutations::revert(&self.commands, repo, commit_id).await;
+        if result.is_err() {
+            self.operation_origins
+                .record_if_in_progress(repo, operation_state::OperationFamily::Revert);
+        } else {
+            self.operation_origins.clear(repo);
+        }
+        result?;
         runtime::bump_mutation(repo, MutationKind::Revert);
         Ok(())
     }
@@ -447,7 +473,14 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn integrate_upstream(&self, repo: &RepoPath) -> Result<(), GitError> {
-        mutations::integrate_upstream(repo).await?;
+        let result = mutations::integrate_upstream(repo).await;
+        if result.is_err() {
+            self.operation_origins
+                .record_if_in_progress(repo, operation_state::OperationFamily::Merge);
+        } else {
+            self.operation_origins.clear(repo);
+        }
+        result?;
         runtime::bump_mutation(repo, MutationKind::IntegrateUpstream);
         Ok(())
     }

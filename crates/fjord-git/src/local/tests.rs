@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::GenerationSet;
+use fjord_domain::{OperationControl, RebaseKind, RepoOperation};
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
 use std::io::Write as _;
 use std::path::Path;
@@ -215,6 +216,43 @@ fn run_git_status(
         .stderr(Stdio::null())
         .status()
         .unwrap()
+}
+
+fn run_git_status_with_env(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    args: &[&str],
+    environment: &[(&str, &str)],
+) -> std::process::ExitStatus {
+    let mut command = backend.commands.command().unwrap();
+    command
+        .args(args)
+        .current_dir(&repo.0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    command.status().unwrap()
+}
+
+fn commit_with_cli(backend: &LocalGitBackend, repo: &RepoPath, content: &str, message: &str) {
+    write_file(repo, "operation.txt", content);
+    run_git_success(backend, repo, &["add", "operation.txt"]);
+    run_git_success(backend, repo, &["commit", "-m", message]);
+}
+
+fn divergent_operation_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    commit_with_cli(&backend, &repo, "main\n", "main change");
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    commit_with_cli(&backend, &repo, "topic\n", "topic change");
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    (directory, repo, backend)
 }
 
 fn resolved_index_path(repo: &RepoPath) -> PathBuf {
@@ -4616,4 +4654,182 @@ fn libgit2_ownership_refusal_has_a_typed_error() {
         GitError::RepositoryOwnership(message)
             if message.contains("C:/repos/fjord")
     ));
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_merge() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&backend, &repo, &["merge", "topic"]).success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert!(matches!(
+        &state.operation,
+        RepoOperation::Merge { ref incoming, .. } if incoming.len() == 1
+    ));
+    assert_eq!(state.conflicted_paths, vec!["operation.txt"]);
+    assert_eq!(state.available, vec![OperationControl::Abort]);
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_apply_rebase() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    assert!(!run_git_status(&backend, &repo, &["rebase", "--apply", "main"]).success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert!(matches!(
+        state.operation,
+        RepoOperation::Rebase {
+            rebase_kind: RebaseKind::Apply,
+            current: 1,
+            total: 1,
+            ..
+        }
+    ));
+    assert_eq!(
+        state.available,
+        vec![OperationControl::Skip, OperationControl::Abort]
+    );
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_merge_rebase() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    assert!(!run_git_status(&backend, &repo, &["rebase", "--merge", "main"]).success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+    assert!(
+        matches!(
+            &state.operation,
+            RepoOperation::Rebase {
+                rebase_kind: RebaseKind::Merge,
+                current: 1,
+                total: 1,
+                ..
+            }
+        ),
+        "unexpected merge rebase state: {state:?}"
+    );
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_interactive_rebase() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    assert!(!run_git_status_with_env(
+        &backend,
+        &repo,
+        &["rebase", "--interactive", "--exec", "false", "main"],
+        &[("GIT_SEQUENCE_EDITOR", "true"), ("GIT_EDITOR", "true")],
+    )
+    .success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert!(matches!(
+        state.operation,
+        RepoOperation::Rebase {
+            rebase_kind: RebaseKind::Interactive,
+            current: 1,
+            total: 2,
+            ..
+        }
+    ));
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_cherry_pick() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    assert!(!run_git_status(&backend, &repo, &["cherry-pick", "topic"]).success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert!(matches!(state.operation, RepoOperation::CherryPick { .. }));
+    assert_eq!(state.conflicted_paths, vec!["operation.txt"]);
+    assert_eq!(
+        state.available,
+        vec![OperationControl::Skip, OperationControl::Abort]
+    );
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_marks_a_fjord_created_cherry_pick() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    assert!(backend.cherry_pick(&repo, "topic").await.is_err());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert!(matches!(state.operation, RepoOperation::CherryPick { .. }));
+    assert!(!state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_revert() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "one\n", "one");
+    commit_with_cli(&backend, &repo, "two\n", "two");
+    let reverted = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    commit_with_cli(&backend, &repo, "three\n", "three");
+    assert!(!run_git_status(&backend, &repo, &["revert", "--no-edit", &reverted]).success());
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert_eq!(state.operation, RepoOperation::Revert { commit: reverted });
+    assert_eq!(state.conflicted_paths, vec!["operation.txt"]);
+    assert_eq!(state.available, vec![OperationControl::Abort]);
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_bisect() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "one\n", "one");
+    commit_with_cli(&backend, &repo, "two\n", "two");
+    commit_with_cli(&backend, &repo, "three\n", "three");
+    run_git_success(&backend, &repo, &["bisect", "start", "HEAD", "HEAD~2"]);
+
+    let state = backend.operation_state(&repo).await.unwrap();
+
+    assert_eq!(state.operation, RepoOperation::Bisect { good: 1, bad: 1 });
+    assert_eq!(state.available, vec![OperationControl::Abort]);
+    assert!(state.detected_externally);
+}
+
+#[tokio::test]
+async fn operation_state_detects_cli_created_detached_and_unborn_heads() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    let head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "--detach", "HEAD"]);
+    assert_eq!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Detached { head }
+    );
+
+    let (_unborn_directory, unborn_repo) = empty_repo();
+    assert_eq!(
+        backend
+            .operation_state(&unborn_repo)
+            .await
+            .unwrap()
+            .operation,
+        RepoOperation::UnbornBranch
+    );
 }

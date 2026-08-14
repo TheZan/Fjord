@@ -65,7 +65,7 @@ resolution.
 
 | Area | State |
 |---|---|
-| Operation state | 🚧 Only `has_conflict`. No detection of `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, or an unborn branch. |
+| Operation state | ⚠️ P9-01 implements the domain model and local `GitBackend::operation_state` detector for `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `BISECT_LOG`, detached HEAD, and unborn branches. P9-02 still owns IPC, snapshot inclusion, and generation-scoped frontend delivery. |
 | Conflict UI | ⚠️ A banner with "open merge tool" (`RepoDetailView.tsx`). No continue/abort. Conflicted files are flagged in the working list (`WorkingFile.conflicted`). |
 | Destructive preflight | ✅ Shared bounded domain/IPC/dialog contract for Phase 8 discard, including coherent generation capture and confirmation-time recomputation. The domain also reserves force-with-lease facts, but force-with-lease execution remains absent pending P8-09's authoritative backend binding requirement. Existing Phase 9 actions still use static `ConfirmActionDialog` text until P9-05/P9-06. |
 | Reset | ✅ `reset_to_commit(repo_id, commit_id, mode)`. Backed by `git2`/subprocess; no preflight. |
@@ -91,7 +91,7 @@ generation bump:
 pub enum RepoOperation {
     Normal,
     Merge          { head: String, incoming: Vec<String> },
-    Rebase         { kind: RebaseKind, onto: String, current: u32, total: u32, head_name: Option<String> },
+    Rebase         { rebase_kind: RebaseKind, onto: String, current: u32, total: u32, head_name: Option<String> },
     CherryPick     { commit: String },
     Revert         { commit: String },
     Bisect         { good: u32, bad: u32 },
@@ -114,6 +114,13 @@ Detection reads the Git directory directly (`MERGE_HEAD`, `rebase-merge/`,
 is exactly why it works for operations started in a terminal or another client.
 Rebase progress comes from `rebase-merge/msgnum` and `end` (or the `apply`
 equivalents).
+
+Current Git writes `rebase-merge/interactive` for the merge backend itself, so
+that marker alone does not prove the user requested `--interactive`. Fjord calls
+the persisted sequence interactive only when `git-rebase-todo` or `done`
+contains a non-`pick` instruction; an all-`pick` sequence is reported as the
+merge backend because the original command-line intent is no longer present on
+disk. This preserves a useful, reproducible distinction across Git versions.
 
 `available` is computed, not assumed: Continue is offered only when no unresolved
 conflicts remain (Git itself refuses otherwise, and offering a button that always

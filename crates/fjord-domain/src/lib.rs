@@ -135,6 +135,78 @@ pub struct RepoStatus {
     pub has_conflict: bool,
 }
 
+/// A control Git can perform for the operation currently recorded on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum OperationControl {
+    Continue,
+    Skip,
+    Abort,
+}
+
+/// The on-disk protocol used by an in-progress rebase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(rename_all = "lowercase")]
+pub enum RebaseKind {
+    Apply,
+    Merge,
+    Interactive,
+}
+
+/// Git state derived from marker files in the repository's resolved git-dir.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RepoOperation {
+    Normal,
+    Merge {
+        head: String,
+        incoming: Vec<String>,
+    },
+    Rebase {
+        rebase_kind: RebaseKind,
+        onto: String,
+        current: u32,
+        total: u32,
+        head_name: Option<String>,
+    },
+    CherryPick {
+        commit: String,
+    },
+    Revert {
+        commit: String,
+    },
+    Bisect {
+        good: u32,
+        bad: u32,
+    },
+    Detached {
+        head: String,
+    },
+    UnbornBranch,
+}
+
+/// Complete operation state used by the repository safety UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepoOperationState {
+    pub operation: RepoOperation,
+    pub conflicted_paths: Vec<String>,
+    pub available: Vec<OperationControl>,
+    pub detected_externally: bool,
+}
+
 /// The cached counterpart of `RepoStatus` — always safe to drop and rebuild
 /// from a live `RepoStatus` call. See docs/specs/data-model.md.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

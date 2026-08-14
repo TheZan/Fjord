@@ -27,6 +27,14 @@ export type RepoStatus = { branch: string | null, ahead: number, behind: number,
 
 export type RepoStatusSummary = { repoId: RepositoryId, status: RepoStatus, lastSyncedAt: string | null, };
 
+export type OperationControl = "continue" | "skip" | "abort";
+
+export type RebaseKind = "apply" | "merge" | "interactive";
+
+export type RepoOperation = { "kind": "normal" } | { "kind": "merge", head: string, incoming: Array<string>, } | { "kind": "rebase", rebaseKind: RebaseKind, onto: string, current: number, total: number, headName: string | null, } | { "kind": "cherryPick", commit: string, } | { "kind": "revert", commit: string, } | { "kind": "bisect", good: number, bad: number, } | { "kind": "detached", head: string, } | { "kind": "unbornBranch" };
+
+export type RepoOperationState = { operation: RepoOperation, conflictedPaths: Array<string>, available: Array<OperationControl>, detectedExternally: boolean, };
+
 export type BulkRepoResult = { repoId: RepositoryId, ok: boolean, error: string | null, };
 
 export type SearchResultKind = "repository" | "branch" | "commit";

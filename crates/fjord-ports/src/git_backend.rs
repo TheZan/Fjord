@@ -8,8 +8,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, DestructiveAction, DiffWhitespaceMode,
-    FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor, PatchSelection, RepoStatus,
-    StashEntry, TagInfo, WorkingChanges,
+    FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor, PatchSelection,
+    RepoOperationState, RepoStatus, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -226,6 +226,11 @@ pub trait GitBackend: Send + Sync {
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
+    /// Reads the operation markers in the resolved per-worktree git-dir.
+    /// Implementations must not infer this solely from cached status.
+    async fn operation_state(&self, _repo: &RepoPath) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("operation_state"))
+    }
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(

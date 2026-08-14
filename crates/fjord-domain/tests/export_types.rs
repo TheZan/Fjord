@@ -8,13 +8,13 @@ use fjord_domain::{
     FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitAuthPrompt,
     GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult, GitEnvironmentInfo,
     GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection, InteractionSpan,
-    InteractionTrace, LogCursor, OverviewUiState, OverviewUiStatePatch, PatchSelection,
-    PatchSource, Recoverability, RemoteRef, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind,
-    SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode,
-    UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile,
-    Workspace, WorkspaceId,
+    InteractionTrace, LogCursor, OperationControl, OverviewUiState, OverviewUiStatePatch,
+    PatchSelection, PatchSource, RebaseKind, Recoverability, RemoteRef, RepoOperation,
+    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
+    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SelectionUiState,
+    SelectionUiStatePatch, Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -54,6 +54,10 @@ fn generated_types() -> String {
     push::<SnapshotRevalidation>(&mut output, &config);
     push::<RepoStatus>(&mut output, &config);
     push::<RepoStatusSummary>(&mut output, &config);
+    push::<OperationControl>(&mut output, &config);
+    push::<RebaseKind>(&mut output, &config);
+    push::<RepoOperation>(&mut output, &config);
+    push::<RepoOperationState>(&mut output, &config);
     push::<BulkRepoResult>(&mut output, &config);
     push::<SearchResultKind>(&mut output, &config);
     push::<GlobalSearchResult>(&mut output, &config);
