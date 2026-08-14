@@ -384,7 +384,7 @@ impl RepoService {
         }
 
         let destination_parent =
-            std::fs::canonicalize(&request.destination_parent).map_err(|_| {
+            fjord_fs::canonicalize_path(&request.destination_parent).map_err(|_| {
                 RepoError::CloneDestinationInvalid("parent directory does not exist".into())
             })?;
         if !destination_parent.is_dir() {
