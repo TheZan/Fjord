@@ -109,6 +109,14 @@ ambiguous rather than guessing. `publish-release` publishes by the exact
 release ID `packaging-verification` resolved, not by re-resolving the tag, so
 there's no gap between "the release we verified" and "the release we publish".
 
+The same draft-vs-published distinction applies to *downloading* an asset for
+inspection, not just finding the release: `latest.json`'s `browser_download_url`
+is a public CDN link that only resolves once the release is published (GitHub
+reports it under an ephemeral `untagged-*` path while draft). Verifying it
+before publishing therefore goes through the authenticated Release Asset API
+(`downloadReleaseAsset` in `github-releases-client.mjs`,
+`scripts/download-release-asset.mjs`) instead of a plain `curl`.
+
 `prerequisites` embeds an HTML-comment marker with the exact commit SHA in
 every release body it creates (`<!-- fjord-candidate-sha: <sha> -->`) and
 checks it before any platform build starts:

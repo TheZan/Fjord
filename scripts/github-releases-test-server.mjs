@@ -8,10 +8,19 @@ import http from "node:http";
 export function startMockGitHubServer(handler) {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
-      Promise.resolve(handler(req, res)).catch((error) => {
+      // `handler` may throw synchronously (e.g. an `assert` inside it) —
+      // catch that too, not just a rejected async handler, so a failing
+      // assertion inside the handler becomes a clean test failure instead
+      // of an uncaught exception that takes the whole server down.
+      try {
+        Promise.resolve(handler(req, res)).catch((error) => {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ message: String(error) }));
+        });
+      } catch (error) {
         res.writeHead(500, { "content-type": "application/json" });
         res.end(JSON.stringify({ message: String(error) }));
-      });
+      }
     });
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();

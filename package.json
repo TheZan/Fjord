@@ -22,7 +22,7 @@
     "test:apple-signing": "node --test scripts/apple-signing-lib.node-test.mjs scripts/apple-signing-mode.node-test.mjs",
     "test:updater-manifest": "node --test scripts/updater-manifest-lib.node-test.mjs scripts/verify-updater-manifest.node-test.mjs",
     "test:release-workflow": "node --test scripts/release-workflow-signing.node-test.mjs",
-    "test:release-discovery": "node --test scripts/release-discovery-lib.node-test.mjs scripts/github-releases-client.node-test.mjs scripts/resolve-release-by-tag.node-test.mjs scripts/check-release-candidate.node-test.mjs",
+    "test:release-discovery": "node --test scripts/release-discovery-lib.node-test.mjs scripts/github-releases-client.node-test.mjs scripts/resolve-release-by-tag.node-test.mjs scripts/check-release-candidate.node-test.mjs scripts/download-release-asset.node-test.mjs",
     "gate:v0.1": "node scripts/evaluate-v0.1-launch-gate.mjs",
     "test:launch-gate": "node --test scripts/evaluate-v0.1-launch-gate.node-test.mjs",
     "prepare:askpass": "node scripts/prepare-askpass-sidecar.mjs",
