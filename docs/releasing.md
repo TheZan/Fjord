@@ -142,16 +142,22 @@ of truth.
    `node scripts/release-verify.mjs --tag vX.Y.Z` (fails closed if any version
    location disagrees, or if the tag doesn't match the project version — e.g.
    tag `v0.3.0` against project version `0.2.0` fails the release), checks the
-   matching `docs/releases/fjord-vX.Y.Z.md` is populated, and requires a
-   successful `CI` run on the exact same commit.
-2. **`publish`** — a matrix builds, signs, and packages Windows (NSIS), macOS
+   matching `docs/releases/fjord-vX.Y.Z.md` is populated, checks that a
+   pre-existing release for this tag (if any) is safe to build against — see
+   [`release.md`](release.md#retrying-a-release) — and requires a successful
+   `CI` run on the exact same commit.
+2. **`publish`** — a matrix builds and packages Windows (NSIS), macOS
    (app + DMG, Intel and Apple Silicon), and Linux (AppImage), each verified
    for the `fjord-askpass` sidecar and the absence of fixture/`.env` content,
    and uploads everything to a still-**draft**, still-**prerelease** GitHub
-   Release — nothing is public yet.
+   Release — nothing is public yet. Windows and macOS sign only if their
+   secrets are fully configured (see
+   [`release.md`](release.md#unsigned-builds)); Linux is never
+   platform-signed.
 3. **`packaging-verification`** — checks every expected asset (all three
    platform packages, `latest.json`, and `.sig` signature files) is actually
-   attached, and reports every blocker it finds.
+   attached, downloads and deep-verifies `latest.json` against every required
+   updater platform key, and reports every blocker it finds.
 4. **`publish-release`** — only if every job above succeeded, flips the
    release to published (`draft=false, prerelease=false`). This is the step
    that makes the release visible through GitHub's `/releases/latest/`
@@ -180,9 +186,12 @@ a fresh download instead of updating in place.
 
 - **`prerequisites` fails** — either version metadata is inconsistent (run
   `npm run release:verify` locally to see exactly which file disagrees), the
-  release notes have an unfilled section, or same-SHA CI hasn't gone green
-  yet. Fix on `develop`/the release branch, or wait for CI; nothing was
-  published.
+  release notes have an unfilled section, same-SHA CI hasn't gone green yet,
+  or an existing draft/published release for this tag failed the candidate
+  check (see [`release.md`](release.md#retrying-a-release) — most likely a
+  draft from an earlier failed attempt at a different commit; delete it
+  manually on GitHub, then re-run). Fix on `develop`/the release branch, or
+  wait for CI; nothing was published.
 - **`publish` fails on one platform leg** — the release stays a draft.
   Nothing is public. Fix the underlying issue and push a new commit to the
   same tagged commit's branch, then re-tag is *not* the fix — see below.
