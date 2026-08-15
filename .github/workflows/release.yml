@@ -364,8 +364,20 @@ jobs:
     if: ${{ always() }}
     needs: [prerequisites, publish]
     runs-on: ubuntu-latest
+    # This job only ever reads — but GitHub's Releases API does not expose a
+    # draft release (or its assets) to a token that lacks push access, full
+    # stop, regardless of what that token is actually going to do with it.
+    # `contents: read` made `resolve-release-by-tag.mjs` see an empty release
+    # list here even though the draft genuinely existed (release #5's
+    # failure: "no release exists for v0.1.0 yet" while the draft, its
+    # assets, and its candidate marker were all already correct) — the same
+    # reason `prerequisites`' own candidate-safety check already needs
+    # `contents: write` to see that same draft earlier in the run. This also
+    # covers the authenticated `downloadReleaseAsset` call later in this job
+    # (reading a draft asset's bytes is gated by the same push-access rule
+    # as reading the draft release itself, not a separate permission).
     permissions:
-      contents: read
+      contents: write
     outputs:
       release_id: ${{ steps.resolve.outputs.release_id }}
     env:
