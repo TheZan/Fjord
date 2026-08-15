@@ -55,60 +55,17 @@ jobs:
       # tag is never touched. A verified same-SHA retry gets its stale
       # assets cleared so a partial previous attempt can't leave a mix of
       # old and new updater artifacts.
+      #
+      # This resolves the release by *listing* releases and filtering by
+      # `tag_name` (scripts/release-discovery-lib.mjs), not by GitHub's
+      # "get a release by tag name" endpoint — that endpoint is documented
+      # to return only *published* releases, so it 404s on exactly the
+      # still-draft release this workflow itself creates and needs to find.
       - name: Check for an existing release for this tag
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const tag = process.env.GITHUB_REF_NAME;
-            const sha = context.sha;
-            const marker = `<!-- fjord-candidate-sha: ${sha} -->`;
-
-            let release;
-            try {
-              const response = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag,
-              });
-              release = response.data;
-            } catch (error) {
-              if (error.status === 404) {
-                core.info(`No existing release for ${tag}; proceeding.`);
-                return;
-              }
-              throw error;
-            }
-
-            if (release.draft === false) {
-              core.setFailed(
-                `${tag} is already published (${release.html_url}). This workflow will never overwrite a published release — bump the version instead.`,
-              );
-              return;
-            }
-
-            if (!release.body || !release.body.includes(marker)) {
-              core.setFailed(
-                `A draft release for ${tag} already exists (${release.html_url}) but it does not carry the candidate marker for commit ${sha} — ` +
-                  "it belongs to a different candidate SHA. Remove it intentionally (Releases → delete the draft) before retrying; see docs/releasing.md.",
-              );
-              return;
-            }
-
-            core.info(`Existing draft for ${tag} matches commit ${sha}; clearing its assets before this retry rebuilds them.`);
-            const assets = await github.rest.repos.listReleaseAssets({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: release.id,
-              per_page: 100,
-            });
-            for (const asset of assets.data) {
-              await github.rest.repos.deleteReleaseAsset({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                asset_id: asset.id,
-              });
-              core.info(`Deleted stale asset ${asset.name} from the existing draft.`);
-            }
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/check-release-candidate.mjs "${GITHUB_REPOSITORY%/*}" "${GITHUB_REPOSITORY#*/}" "$GITHUB_REF_NAME" "$GITHUB_SHA"
 
       # A one-shot check races the tag push: `ci.yml` triggers on push to
       # master/develop, but nothing guarantees that run has even started,
@@ -409,6 +366,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      release_id: ${{ steps.resolve.outputs.release_id }}
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.prerequisites.outputs.version }}
@@ -420,6 +379,21 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Same reasoning as "Check for an existing release for this tag" in
+      # `prerequisites`: `gh api repos/.../releases/tags/vX.Y.Z` 404s on a
+      # draft, which this release still is at this point by design (nothing
+      # publishes before this job passes). Resolve by listing instead.
+      - name: Resolve the draft release for this tag
+        id: resolve
+        if: needs.publish.result == 'success'
+        run: |
+          OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO="${GITHUB_REPOSITORY#*/}"
+          node scripts/resolve-release-by-tag.mjs "$OWNER" "$REPO" "v$VERSION" > /tmp/release.json
+          if [[ "$(cat /tmp/release.json)" != "null" ]]; then
+            echo "release_id=$(jq -r '.id' /tmp/release.json)" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fail closed and report every packaging blocker
         shell: bash
         run: |
@@ -428,28 +402,39 @@ jobs:
           if [[ "${{ needs.publish.result }}" != "success" ]]; then blockers+=("one or more platform package/signing/content checks failed"); fi
 
           if [[ "${{ needs.publish.result }}" == "success" ]]; then
-            release=$(gh api "repos/${{ github.repository }}/releases/tags/v$VERSION")
-            escaped_version="${VERSION//./\\.}"
-            assets=$(jq -r '.assets[].name' <<<"$release")
-            grep -Eq "Fjord.*${escaped_version}.*\.AppImage$" <<<"$assets" || blockers+=("Linux AppImage is missing")
-            grep -Eq "Fjord.*${escaped_version}.*\.exe$" <<<"$assets" || blockers+=("Windows installer is missing")
-            grep -Eq "Fjord.*${escaped_version}.*\.dmg$" <<<"$assets" || blockers+=("macOS package is missing")
-            grep -Fxq 'latest.json' <<<"$assets" || blockers+=("updater manifest is missing")
-            grep -Eq '\.sig$' <<<"$assets" || blockers+=("updater signatures are missing")
+            release=$(cat /tmp/release.json)
+            if [[ "$release" == "null" ]]; then
+              blockers+=("no release exists for v$VERSION yet — publish should have created one")
+            else
+              if [[ "$(jq -r '.draft' <<<"$release")" != "true" ]]; then blockers+=("the resolved release is not a draft (unexpected at this stage)"); fi
+              if [[ "$(jq -r '.tag_name' <<<"$release")" != "v$VERSION" ]]; then blockers+=("the resolved release's tag_name does not match v$VERSION"); fi
+              marker="<!-- fjord-candidate-sha: $GITHUB_SHA -->"
+              if [[ "$(jq -r '.body // ""' <<<"$release")" != *"$marker"* ]]; then
+                blockers+=("the resolved release does not carry the candidate marker for $GITHUB_SHA — it may belong to a different candidate")
+              fi
 
-            # The asset-name greps above only prove *a* latest.json exists —
-            # a matrix that finished with one platform still red can produce
-            # a latest.json that simply omits that platform's entry, which
-            # the above would miss entirely. Fetch and deep-verify it.
-            manifest_url=$(jq -r '.assets[] | select(.name == "latest.json") | .browser_download_url' <<<"$release")
-            if [[ -n "$manifest_url" ]]; then
-              jq -r '[.assets[].name]' <<<"$release" > /tmp/asset-names.json
-              if curl -fsSL "$manifest_url" -o /tmp/latest.json; then
-                if ! node scripts/verify-updater-manifest.mjs "$VERSION" "v$VERSION" /tmp/latest.json /tmp/asset-names.json; then
-                  blockers+=("updater manifest (latest.json) is incomplete or inconsistent — see the step log above")
+              escaped_version="${VERSION//./\\.}"
+              assets=$(jq -r '.assets[].name' <<<"$release")
+              grep -Eq "Fjord.*${escaped_version}.*\.AppImage$" <<<"$assets" || blockers+=("Linux AppImage is missing")
+              grep -Eq "Fjord.*${escaped_version}.*\.exe$" <<<"$assets" || blockers+=("Windows installer is missing")
+              grep -Eq "Fjord.*${escaped_version}.*\.dmg$" <<<"$assets" || blockers+=("macOS package is missing")
+              grep -Fxq 'latest.json' <<<"$assets" || blockers+=("updater manifest is missing")
+              grep -Eq '\.sig$' <<<"$assets" || blockers+=("updater signatures are missing")
+
+              # The asset-name greps above only prove *a* latest.json exists —
+              # a matrix that finished with one platform still red can produce
+              # a latest.json that simply omits that platform's entry, which
+              # the above would miss entirely. Fetch and deep-verify it.
+              manifest_url=$(jq -r '.assets[] | select(.name == "latest.json") | .browser_download_url' <<<"$release")
+              if [[ -n "$manifest_url" ]]; then
+                jq -r '[.assets[].name]' <<<"$release" > /tmp/asset-names.json
+                if curl -fsSL "$manifest_url" -o /tmp/latest.json; then
+                  if ! node scripts/verify-updater-manifest.mjs "$VERSION" "v$VERSION" /tmp/latest.json /tmp/asset-names.json; then
+                    blockers+=("updater manifest (latest.json) is incomplete or inconsistent — see the step log above")
+                  fi
+                else
+                  blockers+=("could not download latest.json to verify it")
                 fi
-              else
-                blockers+=("could not download latest.json to verify it")
               fi
             fi
           fi
@@ -469,6 +454,11 @@ jobs:
   # The only job allowed to make a release (and therefore the Tauri updater
   # endpoint, which only resolves published/non-prerelease releases) public.
   # Runs only on default success — i.e. every job above must have passed.
+  # Publishes by the exact release ID `packaging-verification` resolved and
+  # verified, not by re-resolving the tag here — re-resolving would reopen a
+  # TOCTOU gap between "the release we just checked" and "the release we're
+  # about to make public" (e.g. a concurrent manual edit, or in principle a
+  # second matching release appearing between the two steps).
   publish-release:
     name: Publish the GitHub Release
     needs: [prerequisites, publish, packaging-verification]
@@ -478,9 +468,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Publish v${{ needs.prerequisites.outputs.version }}
+      - name: Publish v${{ needs.prerequisites.outputs.version }} (release ${{ needs.packaging-verification.outputs.release_id }})
         run: |
-          gh release edit "v${{ needs.prerequisites.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --draft=false \
-            --prerelease=false
+          gh api -X PATCH "repos/${{ github.repository }}/releases/${{ needs.packaging-verification.outputs.release_id }}" \
+            -f draft=false \
+            -f prerelease=false
