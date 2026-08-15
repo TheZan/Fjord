@@ -97,6 +97,18 @@ unpublished draft.
 
 ### Retrying a release
 
+Finding the release for a tag at all is less trivial than it sounds: GitHub's
+"get a release by tag name" endpoint (`GET .../releases/tags/{tag}`) is
+documented to return only a *published* release with that tag — it 404s on a
+draft, including the one this workflow itself just created. `prerequisites`,
+`packaging-verification`, and `publish-release` all resolve the release the
+same way instead — list every release (`GET .../releases`, paginated) and
+select the one whose `tag_name` matches (`scripts/release-discovery-lib.mjs`
++ `scripts/github-releases-client.mjs`); more than one match fails closed as
+ambiguous rather than guessing. `publish-release` publishes by the exact
+release ID `packaging-verification` resolved, not by re-resolving the tag, so
+there's no gap between "the release we verified" and "the release we publish".
+
 `prerequisites` embeds an HTML-comment marker with the exact commit SHA in
 every release body it creates (`<!-- fjord-candidate-sha: <sha> -->`) and
 checks it before any platform build starts:

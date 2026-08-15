@@ -5,10 +5,11 @@
 #     (scripts/check-i18n.ts), the IPC contract drift check
 #     (scripts/check-ipc-docs.ts), and release-script regressions
 #     (release:verify, the release-script node:test suites, the Apple
-#     signing decision lib, the updater-manifest completeness lib, and a
-#     structural check that release.yml's unsigned macOS step never
-#     references an Apple signing secret — see docs/releasing.md and
-#     docs/release.md) — platform-independent, runs once.
+#     signing decision lib, the updater-manifest completeness lib, the
+#     draft-capable release-discovery lib/client, and a structural check
+#     that release.yml's unsigned macOS step never references an Apple
+#     signing secret — see docs/releasing.md and docs/release.md) —
+#     platform-independent, runs once.
 #   - backend-lint: fmt and clippy (warnings are errors), once on Linux.
 #   - backend-test: the full cargo test suite on Windows / macOS / Linux.
 #   - askpass-sidecar-test: focused protocol/sidecar tests.
@@ -54,6 +55,7 @@ jobs:
       - run: npm run test:apple-signing
       - run: npm run test:updater-manifest
       - run: npm run test:release-workflow
+      - run: npm run test:release-discovery
 
   backend-lint:
     runs-on: ubuntu-latest
