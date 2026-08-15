@@ -72,16 +72,20 @@ for the full walkthrough:
 
 1. `prerequisites` parses the version from the tag, requires it to match every
    project version location (`npm run release:verify`), requires populated
-   release notes for that version, and requires a successful `CI` run for the
-   same commit.
-2. `publish` independently builds signed Windows NSIS, macOS app/DMG packages
-   for both architectures, and a Linux AppImage, uploaded to a still-draft,
+   release notes for that version, checks that any existing release for this
+   tag is safe to (re)build against (see "Retrying a release" below), and
+   requires a successful `CI` run for the same commit.
+2. `publish` independently builds Windows NSIS, macOS app/DMG packages for
+   both architectures, and a Linux AppImage, uploaded to a still-draft,
    still-prerelease GitHub Release. Every leg checks the versioned name,
    bundled `fjord-askpass`, and absence of fixture/`.env` content before it
-   can succeed.
+   can succeed. macOS additionally resolves whether to sign — see "Platform
+   signing secrets" below.
 3. `packaging-verification` runs even after failures, checks the draft
-   release's assets and updater manifest/signatures against the parsed
-   version, and reports every blocker it finds.
+   release's assets against the parsed version, downloads and deep-verifies
+   `latest.json` (every required platform entry present, correctly versioned,
+   pointing at an asset actually attached to this release — not just "a file
+   named latest.json exists"), and reports every blocker it finds.
 4. `publish-release` runs only if every job above succeeded, and flips the
    release to published (`draft=false, prerelease=false`) — the step that
    makes it visible through GitHub's `/releases/latest/` endpoint, which the
@@ -90,6 +94,25 @@ for the full walkthrough:
 Nothing before `publish-release` changes repository visibility or makes
 anything public; a failure at any earlier stage leaves the release as an
 unpublished draft.
+
+### Retrying a release
+
+`prerequisites` embeds an HTML-comment marker with the exact commit SHA in
+every release body it creates (`<!-- fjord-candidate-sha: <sha> -->`) and
+checks it before any platform build starts:
+
+- No release exists for the tag yet → proceeds normally.
+- A **draft** release exists whose marker matches the current commit → this
+  is a retry of the same candidate; its existing assets are deleted first so
+  a partial previous attempt can't leave stale or mismatched updater
+  artifacts behind.
+- A **draft** release exists whose marker does *not* match (or is missing,
+  e.g. a draft from before this check existed) → fails closed. The tag moved
+  to a different commit than the one that created the draft; mixing their
+  assets would be unverifiable. Delete the draft manually on GitHub before
+  retrying.
+- A **published** release already exists for the tag → fails closed,
+  unconditionally. This workflow never overwrites a published release.
 
 ### Future channels (not implemented)
 
@@ -114,14 +137,15 @@ Windows requires:
 - optional repository variable `WINDOWS_TIMESTAMP_URL`; defaults to
   `http://timestamp.digicert.com`.
 
-macOS signing + notarization require:
+macOS signing + notarization require **all five** of:
 
 - `APPLE_CERTIFICATE`: base64-encoded Apple Developer ID Application
   certificate.
 - `APPLE_CERTIFICATE_PASSWORD`: certificate password.
-- `APPLE_SIGNING_IDENTITY`: signing identity name, when the certificate cannot
-  be inferred.
 - `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`: notarization credentials.
+
+`APPLE_SIGNING_IDENTITY` is optional even when signing — Tauri infers it from
+the certificate when omitted.
 
 Linux packages are not code-signed by Tauri itself. The workflow still produces
 signed updater artifacts; distribution-channel signing for `.deb`/`.rpm`
@@ -130,20 +154,43 @@ repositories should be added when Fjord has an external package repository.
 ### Unsigned builds
 
 If `WINDOWS_CERTIFICATE`/`WINDOWS_CERTIFICATE_PASSWORD` are unset, `release.yml`
-logs a notice and builds an unsigned NSIS installer instead of failing. If the
-`APPLE_*` secrets are unset, `tauri-action` produces an unsigned, unnotarized
-`.app`/`.dmg` the same way — this is upstream Tauri behavior, not something
-this workflow special-cases. Many open-source projects ship this way; the
-practical effect is that Windows SmartScreen and macOS Gatekeeper show an
-unknown-publisher warning on first run, which users click through (Windows:
-"More info" → "Run anyway"; macOS: `xattr -cr` the `.app` or allow it under
-System Settings → Privacy & Security). This has no effect on update security:
-`latest.json` and every update artifact are still cryptographically signed by
-the mandatory Tauri updater key regardless of platform signing status, and the
-updater plugin still refuses anything that doesn't verify. State the actual
-signing status of each release explicitly in its release notes — the
-`release:prepare` skeleton has a placeholder for this so it can't be
-forgotten.
+logs a notice and builds an unsigned NSIS installer instead of failing.
+
+macOS has three states, decided by `scripts/apple-signing-lib.mjs`
+(`node scripts/apple-signing-mode.mjs`, run once per macOS matrix leg) purely
+from which of the six `APPLE_*` secrets are non-empty — never their values,
+so the decision is fully unit-testable without real credentials:
+
+- **None of the six set** → builds unsigned. `release.yml` runs a completely
+  separate `tauri-apps/tauri-action` step for this case that has no
+  `APPLE_*` key in its `env:` at all — not an empty one. This distinction is
+  the actual fix for the release #2 failure: GitHub Actions turns
+  `${{ secrets.APPLE_CERTIFICATE }}` into an *empty string*, never an absent
+  variable, when the secret isn't set, and Tauri's bundler treats the mere
+  presence of `APPLE_CERTIFICATE` (even `""`) as "attempt to sign", entering
+  `security import` with an invalid empty certificate and failing with
+  `SecKeychainItemImport`. There is no expression-level way to conditionally
+  omit one key from a step's `env:` map — only two separate step
+  declarations, gated by `if:` on the signing-mode decision, actually work.
+- **All five required secrets set** (`APPLE_SIGNING_IDENTITY` optional) →
+  builds signed and notarized, via a third, separate step that does include
+  the full `APPLE_*` env.
+- **Some but not all of the five required secrets set** → the signing-mode
+  step fails closed with a diagnostic naming exactly which secrets are
+  missing, before any build work happens. A half-configured signing attempt
+  is never silently treated as "unsigned" — that would hide a real
+  misconfiguration.
+
+The unsigned-build UX consequence either way: Windows SmartScreen and macOS
+Gatekeeper show an unknown-publisher warning on first run, which users click
+through (Windows: "More info" → "Run anyway"; macOS: `xattr -cr` the `.app`
+or allow it under System Settings → Privacy & Security). This has no effect
+on update security: `latest.json` and every update artifact are still
+cryptographically signed by the mandatory Tauri updater key regardless of
+platform signing status, and the updater plugin still refuses anything that
+doesn't verify. State the actual signing status of each release explicitly
+in its release notes — the `release:prepare` skeleton has a placeholder for
+this so it can't be forgotten.
 
 ## Local verification
 

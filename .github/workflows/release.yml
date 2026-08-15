@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
-      contents: read
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -42,6 +42,73 @@ jobs:
 
       - name: Verify release notes are populated
         run: node scripts/check-release-notes.mjs "${{ steps.version.outputs.version }}"
+
+      # Fail-closed candidate-SHA safety: a draft release for this tag from
+      # an earlier, different commit must never silently receive this
+      # commit's assets mixed in with whatever the old attempt already
+      # uploaded. GitHub's `target_commitish` on an existing release isn't a
+      # reliable candidate fingerprint (it's the ref the tag was created
+      # against, not necessarily this exact SHA), so the actual candidate
+      # SHA is embedded as an HTML comment in the release body by the
+      # "Read release notes for this version" step in `publish` and checked
+      # here before any platform build starts. A published release for this
+      # tag is never touched. A verified same-SHA retry gets its stale
+      # assets cleared so a partial previous attempt can't leave a mix of
+      # old and new updater artifacts.
+      - name: Check for an existing release for this tag
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const tag = process.env.GITHUB_REF_NAME;
+            const sha = context.sha;
+            const marker = `<!-- fjord-candidate-sha: ${sha} -->`;
+
+            let release;
+            try {
+              const response = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              release = response.data;
+            } catch (error) {
+              if (error.status === 404) {
+                core.info(`No existing release for ${tag}; proceeding.`);
+                return;
+              }
+              throw error;
+            }
+
+            if (release.draft === false) {
+              core.setFailed(
+                `${tag} is already published (${release.html_url}). This workflow will never overwrite a published release — bump the version instead.`,
+              );
+              return;
+            }
+
+            if (!release.body || !release.body.includes(marker)) {
+              core.setFailed(
+                `A draft release for ${tag} already exists (${release.html_url}) but it does not carry the candidate marker for commit ${sha} — ` +
+                  "it belongs to a different candidate SHA. Remove it intentionally (Releases → delete the draft) before retrying; see docs/releasing.md.",
+              );
+              return;
+            }
+
+            core.info(`Existing draft for ${tag} matches commit ${sha}; clearing its assets before this retry rebuilds them.`);
+            const assets = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.id,
+              per_page: 100,
+            });
+            for (const asset of assets.data) {
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+              });
+              core.info(`Deleted stale asset ${asset.name} from the existing draft.`);
+            }
 
       # A one-shot check races the tag push: `ci.yml` triggers on push to
       # master/develop, but nothing guarantees that run has even started,
@@ -208,10 +275,71 @@ jobs:
           {
             echo "body<<FJORD_RELEASE_NOTES_EOF"
             cat "$NOTES_PATH"
+            echo ""
+            # Machine-checkable candidate marker, invisible in the rendered
+            # release page — this is what "Check for an existing release for
+            # this tag" in `prerequisites` compares against on a retry, so a
+            # tag that moved to a new commit can never be mistaken for the
+            # same candidate as an old draft (see that step's comment).
+            echo "<!-- fjord-candidate-sha: $GITHUB_SHA -->"
             echo "FJORD_RELEASE_NOTES_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: tauri-apps/tauri-action@v0
+      # Apple platform signing is optional (v0.1 policy: unsigned macOS
+      # packages are acceptable; updater signing below is not). The decision
+      # only ever runs on macOS legs; its "signed"/"unsigned" output selects
+      # between the two tauri-action steps further down, which is the only
+      # way to make APPLE_* genuinely *absent* from the process env rather
+      # than present-but-empty — GitHub Actions expressions can't
+      # conditionally omit a key from a step's `env:` map, only ever give it
+      # some string value, so two full step declarations are the actual fix
+      # (see scripts/apple-signing-lib.mjs and docs/release.md).
+      - name: Determine Apple signing mode
+        if: runner.os == 'macOS'
+        id: apple-signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/apple-signing-mode.mjs
+
+      - name: Build and create/update release (Windows/Linux)
+        if: runner.os != 'macOS'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Fjord v${{ env.VERSION }} — Early Preview"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      # No APPLE_* key at all in this step's env — that absence is the fix.
+      - name: Build and create/update release (macOS, unsigned)
+        if: runner.os == 'macOS' && steps.apple-signing.outputs.mode == 'unsigned'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v__VERSION__
+          releaseName: "Fjord v${{ env.VERSION }} — Early Preview"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}
+
+      - name: Build and create/update release (macOS, signed)
+        if: runner.os == 'macOS' && steps.apple-signing.outputs.mode == 'signed'
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -285,6 +413,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.prerequisites.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Fail closed and report every packaging blocker
         shell: bash
         run: |
@@ -301,6 +436,22 @@ jobs:
             grep -Eq "Fjord.*${escaped_version}.*\.dmg$" <<<"$assets" || blockers+=("macOS package is missing")
             grep -Fxq 'latest.json' <<<"$assets" || blockers+=("updater manifest is missing")
             grep -Eq '\.sig$' <<<"$assets" || blockers+=("updater signatures are missing")
+
+            # The asset-name greps above only prove *a* latest.json exists —
+            # a matrix that finished with one platform still red can produce
+            # a latest.json that simply omits that platform's entry, which
+            # the above would miss entirely. Fetch and deep-verify it.
+            manifest_url=$(jq -r '.assets[] | select(.name == "latest.json") | .browser_download_url' <<<"$release")
+            if [[ -n "$manifest_url" ]]; then
+              jq -r '[.assets[].name]' <<<"$release" > /tmp/asset-names.json
+              if curl -fsSL "$manifest_url" -o /tmp/latest.json; then
+                if ! node scripts/verify-updater-manifest.mjs "$VERSION" "v$VERSION" /tmp/latest.json /tmp/asset-names.json; then
+                  blockers+=("updater manifest (latest.json) is incomplete or inconsistent — see the step log above")
+                fi
+              else
+                blockers+=("could not download latest.json to verify it")
+              fi
+            fi
           fi
 
           {
