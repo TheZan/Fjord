@@ -16,6 +16,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 fjord-app.workspace = true
+# `tauri::generate_context!()` below expands code that resolves `serde_json`
+# paths from this crate's own scope, not tauri's — without a direct
+# dependency here that expansion can fail release-only builds with "cannot
+# find serde_json in the crate root" depending on the resolved tauri-build
+# version, even though serde_json is already pulled in transitively.
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 # Not called directly here — fjord-app owns the actual `.plugin(...)` wiring
 # (SDD §5.1). This is a direct dependency purely because Tauri's build-time
