@@ -1,7 +1,6 @@
 name: Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -44,27 +43,70 @@ jobs:
       - name: Verify release notes are populated
         run: node scripts/check-release-notes.mjs "${{ steps.version.outputs.version }}"
 
+      # A one-shot check races the tag push: `ci.yml` triggers on push to
+      # master/develop, but nothing guarantees that run has even started,
+      # let alone finished, by the time this job asks. This polls instead of
+      # asking once, but still fails closed — an in-progress run only buys
+      # more waiting, never a pass; a completed non-success run fails
+      # immediately; a bounded wall-clock budget means "CI never showed up"
+      # still fails rather than hanging until the runner's own timeout.
       - name: Require successful CI for this commit
         uses: actions/github-script@v8
+        timeout-minutes: 25
         with:
           script: |
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "ci.yml",
-              head_sha: context.sha,
-              status: "completed",
-              per_page: 20,
-            });
-            const successful = data.workflow_runs.find((run) => run.conclusion === "success");
-            if (!successful) {
-              core.setFailed(`No successful CI run exists for ${context.sha}.`);
-              return;
+            const POLL_INTERVAL_MS = 20_000;
+            const MAX_WAIT_MS = 20 * 60 * 1000;
+            const FAILED_CONCLUSIONS = new Set(["failure", "cancelled", "timed_out"]);
+            const sha = context.sha;
+            const deadline = Date.now() + MAX_WAIT_MS;
+
+            const describe = (run) => `run #${run.run_number} (${run.status}${run.conclusion ? "/" + run.conclusion : ""})`;
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            for (;;) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: "ci.yml",
+                head_sha: sha,
+                per_page: 50,
+              });
+              const runs = data.workflow_runs;
+
+              const successful = runs.find((run) => run.status === "completed" && run.conclusion === "success");
+              if (successful) {
+                await core.summary
+                  .addHeading("Same-SHA CI prerequisite")
+                  .addLink(`CI run #${successful.run_number}`, successful.html_url)
+                  .write();
+                return;
+              }
+
+              const pending = runs.find((run) => run.status === "queued" || run.status === "in_progress");
+              if (pending) {
+                if (Date.now() >= deadline) {
+                  core.setFailed(`Timed out after ${MAX_WAIT_MS / 60_000} minutes waiting for ${describe(pending)} on ${sha} to complete: ${pending.html_url}`);
+                  return;
+                }
+                core.info(`Waiting for ${describe(pending)} on ${sha}...`);
+                await sleep(POLL_INTERVAL_MS);
+                continue;
+              }
+
+              const failed = runs.find((run) => run.status === "completed" && FAILED_CONCLUSIONS.has(run.conclusion));
+              if (failed) {
+                core.setFailed(`${describe(failed)} for ${sha} did not succeed: ${failed.html_url}`);
+                return;
+              }
+
+              if (Date.now() >= deadline) {
+                core.setFailed(`No CI run for ${sha} appeared within ${MAX_WAIT_MS / 60_000} minutes.`);
+                return;
+              }
+              core.info(`No CI run found yet for ${sha}; waiting...`);
+              await sleep(POLL_INTERVAL_MS);
             }
-            await core.summary
-              .addHeading("Same-SHA CI prerequisite")
-              .addLink(`CI run #${successful.run_number}`, successful.html_url)
-              .write();
 
   # Builds, signs, and uploads every platform package to a still-draft,
   # still-prerelease GitHub Release. Nothing here is publicly visible or
