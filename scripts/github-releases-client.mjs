@@ -55,6 +55,36 @@ export async function listReleaseAssets({ owner, repo, token, releaseId, fetchIm
   return assets;
 }
 
+/**
+ * Downloads an asset's raw content through the authenticated Release Asset
+ * API (`GET /repos/{owner}/{repo}/releases/assets/{asset_id}` with
+ * `Accept: application/octet-stream`), not through `browser_download_url`.
+ * `browser_download_url` is a public CDN URL that only resolves for
+ * *published* releases — for a still-draft release (exactly what
+ * `packaging-verification` inspects, since publishing only happens after
+ * verification passes) it 404s, because GitHub reports it in the
+ * `untagged-*` form until the release is published. The asset-ID endpoint
+ * works for draft assets too, as long as the request is authenticated and
+ * asks for the octet-stream representation instead of the default JSON
+ * metadata response.
+ *
+ * @returns {Promise<Buffer>} raw bytes — callers decide whether to treat it
+ *   as text (`.toString("utf8")`) or write it straight to disk.
+ */
+export async function downloadReleaseAsset({ owner, repo, token, assetId, fetchImpl = fetch }) {
+  const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/releases/assets/${assetId}`;
+  const response = await fetchImpl(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/octet-stream",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "fjord-release-workflow",
+    },
+  });
+  await assertOk(response, `downloading asset ${assetId}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function deleteReleaseAsset({ owner, repo, token, assetId, fetchImpl = fetch }) {
   const url = `${GITHUB_API_BASE}/repos/${owner}/${repo}/releases/assets/${assetId}`;
   const response = await fetchImpl(url, { method: "DELETE", headers: authHeaders(token) });

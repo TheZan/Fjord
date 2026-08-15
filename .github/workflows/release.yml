@@ -425,10 +425,18 @@ jobs:
               # a matrix that finished with one platform still red can produce
               # a latest.json that simply omits that platform's entry, which
               # the above would miss entirely. Fetch and deep-verify it.
-              manifest_url=$(jq -r '.assets[] | select(.name == "latest.json") | .browser_download_url' <<<"$release")
-              if [[ -n "$manifest_url" ]]; then
+              #
+              # Downloaded via the asset-ID API, not `browser_download_url`:
+              # that URL 404s for a still-draft release's assets (GitHub
+              # reports them under an ephemeral `untagged-*` path until
+              # publish) — see scripts/github-releases-client.mjs's
+              # `downloadReleaseAsset` for the authenticated replacement.
+              manifest_asset_id=$(jq -r '.assets[] | select(.name == "latest.json") | .id' <<<"$release")
+              if [[ -n "$manifest_asset_id" && "$manifest_asset_id" != "null" ]]; then
                 jq -r '[.assets[].name]' <<<"$release" > /tmp/asset-names.json
-                if curl -fsSL "$manifest_url" -o /tmp/latest.json; then
+                OWNER="${GITHUB_REPOSITORY%/*}"
+                REPO="${GITHUB_REPOSITORY#*/}"
+                if node scripts/download-release-asset.mjs "$OWNER" "$REPO" "$manifest_asset_id" /tmp/latest.json; then
                   if ! node scripts/verify-updater-manifest.mjs "$VERSION" "v$VERSION" /tmp/latest.json /tmp/asset-names.json; then
                     blockers+=("updater manifest (latest.json) is incomplete or inconsistent — see the step log above")
                   fi
@@ -447,7 +455,7 @@ jobs:
               echo "BLOCKED"
               printf -- '- %s\n' "${blockers[@]}"
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
           (( ${#blockers[@]} == 0 ))
 
