@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { updateCoordinator } from "@/application/update/UpdateCoordinator";
 import { SettingsDialog } from "@/presentation/SettingsDialog";
+// Same source SettingsDialog itself reads (`packageInfo.version`), so these
+// assertions track a version bump automatically instead of going stale.
+import packageInfo from "../../package.json";
 
 const getSettings = vi.fn();
 const getGitEnvironment = vi.fn();
@@ -48,7 +51,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
         "settings.git.version": String(values?.version ?? ""),
         "settings.git.testConnection": "Test connection",
         "settings.git.connectionSuccess": `${String(values?.protocol ?? "")} ${String(values?.duration ?? "")} ms`,
-        "settings.about.version": "Version 0.1.0",
+        "settings.about.version": `Version ${String(values?.version ?? "")}`,
         "settings.about.revealLogs": "Reveal log folder",
         "settings.about.updates": "Updates",
         "settings.about.checkForUpdate": "Check for updates",
@@ -228,7 +231,7 @@ describe("SettingsDialog Git section", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "About" }));
     expect(await screen.findByText("Fjord")).toBeInTheDocument();
-    expect(screen.getByText("Version 0.1.0")).toBeInTheDocument();
+    expect(screen.getByText(`Version ${packageInfo.version}`)).toBeInTheDocument();
     expect(screen.queryByText(/not just another Git client/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reveal log folder" }));
     await waitFor(() => expect(revealLogFolder).toHaveBeenCalledOnce());
@@ -242,7 +245,9 @@ describe("SettingsDialog Git section", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }));
 
     await waitFor(() => expect(checkForUpdate).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Fjord 0.1.0 is the latest version.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(`Fjord ${packageInfo.version} is the latest version.`),
+    ).toBeInTheDocument();
   });
 
   it("shows the ownership refusal diagnostic and safe-directory command", async () => {
