@@ -34,7 +34,14 @@ function writeJson(root, relativePath, value) {
 }
 
 const CARGO_WORKSPACE_VERSION_RE = /(\[workspace\.package\][\s\S]*?\nversion\s*=\s*")([^"]+)(")/;
-const CARGO_LOCK_MEMBER_RE = /(\[\[package\]\]\nname = "(fjord[a-z-]*)"\nversion = ")([^"]+)(")/g;
+// `\r?\n` (not a bare `\n`): Cargo.lock isn't pinned to `eol=lf` in
+// .gitattributes, so a normal Windows checkout with `core.autocrlf=true`
+// gives it CRLF line endings. A literal `\n` here used to match zero
+// packages on such a checkout — silently, since `readCargoLockMemberVersions`
+// treats "found nothing" as "not a Fjord workspace member" rather than an
+// error on its own (the empty-result check in `verifyReleaseMetadata` is
+// what actually surfaces it, but only after `writeVersion` already ran).
+const CARGO_LOCK_MEMBER_RE = /(\[\[package\]\]\r?\nname = "(fjord[a-z-]*)"\r?\nversion = ")([^"]+)(")/g;
 
 /**
  * Every location that records Fjord's own version. `Cargo.toml`'s
