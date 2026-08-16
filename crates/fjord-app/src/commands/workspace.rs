@@ -216,7 +216,11 @@ pub async fn import_repositories(
     // found — mirrors the "one failure does not abort the batch" rule the
     // bulk_fetch/bulk_pull commands already follow (docs/specs/ipc-commands.md).
     for path in paths {
-        match state.workspaces.add_repository(workspace_id, path.clone()).await {
+        match state
+            .workspaces
+            .add_repository(workspace_id, path.clone())
+            .await
+        {
             Ok(entry) => {
                 let _ = state.workspaces.refresh_repo_status(entry.id).await;
                 imported.push(entry);
