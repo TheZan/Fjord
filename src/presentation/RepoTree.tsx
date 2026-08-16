@@ -308,6 +308,8 @@ function BranchRow({
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
   if (displayName === null) return null;
 
+  const showPublish = branch.isCurrent && !branch.upstream && Boolean(onPublishBranch);
+
   return (
     <li className="flex items-center gap-1">
       <button
@@ -341,15 +343,15 @@ function BranchRow({
             </span>
           ) : null}
         </span>
-        {branch.isCurrent ? <span className="shrink-0 text-xs" style={{ color: "var(--fjord-ink)" }}>{currentLabel}</span> : null}
+        {branch.isCurrent && !showPublish ? <span className="shrink-0 text-xs" style={{ color: "var(--fjord-ink)" }}>{currentLabel}</span> : null}
       </button>
-      {branch.isCurrent && !branch.upstream && onPublishBranch ? (
+      {showPublish ? (
         <button
           type="button"
           className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-1 text-[10px]"
           style={{ color: "var(--fjord-ink)" }}
           aria-label={publishLabel}
-          onClick={() => onPublishBranch(branch.name)}
+          onClick={() => onPublishBranch?.(branch.name)}
         >
           {publishLabel}
         </button>
