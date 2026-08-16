@@ -346,7 +346,7 @@ function BranchRow({
       {branch.isCurrent && !branch.upstream && onPublishBranch ? (
         <button
           type="button"
-          className="interactive-control shrink-0 rounded px-1.5 py-1 text-[10px]"
+          className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-1 text-[10px]"
           style={{ color: "var(--fjord-ink)" }}
           aria-label={publishLabel}
           onClick={() => onPublishBranch(branch.name)}
