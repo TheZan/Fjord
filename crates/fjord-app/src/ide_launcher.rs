@@ -23,19 +23,44 @@ impl LaunchCommand {
 impl IdeLauncher for SystemIdeLauncher {
     async fn open(&self, path: &Path, ide: Option<&str>) -> Result<(), LaunchError> {
         let command = resolve_launch_command(ide)?;
-        Command::new(&command.program)
-            .arg(path)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(|_| ())
-            .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
+        spawn_ide(&command, path)
     }
 
     async fn open_terminal(&self, path: &Path) -> Result<(), LaunchError> {
         spawn_terminal(path)
     }
+}
+
+// VS Code, Cursor, and Windsurf all install their CLI as a `.cmd` shim on
+// Windows, not a `.exe`. `Command::new` calls `CreateProcess` directly and
+// — unlike `cmd.exe`'s own command resolution — never resolves `.cmd`/`.bat`,
+// so launching "code" this way fails with a plain "program not found" even
+// though `where code` finds it (rust-lang/rust#37519). Route through `cmd
+// /C`, same as `spawn_terminal` below, so the same PATHEXT-aware lookup
+// `where` used to report the IDE as available is what actually launches it.
+#[cfg(windows)]
+fn spawn_ide(command: &LaunchCommand, path: &Path) -> Result<(), LaunchError> {
+    Command::new("cmd")
+        .args(["/C", &command.program])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
+}
+
+#[cfg(not(windows))]
+fn spawn_ide(command: &LaunchCommand, path: &Path) -> Result<(), LaunchError> {
+    Command::new(&command.program)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| LaunchError::SpawnFailed(e.to_string()))
 }
 
 #[cfg(target_os = "macos")]
