@@ -211,15 +211,21 @@ pub async fn import_repositories(
     let paths = fjord_fs::discover_git_repositories(&root, IMPORT_REPOSITORY_LIMIT)?;
     let mut imported = Vec::new();
 
+    // One repository failing to add (a locked DB row, an unreadable .git,
+    // whatever) must not cost the user every other repository the scan
+    // found — mirrors the "one failure does not abort the batch" rule the
+    // bulk_fetch/bulk_pull commands already follow (docs/specs/ipc-commands.md).
     for path in paths {
-        match state.workspaces.add_repository(workspace_id, path).await {
+        match state.workspaces.add_repository(workspace_id, path.clone()).await {
             Ok(entry) => {
                 let _ = state.workspaces.refresh_repo_status(entry.id).await;
                 imported.push(entry);
             }
             Err(WorkspaceError::RepositoryAlreadyAdded(_)) => {}
             Err(WorkspaceError::NotAGitRepository(_)) => {}
-            Err(error) => return Err(error.into()),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), error = %error, "skipping repository during folder import");
+            }
         }
     }
 
