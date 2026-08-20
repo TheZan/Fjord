@@ -13,7 +13,8 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection } from "@/domain/git";
+import { useWorkingFileActions, type WorkingFileAction } from "@/application/useWorkingFileActions";
+import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -26,6 +27,7 @@ import {
   createTag,
   discardPatch,
   getAmendInfo,
+  getWorkingFileDiffWithGenerations,
   invokeErrorCode,
   invokeErrorPaths,
   invokeErrorStashRef,
@@ -117,7 +119,16 @@ export function RepoDetailContainer({
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
+  const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
+  const onWorkingFileAction = useWorkingFileActions({
+    repoId: repo.id,
+    onStage,
+    onUnstage,
+    onDiscard: requestWorkingFileDiscard,
+    onOpenMergeTool: () => onAction("merge-tool"),
+    onError: (error) => setActionError(userErrorMessage(error)),
+  });
   const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -598,6 +609,41 @@ export function RepoDetailContainer({
     );
   }
 
+  async function requestWorkingFileDiscard(target: WorkingFileTarget) {
+    if (target.source !== "worktree") return;
+    let prepared: WorkingFileDiscard | null = null;
+    const ready = await runRepoAction("discard-file-preflight", async () => {
+      const response = await getWorkingFileDiffWithGenerations(
+        repo.id,
+        target.path,
+        false,
+        0,
+        2_000,
+      );
+      const diff = response.data;
+      if (diff.truncated || diff.nextOffset !== null || !diff.baseDigest) {
+        throw new Error(t("workingFile.discardIncomplete"));
+      }
+      const selection: PatchSelection = {
+        path: target.path,
+        source: "worktree",
+        baseDigest: diff.baseDigest,
+        hunks: diff.hunks.map((hunk) => ({
+          oldStart: hunk.oldStart,
+          oldLines: hunk.oldLines,
+          newStart: hunk.newStart,
+          newLines: hunk.newLines,
+          lines: [],
+        })),
+      };
+      prepared = {
+        action: { kind: "discard", selection: { kind: "file", path: target.path } },
+        selection,
+      };
+    });
+    if (ready && prepared) setWorkingFileDiscard(prepared);
+  }
+
   async function handleRejectedPatchMutation(error: unknown, selection: PatchSelection): Promise<boolean> {
     const code = invokeErrorCode(error);
     if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
@@ -738,6 +784,9 @@ export function RepoDetailContainer({
       onPrepareAmend={onPrepareAmend}
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
+      onWorkingFileAction={(action: WorkingFileAction, target: WorkingFileTarget) => {
+        void onWorkingFileAction(action, target);
+      }}
       onCommit={onCommit}
     />
     )}
@@ -831,6 +880,24 @@ export function RepoDetailContainer({
         }}
       />
     ) : null}
+    {workingFileDiscard ? (
+      <DestructivePreflightDialog
+        repoId={repo.id}
+        action={workingFileDiscard.action}
+        patchSelection={workingFileDiscard.selection}
+        onClose={() => setWorkingFileDiscard(null)}
+        onConfirm={async (generations, confirmationToken) => {
+          const request = workingFileDiscard;
+          const ok = await onDiscardPatch(
+            request.action,
+            request.selection,
+            generations,
+            confirmationToken,
+          );
+          if (ok) setWorkingFileDiscard(null);
+        }}
+      />
+    ) : null}
     </> : (
       <div className="flex min-h-0 flex-1 items-center justify-center" aria-busy="true">
         <span className="text-[13px]" style={{ color: "var(--mist)" }}>
@@ -845,6 +912,10 @@ type ConfirmableAction = "fetch" | "pull" | "push";
 const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
 type CheckoutOverwrite = { branch: string; paths: string[] };
+type WorkingFileDiscard = {
+  action: DestructiveAction;
+  selection: PatchSelection;
+};
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }

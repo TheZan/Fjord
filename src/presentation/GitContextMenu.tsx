@@ -20,6 +20,7 @@ export interface ContextMenuItem {
   disabledReason?: string;
   danger?: boolean;
   separatorBefore?: boolean;
+  children?: ContextMenuItem[];
 }
 
 export type ContextMenuIcon =
@@ -47,6 +48,7 @@ export function ContextMenu({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [menuPosition, setMenuPosition] = useState(position);
   const [activeIndex, setActiveIndex] = useState(() => firstEnabledIndex(items));
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
 
   useEffect(() => {
     const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -64,9 +66,10 @@ export function ContextMenu({
   }, [position]);
 
   useEffect(() => {
+    if (openSubmenu) return;
     const frame = window.requestAnimationFrame(() => itemRefs.current[activeIndex]?.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex]);
+  }, [activeIndex, openSubmenu]);
 
   function moveActive(direction: 1 | -1) {
     if (items.every((item) => item.disabled)) return;
@@ -96,6 +99,14 @@ export function ContextMenu({
             onClose();
             return;
           }
+          if (event.key === "ArrowRight") {
+            const item = items[activeIndex];
+            if (item?.children?.some((child) => !child.disabled)) {
+              event.preventDefault();
+              setOpenSubmenu(item.id);
+            }
+            return;
+          }
           const shortcutItem = items.find(
             (item) => !item.disabled && item.shortcut && matchesMenuShortcut(event, item.shortcut),
           );
@@ -120,12 +131,15 @@ export function ContextMenu({
           } else if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             const item = items[activeIndex];
-            if (item && !item.disabled) onSelect(item.id);
+            if (item && !item.disabled) {
+              if (item.children) setOpenSubmenu(item.id);
+              else onSelect(item.id);
+            }
           }
         }}
       >
         {items.map((item, index) => (
-          <div key={item.id} className={item.separatorBefore ? "mt-1 border-t pt-1" : ""} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
+          <div key={item.id} className={`relative ${item.separatorBefore ? "mt-1 border-t pt-1" : ""}`} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
             <button
               ref={(element) => {
                 itemRefs.current[index] = element;
@@ -138,10 +152,15 @@ export function ContextMenu({
               className="interactive-row flex h-8 w-full items-center gap-2 px-2.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ color: item.danger ? "var(--rust-ink)" : "var(--ink)" }}
               onMouseEnter={() => {
-                if (!item.disabled) setActiveIndex(index);
+                if (!item.disabled) {
+                  setActiveIndex(index);
+                  setOpenSubmenu(item.children ? item.id : null);
+                }
               }}
               onClick={() => {
-                if (!item.disabled) onSelect(item.id);
+                if (item.disabled) return;
+                if (item.children) setOpenSubmenu(item.id);
+                else onSelect(item.id);
               }}
             >
               <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
@@ -153,10 +172,91 @@ export function ContextMenu({
                   {item.shortcut}
                 </kbd>
               ) : null}
+              {item.children ? <span aria-hidden="true">›</span> : null}
             </button>
+            {item.children && openSubmenu === item.id ? (
+              <ContextSubmenu
+                items={item.children}
+                onSelect={onSelect}
+                onClose={() => {
+                  setOpenSubmenu(null);
+                  itemRefs.current[index]?.focus();
+                }}
+              />
+            ) : null}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ContextSubmenu({
+  items,
+  onSelect,
+  onClose,
+}: {
+  items: ContextMenuItem[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [active, setActive] = useState(() => firstEnabledIndex(items));
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => refs.current[active]?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  function move(direction: 1 | -1) {
+    if (items.every((item) => item.disabled)) return;
+    let next = active;
+    do next = (next + direction + items.length) % items.length;
+    while (items[next].disabled);
+    setActive(next);
+  }
+
+  return (
+    <div
+      role="menu"
+      className="desktop-popover absolute left-full top-0 min-w-52 rounded-md border py-1"
+      style={{ background: "var(--paper)", borderColor: "var(--hairline-strong)" }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onClose();
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          move(1);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          move(-1);
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          const item = items[active];
+          if (item && !item.disabled) onSelect(item.id);
+        }
+      }}
+    >
+      {items.map((item, index) => (
+        <button
+          key={item.id}
+          ref={(element) => { refs.current[index] = element; }}
+          type="button"
+          role="menuitem"
+          tabIndex={index === active ? 0 : -1}
+          disabled={item.disabled}
+          title={item.disabled ? item.disabledReason : undefined}
+          className="interactive-row flex h-8 w-full items-center px-2.5 text-left text-[13px] disabled:opacity-40"
+          onMouseEnter={() => { if (!item.disabled) setActive(index); }}
+          onClick={() => { if (!item.disabled) onSelect(item.id); }}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }

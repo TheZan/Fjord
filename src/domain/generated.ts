@@ -109,6 +109,12 @@ export type WorkingChanges = { staged: Array<WorkingFile>, unstaged: Array<Worki
 
 export type PatchSource = "worktree" | "index";
 
+export type WorkingFileTarget = { path: string, source: PatchSource, };
+
+export type RepositoryFilePath = { relative: string, absolute: string, };
+
+export type OpenTarget = { "kind": "configuredEditor", line: number | null, } | { "kind": "defaultApplication" };
+
 export type HunkSelection = { oldStart: number, oldLines: number, newStart: number, newLines: number,
 /**
  * Empty selects the whole hunk. Otherwise these are zero-based indices

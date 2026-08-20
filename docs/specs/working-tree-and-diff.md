@@ -397,12 +397,10 @@ Owner of this contract. Every action below is reachable by right-clicking a file
 row in **Working Changes**, in both the *Unstaged* and *Staged* sections and in
 both **Path** and **Tree** view modes (`FileViewMode`, [`ui-shell.md`](ui-shell.md) §5).
 Delivered by `P10-WC-01`–`P10-WC-06`; §6.9 fixes the dependency order.
-
-Today a file row exposes exactly one action — the hover Stage/Unstage control in
-`WorkingChangesPanel.tsx`'s `renderTrailing` — and no context menu exists
-anywhere in the working-changes surface. Everything else a developer does with a
-changed file (open it, reveal it, ignore it, export it as a patch, delete it)
-requires leaving the app.
+`P10-WC-01` is implemented: file rows now expose the shared adaptive menu with
+Stage/Unstage, token-bound whole-file Discard, Open/Reveal, merge-tool access,
+and backend-resolved path copying. Ignore, patch export, delete, file stash, and
+external diff remain owned independently by `P10-WC-02`–`P10-WC-06`.
 
 #### 6.1 Row identity is the contract
 

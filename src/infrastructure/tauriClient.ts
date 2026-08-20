@@ -18,6 +18,7 @@ import type {
   MergePreflight,
   MergeResult,
   MergeSource,
+  OpenTarget,
   PatchSelection,
   RepoOperationState,
   SnapshotRevalidation,
@@ -49,6 +50,7 @@ import type {
   GlobalSearchResult,
   ReflogPage,
   RepoStatus,
+  RepositoryFilePath,
   StashEntry,
   TagInfo,
   WorkingChanges,
@@ -860,6 +862,25 @@ export function openMergeTool(repoId: string): Promise<void> {
 
 export function openInIde(repoId: string, ide: string | null = null): Promise<void> {
   return invoke("open_in_ide", { repoId, ide });
+}
+
+export function resolveRepositoryFilePath(
+  repoId: string,
+  path: string,
+): Promise<RepositoryFilePath> {
+  return invoke("resolve_repository_file_path", { repoId, path });
+}
+
+export function openRepositoryPath(
+  repoId: string,
+  path: string,
+  target: OpenTarget,
+): Promise<void> {
+  return invoke("open_repository_path", { repoId, path, target });
+}
+
+export function revealRepositoryPath(repoId: string, path: string): Promise<void> {
+  return invoke("reveal_repository_path", { repoId, path });
 }
 
 export function bulkFetch(

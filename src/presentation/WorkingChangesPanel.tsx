@@ -8,11 +8,12 @@ import {
   FileViewTabs,
   useFileTreeCollapse,
   type FileTreeCollapse,
+  type FileContextMenuAnchor,
   type FileViewMode,
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
-import type { AmendInfo, WorkingChanges, WorkingFile } from "@/domain/git";
+import type { AmendInfo, WorkingChanges, WorkingFile, WorkingFileTarget } from "@/domain/git";
 
 export interface SelectedWorkingFile {
   path: string;
@@ -34,6 +35,7 @@ export function WorkingChangesPanel({
   onSelectFile,
   onStage,
   onUnstage,
+  onFileContextMenu,
   onPrepareAmend,
   onCommit,
 }: {
@@ -46,6 +48,11 @@ export function WorkingChangesPanel({
   onSelectFile: (file: SelectedWorkingFile) => void;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
+  onFileContextMenu?: (
+    file: WorkingFile,
+    target: WorkingFileTarget,
+    anchor: FileContextMenuAnchor,
+  ) => void;
   onPrepareAmend: () => Promise<AmendInfo | null>;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
 }) {
@@ -176,6 +183,7 @@ export function WorkingChangesPanel({
           selectedFile={selectedFile}
           onSelectFile={onSelectFile}
           onAct={onStage}
+          onFileContextMenu={onFileContextMenu}
         />
         <FileSection
           label={t("working.staged")}
@@ -189,6 +197,7 @@ export function WorkingChangesPanel({
           selectedFile={selectedFile}
           onSelectFile={onSelectFile}
           onAct={onUnstage}
+          onFileContextMenu={onFileContextMenu}
         />
       </div>
 
@@ -270,6 +279,7 @@ function FileSection({
   selectedFile,
   onSelectFile,
   onAct,
+  onFileContextMenu,
 }: {
   label: string;
   files: WorkingFile[];
@@ -282,6 +292,11 @@ function FileSection({
   selectedFile: SelectedWorkingFile | null;
   onSelectFile: (file: SelectedWorkingFile) => void;
   onAct: (paths: string[]) => void;
+  onFileContextMenu?: (
+    file: WorkingFile,
+    target: WorkingFileTarget,
+    anchor: FileContextMenuAnchor,
+  ) => void;
 }) {
   const { t } = useTranslation("workspace");
   if (files.length === 0) return null;
@@ -312,6 +327,13 @@ function FileSection({
         collapse={collapse}
         selectedPath={selectedPath}
         onSelect={(file) => onSelectFile({ path: file.path, staged })}
+        onFileContextMenu={onFileContextMenu
+          ? (file, anchor) => onFileContextMenu(
+              file,
+              { path: file.path, source: staged ? "index" : "worktree" },
+              anchor,
+            )
+          : undefined}
         renderMark={(file) => (
           <span
             style={{ color: CHANGE_TYPE_COLOR[file.changeType] }}

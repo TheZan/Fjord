@@ -595,6 +595,41 @@ pub enum PatchSource {
     Index,
 }
 
+/// Logical identity of one Working Changes row. The source is part of the
+/// identity because a partially staged path appears in both sections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct WorkingFileTarget {
+    pub path: String,
+    pub source: PatchSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepositoryFilePath {
+    pub relative: String,
+    #[ts(type = "string")]
+    pub absolute: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum OpenTarget {
+    ConfiguredEditor { line: Option<u32> },
+    DefaultApplication,
+}
+
 /// Coordinates for one selected hunk in the complete rendered diff.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -133,6 +133,9 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `cancel_git_auth_prompt` | `{ operation_id, prompt_id }` | `boolean` | |
 | `open_in_ide` | `{ repo_id, ide? }` | — | Falls back to `Settings.default_ide`; allowlisted commands only |
 | `open_terminal` | `{ repo_id }` | — | |
+| `resolve_repository_file_path` | `{ repo_id, path }` | `RepositoryFilePath` | Canonicalizes a repository-relative file path; rejects traversal, `.git`, absolute paths, and resolved parents outside the repository |
+| `open_repository_path` | `{ repo_id, path, target }` | — | Opens a contained file in the configured editor (with optional line) or its OS default application |
+| `reveal_repository_path` | `{ repo_id, path }` | — | Reveals a contained file through the platform file manager |
 | `bulk_open_in_ide` | `{ workspace_id, ide? }` | `BulkRepoResult[]` | |
 
 ### Performance diagnostics
@@ -155,9 +158,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `resolve_repository_file_path` | `{ repo_id, path }` | `RepositoryFilePath` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4 | `P10-WC-01` |
-| `open_repository_path` | `{ repo_id, path, target, ide? }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4 | `P10-WC-01` |
-| `reveal_repository_path` | `{ repo_id, path }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4 | `P10-WC-01` |
 | `preview_ignore_rule` / `add_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRulePreview` / `IgnoreRuleOutcome` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-02` |
 | `export_patch` | `{ repo_id, path, source, destination }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-03` |
 | `stash_file` | `{ repo_id, path, message? }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-05` |
@@ -167,9 +167,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
 | `get_workspace_health` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §4 | `P10-08` |
 
-Two planned additions extend existing shapes rather than adding a command:
-`open_in_ide` gains an optional repository-relative `path` and `line`
-([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4), and
+One planned addition extends existing shapes rather than adding a command:
 `preflight_destructive_action` / `execute_destructive_action` gain the
 `DeleteFile { path }` action through the existing enum and executor
 ([`repository-safety.md`](repository-safety.md) §3, `P10-WC-04`).
@@ -185,7 +183,7 @@ and validates containment before acting. `merge_branch` takes a typed
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 Planned codes, added with the commands above and listed here so no task invents
 its own spelling. A normal Git outcome is never one of these — merge reports
@@ -198,8 +196,8 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   `merge_index_has_staged_changes`, `merge_detached_head`, `merge_unborn_head`,
   `merge_failed`, and the shared `operation_already_in_progress` (which
   `start_rebase` also uses).
-- Working-file actions (`P10-WC-01`–`P10-WC-06`): `path_outside_repository`,
-  `path_not_found`, `ignore_rule_unsupported_for_tracked_file`,
+- Remaining working-file actions (`P10-WC-02`–`P10-WC-06`):
+  `ignore_rule_unsupported_for_tracked_file`,
   `ignore_file_encoding_unsupported`, `ignore_write_failed`,
   `patch_export_failed`, `stash_file_unsupported`, `stash_file_conflicted`,
   `delete_target_not_a_file`, `delete_file_conflicted`,

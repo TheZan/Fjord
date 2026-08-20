@@ -594,6 +594,17 @@
     "pushSuccess": "Gepusht",
     "pushFailure": "Fehlgeschlagen: {{error}}"
   },
+  "workingFile": {
+    "stage": "Stagen",
+    "unstage": "Aus Staging entfernen",
+    "discard": "Arbeitsänderungen verwerfen…",
+    "discardIncomplete": "Öffne den Datei-Diff, um Änderungen in einer so großen Datei zu verwerfen.",
+    "openInConfiguredEditor": "Im konfigurierten Editor öffnen",
+    "openWithDefault": "Mit Standardanwendung öffnen",
+    "showInFolder": "Im Ordner anzeigen",
+    "openMergeTool": "Merge-Werkzeug öffnen",
+    "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" }
+  },
   "working": {
     "title": "Nicht committete Änderungen",
     "fileCount_one": "{{count}} Datei",

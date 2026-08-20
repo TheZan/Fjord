@@ -624,6 +624,17 @@
     "pushSuccess": "Pushed",
     "pushFailure": "Failed: {{error}}"
   },
+  "workingFile": {
+    "stage": "Stage",
+    "unstage": "Unstage",
+    "discard": "Discard working changes…",
+    "discardIncomplete": "Open the file diff to discard changes in a file this large.",
+    "openInConfiguredEditor": "Open in configured editor",
+    "openWithDefault": "Open with default application",
+    "showInFolder": "Show in folder",
+    "openMergeTool": "Open merge tool",
+    "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" }
+  },
   "working": {
     "title": "Uncommitted changes",
     "fileCount_one": "{{count}} file",

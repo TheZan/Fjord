@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -138,6 +138,25 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   stagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   unstagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   discardPatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
+  getWorkingFileDiffWithGenerations: vi.fn(async () => ({
+    generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
+    data: {
+      path: "file.txt",
+      changeType: "modified",
+      oldMode: 33188,
+      newMode: 33188,
+      isBinary: false,
+      tooLarge: false,
+      fileBytes: 10,
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
+      totalHunks: 1,
+      totalLines: 1,
+      offset: 0,
+      truncated: false,
+      nextOffset: null,
+      baseDigest: "whole-file-digest",
+    },
+  })),
   preflightDestructiveAction: vi.fn(),
 }));
 
@@ -159,6 +178,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPublishBranch,
     onPushToRemotes,
     onMergeBranch,
+    onWorkingFileAction,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -181,6 +201,10 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPublishBranch: (branch: string) => void;
     onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
     onMergeBranch: (source: import("@/domain/git").MergeSource) => void;
+    onWorkingFileAction: (
+      action: import("@/application/useWorkingFileActions").WorkingFileAction,
+      target: import("@/domain/git").WorkingFileTarget,
+    ) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -193,6 +217,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
+      <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
@@ -285,6 +310,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(unstagePatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(discardPatch).mockReset();
     vi.mocked(discardPatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
+    vi.mocked(getWorkingFileDiffWithGenerations).mockClear();
     vi.mocked(preflightDestructiveAction).mockReset();
     vi.mocked(invalidateRepoData).mockClear();
     vi.mocked(rejectWorkingDiffSnapshot).mockClear();
@@ -554,6 +580,38 @@ describe("RepoDetailContainer checkout confirmation", () => {
       expect.anything(), "repo-1", "workspace-1", ["status", "working"],
     ));
     expect(stagePatch).toHaveBeenCalledOnce();
+  });
+
+  it("routes context-menu whole-file discard through the shared token preflight", async () => {
+    const action = { kind: "discard" as const, selection: { kind: "file" as const, path: "file.txt" } };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "discard-file-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "discard-file-token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "discard working file" }));
+    expect(await screen.findByRole("dialog", { name: "preflight.discard.title" })).toBeInTheDocument();
+    expect(discardPatch).not.toHaveBeenCalled();
+    expect(preflightDestructiveAction).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      expect.objectContaining({
+        path: "file.txt",
+        source: "worktree",
+        baseDigest: "whole-file-digest",
+      }),
+    );
+
+    const confirm = screen.getByRole("button", { name: "preflight.discard.confirm" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await waitFor(() => expect(discardPatch).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      expect.objectContaining({ baseDigest: "whole-file-digest" }),
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "discard-file-token-2",
+    ));
   });
 
   it("does not submit a second patch mutation from rapid clicks", async () => {

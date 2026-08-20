@@ -594,6 +594,17 @@
     "pushSuccess": "Enviado",
     "pushFailure": "Error: {{error}}"
   },
+  "workingFile": {
+    "stage": "Preparar",
+    "unstage": "Quitar de preparados",
+    "discard": "Descartar cambios de trabajo…",
+    "discardIncomplete": "Abre el diff del archivo para descartar cambios en un archivo tan grande.",
+    "openInConfiguredEditor": "Abrir en el editor configurado",
+    "openWithDefault": "Abrir con la aplicación predeterminada",
+    "showInFolder": "Mostrar en carpeta",
+    "openMergeTool": "Abrir herramienta de fusión",
+    "copyPath": { "label": "Copiar ruta", "relative": "Ruta relativa", "absolute": "Ruta absoluta" }
+  },
   "working": {
     "title": "Cambios sin commit",
     "fileCount_one": "{{count}} archivo",

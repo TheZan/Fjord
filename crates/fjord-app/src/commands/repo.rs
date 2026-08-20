@@ -2,9 +2,9 @@ use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
     GlobalSearchResult, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
-    MergeSource, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState,
-    RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId,
+    MergeSource, OpenTarget, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult,
+    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -561,6 +561,40 @@ pub async fn open_terminal(
     repo_id: RepositoryId,
 ) -> Result<(), AppError> {
     Ok(state.repos.open_terminal(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn resolve_repository_file_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+) -> Result<RepositoryFilePath, AppError> {
+    Ok(state
+        .repos
+        .resolve_repository_file_path(repo_id, &path)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn open_repository_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    target: OpenTarget,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .open_repository_path(repo_id, &path, target)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn reveal_repository_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+) -> Result<(), AppError> {
+    Ok(state.repos.reveal_repository_path(repo_id, &path).await?)
 }
 
 #[tauri::command]

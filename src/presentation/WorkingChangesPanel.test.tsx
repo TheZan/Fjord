@@ -107,6 +107,34 @@ describe("WorkingChangesPanel", () => {
     expect(screen.getByText("working.conflicted")).toBeInTheDocument();
   });
 
+  it("forwards exact staged and unstaged row identity in Path and Tree views", () => {
+    const onFileContextMenu = vi.fn();
+    render(<WorkingChangesPanel {...props({ onFileContextMenu })} />);
+
+    fireEvent.contextMenu(screen.getByTitle("src/app.ts"), { clientX: 10, clientY: 20 });
+    fireEvent.contextMenu(screen.getByTitle("README.md"), { clientX: 30, clientY: 40 });
+    expect(onFileContextMenu).toHaveBeenNthCalledWith(
+      1,
+      changes.unstaged[0],
+      { path: "src/app.ts", source: "worktree" },
+      { x: 10, y: 20 },
+    );
+    expect(onFileContextMenu).toHaveBeenNthCalledWith(
+      2,
+      changes.staged[0],
+      { path: "README.md", source: "index" },
+      { x: 30, y: 40 },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "fileView.tree" }));
+    fireEvent.contextMenu(screen.getByTitle("src/app.ts"), { clientX: 50, clientY: 60 });
+    expect(onFileContextMenu).toHaveBeenLastCalledWith(
+      changes.unstaged[0],
+      { path: "src/app.ts", source: "worktree" },
+      { x: 50, y: 60 },
+    );
+  });
+
   it("composes a trimmed commit message and clears inputs after success", async () => {
     const onCommit = vi.fn(async () => true);
     render(<WorkingChangesPanel {...props({ onCommit })} />);

@@ -63,6 +63,51 @@ describe("FileEntryList", () => {
     expect(row).toHaveClass("min-w-0", "overflow-hidden");
     expect(fileName).toHaveClass("min-w-0", "flex-1", "truncate");
   });
+
+  it("forwards identical logical file identity for pointer and keyboard context menus", () => {
+    const file = { path: "src/app.ts" };
+    const onSelect = vi.fn();
+    const onFileContextMenu = vi.fn();
+    render(
+      <FileEntryList
+        files={[file]}
+        mode="path"
+        collapse={emptyCollapse()}
+        selectedPath={null}
+        onSelect={onSelect}
+        onFileContextMenu={onFileContextMenu}
+        renderMark={() => "M"}
+      />,
+    );
+    const row = screen.getByTitle(file.path);
+
+    fireEvent.contextMenu(row, { clientX: 42, clientY: 57 });
+    fireEvent.keyDown(row, { key: "ContextMenu" });
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+
+    expect(onSelect).toHaveBeenCalledTimes(3);
+    expect(onFileContextMenu.mock.calls.map(([target]) => target)).toEqual([file, file, file]);
+    expect(onFileContextMenu).toHaveBeenNthCalledWith(1, file, { x: 42, y: 57 });
+    expect(row).toHaveFocus();
+  });
+
+  it("does not expose the file context seam on a tree directory row", () => {
+    const onFileContextMenu = vi.fn();
+    render(
+      <FileEntryList
+        files={[{ path: "src/app.ts" }]}
+        mode="tree"
+        collapse={emptyCollapse()}
+        selectedPath={null}
+        onSelect={vi.fn()}
+        onFileContextMenu={onFileContextMenu}
+        renderMark={() => "M"}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /src/ }));
+    expect(onFileContextMenu).not.toHaveBeenCalled();
+  });
 });
 
 function emptyCollapse(): FileTreeCollapse {

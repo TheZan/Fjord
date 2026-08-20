@@ -118,6 +118,10 @@ impl From<RepoError> for AppError {
             error @ RepoError::CreateRepositoryRegistrationFailed(_) => {
                 Self::new("create_repository_registration_failed", error.to_string())
             }
+            error @ RepoError::PathOutsideRepository(_) => {
+                Self::new("path_outside_repository", error.to_string())
+            }
+            error @ RepoError::PathNotFound(_) => Self::new("path_not_found", error.to_string()),
         }
     }
 }
@@ -373,6 +377,18 @@ mod tests {
         assert_eq!(
             git_error_to_app_error(GitError::OperationStepFailed("sanitized".into())).diagnostics,
             Some("sanitized".into())
+        );
+    }
+
+    #[test]
+    fn repository_file_failures_have_stable_codes() {
+        assert_eq!(
+            AppError::from(RepoError::PathOutsideRepository("../secret".into())).code,
+            "path_outside_repository"
+        );
+        assert_eq!(
+            AppError::from(RepoError::PathNotFound("missing.txt".into())).code,
+            "path_not_found"
         );
     }
 

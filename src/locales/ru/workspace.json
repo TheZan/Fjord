@@ -602,6 +602,17 @@
     "pushSuccess": "Отправлено",
     "pushFailure": "Ошибка: {{error}}"
   },
+  "workingFile": {
+    "stage": "Индексировать",
+    "unstage": "Убрать из индекса",
+    "discard": "Отменить рабочие изменения…",
+    "discardIncomplete": "Откройте diff файла, чтобы отменить изменения в таком большом файле.",
+    "openInConfiguredEditor": "Открыть в настроенном редакторе",
+    "openWithDefault": "Открыть приложением по умолчанию",
+    "showInFolder": "Показать в папке",
+    "openMergeTool": "Открыть инструмент слияния",
+    "copyPath": { "label": "Копировать путь", "relative": "Относительный путь", "absolute": "Абсолютный путь" }
+  },
   "working": {
     "title": "Незакоммиченные изменения",
     "fileCount_one": "{{count}} файл",

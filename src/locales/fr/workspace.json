@@ -594,6 +594,17 @@
     "pushSuccess": "Envoyé",
     "pushFailure": "Échec : {{error}}"
   },
+  "workingFile": {
+    "stage": "Indexer",
+    "unstage": "Désindexer",
+    "discard": "Abandonner les modifications…",
+    "discardIncomplete": "Ouvrez le diff du fichier pour abandonner les modifications d’un fichier aussi volumineux.",
+    "openInConfiguredEditor": "Ouvrir dans l’éditeur configuré",
+    "openWithDefault": "Ouvrir avec l’application par défaut",
+    "showInFolder": "Afficher dans le dossier",
+    "openMergeTool": "Ouvrir l’outil de fusion",
+    "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" }
+  },
   "working": {
     "title": "Changements non commités",
     "fileCount_one": "{{count}} fichier",

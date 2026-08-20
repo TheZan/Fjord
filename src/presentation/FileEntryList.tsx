@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { buildFileTree, splitPath, type FileTreeNode } from "@/presentation/fileTree";
 
 export type FileViewMode = "path" | "tree";
+export interface FileContextMenuAnchor { x: number; y: number }
 
 /**
  * Which directory rows are folded. Owned by the panel rather than by the list
@@ -155,6 +156,7 @@ interface FileEntryListProps<T extends { path: string }> {
   renderMark: (file: T) => ReactNode;
   /** Right-aligned extra, e.g. `+3 -1` or a stage button. */
   renderTrailing?: (file: T) => ReactNode;
+  onFileContextMenu?: (file: T, anchor: FileContextMenuAnchor) => void;
   /** Occupy the parent's remaining height instead of using a capped list. */
   fill?: boolean;
 }
@@ -176,6 +178,7 @@ export function FileEntryList<T extends { path: string }>({
   onSelect,
   renderMark,
   renderTrailing,
+  onFileContextMenu,
   fill = false,
 }: FileEntryListProps<T>) {
   const tree = useMemo(() => (mode === "tree" ? buildFileTree(files) : []), [files, mode]);
@@ -225,6 +228,7 @@ export function FileEntryList<T extends { path: string }>({
               onSelect={onSelect}
               renderMark={renderMark}
               renderTrailing={renderTrailing}
+              onFileContextMenu={onFileContextMenu}
               style={rowStyle}
             />
           ) : (
@@ -280,6 +284,7 @@ function FileRow<T extends { path: string }>({
   onSelect,
   renderMark,
   renderTrailing,
+  onFileContextMenu,
   style,
 }: {
   file: T;
@@ -290,6 +295,7 @@ function FileRow<T extends { path: string }>({
   onSelect: (file: T) => void;
   renderMark: (file: T) => ReactNode;
   renderTrailing?: (file: T) => ReactNode;
+  onFileContextMenu?: (file: T, anchor: FileContextMenuAnchor) => void;
   style: CSSProperties;
 }) {
   return (
@@ -297,6 +303,21 @@ function FileRow<T extends { path: string }>({
       <button
         type="button"
         onClick={() => onSelect(file)}
+        onContextMenu={(event) => {
+          if (!onFileContextMenu) return;
+          event.preventDefault();
+          event.currentTarget.focus();
+          onSelect(file);
+          onFileContextMenu(file, { x: event.clientX, y: event.clientY });
+        }}
+        onKeyDown={(event) => {
+          if (!onFileContextMenu) return;
+          if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+          event.preventDefault();
+          onSelect(file);
+          const bounds = event.currentTarget.getBoundingClientRect();
+          onFileContextMenu(file, { x: bounds.left + 12, y: bounds.bottom + 2 });
+        }}
         title={file.path}
         data-selected={selected}
         className="interactive-row flex h-7 min-w-0 w-full items-center gap-2 overflow-hidden rounded pr-2 text-left"

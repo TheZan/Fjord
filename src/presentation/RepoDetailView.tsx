@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
 import { mergeSourceForBranch } from "@/application/mergeBranchAction";
+import type { WorkingFileAction } from "@/application/useWorkingFileActions";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -14,6 +15,7 @@ import type { BranchContextAction, TagContextAction } from "@/presentation/RepoT
 import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
+import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
@@ -25,6 +27,7 @@ import type {
   PatchSelection,
   RepoStatus,
   WorkingChanges,
+  WorkingFileTarget,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -96,6 +99,7 @@ export function RepoDetailView({
   onPrepareAmend,
   onApplyHunk,
   onDiscardPatch,
+  onWorkingFileAction,
   onCommit,
 }: {
   repo: RepositoryEntry;
@@ -162,12 +166,14 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
+  onWorkingFileAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
+  const [workingFileMenu, setWorkingFileMenu] = useState<WorkingFileMenuState | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error"; retainedStash: boolean } | null>(null);
@@ -178,6 +184,14 @@ export function RepoDetailView({
   useEffect(() => {
     setSelectedCommitFile(null);
   }, [selectedCommit?.id]);
+
+  useEffect(() => {
+    if (!workingFileMenu) return;
+    const section = workingFileMenu.target.source === "index" ? changes.staged : changes.unstaged;
+    if (!section.some((file) => file.path === workingFileMenu.target.path)) {
+      setWorkingFileMenu(null);
+    }
+  }, [changes, workingFileMenu]);
 
   useEffect(() => {
     if (!branchScrollRequest) return;
@@ -237,6 +251,9 @@ export function RepoDetailView({
       onSelectFile={setSelectedWorkingFile}
       onStage={onStage}
       onUnstage={onUnstage}
+      onFileContextMenu={(file, target, position) => {
+        setWorkingFileMenu({ file, target, position });
+      }}
       onPrepareAmend={onPrepareAmend}
       onCommit={onCommit}
     />
@@ -483,6 +500,14 @@ export function RepoDetailView({
             setNotice(null);
             onPopRetainedStash();
           } : undefined}
+        />
+      ) : null}
+      {workingFileMenu ? (
+        <WorkingFileContextMenu
+          state={workingFileMenu}
+          busy={!actionsValidated || actionPending !== null}
+          onClose={() => setWorkingFileMenu(null)}
+          onAction={onWorkingFileAction}
         />
       ) : null}
     </ScreenSurface>

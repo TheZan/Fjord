@@ -11,14 +11,14 @@ use fjord_domain::{
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
     InteractionSpan, InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode,
     MergeOutcome, MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind,
-    OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource,
-    RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef,
-    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryId, RepositorySnapshot, ResetMode,
-    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    OpenTarget, OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection,
+    PatchSource, RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult,
+    RemoteRef, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
+    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
     Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
-    WorkingFile, Workspace, WorkspaceId,
+    WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -97,6 +97,9 @@ fn generated_types() -> String {
     push::<WorkingFile>(&mut output, &config);
     push::<WorkingChanges>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSource>(&mut output, &config);
+    push::<WorkingFileTarget>(&mut output, &config);
+    push::<RepositoryFilePath>(&mut output, &config);
+    push_without_trailing_whitespace::<OpenTarget>(&mut output, &config);
     push_without_trailing_whitespace::<HunkSelection>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);
