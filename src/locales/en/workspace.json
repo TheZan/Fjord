@@ -659,6 +659,13 @@
     "showInFolder": "Show in folder",
     "openMergeTool": "Open merge tool",
     "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" },
+    "createPatch": "Create patch from changes…",
+    "createPatchStaged": "Create patch from staged changes…",
+    "copyPatch": "Copy patch to clipboard",
+    "patchSaved": "Patch saved to {{path}}.",
+    "disabled": {
+      "whitespaceMode": "The displayed diff is not the patch Git would apply."
+    },
     "ignore": {
       "label": "Ignore",
       "file": "Ignore this file",

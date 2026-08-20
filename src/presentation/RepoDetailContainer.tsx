@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
 import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
+import { buildWholeFilePatchSelection, IncompleteWorkingDiffError } from "@/application/wholeFilePatchSelection";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import {
@@ -15,7 +16,7 @@ import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import { useWorkingFileActions, type WorkingFileAction } from "@/application/useWorkingFileActions";
-import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
+import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -29,7 +30,6 @@ import {
   createTag,
   discardPatch,
   getAmendInfo,
-  getWorkingFileDiffWithGenerations,
   invokeErrorCode,
   invokeErrorPaths,
   invokeErrorStashRef,
@@ -126,6 +126,9 @@ export function RepoDetailContainer({
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
+  const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
+    { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
+  >(null);
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
     onStage,
@@ -133,6 +136,7 @@ export function RepoDetailContainer({
     onDiscard: requestWorkingFileDiscard,
     onOpenMergeTool: () => onAction("merge-tool"),
     onAddIgnore,
+    onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
     onError: (error) => setActionError(userErrorMessage(error)),
   });
   const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
@@ -686,29 +690,15 @@ export function RepoDetailContainer({
     if (target.source !== "worktree") return;
     let prepared: WorkingFileDiscard | null = null;
     const ready = await runRepoAction("discard-file-preflight", async () => {
-      const response = await getWorkingFileDiffWithGenerations(
-        repo.id,
-        target.path,
-        false,
-        0,
-        2_000,
-      );
-      const diff = response.data;
-      if (diff.truncated || diff.nextOffset !== null || !diff.baseDigest) {
-        throw new Error(t("workingFile.discardIncomplete"));
+      let selection: PatchSelection;
+      try {
+        selection = await buildWholeFilePatchSelection(repo.id, target.path, "worktree");
+      } catch (error) {
+        if (error instanceof IncompleteWorkingDiffError) {
+          throw new Error(t("workingFile.discardIncomplete"));
+        }
+        throw error;
       }
-      const selection: PatchSelection = {
-        path: target.path,
-        source: "worktree",
-        baseDigest: diff.baseDigest,
-        hunks: diff.hunks.map((hunk) => ({
-          oldStart: hunk.oldStart,
-          oldLines: hunk.oldLines,
-          newStart: hunk.newStart,
-          newLines: hunk.newLines,
-          lines: [],
-        })),
-      };
       prepared = {
         action: { kind: "discard", selection: { kind: "file", path: target.path } },
         selection,
@@ -879,6 +869,14 @@ export function RepoDetailContainer({
       onCommit={onCommit}
       pendingDraftMessage={pendingDraftMessage}
       onPendingDraftMessageConsumed={() => setPendingDraftMessage(null)}
+      openWorkingDiffWhitespace={openWorkingDiffWhitespace}
+      onWorkingDiffWhitespaceModeChange={(target, mode) => {
+        setOpenWorkingDiffWhitespace(
+          target && target.source.kind === "working"
+            ? { path: target.path, staged: target.source.staged, mode }
+            : null,
+        );
+      }}
     />
     )}
     {forcePushPreflight ? (

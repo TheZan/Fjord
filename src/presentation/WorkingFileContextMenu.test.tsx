@@ -30,6 +30,36 @@ describe("WorkingFileContextMenu", () => {
     expect(staged).not.toContain("ignore");
   });
 
+  it("offers patch export from both rows, with clipboard copy on the unstaged row only", () => {
+    const unstaged = workingFileMenuItems(normal, worktree, false, t);
+    const staged = workingFileMenuItems(normal, index, false, t);
+
+    expect(unstaged.find((item) => item.id === "createPatch")).toMatchObject({
+      label: "workingFile.createPatch",
+      disabled: false,
+    });
+    expect(ids(unstaged)).toContain("copyPatch");
+
+    expect(staged.find((item) => item.id === "createPatch")).toMatchObject({
+      label: "workingFile.createPatchStaged",
+      disabled: false,
+    });
+    expect(ids(staged)).not.toContain("copyPatch");
+  });
+
+  it("disables patch export with the stated reason while a whitespace-ignoring mode is active", () => {
+    const items = workingFileMenuItems(normal, worktree, false, t, "workingFile.disabled.whitespaceMode");
+
+    expect(items.find((item) => item.id === "createPatch")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.whitespaceMode",
+    });
+    expect(items.find((item) => item.id === "copyPatch")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.whitespaceMode",
+    });
+  });
+
   it("offers adaptive ignore rules only for untracked worktree files", () => {
     const trackedIgnore = workingFileMenuItems(normal, worktree, false, t).find((item) => item.id === "ignore");
     expect(trackedIgnore).toMatchObject({
@@ -65,6 +95,7 @@ describe("WorkingFileContextMenu", () => {
     const deleted = ids(workingFileMenuItems({ ...normal, changeType: "deleted" }, worktree, false, t));
     expect(deleted).toContain("discard");
     expect(deleted).not.toEqual(expect.arrayContaining(["openEditor", "openDefault", "reveal"]));
+    expect(deleted).toEqual(expect.arrayContaining(["copyPath", "createPatch", "copyPatch"]));
   });
 
   it("dispatches the exact row target and exposes copy-path children through the shared submenu", async () => {

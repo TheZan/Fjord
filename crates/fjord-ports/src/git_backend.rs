@@ -669,6 +669,17 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("discard_patch"))
     }
+    /// Read-only: constructs the patch bytes for one working-file selection
+    /// (unstaged `INDEX -> WORKTREE` or staged `HEAD -> INDEX`) without
+    /// mutating the repository. Reuses the same deterministic constructor
+    /// and digest verification as the mutating patch commands.
+    async fn export_patch(
+        &self,
+        _repo: &RepoPath,
+        _selection: &PatchSelection,
+    ) -> Result<Vec<u8>, GitError> {
+        Err(GitError::NotImplemented("export_patch"))
+    }
     /// Returns the current commit message and whether the current branch's
     /// locally known upstream already contains `HEAD`.
     async fn amend_info(&self, _repo: &RepoPath) -> Result<AmendInfo, GitError> {

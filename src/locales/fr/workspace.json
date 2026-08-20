@@ -613,6 +613,11 @@
     "showInFolder": "Afficher dans le dossier",
     "openMergeTool": "Ouvrir l’outil de fusion",
     "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" },
+    "createPatch": "Créer un patch à partir des modifications…",
+    "createPatchStaged": "Créer un patch à partir des modifications indexées…",
+    "copyPatch": "Copier le patch dans le presse-papiers",
+    "patchSaved": "Patch enregistré dans {{path}}.",
+    "disabled": { "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait." },
     "ignore": {
       "label": "Ignorer",
       "file": "Ignorer ce fichier",

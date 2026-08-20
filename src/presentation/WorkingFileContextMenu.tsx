@@ -13,11 +13,16 @@ export interface WorkingFileMenuState {
 export function WorkingFileContextMenu({
   state,
   busy,
+  patchExportDisabledReason,
   onAction,
   onClose,
 }: {
   state: WorkingFileMenuState;
   busy: boolean;
+  /** Set when the row's diff is the one currently open with a
+   * whitespace-ignoring mode active — the displayed diff would not match
+   * the exported patch. */
+  patchExportDisabledReason?: string;
   onAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onClose: () => void;
 }) {
@@ -25,7 +30,7 @@ export function WorkingFileContextMenu({
   return (
     <ContextMenu
       position={state.position}
-      items={workingFileMenuItems(state.file, state.target, busy, t)}
+      items={workingFileMenuItems(state.file, state.target, busy, t, patchExportDisabledReason)}
       onClose={onClose}
       onSelect={(id) => {
         onClose();
@@ -40,6 +45,7 @@ export function workingFileMenuItems(
   target: WorkingFileTarget,
   busy: boolean,
   t: TFunction<"workspace">,
+  patchExportDisabledReason?: string,
 ): ContextMenuItem[] {
   const copyPath: ContextMenuItem = {
     id: "copyPath",
@@ -76,11 +82,25 @@ export function workingFileMenuItems(
       ]
     : [{ id: "unstage", label: t("workingFile.unstage"), disabled: busy }];
   const ignore = target.source === "worktree" ? ignoreMenuItem(file, busy, t) : null;
+  const createPatch: ContextMenuItem = {
+    id: "createPatch",
+    label: target.source === "worktree" ? t("workingFile.createPatch") : t("workingFile.createPatchStaged"),
+    disabled: Boolean(patchExportDisabledReason),
+    disabledReason: patchExportDisabledReason,
+  };
+  const copyPatch: ContextMenuItem = {
+    id: "copyPatch",
+    label: t("workingFile.copyPatch"),
+    disabled: Boolean(patchExportDisabledReason),
+    disabledReason: patchExportDisabledReason,
+  };
   return [
     ...primary,
     ...(ignore ? [ignore] : []),
     ...openItems,
     { ...copyPath, separatorBefore: true },
+    createPatch,
+    ...(target.source === "worktree" ? [copyPatch] : []),
   ];
 }
 

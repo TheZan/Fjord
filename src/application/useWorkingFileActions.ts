@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import type { IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, WorkingFileTarget } from "@/domain/git";
+import { buildWholeFilePatchSelection } from "@/application/wholeFilePatchSelection";
+import { pickSaveDestination } from "@/infrastructure/dialog";
 import {
+  exportPatch,
+  getPatchText,
   openRepositoryPath,
   previewIgnoreRule,
   resolveRepositoryFilePath,
@@ -17,6 +21,8 @@ export type WorkingFileAction =
   | "openMergeTool"
   | "copyRelative"
   | "copyAbsolute"
+  | "createPatch"
+  | "copyPatch"
   | "ignoreFile"
   | "ignoreExtension"
   | "ignoreDirectory";
@@ -38,6 +44,7 @@ export function useWorkingFileActions({
   onDiscard,
   onOpenMergeTool,
   onAddIgnore,
+  onPatchSaved,
   onError,
 }: {
   repoId: string;
@@ -46,6 +53,7 @@ export function useWorkingFileActions({
   onDiscard: (target: WorkingFileTarget) => void;
   onOpenMergeTool: () => void;
   onAddIgnore: (target: WorkingFileTarget, kind: IgnoreRuleKind) => Promise<IgnoreRuleOutcome | null>;
+  onPatchSaved: (destination: string) => void;
   onError: (error: unknown) => void;
 }) {
   const [ignoreRule, setIgnoreRule] = useState<IgnoreRuleState | null>(null);
@@ -83,12 +91,24 @@ export function useWorkingFileActions({
       }
       if (action === "reveal") return await revealRepositoryPath(repoId, target.path);
       if (action === "copyRelative") return await navigator.clipboard?.writeText(target.path);
+      if (action === "createPatch") {
+        const selection = await buildWholeFilePatchSelection(repoId, target.path, target.source);
+        const destination = await pickSaveDestination(`${baseFileName(target.path)}.patch`);
+        if (destination === null) return;
+        await exportPatch(repoId, selection, destination);
+        return onPatchSaved(destination);
+      }
+      if (action === "copyPatch") {
+        const selection = await buildWholeFilePatchSelection(repoId, target.path, target.source);
+        const text = await getPatchText(repoId, selection);
+        return await navigator.clipboard?.writeText(text);
+      }
       const resolved = await resolveRepositoryFilePath(repoId, target.path);
       await navigator.clipboard?.writeText(resolved.absolute);
     } catch (error) {
       onError(error);
     }
-  }, [onDiscard, onError, onOpenMergeTool, onStage, onUnstage, repoId]);
+  }, [onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onUnstage, repoId]);
 
   const confirmIgnoreRule = useCallback(async () => {
     if (!ignoreRule?.preview || ignoreRule.loading || ignoreRule.pending || ignoreRule.preview.alreadyPresent) return;
@@ -108,6 +128,11 @@ export function useWorkingFileActions({
   }, []);
 
   return { dispatch, ignoreRule, confirmIgnoreRule, closeIgnoreRule };
+}
+
+function baseFileName(path: string): string {
+  const normalized = path.replaceAll("\\", "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1);
 }
 
 function ignoreKind(action: WorkingFileAction): IgnoreRuleKind | null {

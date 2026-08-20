@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -174,6 +175,12 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     },
   })),
   preflightDestructiveAction: vi.fn(),
+  exportPatch: vi.fn(async () => undefined),
+  getPatchText: vi.fn(async () => "patch text"),
+}));
+
+vi.mock("@/infrastructure/dialog", () => ({
+  pickSaveDestination: vi.fn(async () => "C:\\Users\\me\\file.txt.patch"),
 }));
 
 vi.mock("@/presentation/RepoDetailView", () => ({
@@ -242,6 +249,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
+      <button type="button" onClick={() => onWorkingFileAction("createPatch", { path: "file.txt", source: "worktree" })}>create patch</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
@@ -685,6 +693,22 @@ describe("RepoDetailContainer checkout confirmation", () => {
       ["status", "working"],
     ));
     expect(await screen.findByText("workingFile.ignore.added")).toBeInTheDocument();
+  });
+
+  it("exports a whole-file patch to the picked destination and reports where it was saved", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "create patch" }));
+
+    await waitFor(() => expect(exportPatch).toHaveBeenCalledWith(
+      "repo-1",
+      expect.objectContaining({ path: "file.txt", source: "worktree", baseDigest: "whole-file-digest" }),
+      "C:\\Users\\me\\file.txt.patch",
+    ));
+    expect(pickSaveDestination).toHaveBeenCalledWith("file.txt.patch");
+    expect(await screen.findByTestId("action-success")).toHaveTextContent(
+      "workingFile.patchSaved",
+    );
   });
 
   it("does not submit a second patch mutation from rapid clicks", async () => {

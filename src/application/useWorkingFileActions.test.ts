@@ -2,11 +2,15 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import {
+  exportPatch,
+  getPatchText,
   openRepositoryPath,
   previewIgnoreRule,
   resolveRepositoryFilePath,
   revealRepositoryPath,
 } from "@/infrastructure/tauriClient";
+import { pickSaveDestination } from "@/infrastructure/dialog";
+import { buildWholeFilePatchSelection } from "@/application/wholeFilePatchSelection";
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   openRepositoryPath: vi.fn(async () => undefined),
@@ -16,6 +20,23 @@ vi.mock("@/infrastructure/tauriClient", () => ({
     absolute: "C:\\repo\\src\\app.ts",
   })),
   revealRepositoryPath: vi.fn(async () => undefined),
+  exportPatch: vi.fn(async () => undefined),
+  getPatchText: vi.fn(async () => "--- a/src/app.ts\n+++ b/src/app.ts\n"),
+}));
+
+vi.mock("@/infrastructure/dialog", () => ({
+  pickSaveDestination: vi.fn(async () => "C:\\Users\\me\\app.ts.patch"),
+}));
+
+const wholeFileSelection = {
+  path: "src/app.ts",
+  source: "worktree" as const,
+  baseDigest: "digest",
+  hunks: [],
+};
+
+vi.mock("@/application/wholeFilePatchSelection", () => ({
+  buildWholeFilePatchSelection: vi.fn(async () => wholeFileSelection),
 }));
 
 describe("useWorkingFileActions", () => {
@@ -75,6 +96,42 @@ describe("useWorkingFileActions", () => {
     expect(onAddIgnore).toHaveBeenCalledWith(target, "extension");
     expect(result.current.ignoreRule?.outcome).toBe("added");
   });
+
+  it("exports a patch to a picked destination and reports where it was saved", async () => {
+    const onPatchSaved = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onPatchSaved })));
+    const target = { path: "src/app.ts", source: "worktree" as const };
+
+    await act(() => result.current.dispatch("createPatch", target));
+
+    expect(buildWholeFilePatchSelection).toHaveBeenCalledWith("repo-1", "src/app.ts", "worktree");
+    expect(pickSaveDestination).toHaveBeenCalledWith("app.ts.patch");
+    expect(exportPatch).toHaveBeenCalledWith("repo-1", wholeFileSelection, "C:\\Users\\me\\app.ts.patch");
+    expect(onPatchSaved).toHaveBeenCalledWith("C:\\Users\\me\\app.ts.patch");
+  });
+
+  it("does not export when the save dialog is cancelled", async () => {
+    vi.mocked(pickSaveDestination).mockResolvedValueOnce(null);
+    const onPatchSaved = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onPatchSaved })));
+
+    await act(() => result.current.dispatch("createPatch", { path: "src/app.ts", source: "worktree" }));
+
+    expect(exportPatch).not.toHaveBeenCalled();
+    expect(onPatchSaved).not.toHaveBeenCalled();
+  });
+
+  it("copies the same patch bytes to the clipboard", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { result } = renderHook(() => useWorkingFileActions(dependencies()));
+
+    await act(() => result.current.dispatch("copyPatch", { path: "src/app.ts", source: "index" }));
+
+    expect(buildWholeFilePatchSelection).toHaveBeenCalledWith("repo-1", "src/app.ts", "index");
+    expect(getPatchText).toHaveBeenCalledWith("repo-1", wholeFileSelection);
+    expect(writeText).toHaveBeenCalledWith("--- a/src/app.ts\n+++ b/src/app.ts\n");
+  });
 });
 
 function dependencies(overrides: Record<string, unknown> = {}) {
@@ -85,6 +142,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     onDiscard: vi.fn(),
     onOpenMergeTool: vi.fn(),
     onAddIgnore: vi.fn(async () => "added" as const),
+    onPatchSaved: vi.fn(),
     onError: vi.fn(),
     ...overrides,
   } as Parameters<typeof useWorkingFileActions>[0];

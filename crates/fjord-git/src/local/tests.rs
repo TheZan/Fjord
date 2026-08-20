@@ -2954,6 +2954,84 @@ async fn unstage_patch_preserves_crlf_and_missing_final_newline_and_reverses_fil
     assert_eq!(after_deleted.working_tree, after_added.working_tree + 1);
 }
 
+#[tokio::test]
+async fn export_patch_unstaged_applies_cleanly_and_reproduces_the_change() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("file.txt", b"one\ntwo\nthree\n")]).await;
+
+    let modified = b"one\nTWO\nthree\n";
+    write_bytes(&repo_path, "file.txt", modified);
+    let detail = backend
+        .working_file_diff(&repo_path, "file.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let before = backend.generations(&repo_path).unwrap();
+
+    let patch = backend.export_patch(&repo_path, &selection).await.unwrap();
+
+    // Read-only: nothing in the repository moved.
+    assert_eq!(backend.generations(&repo_path).unwrap(), before);
+    assert_eq!(std::fs::read(repo_path.0.join("file.txt")).unwrap(), modified);
+    assert_eq!(
+        index_blob(&repo_path, "file.txt").unwrap(),
+        b"one\ntwo\nthree\n"
+    );
+
+    // Reset the worktree back to the patch's base side, then verify it is
+    // exactly the patch `git apply` would accept and that applying it
+    // reproduces the original modification byte-for-byte.
+    run_git_success(&backend, &repo_path, &["checkout", "--", "file.txt"]);
+    let patch_path = repo_path.0.join("export.patch");
+    std::fs::write(&patch_path, &patch).unwrap();
+    assert!(run_git_status(&backend, &repo_path, &["apply", "--check", "export.patch"]).success());
+    assert!(run_git_status(&backend, &repo_path, &["apply", "export.patch"]).success());
+    assert_eq!(std::fs::read(repo_path.0.join("file.txt")).unwrap(), modified);
+}
+
+#[tokio::test]
+async fn export_patch_staged_applies_cached_cleanly_and_reproduces_the_index_state() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo_path, &[("file.txt", b"one\ntwo\nthree\n")]).await;
+
+    let staged_content = b"one\nTWO\nthree\n";
+    write_bytes(&repo_path, "file.txt", staged_content);
+    backend
+        .stage(&repo_path, &[PathBuf::from("file.txt")])
+        .await
+        .unwrap();
+    let detail = backend
+        .working_file_diff(&repo_path, "file.txt", true)
+        .await
+        .unwrap();
+    let selection = staged_patch_selection(&detail, 0..detail.hunks.len());
+    let before = backend.generations(&repo_path).unwrap();
+
+    let patch = backend.export_patch(&repo_path, &selection).await.unwrap();
+
+    // Read-only: nothing in the repository moved.
+    assert_eq!(backend.generations(&repo_path).unwrap(), before);
+    assert_eq!(index_blob(&repo_path, "file.txt").unwrap(), staged_content);
+
+    // Reset only the index entry back to the patch's base (HEAD) side,
+    // keeping the worktree untouched, then verify `git apply --cached`
+    // accepts it and reproduces the originally staged content.
+    run_git_success(&backend, &repo_path, &["reset", "--", "file.txt"]);
+    assert!(index_blob(&repo_path, "file.txt").unwrap() != staged_content.to_vec());
+    let patch_path = repo_path.0.join("export.patch");
+    std::fs::write(&patch_path, &patch).unwrap();
+    assert!(run_git_status(
+        &backend,
+        &repo_path,
+        &["apply", "--cached", "--check", "export.patch"]
+    )
+    .success());
+    assert!(run_git_status(&backend, &repo_path, &["apply", "--cached", "export.patch"]).success());
+    assert_eq!(index_blob(&repo_path, "file.txt").unwrap(), staged_content);
+}
+
 /// P8 safety finding #2. `apply.whitespace=fix` must not rewrite the
 /// backend-constructed patch, and `apply.ignoreWhitespace` must not relax the
 /// exact-context contract that the checked patch is applied under.

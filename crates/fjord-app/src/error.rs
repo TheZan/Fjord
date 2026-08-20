@@ -42,6 +42,10 @@ impl AppError {
     pub fn log_folder(message: String) -> Self {
         Self::new("log_folder_unavailable", message)
     }
+
+    pub fn patch_export_failed(message: String) -> Self {
+        Self::new("patch_export_failed", message)
+    }
 }
 
 impl From<StoreError> for AppError {

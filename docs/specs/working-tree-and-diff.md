@@ -399,8 +399,42 @@ both **Path** and **Tree** view modes (`FileViewMode`, [`ui-shell.md`](ui-shell.
 Delivered by `P10-WC-01`–`P10-WC-06`; §6.9 fixes the dependency order.
 `P10-WC-01` is implemented: file rows now expose the shared adaptive menu with
 Stage/Unstage, token-bound whole-file Discard, Open/Reveal, merge-tool access,
-and backend-resolved path copying. Ignore, patch export, delete, file stash, and
-external diff remain owned independently by `P10-WC-02`–`P10-WC-06`.
+and backend-resolved path copying. `P10-WC-02` (Ignore) and `P10-WC-03` (patch
+export) are implemented; delete, file stash, and external diff remain owned
+independently by `P10-WC-04`–`P10-WC-06`.
+
+`P10-WC-03` reuses the `P8-01` patch constructor unchanged: a new read-only
+`export_patch` backend function (`crates/fjord-git/src/local/working_tree.rs`)
+takes the repository *read* lock (never the write lock — nothing is mutated),
+fetches the same `current_index_patch_diff` the mutating patch commands
+already use, and calls the existing `patch::build_unified_patch`. Two new
+commands cross IPC: `export_patch` writes the bytes to a caller-chosen
+destination and returns nothing (patch content never crosses IPC on this
+path), and `get_patch_text` returns the same bytes as a string for the
+**Copy patch to clipboard** follow-up — the one path where patch content
+does cross IPC, because the frontend owns the Clipboard API. The frontend
+builds the whole-file `PatchSelection` for a context-menu row with a new
+shared `buildWholeFilePatchSelection` helper, factored out of the existing
+Discard-file flow (`P10-WC-01`) rather than duplicated. Two known,
+deliberate scope limits, recorded here rather than silently shipped:
+
+- **Binary/mode-only hiding is not implemented.** The `WorkingChanges` row
+  summary (`WorkingFile`) carries no `is_binary`/mode-change flag — only a
+  loaded `FileDiffDetail` knows that, and nothing pre-loads a diff for every
+  row just to decide menu visibility. The menu item stays visible for every
+  non-conflicted row; clicking it on a binary or mode-only file fails
+  closed with the existing `patch_unsupported` code from
+  `build_unified_patch`, surfaced through the ordinary error path. Adding
+  row-level binary detection to the lightweight working-changes list is a
+  separate, larger change this task does not make.
+- **Whitespace-mode gating applies only to the file currently open in the
+  diff view**, not globally. `whitespace` mode is `FileDiffView`-local state
+  tied to one open path; a row that is not the open diff has no "displayed
+  diff" for the exported patch to disagree with, so there is nothing to gate.
+  `FileDiffView` reports its active `{ path, source, mode }` up through a new
+  `onWhitespaceModeChange` prop, and the container disables **Create
+  patch…**/**Copy patch to clipboard** with `workingFile.disabled.whitespaceMode`
+  only when the context-menu row matches that open path and side.
 
 #### 6.1 Row identity is the contract
 

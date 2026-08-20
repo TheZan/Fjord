@@ -807,6 +807,22 @@ export function discardPatch(
   );
 }
 
+/** Writes the patch for one working-file selection to a chosen destination.
+ * Patch bytes never cross IPC for this path — the backend writes them. */
+export function exportPatch(
+  repoId: string,
+  selection: PatchSelection,
+  destination: string,
+): Promise<void> {
+  return invoke("export_patch", { repoId, selection, destination });
+}
+
+/** The same patch bytes as `exportPatch`, returned as text for the
+ * clipboard follow-up — the only path where patch content crosses IPC. */
+export function getPatchText(repoId: string, selection: PatchSelection): Promise<string> {
+  return invoke("get_patch_text", { repoId, selection });
+}
+
 export function getAmendInfo(repoId: string): Promise<AmendInfo> {
   return invoke("get_amend_info", { repoId });
 }

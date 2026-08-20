@@ -383,6 +383,27 @@ pub(super) async fn discard_patch(
     .map_err(|error| GitError::Git2(error.to_string()))?
 }
 
+/// Constructs the patch bytes for one working-file selection without
+/// mutating anything: read-only, no index lock, no `git apply`. Reuses the
+/// same `P8-01` deterministic constructor and digest verification as every
+/// mutating patch command — a stale selection fails with `PatchStale`
+/// exactly as it would for staging.
+pub(super) async fn export_patch(
+    repo: &RepoPath,
+    selection: &PatchSelection,
+) -> Result<Vec<u8>, GitError> {
+    let repo = repo.clone();
+    let selection = selection.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        let staged = selection.source == PatchSource::Index;
+        let detail = current_index_patch_diff(&repo, &selection.path, staged)?;
+        patch::build_unified_patch(&detail, &selection)
+    })
+    .await
+    .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
 fn ensure_discard_scope_matches(
     action: &DestructiveAction,
     selection: &PatchSelection,

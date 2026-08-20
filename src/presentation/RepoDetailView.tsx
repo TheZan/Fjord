@@ -22,6 +22,7 @@ import type {
   CommitSummary,
   AmendInfo,
   DestructiveAction,
+  DiffWhitespaceMode,
   GenerationSet,
   MergeSource,
   PatchSelection,
@@ -104,6 +105,8 @@ export function RepoDetailView({
   onCommit,
   pendingDraftMessage,
   onPendingDraftMessageConsumed,
+  openWorkingDiffWhitespace,
+  onWorkingDiffWhitespaceModeChange,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -174,6 +177,11 @@ export function RepoDetailView({
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
   pendingDraftMessage: string | null;
   onPendingDraftMessageConsumed: () => void;
+  openWorkingDiffWhitespace: { path: string; staged: boolean; mode: DiffWhitespaceMode } | null;
+  onWorkingDiffWhitespaceModeChange: (
+    target: { path: string; source: DiffSource } | null,
+    mode: DiffWhitespaceMode,
+  ) => void;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
@@ -385,6 +393,7 @@ export function RepoDetailView({
               onBack={() =>
                 workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
               }
+              onWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
             />
           )}
           {/* Kept mounted (just hidden) rather than unmounted while a diff is
@@ -515,6 +524,14 @@ export function RepoDetailView({
         <WorkingFileContextMenu
           state={workingFileMenu}
           busy={!actionsValidated || actionPending !== null}
+          patchExportDisabledReason={
+            openWorkingDiffWhitespace
+              && openWorkingDiffWhitespace.mode !== "show"
+              && openWorkingDiffWhitespace.path === workingFileMenu.target.path
+              && openWorkingDiffWhitespace.staged === (workingFileMenu.target.source === "index")
+              ? t("workingFile.disabled.whitespaceMode")
+              : undefined
+          }
           onClose={() => setWorkingFileMenu(null)}
           onAction={onWorkingFileAction}
         />

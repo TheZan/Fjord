@@ -695,6 +695,14 @@ impl GitBackend for LocalGitBackend {
         .await
     }
 
+    async fn export_patch(
+        &self,
+        repo: &RepoPath,
+        selection: &PatchSelection,
+    ) -> Result<Vec<u8>, GitError> {
+        working_tree::export_patch(repo, selection).await
+    }
+
     async fn amend_info(&self, repo: &RepoPath) -> Result<fjord_domain::AmendInfo, GitError> {
         refs::amend_info(repo).await
     }

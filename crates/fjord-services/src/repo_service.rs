@@ -1657,6 +1657,18 @@ impl RepoService {
             .await?)
     }
 
+    pub async fn export_patch(
+        &self,
+        repo_id: RepositoryId,
+        selection: &PatchSelection,
+    ) -> Result<Vec<u8>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .export_patch(&RepoPath::new(repo.path), selection)
+            .await?)
+    }
+
     pub async fn amend_info(
         &self,
         repo_id: RepositoryId,

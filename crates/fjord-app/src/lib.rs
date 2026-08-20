@@ -145,6 +145,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::unstage_files,
             commands::unstage_patch,
             commands::discard_patch,
+            commands::export_patch,
+            commands::get_patch_text,
             commands::get_amend_info,
             commands::commit_repo,
             commands::commit_and_push_repo,
