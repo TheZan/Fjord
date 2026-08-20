@@ -86,7 +86,17 @@ Designed but not migrated yet. Each is forward-only and owned by a spec.
 -- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
 -- See specs/workspace-workflows.md §5.
 ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
+
+-- Phase 10 (P10-WC-06). Nullable: empty means "use the diff tool Git already
+-- resolves from diff.tool". Fjord stores a tool *name*, never a command line.
+-- See specs/working-tree-and-diff.md §6.4.
+ALTER TABLE settings ADD COLUMN diff_tool TEXT;
 ```
+
+Neither the merge workflow ([`branch-merge.md`](branch-merge.md)) nor the Working
+Changes file context menu ([`working-tree-and-diff.md`](working-tree-and-diff.md)
+§6) adds any other persisted state: merge state lives in Git's own directory and
+is read live, and the context menu is transient UI state, not a preference.
 
 A snapshot row is revalidated on first use after a restart, because generations
 ([`performance.md`](performance.md) §5) are in-memory and reset to zero — a

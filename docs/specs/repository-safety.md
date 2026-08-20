@@ -3,7 +3,8 @@
 Referenced by: P8-00, P9-01–P9-10, SDD §9, §15.
 Related: [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md),
 [`working-tree-and-diff.md`](working-tree-and-diff.md),
-[`workspace-workflows.md`](workspace-workflows.md).
+[`workspace-workflows.md`](workspace-workflows.md),
+[`branch-merge.md`](branch-merge.md).
 
 ## Problem
 
@@ -55,8 +56,11 @@ resolution.
   would be a promise Fjord cannot keep. Recovery is explicitly reflog-shaped.
 - A conflict-resolution editor (SDD §3). Conflict *state* is modeled here;
   conflict *content* remains the merge tool's job.
-- Starting rebase or bisect. Detecting and finishing them is here; starting a
-  rebase is [`workspace-workflows.md`](workspace-workflows.md) §2.
+- Starting merge, rebase, or bisect. Detecting and finishing them is here;
+  starting a merge is [`branch-merge.md`](branch-merge.md) and starting a rebase
+  is [`workspace-workflows.md`](workspace-workflows.md) §2. Both hand their
+  conflicted result straight to §1's state model and §2's controls, and neither
+  introduces a second conflict or abort path.
 - Recovering data Git itself did not retain (unstaged changes discarded without a
   stash, garbage-collected unreachable objects). The UI must not imply otherwise.
 - Automatic recovery. Every restore is user-initiated and confirmed.
@@ -75,6 +79,8 @@ resolution.
 | Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery; P9-09 exposes them through the Recovery Center with HEAD-relative diffs and safe/confirmed recovery actions. |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
+| Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
+| File deletion | 🚧 No delete action exists. `P10-WC-04` adds `DestructiveAction::DeleteFile` to §3's enum and executor ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Its supported
@@ -194,7 +200,7 @@ shape:
 pub struct DestructivePreflight {
     pub action: DestructiveAction,
     pub consequences: Vec<Consequence>,   // computed, specific
-    pub recoverable: Recoverability,      // Reflog | Stash | NotRecoverable
+    pub recoverable: Recoverability,      // Reflog | Stash | Committed | NotRecoverable
     pub blockers: Vec<String>,            // conditions that make the action refuse
     pub generations: GenerationSet,       // coherent stamp required at confirmation
     pub force_with_lease: Option<ForceWithLeaseDetails>, // backend facts for display only
@@ -211,6 +217,8 @@ pub enum Consequence {
     TagDeleted             { name: String, target_commit_id: Option<CommitId> },
     StashEntryConsumed     { index: u32, message: String },
     RemoteRefUpdated       { remote: String, ref_name: String, dropped_commits: u32 },
+    // 🚧 P10-WC-04
+    FileRemovedFromWorktree { path: String, tracked: bool, uncommitted_changes: bool },
 }
 ```
 
@@ -218,6 +226,15 @@ Covered actions: `reset --hard`, `reset --mixed` with staged content, discard
 (file / hunk / lines, from [`working-tree-and-diff.md`](working-tree-and-diff.md)),
 delete branch, delete remote branch, delete tag, stash pop with a dirty tree,
 force-with-lease push, checkout that would overwrite, abort of an operation.
+
+🚧 `P10-WC-04` adds one action to the same enum and the same executor:
+`DeleteFile { path }`, raised from the Working Changes file context menu
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). It adds no
+command, no private code path, and no second confirmation model — it exists
+precisely so file deletion cannot become the first destructive action that
+bypasses `execute_destructive_action`. Its blockers are
+`delete_target_not_a_file` and `delete_file_conflicted`; it is never recursive
+and never follows a symlink to its target.
 
 Command: `preflight_destructive_action(repo_id, action, patch_selection?)` →
 `DestructivePreflight`.
@@ -227,12 +244,19 @@ example paths or commit subjects, and states recoverability honestly:
 - *Reflog* — "the commits remain reachable through the reflog; you can restore
   them from the Recovery Center."
 - *Stash* — "your changes will be saved to the stash."
+- 🚧 *Committed* (`P10-WC-04`) — "the committed version stays in `HEAD` and can be
+  restored from there." Used only for removing a tracked file that carries no
+  uncommitted or staged changes. Like every other label it is contractual: an
+  action labeled *Committed* must leave the content retrievable from `HEAD`, and
+  that is asserted in tests.
 - *Not recoverable* — "these changes are not stored anywhere and cannot be
   restored." Used for discarded uncommitted work and deleted untracked files.
 
 The backend applies the label to the complete consequence set, not merely to
 the moved ref. Reset and Recovery Center restore are `Reflog` only when they do
-not also discard uncommitted/index state. Local/remote branch deletion, tag
+not also discard uncommitted/index state; by the same rule, deleting a tracked
+file that also carries uncommitted or staged changes degrades from `Committed`
+to `NotRecoverable`. Local/remote branch deletion, tag
 deletion, stash pop, checkout discard, operation abort, and force-push are
 `NotRecoverable`: a branch/tag/remote server is not required to preserve a
 usable reflog, and a successfully popped stash is no longer durable recovery

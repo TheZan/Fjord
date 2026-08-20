@@ -139,6 +139,10 @@ preserves content-over-chrome.
 
 The overflow menu holds: Stash, Stash pop, Open terminal, Open merge tool,
 Inspector toggle (compact layouts), and later additions from Phases 8–10.
+Branch integration actions (Merge, Rebase) are **not** toolbar or overflow
+entries: they are per-ref actions and belong to the branch context menus and the
+actions palette ([`branch-merge.md`](branch-merge.md) §8), because a toolbar
+button cannot name which branch it would merge.
 Conflict-state actions are the exception: when the repository is in a conflicted
 or in-progress operation state, the relevant action is promoted out of overflow
 into a state banner (see [`repository-safety.md`](repository-safety.md)) — a
@@ -260,7 +264,7 @@ Two distinct surfaces:
 
 | Surface | Question it answers | Default binding | Contents |
 |---|---|---|---|
-| Command palette | "do something" | `Ctrl/Cmd+K` | Actions only: repository actions, bulk actions, settings, view switches. Grouped by scope with the active repository's actions first. |
+| Command palette | "do something" | `Ctrl/Cmd+K` | Actions only: repository actions, bulk actions, settings, view switches. Grouped by scope with the active repository's actions first. 🚧 **Merge branch…** joins this list (`P10-MERGE-01`); it ranks the active repository's local branches and dispatches the same application action as the two context menus, adding no branch logic of its own. |
 | Repository switcher | "go somewhere" | `Ctrl/Cmd+P` | Repositories and workspaces only, ranked by recency then fuzzy score. |
 
 Additional bindings:
@@ -275,6 +279,28 @@ Additional bindings:
 | `Ctrl/Cmd+1..9` | Switch to the *n*-th workspace |
 | `?` | Shortcut help |
 | `Esc` | Close the topmost overlay |
+| `Shift+F10` / **Context Menu** key | Open the context menu for the focused row |
+
+**Context menus are part of the keyboard model, not a mouse affordance.** Every
+surface that offers a right-click menu must open the same menu, with the same
+payload, from `Shift+F10` and from the platform Context Menu key on the focused
+row. This applies to the shipped branch and tag menus and to the menus added by
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §6 (Working Changes file
+rows) and [`branch-merge.md`](branch-merge.md) §8 (commit-graph branch labels).
+Contract:
+
+- Opening the menu first focuses/selects the target row, so the visible selection
+  and the menu's target can never disagree.
+- The menu owns the **logical identity** of its target (repository, ref, or
+  `{ path, source }` file identity) — never a DOM node and never a virtual-row
+  index. Every list carrying a context menu is virtualized; a menu anchored to a
+  recycled node would silently retarget, and a menu whose target disappears
+  closes instead of acting.
+- Arrow/Home/End navigation, item shortcuts, Escape, and focus restoration to the
+  invoking row follow the existing shared `ContextMenu` behavior. New menus reuse
+  that primitive rather than adding a second popover implementation; submenus are
+  an addition to it, not a replacement for it.
+- Unavailable entries are disabled with a stated reason, per §2's rule.
 
 Implementation contract:
 
@@ -300,6 +326,9 @@ Implementation contract:
   and restores it on close.
 - All icon-only controls keep `aria-label` and a tooltip; the overflow menu is a
   real menu with arrow-key navigation.
+- No action is reachable only by right-click. Every context menu opens from the
+  keyboard per §6, traps its own navigation, closes on Escape, and returns focus
+  to the row it was opened from.
 
 ## Alternatives considered
 
@@ -400,3 +429,6 @@ owner.
     grayscale rendering of the Overview and repository screens.
 12. `npm run check-i18n` passes for all five shipped locales with no missing or
     orphaned keys.
+13. Every context menu in the app opens from `Shift+F10` and the Context Menu key
+    on the focused row with the same payload as right-click, keeps its target's
+    logical identity across virtualized scrolling, and restores focus on Escape.

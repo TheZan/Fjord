@@ -68,6 +68,23 @@ Light, dark, or system theme, and English, Russian, German, French, and Spanish
 - **Quiet and native.** A Rust core behind a native webview: small install, low
   idle cost, no bundled browser.
 
+## Not in Fjord yet
+
+Fjord is an Early Preview and is honest about its gaps. These are designed and on
+the roadmap ([`docs/tasks.md`](docs/tasks.md)), not shipped:
+
+- **Starting a merge or a rebase.** Fjord *detects* an in-progress merge, rebase,
+  cherry-pick, or revert — including one started in a terminal — lists the
+  conflicts, hands off to your merge tool, and can continue, skip, or abort it.
+  It cannot yet begin one; `git merge` and `git rebase` still start elsewhere.
+- **File actions in Working Changes.** A changed file can be staged, unstaged,
+  and discarded. There is no right-click menu yet for opening the file, revealing
+  it, ignoring it, exporting a patch, or deleting it.
+- **Full remote management.** Remotes can be listed and added; editing, renaming,
+  and removing them are not implemented.
+- **Worktrees, interactive rebase, and forge integration** (pull requests, issues,
+  CI dashboards). The last of these is a deliberate non-goal, not a backlog item.
+
 ## Performance
 
 Reads are bounded by design: history and diffs are paged, status and history are

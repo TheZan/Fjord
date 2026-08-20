@@ -33,7 +33,9 @@ Payload shape:
 ```ts
 type OperationProgressEvent = {
   operationId: string;
-  kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation";
+  kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation"
+      // 🚧 planned: "merge" (P10-MERGE-01), "rebase" (P10-04)
+      ;
   scope:
     | { type: "repo"; repoId: string }
     | { type: "workspace"; workspaceId: string };
@@ -69,6 +71,14 @@ runner.
 - Continue, skip, and abort use the same process-tree termination; cancellation
   can leave Git's sequencer state in progress, and the next operation-state read
   remains authoritative.
+- 🚧 `merge` (`P10-MERGE-01`, [`branch-merge.md`](branch-merge.md)) follows the
+  same rule: it is a local mutation with message-only progress (`total = 0`,
+  because `git merge` reports no countable units), cancellation terminates the
+  process tree, and a cancelled merge may leave a detectable in-progress merge
+  that the operation banner then offers to abort. Cancellation is never silently
+  equivalent to abort. A **conflicted** merge is a `succeeded` terminal event —
+  Git did what it was asked — carrying the typed `Conflicted` result; only a
+  genuine failure emits `failed`.
 - Reader tasks drain/finish, the runner returns `Cancelled`, and only then is the
   final `cancelled` event emitted and the registry entry removed.
 - Bulk operations stop scheduling queued repositories and cancel already-started

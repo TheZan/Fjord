@@ -3,7 +3,16 @@
 Referenced by: P10-01–P10-11, SDD §2 (G1), §15.
 Related: [`repository-safety.md`](repository-safety.md),
 [`data-model.md`](data-model.md), [`ipc-commands.md`](ipc-commands.md),
-[`performance.md`](performance.md), [`ui-shell.md`](ui-shell.md).
+[`performance.md`](performance.md), [`ui-shell.md`](ui-shell.md),
+[`branch-merge.md`](branch-merge.md).
+
+**Merge is not in this spec.** Starting a branch merge is owned by
+[`branch-merge.md`](branch-merge.md) (`P10-MERGE-01`–`P10-MERGE-03`), because it
+is daily-driver branch integration rather than advanced workspace management and
+is scheduled ahead of everything here. The integration preflight rules it defines
+(§4 there: operation-in-progress, detached/unborn `HEAD`, staged changes, the
+bounded overwrite set, and the no-autostash / explicit named-stash policy) are
+**shared**, and §2 below reuses them for rebase rather than restating them.
 
 ## Problem
 
@@ -41,7 +50,9 @@ most are the ones still missing:
   the user filter to the ones that need action.
 - Per-workspace expected branch, so "which repositories drifted off `develop`" is
   answerable at a glance.
-- Interactive rebase specified but deliberately scheduled last.
+- Interactive rebase specified but deliberately scheduled last — after basic
+  merge ([`branch-merge.md`](branch-merge.md)), which is the more fundamental
+  daily-driver capability and therefore precedes every task in this spec.
 
 ## Non-goals
 
@@ -57,6 +68,8 @@ most are the ones still missing:
   shipped first.
 - Rebase strategies and options beyond the basic form (`--onto`, `--interactive`
   in the final task). No `--rebase-merges`, no autosquash configuration in v1.
+- Starting a merge. Owned by [`branch-merge.md`](branch-merge.md); referenced
+  here only where rebase shares its preflight and entry-point layout.
 
 ## Current state
 
@@ -64,6 +77,7 @@ most are the ones still missing:
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
+| Merge | 🚧 Starting a merge is absent and is owned by [`branch-merge.md`](branch-merge.md), scheduled **before** rebase. Detection, conflict UI, Continue, and Abort already exist (Phase 9). |
 | Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
 | Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
@@ -141,19 +155,23 @@ conflicted one returns `Rebase { .. }` and the Phase 9 banner takes over
 immediately. Continue/skip/abort are already specified there and are not
 reimplemented here.
 
-Preflight before starting:
+Preflight before starting: rebase **reuses** the shared integration preflight in
+[`branch-merge.md`](branch-merge.md) §4 — the same blocker codes
+(`operation_already_in_progress`, detached/unborn `HEAD`, staged changes, the
+bounded overwrite set), the same dirty-tree policy, and the same explicit
+Cancel / *Stash changes and rebase* choice with an Fjord-named stash that is
+never auto-popped and whose location is always reported. No autostash. Those
+rules are not restated here; only the rebase-specific addition is:
 
-- refuse with a blocker when an operation is already in progress;
-- when the working tree is dirty, offer the same options as safe checkout
-  ([`repository-safety.md`](repository-safety.md) §4): cancel, or stash and
-  rebase. No autostash;
 - when the branch is published and rebasing would rewrite pushed commits, state
   that a force-with-lease push will be required afterwards
   ([`working-tree-and-diff.md`](working-tree-and-diff.md) §3), with the commit
   count.
 
 Entry points: branch context menu ("Rebase current branch onto <branch>") and the
-command palette. Rebase runs through the operation pipeline with progress and
+command palette — the same two surfaces the merge action uses, sharing the
+context-menu slot layout in [`branch-merge.md`](branch-merge.md) §8, and
+dispatching one application action per operation. Rebase runs through the operation pipeline with progress and
 cancellation; cancelling a rebase leaves a detectable in-progress state, which the
 banner then offers to abort — cancellation is not silently equivalent to abort.
 
