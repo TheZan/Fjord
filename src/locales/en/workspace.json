@@ -32,7 +32,8 @@
     "activeRepositoryGroup": "Active repository",
     "workspaceGroup": "Workspace",
     "globalGroup": "Global",
-    "viewDetail": "Switch view"
+    "viewDetail": "Switch view",
+    "mergeBranch": "Merge branch…"
   },
   "repositorySwitcher": {
     "placeholder": "Switch repository or workspace",
@@ -106,7 +107,47 @@
     "updatingGraph": "Updating commit graph…",
     "rowLabel": "{{message}}, by {{author}}, commit {{sha}}"
   },
+  "merge": {
+    "title": "Merge {{source}} into {{target}}",
+    "loading": "Checking the repository…",
+    "running": "Merging…",
+    "dismiss": "Close",
+    "mode": { "label": "Mode", "default": "Default merge", "fastForwardOnly": "Fast-forward only" },
+    "confirm": "Merge",
+    "cancel": "Cancel",
+    "prediction": {
+      "alreadyUpToDate": "{{target}} already contains {{source}}. Nothing to merge.",
+      "fastForward_one": "{{source}} is {{count}} commit ahead of {{target}}. This will fast-forward.",
+      "fastForward_other": "{{source}} is {{count}} commits ahead of {{target}}. This will fast-forward.",
+      "mergeCommit": "{{source}} is {{ahead}} commits ahead and {{behind}} behind {{target}}. This will create a merge commit."
+    },
+    "dirty": { "title": "You have local changes.", "stashAndMerge": "Stash changes and merge", "stashRetained": "Your work is in {{stash}}." },
+    "outcome": {
+      "alreadyUpToDate": "{{target}} was already up to date.",
+      "fastForwarded": "{{target}} was fast-forwarded to {{source}}.",
+      "merged": "Merged {{source}} into {{target}}.",
+      "conflicted": "{{source}} conflicts with {{target}}. Resolve the conflicts, then continue or abort the merge."
+    },
+    "blocked": {
+      "sourceIsCurrentBranch": "{{target}} is already the current branch.",
+      "sourceNotFound": "{{source}} no longer exists.",
+      "remoteSourceNotSupported": "Merging a remote branch is not available yet. Check it out, or fetch and merge the local branch.",
+      "sourceKindUnsupported": "Only branches can be merged.",
+      "operationInProgress": "Another Git operation is already in progress.",
+      "detachedHead": "HEAD is detached. Check out a branch before merging.",
+      "unbornHead": "{{target}} has no commits yet.",
+      "stagedChanges_one": "{{count}} staged change must be committed or stashed before merging.",
+      "stagedChanges_other": "{{count}} staged changes must be committed or stashed before merging.",
+      "wouldOverwrite_one": "{{count}} file with local changes would be overwritten by this merge.",
+      "wouldOverwrite_other": "{{count}} files with local changes would be overwritten by this merge."
+    },
+    "error": {
+      "notFastForward": "{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.",
+      "failed": "The merge could not be completed. The repository was not changed beyond what Git reported."
+    }
+  },
   "context": {
+    "mergeInto": "Merge {{source}} into {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

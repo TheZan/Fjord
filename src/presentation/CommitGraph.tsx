@@ -9,7 +9,7 @@ import { useTags } from "@/application/useTags";
 import type { GraphRow } from "@/presentation/graphLayout";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import { useGraphLayout } from "@/presentation/useGraphLayout";
-import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
+import type { BranchInfo, CommitSummary, MergeSource, TagInfo } from "@/domain/git";
 
 const LANE_COLORS = [
   "var(--graph-lane-1)",
@@ -58,6 +58,7 @@ export function CommitGraph({
   onSelectCommit,
   onRevealCommit,
   onCheckout,
+  onMergeBranch,
   onCommitContextAction,
   workingFileCount = 0,
   workingSelected = false,
@@ -71,6 +72,7 @@ export function CommitGraph({
   onSelectCommit?: (commit: CommitSummary) => void;
   onRevealCommit?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
+  onMergeBranch?: (source: MergeSource) => void;
   onCommitContextAction?: (action: CommitContextAction, commit: CommitSummary) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
   workingFileCount?: number;
@@ -82,6 +84,7 @@ export function CommitGraph({
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingSearchRevealId, setPendingSearchRevealId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
+  const [refMenu, setRefMenu] = useState<{ refInfo: CommitRef; x: number; y: number } | null>(null);
   const [refFlyout, setRefFlyout] = useState<{ anchorRect: DOMRect; refs: CommitRef[] } | null>(null);
   const refFlyoutCloseTimeout = useRef<number | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
@@ -375,6 +378,7 @@ export function CommitGraph({
                     sha: row.commit.id.slice(0, 7),
                   })}
                   onCheckout={onCheckout}
+                  onRefContextMenu={(refInfo, position) => setRefMenu({ refInfo, ...position })}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                   onOpenRefFlyout={openRefFlyout}
                   onCloseRefFlyoutSoon={scheduleRefFlyoutClose}
@@ -412,6 +416,7 @@ export function CommitGraph({
           anchorRect={refFlyout.anchorRect}
           refs={refFlyout.refs}
           onCheckout={onCheckout}
+          onRefContextMenu={(refInfo, position) => setRefMenu({ refInfo, ...position })}
           onMouseEnter={cancelRefFlyoutClose}
           onMouseLeave={scheduleRefFlyoutClose}
         />
@@ -425,6 +430,31 @@ export function CommitGraph({
             const commit = menu.commit;
             setMenu(null);
             onCommitContextAction?.(action as CommitContextAction, commit);
+          }}
+        />
+      )}
+      {refMenu && (
+        <ContextMenu
+          position={refMenu}
+          items={refMenuItems(
+            refMenu.refInfo,
+            currentBranch ?? null,
+            Boolean(onCheckout),
+            Boolean(onMergeBranch),
+            t,
+          )}
+          onClose={() => setRefMenu(null)}
+          onSelect={(action) => {
+            const refInfo = refMenu.refInfo;
+            setRefMenu(null);
+            if (action === "checkout" && refInfo.checkoutTarget) onCheckout?.(refInfo.checkoutTarget);
+            if (action === "merge" && refInfo.kind === "branch") {
+              onMergeBranch?.({
+                refName: refInfo.canonical,
+                kind: refInfo.remote ? "remoteTracking" : "localBranch",
+              });
+            }
+            if (action === "copy") void navigator.clipboard?.writeText(refInfo.label);
           }}
         />
       )}
@@ -627,6 +657,7 @@ function CommitRow({
   onNavigate,
   ariaLabel,
   onCheckout,
+  onRefContextMenu,
   onContextMenu,
   onOpenRefFlyout,
   onCloseRefFlyoutSoon,
@@ -648,6 +679,7 @@ function CommitRow({
   ) => void;
   ariaLabel: string;
   onCheckout?: (branch: string) => void;
+  onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
   onOpenRefFlyout: (anchorRect: DOMRect, refs: CommitRef[]) => void;
   onCloseRefFlyoutSoon: () => void;
@@ -714,6 +746,7 @@ function CommitRow({
       <RefBadgeGroup
         refs={refs}
         onCheckout={onCheckout}
+        onContextMenu={onRefContextMenu}
         onOpen={onOpenRefFlyout}
         onCloseSoon={onCloseRefFlyoutSoon}
       />
@@ -791,29 +824,43 @@ function CommitRow({
 function RefBadge({
   refInfo,
   onCheckout,
+  onContextMenu,
 }: {
   refInfo: CommitRef;
   onCheckout?: (branch: string) => void;
+  onContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
 }) {
   const clickable = Boolean(refInfo.checkoutTarget && onCheckout && !refInfo.active);
   const Icon = refInfo.kind === "tag" ? TagIcon : refInfo.remote ? CloudIcon : BranchIcon;
 
   return (
     <span
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
+      role="button"
+      tabIndex={0}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => {
         event.stopPropagation();
         if (refInfo.checkoutTarget) onCheckout?.(refInfo.checkoutTarget);
       }}
       onKeyDown={(event) => {
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const bounds = event.currentTarget.getBoundingClientRect();
+          onContextMenu(refInfo, { x: bounds.left + 8, y: bounds.bottom + 2 });
+          return;
+        }
         if (!clickable || event.key !== "Enter") return;
         event.preventDefault();
         event.stopPropagation();
         if (refInfo.checkoutTarget) onCheckout?.(refInfo.checkoutTarget);
       }}
       data-active={refInfo.active}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(refInfo, { x: event.clientX, y: event.clientY });
+      }}
       className="commit-ref-badge interactive-control inline-flex h-[22px] max-w-full shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium"
       style={{
         background: refInfo.active
@@ -846,11 +893,13 @@ function RefBadge({
 function RefBadgeGroup({
   refs,
   onCheckout,
+  onContextMenu,
   onOpen,
   onCloseSoon,
 }: {
   refs: CommitRef[];
   onCheckout?: (branch: string) => void;
+  onContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
   onOpen: (anchorRect: DOMRect, refs: CommitRef[]) => void;
   onCloseSoon: () => void;
 }) {
@@ -881,7 +930,7 @@ function RefBadgeGroup({
         take it from there.
       */}
       <span className="min-w-0 flex-1 overflow-hidden">
-        <RefBadge refInfo={first} onCheckout={onCheckout} />
+        <RefBadge refInfo={first} onCheckout={onCheckout} onContextMenu={onContextMenu} />
       </span>
       {rest.length > 0 && (
         <span
@@ -911,12 +960,14 @@ function RefBadgeFlyout({
   anchorRect,
   refs,
   onCheckout,
+  onRefContextMenu,
   onMouseEnter,
   onMouseLeave,
 }: {
   anchorRect: DOMRect;
   refs: CommitRef[];
   onCheckout?: (branch: string) => void;
+  onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
@@ -942,7 +993,7 @@ function RefBadgeFlyout({
       >
         {refs.map((ref) => (
           <div key={ref.original} className="min-w-0">
-            <RefBadge refInfo={ref} onCheckout={onCheckout} />
+            <RefBadge refInfo={ref} onCheckout={onCheckout} onContextMenu={onRefContextMenu} />
           </div>
         ))}
       </div>
@@ -952,6 +1003,7 @@ function RefBadgeFlyout({
 
 interface CommitRef {
   original: string;
+  canonical: string;
   label: string;
   active: boolean;
   kind: "branch" | "tag";
@@ -977,10 +1029,16 @@ function visibleCommitRefs(
     if (label === null) continue;
     const active = activeBranch !== null && normalizedRef === activeBranch;
     const checkoutTarget = branch?.name ?? (isBranch ? normalizedRef : null);
+    const canonical = branch
+      ? fullBranchRefName(branch)
+      : isTag
+        ? `refs/tags/${normalizedRef}`
+        : ref;
     const existing = byLabel.get(label);
     if (!existing || active || (existing.remote && isBranch) || (!existing.active && isBranch && existing.kind === "tag")) {
       byLabel.set(label, {
         original: normalizedRef,
+        canonical,
         label,
         active,
         kind: isTag ? "tag" : "branch",
@@ -1044,6 +1102,57 @@ function commitMenuItems(t: (key: string) => string): ContextMenuItem[] {
     { id: "revert", label: t("context.revertCommit"), icon: "revert" },
     { id: "reset", label: t("context.resetToCommit"), icon: "reset", danger: true },
     { id: "copySha", label: t("context.copyCommitSha"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
+  ];
+}
+
+function refMenuItems(
+  refInfo: CommitRef,
+  currentBranch: string | null,
+  canCheckout: boolean,
+  canMerge: boolean,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): ContextMenuItem[] {
+  const mergeDisabled =
+    refInfo.kind !== "branch" ||
+    refInfo.active ||
+    refInfo.remote ||
+    !currentBranch ||
+    !canMerge;
+  const mergeDisabledReason = refInfo.kind !== "branch"
+    ? t("merge.blocked.sourceKindUnsupported")
+    : refInfo.active
+      ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? refInfo.label })
+      : refInfo.remote
+        ? t("merge.blocked.remoteSourceNotSupported")
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : undefined;
+
+  return [
+    {
+      id: "checkout",
+      label: t("context.checkout"),
+      icon: "checkout",
+      disabled: refInfo.kind !== "branch" || refInfo.active || !canCheckout,
+    },
+    {
+      id: "merge",
+      label: t("context.mergeInto", {
+        source: refInfo.label,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
+      separatorBefore: true,
+      disabled: mergeDisabled,
+      disabledReason: mergeDisabledReason,
+    },
+    {
+      id: "copy",
+      label: refInfo.kind === "tag" ? t("context.copyTagName") : t("context.copyBranchName"),
+      icon: "copy",
+      shortcut: "Ctrl+C",
+      separatorBefore: true,
+    },
   ];
 }
 

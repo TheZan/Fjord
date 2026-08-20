@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
+import { mergeSourceForBranch } from "@/application/mergeBranchAction";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -20,6 +21,7 @@ import type {
   AmendInfo,
   DestructiveAction,
   GenerationSet,
+  MergeSource,
   PatchSelection,
   RepoStatus,
   WorkingChanges,
@@ -76,6 +78,7 @@ export function RepoDetailView({
   onCreateBranch,
   onCreateBranchAt,
   onRenameBranch,
+  onMergeBranch,
   onPreflightAction,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
@@ -136,6 +139,7 @@ export function RepoDetailView({
   onCreateBranch: (name: string) => void;
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
+  onMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
@@ -200,7 +204,7 @@ export function RepoDetailView({
         id: Date.now(),
         message: actionError ?? actionSuccess ?? t("notifications.operationCompleted"),
         tone: actionError ? "error" : "success",
-        retainedStash: Boolean(actionSuccess),
+        retainedStash: actionSuccess?.includes("stash@{") ?? false,
       });
     }
     previousPendingAction.current = actionPending;
@@ -372,6 +376,7 @@ export function RepoDetailView({
                 onSelectCommit={handleSelectCommit}
                 onRevealCommit={handleRevealCommit}
                 onCheckout={operationInProgress ? undefined : onCheckout}
+                onMergeBranch={onMergeBranch}
                 onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
@@ -490,6 +495,7 @@ export function RepoDetailView({
   ) {
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
+      case "merge": onMergeBranch(mergeSourceForBranch(branch)); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
       case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
       case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;

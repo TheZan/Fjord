@@ -32,7 +32,8 @@
     "activeRepositoryGroup": "Repositorio activo",
     "workspaceGroup": "Espacio de trabajo",
     "globalGroup": "Global",
-    "viewDetail": "Cambiar vista"
+    "viewDetail": "Cambiar vista",
+    "mergeBranch": "Fusionar rama…"
   },
   "repositorySwitcher": {
     "placeholder": "Cambiar de repositorio o espacio de trabajo",
@@ -106,7 +107,17 @@
     "updatingGraph": "Actualizando el gráfico de commits…",
     "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },
+  "merge": {
+    "title": "Fusionar {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Fusionando…", "dismiss": "Cerrar",
+    "mode": { "label": "Modo", "default": "Fusión predeterminada", "fastForwardOnly": "Solo fast-forward" }, "confirm": "Fusionar", "cancel": "Cancelar",
+    "prediction": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que fusionar.", "fastForward_one": "{{source}} está {{count}} commit por delante de {{target}}. Se hará fast-forward.", "fastForward_other": "{{source}} está {{count}} commits por delante de {{target}}. Se hará fast-forward.", "mergeCommit": "{{source}} está {{ahead}} commits por delante y {{behind}} por detrás de {{target}}. Se creará un commit de fusión." },
+    "dirty": { "title": "Hay cambios locales.", "stashAndMerge": "Guardar cambios en stash y fusionar", "stashRetained": "Tus cambios están en {{stash}}." },
+    "outcome": { "alreadyUpToDate": "{{target}} ya estaba actualizada.", "fastForwarded": "{{target}} avanzó por fast-forward hasta {{source}}.", "merged": "Se fusionó {{source}} en {{target}}.", "conflicted": "{{source}} entra en conflicto con {{target}}. Resuelve los conflictos y continúa o cancela la fusión." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} ya es la rama actual.", "sourceNotFound": "{{source}} ya no existe.", "remoteSourceNotSupported": "La fusión de una rama remota aún no está disponible. Haz checkout o fetch y fusiona la rama local.", "sourceKindUnsupported": "Solo se pueden fusionar ramas.", "operationInProgress": "Ya hay otra operación Git en curso.", "detachedHead": "HEAD está separado. Haz checkout de una rama antes de fusionar.", "unbornHead": "{{target}} aún no tiene commits.", "stagedChanges_one": "Hay que confirmar o guardar en stash {{count}} cambio preparado antes de fusionar.", "stagedChanges_other": "Hay que confirmar o guardar en stash {{count}} cambios preparados antes de fusionar.", "wouldOverwrite_one": "La fusión sobrescribiría {{count}} archivo con cambios locales.", "wouldOverwrite_other": "La fusión sobrescribiría {{count}} archivos con cambios locales." },
+    "error": { "notFastForward": "{{source}} no puede avanzar por fast-forward en {{target}}. Usa una fusión predeterminada o rebase primero.", "failed": "No se pudo completar la fusión. El repositorio no cambió más allá de lo indicado por Git." }
+  },
   "context": {
+    "mergeInto": "Fusionar {{source}} en {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

@@ -9,8 +9,9 @@ use async_trait::async_trait;
 use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-    PatchSelection, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
-    StashEntry, TagInfo, WorkingChanges,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
+    Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus, StashEntry, TagInfo,
+    WorkingChanges,
 };
 use thiserror::Error;
 
@@ -216,6 +217,28 @@ pub enum GitError {
     StashEmpty,
     #[error("checkout would overwrite local changes in {paths:?}")]
     CheckoutWouldOverwrite { paths: Vec<String> },
+    #[error("merge source was not found")]
+    MergeSourceNotFound,
+    #[error("the merge source is the current branch")]
+    MergeSourceIsCurrentBranch,
+    #[error("the merge source kind is not supported")]
+    MergeSourceUnsupported,
+    #[error("the merge cannot be completed as a fast-forward")]
+    MergeNotFastForward,
+    #[error("merge would overwrite local changes in {paths:?}")]
+    MergeWouldOverwrite { paths: Vec<String> },
+    #[error("the index contains staged changes")]
+    MergeIndexHasStagedChanges,
+    #[error("HEAD is detached")]
+    MergeDetachedHead,
+    #[error("HEAD is unborn")]
+    MergeUnbornHead,
+    #[error("another repository operation is already in progress")]
+    OperationAlreadyInProgress,
+    #[error("merge failed: {0}")]
+    MergeFailed(String),
+    #[error("{0}")]
+    MergeStashRetained(Box<GitError>),
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
     #[error("operation cancelled")]
@@ -317,6 +340,23 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("abort_operation"))
     }
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
+    async fn merge_preflight(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+    ) -> Result<MergePreflight, GitError> {
+        Err(GitError::NotImplemented("merge_preflight"))
+    }
+    async fn merge_branch(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+        _mode: MergeMode,
+        _dirty_policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<MergeResult, GitError> {
+        Err(GitError::NotImplemented("merge_branch"))
+    }
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(
         &self,

@@ -47,6 +47,7 @@ pub enum OperationKind {
     AbortOperation,
     DestructiveAction,
     StashCheckout,
+    Merge,
 }
 
 impl OperationKind {
@@ -65,6 +66,7 @@ impl OperationKind {
             Self::AbortOperation => "abort-operation",
             Self::DestructiveAction => "destructive-action",
             Self::StashCheckout => "stash-checkout",
+            Self::Merge => "merge",
         }
     }
 }

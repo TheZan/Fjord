@@ -98,6 +98,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::list_remotes,
             commands::add_remote,
             commands::get_branches,
+            commands::get_merge_preflight,
+            commands::merge_branch,
             commands::get_tags,
             commands::get_repo_status,
             commands::get_repo_operation_state,

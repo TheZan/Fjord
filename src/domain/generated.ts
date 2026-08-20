@@ -55,6 +55,24 @@ export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId,
 
 export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, ahead: number, behind: number, targetCommitId: CommitId, };
 
+export type MergeSourceKind = "localBranch" | "remoteTracking";
+
+export type MergeSource = { refName: string, kind: MergeSourceKind, };
+
+export type MergeMode = "default" | "fastForwardOnly";
+
+export type MergeDirtyPolicy = "refuse" | "stashFirst";
+
+export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, };
+
+export type MergeDirtyState = { staged: number, modified: number, untracked: number, wouldOverwrite: Array<string>, };
+
+export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
+
+export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };
+
+export type MergeResult = { outcome: MergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, stashRef: string | null, generations: GenerationSet, };
+
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };

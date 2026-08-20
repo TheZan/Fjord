@@ -13,6 +13,11 @@ import type {
   GenerationSet,
   GitAuthPrompt,
   InteractionTrace,
+  MergeDirtyPolicy,
+  MergeMode,
+  MergePreflight,
+  MergeResult,
+  MergeSource,
   PatchSelection,
   RepoOperationState,
   SnapshotRevalidation,
@@ -93,7 +98,8 @@ export type OperationKind =
   | "skip-operation"
   | "abort-operation"
   | "destructive-action"
-  | "stash-checkout";
+  | "stash-checkout"
+  | "merge";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -357,6 +363,30 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeVersioned("get_branches", { repoId }, repoId, "refs", signal);
+}
+
+export function invokeErrorStashRef(error: unknown): string | null {
+  if (error && typeof error === "object" && "stash_ref" in error && typeof error.stash_ref === "string") {
+    return error.stash_ref;
+  }
+  return null;
+}
+
+export function getMergePreflight(
+  repoId: string,
+  source: MergeSource,
+  signal?: AbortSignal,
+): Promise<MergePreflight> {
+  return invokeVersioned("get_merge_preflight", { repoId, source }, repoId, "merge", signal);
+}
+
+export function runMergeBranch(
+  repoId: string,
+  source: MergeSource,
+  mode: MergeMode,
+  dirtyPolicy: MergeDirtyPolicy,
+): OperationTask<MergeResult> {
+  return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
 }
 
 export function listenGitAuthPrompts(

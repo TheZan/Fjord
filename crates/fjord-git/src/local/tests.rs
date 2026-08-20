@@ -4,8 +4,9 @@
 use super::*;
 use crate::GenerationSet;
 use fjord_domain::{
-    Consequence, OperationControl, RebaseKind, Recoverability, RepoOperation, RepoOperationState,
-    ResetMode,
+    Consequence, MergeDirtyPolicy, MergeMode, MergeOutcome, MergePrediction, MergeSource,
+    MergeSourceKind, OperationControl, RebaseKind, Recoverability, RepoOperation,
+    RepoOperationState, ResetMode,
 };
 use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
@@ -257,6 +258,13 @@ fn divergent_operation_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
     commit_with_cli(&backend, &repo, "topic\n", "topic change");
     run_git_success(&backend, &repo, &["checkout", "main"]);
     (directory, repo, backend)
+}
+
+fn local_merge_source(name: &str) -> MergeSource {
+    MergeSource {
+        ref_name: format!("refs/heads/{name}"),
+        kind: MergeSourceKind::LocalBranch,
+    }
 }
 
 fn resolved_index_path(repo: &RepoPath) -> PathBuf {
@@ -6036,6 +6044,315 @@ fn assert_normal_operation(state: &fjord_domain::RepoOperationState) {
     assert_eq!(state.operation, RepoOperation::Normal);
     assert!(state.conflicted_paths.is_empty());
     assert!(state.available.is_empty());
+}
+
+#[tokio::test]
+async fn merge_preflight_and_fast_forward_return_typed_outcomes_without_extra_mutation() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    // Rebuild the topic as a strict descendant of main for this fixture.
+    run_git_success(&backend, &repo, &["branch", "-D", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+    commit_with_cli(&backend, &repo, "topic ahead\n", "topic ahead");
+    let expected_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+
+    let source = local_merge_source("topic");
+    let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(
+        preflight.prediction,
+        MergePrediction::FastForward { commits: 1 }
+    );
+    assert!(preflight.blockers.is_empty());
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        result.outcome,
+        MergeOutcome::FastForwarded { head } if head.0 == expected_head
+    ));
+    let after_fast_forward = backend.generations(&repo).unwrap();
+    assert_eq!(after_fast_forward.working_tree, 1);
+    assert_eq!(after_fast_forward.refs, 1);
+    assert_eq!(after_fast_forward.history, 1);
+
+    let already = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(already.outcome, MergeOutcome::AlreadyUpToDate));
+    assert_eq!(backend.generations(&repo).unwrap(), after_fast_forward);
+}
+
+#[tokio::test]
+async fn merge_diverged_branch_creates_two_parent_commit_and_ff_only_refuses_cleanly() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    write_file(&repo, "main.txt", "main\n");
+    run_git_success(&backend, &repo, &["add", "main.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "main"]);
+    let before_head = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    write_file(&repo, "topic.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "topic.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    let source = local_merge_source("topic");
+
+    let ff_only = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::FastForwardOnly,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(ff_only, Err(GitError::MergeNotFastForward)));
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        before_head
+    );
+
+    write_file(&repo, "topic.txt", "local untracked work\n");
+    let stashed_ff_only = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::FastForwardOnly,
+            MergeDirtyPolicy::StashFirst,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(
+        stashed_ff_only,
+        Err(GitError::MergeStashRetained(error))
+            if matches!(*error, GitError::MergeNotFastForward)
+    ));
+    assert_eq!(backend.stashes(&repo).await.unwrap().len(), 1);
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, MergeOutcome::Merged { .. }));
+    assert_eq!(
+        String::from_utf8(git_output(
+            &backend,
+            &repo,
+            &["rev-list", "--parents", "-n", "1", "HEAD"]
+        ))
+        .unwrap()
+        .split_whitespace()
+        .count(),
+        3
+    );
+    drop(directory);
+}
+
+#[tokio::test]
+async fn conflicted_merge_returns_operation_state_and_existing_abort_restores_head() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    let before_head = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    let result = backend
+        .merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    let MergeOutcome::Conflicted { state } = result.outcome else {
+        panic!("expected a conflicted merge")
+    };
+    assert!(matches!(state.operation, RepoOperation::Merge { .. }));
+    assert_eq!(state.conflicted_paths, vec!["operation.txt"]);
+    assert!(!state.detected_externally);
+
+    let aborted = backend.abort_operation(&repo).await.unwrap();
+    assert_normal_operation(&aborted);
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        before_head
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("operation.txt")).unwrap(),
+        "main\n"
+    );
+}
+
+#[tokio::test]
+async fn merge_dirty_policy_refuses_or_retains_one_named_stash() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+    commit_with_cli(&backend, &repo, "topic\n", "topic");
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    write_file(&repo, "operation.txt", "local\n");
+    write_file(&repo, "untracked.txt", "keep me\n");
+    write_file(&repo, "staged.txt", "also keep me\n");
+    run_git_success(&backend, &repo, &["add", "staged.txt"]);
+    let source = local_merge_source("topic");
+    let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(preflight.dirty.would_overwrite, vec!["operation.txt"]);
+    assert!(preflight.blockers.contains(&"merge_would_overwrite".into()));
+
+    let refused = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(refused, Err(GitError::MergeIndexHasStagedChanges)));
+    assert!(backend.stashes(&repo).await.unwrap().is_empty());
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::StashFirst,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.stash_ref.as_deref(), Some("stash@{0}"));
+    assert!(matches!(result.outcome, MergeOutcome::FastForwarded { .. }));
+    assert!(!repo.0.join("untracked.txt").exists());
+    let stashes = backend.stashes(&repo).await.unwrap();
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0].message.contains("Fjord merge: topic -> main"));
+    let generations = backend.generations(&repo).unwrap();
+    assert_eq!(generations.stash, 1);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn merge_preserves_unstaged_changes_to_files_the_source_does_not_touch() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+    write_file(&repo, "topic.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "topic.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    write_file(&repo, "operation.txt", "local untouched work\n");
+
+    let preflight = backend
+        .merge_preflight(&repo, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert_eq!(preflight.dirty.modified, 1);
+    assert!(preflight.dirty.would_overwrite.is_empty());
+    assert!(preflight.blockers.is_empty());
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, MergeOutcome::FastForwarded { .. }));
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("operation.txt")).unwrap(),
+        "local untouched work\n"
+    );
+}
+
+#[tokio::test]
+async fn merge_validates_exact_source_current_missing_remote_and_staged_state() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+
+    let current = backend
+        .merge_branch(
+            &repo,
+            &local_merge_source("main"),
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await;
+    let current_preflight = backend
+        .merge_preflight(&repo, &local_merge_source("main"))
+        .await
+        .unwrap();
+    assert!(current_preflight
+        .blockers
+        .contains(&"merge_source_is_current_branch".into()));
+    assert!(matches!(current, Err(GitError::MergeSourceIsCurrentBranch)));
+
+    assert!(matches!(
+        backend
+            .merge_preflight(&repo, &local_merge_source("missing"))
+            .await,
+        Err(GitError::MergeSourceNotFound)
+    ));
+
+    run_git_success(
+        &backend,
+        &repo,
+        &[
+            "update-ref",
+            "refs/remotes/origin/topic",
+            "refs/heads/topic",
+        ],
+    );
+    let remote = MergeSource {
+        ref_name: "refs/remotes/origin/topic".into(),
+        kind: MergeSourceKind::RemoteTracking,
+    };
+    let remote_preflight = backend.merge_preflight(&repo, &remote).await.unwrap();
+    assert_eq!(remote_preflight.blockers, vec!["merge_source_unsupported"]);
+
+    write_file(&repo, "staged.txt", "staged\n");
+    run_git_success(&backend, &repo, &["add", "staged.txt"]);
+    let staged = backend
+        .merge_preflight(&repo, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert_eq!(staged.dirty.staged, 1);
+    assert!(staged
+        .blockers
+        .contains(&"merge_index_has_staged_changes".into()));
+    drop(directory);
 }
 
 fn start_revert_conflict() -> (TempDir, RepoPath, LocalGitBackend) {

@@ -324,6 +324,112 @@ pub struct BranchInfo {
     pub target_commit_id: CommitId,
 }
 
+/// The only reference kinds accepted by the branch-integration contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeSourceKind {
+    LocalBranch,
+    RemoteTracking,
+}
+
+/// A merge source is always a canonical, fully-qualified Git ref name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeSource {
+    pub ref_name: String,
+    pub kind: MergeSourceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeMode {
+    Default,
+    FastForwardOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeDirtyPolicy {
+    Refuse,
+    StashFirst,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergePrediction {
+    AlreadyUpToDate,
+    FastForward { commits: u32 },
+    MergeCommit { ahead: u32, behind: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeDirtyState {
+    pub staged: u32,
+    pub modified: u32,
+    pub untracked: u32,
+    pub would_overwrite: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergePreflight {
+    pub source: MergeSource,
+    pub source_label: String,
+    pub source_commit: CommitId,
+    pub target_branch: String,
+    pub target_commit: CommitId,
+    pub prediction: MergePrediction,
+    pub dirty: MergeDirtyState,
+    pub blockers: Vec<String>,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergeOutcome {
+    AlreadyUpToDate,
+    FastForwarded { head: CommitId },
+    Merged { commit: CommitId },
+    Conflicted { state: RepoOperationState },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub outcome: MergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
 /// A reference advertised by a remote repository. `symbolic_target` is set
 /// for entries such as `HEAD` returned by `git ls-remote --symref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

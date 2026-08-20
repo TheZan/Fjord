@@ -13,7 +13,7 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
+import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -28,6 +28,7 @@ import {
   getAmendInfo,
   invokeErrorCode,
   invokeErrorPaths,
+  invokeErrorStashRef,
   openInIde,
   openMergeTool,
   openTerminal,
@@ -41,6 +42,7 @@ import {
   runSkipOperation,
   runExecuteDestructiveAction,
   runStashAndCheckout,
+  runMergeBranch,
   setBranchUpstream,
   renameBranch,
   revertCommit,
@@ -57,6 +59,7 @@ import { RepoDetailView } from "@/presentation/RepoDetailView";
 import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
+import { MergeDialog } from "@/presentation/MergeDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
@@ -68,6 +71,7 @@ export type RepoDetailCommandPayload =
   | { kind: "repoAction"; action: RepoAction }
   | { kind: "selectCommit"; commit: CommitSummary }
   | { kind: "openCommitSearch" }
+  | { kind: "merge"; source: MergeSource }
   | { kind: "refresh" };
 
 export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
@@ -114,6 +118,7 @@ export function RepoDetailContainer({
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
+  const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
   const operationInProgress = isOperationInProgress(operationState?.operation);
@@ -203,6 +208,11 @@ export function RepoDetailContainer({
       return;
     }
 
+    if (command.kind === "merge") {
+      onMergeBranch(command.source);
+      return;
+    }
+
     if (command.kind === "refresh") {
       void snapshot.revalidate();
       return;
@@ -218,6 +228,7 @@ export function RepoDetailContainer({
     setSelectedCommit(null);
     setWorkingSelected(false);
     setRecoveryCenterOpen(false);
+    setMergeSource(null);
   }, [repo.id]);
 
   useEffect(() => {
@@ -378,6 +389,67 @@ export function RepoDetailContainer({
 
   function onCreateTag(name: string, target: string) {
     void runRepoAction("create-tag", () => createTag(repo.id, name, target), ["refs"]);
+  }
+
+  function onMergeBranch(source: MergeSource) {
+    if (operationInProgress) {
+      setActionError(t("merge.blocked.operationInProgress"));
+      return;
+    }
+    if (!status?.branch) {
+      setActionError(t("merge.blocked.detachedHead"));
+      return;
+    }
+    setMergeSource(source);
+  }
+
+  function executeMerge(mode: MergeMode, dirtyPolicy: MergeDirtyPolicy) {
+    if (!mergeSource) return;
+    const source = mergeSource;
+    void runRepoAction(
+      "merge",
+      async () => {
+        const task = runMergeBranch(repo.id, source, mode, dirtyPolicy);
+        setActionOperationId(task.operationId);
+        const result = await task.promise;
+        if (result.outcome.kind === "conflicted") {
+          queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.outcome.state);
+        }
+        const message = t(`merge.outcome.${result.outcome.kind}`, {
+          source: result.sourceLabel,
+          target: result.targetBranch,
+        });
+        setActionSuccess(result.stashRef
+          ? `${message} ${t("merge.dirty.stashRetained", { stash: result.stashRef })}`
+          : message);
+      },
+      ["status", "operation", "working", "history", "refs", "stashes", "merge"],
+      (error) => {
+        const code = invokeErrorCode(error);
+        const stashRef = invokeErrorStashRef(error);
+        const retained = stashRef
+          ? t("merge.dirty.stashRetained", { stash: stashRef })
+          : null;
+        if (retained) setActionSuccess(retained);
+        if (code === "merge_not_fast_forward") {
+          const message = t("merge.error.notFastForward", {
+            source: mergeSourceLabel(source),
+            target: status?.branch ?? "HEAD",
+          });
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        if (code === "merge_failed") {
+          const message = t("merge.error.failed");
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        return false;
+      },
+      true,
+    ).then((ok) => {
+      if (ok) setMergeSource(null);
+    });
   }
 
   function onCherryPick(commitId: string) {
@@ -645,6 +717,7 @@ export function RepoDetailContainer({
       onCreateBranch={onCreateBranch}
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
+      onMergeBranch={onMergeBranch}
       onPreflightAction={setDestructiveAction}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
@@ -685,6 +758,16 @@ export function RepoDetailContainer({
           );
           if (ok) setForcePushPreflight(false);
         }}
+      />
+    ) : null}
+    {mergeSource && status?.branch ? (
+      <MergeDialog
+        repoId={repo.id}
+        source={mergeSource}
+        currentBranch={status.branch}
+        pending={actionPending === "merge"}
+        onClose={() => setMergeSource(null)}
+        onConfirm={executeMerge}
       />
     ) : null}
     {checkoutOverwrite ? (
@@ -793,6 +876,12 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
     case "forceWithLease":
       return [];
   }
+}
+
+function mergeSourceLabel(source: MergeSource) {
+  return source.refName
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "");
 }
 
 function scopesForRepoAction(action: RepoAction): RepoDataScope[] {

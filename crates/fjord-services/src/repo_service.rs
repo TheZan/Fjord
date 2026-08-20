@@ -6,10 +6,11 @@ use fjord_domain::{
     CommitSummary, Consequence, CreateRepositoryRequest, CreateRepositoryResult, DestructiveAction,
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
-    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, MergeDirtyPolicy,
+    MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection, Recoverability,
+    ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -681,6 +682,39 @@ impl RepoService {
     pub async fn get_branches(&self, repo_id: RepositoryId) -> Result<Vec<BranchInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn get_merge_preflight(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+    ) -> Result<MergePreflight, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .merge_preflight(&RepoPath::new(repo.path), source)
+            .await?)
+    }
+
+    pub async fn merge_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+        mode: MergeMode,
+        dirty_policy: MergeDirtyPolicy,
+        context: GitOperationContext,
+    ) -> Result<MergeResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .merge_branch(
+                &RepoPath::new(repo.path),
+                source,
+                mode,
+                dirty_policy,
+                context,
+            )
+            .await?)
     }
 
     pub async fn get_tags(&self, repo_id: RepositoryId) -> Result<Vec<TagInfo>, RepoError> {

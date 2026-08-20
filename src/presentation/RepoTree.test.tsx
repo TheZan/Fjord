@@ -7,8 +7,12 @@ import type { BranchInfo, TagInfo } from "@/domain/git";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, number>) =>
-      key === "tree.filterCount" ? `${values?.matched}/${values?.total}` : key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      key === "tree.filterCount"
+        ? `${values?.matched}/${values?.total}`
+        : key === "context.mergeInto"
+          ? `Merge ${values?.source} into ${values?.target}…`
+          : key,
   }),
 }));
 
@@ -139,6 +143,38 @@ describe("RepoTree", () => {
       branches[1],
       ["origin/release"],
     );
+  });
+
+  it("names both merge refs, dispatches the exact branch, and restores keyboard focus", async () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+    const feature = screen.getByRole("button", { name: "feature/ui" });
+    feature.focus();
+    fireEvent.keyDown(feature, { key: "F10", shiftKey: true });
+    const merge = screen.getByRole("menuitem", { name: "Merge feature/ui into main…" });
+    expect(merge).toBeEnabled();
+    fireEvent.click(merge);
+    expect(onBranchContextAction).toHaveBeenCalledWith("merge", branches[1], ["origin/release"]);
+
+    feature.focus();
+    fireEvent.keyDown(feature, { key: "ContextMenu" });
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(feature).toHaveFocus();
+  });
+
+  it("keeps current and remote merge entries visible with stated disabled reasons", () => {
+    render(<RepoTree repoId="repo-1" />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
+    const current = screen.getByRole("menuitem", { name: "Merge main into main…" });
+    expect(current).toBeDisabled();
+    expect(current).toHaveAttribute("title", "merge.blocked.sourceIsCurrentBranch");
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: /tree.remote/ }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "release" }));
+    const remote = screen.getByRole("menuitem", { name: "Merge origin/release into main…" });
+    expect(remote).toBeDisabled();
+    expect(remote).toHaveAttribute("title", "merge.blocked.remoteSourceNotSupported");
   });
 
   it("blocks checkout gestures and explains the disabled context action", () => {

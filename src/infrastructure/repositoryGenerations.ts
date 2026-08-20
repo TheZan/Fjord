@@ -7,7 +7,8 @@ export type RepositoryGenerationScope =
   | "history"
   | "reflog"
   | "refs"
-  | "stashes";
+  | "stashes"
+  | "merge";
 export type GenerationDomain = keyof GenerationSet;
 
 const dependencies: Record<RepositoryGenerationScope, GenerationDomain[]> = {
@@ -18,6 +19,7 @@ const dependencies: Record<RepositoryGenerationScope, GenerationDomain[]> = {
   reflog: ["refs", "history"],
   refs: ["refs", "config"],
   stashes: ["stash"],
+  merge: ["workingTree", "refs"],
 };
 
 type ScopeObservation = Partial<Record<GenerationDomain, number>>;

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { checkoutBranch, createBranchAt, discardPatch, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -107,6 +107,25 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     operationId: "operation-stash-checkout",
     promise: Promise.resolve("stash@{0}"),
   })),
+  runMergeBranch: vi.fn(() => ({
+    operationId: "operation-merge",
+    promise: Promise.resolve({
+      outcome: {
+        kind: "conflicted",
+        state: {
+          operation: { kind: "merge", head: "abc", incoming: ["def"] },
+          conflictedPaths: ["src/conflict.ts"],
+          available: ["abort"],
+          detectedExternally: false,
+        },
+      },
+      source: { refName: "refs/heads/feature", kind: "localBranch" },
+      sourceLabel: "feature",
+      targetBranch: "main",
+      stashRef: null,
+      generations: { workingTree: 2, refs: 2, history: 2, stash: 0, config: 0 },
+    }),
+  })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -139,6 +158,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter,
     onPublishBranch,
     onPushToRemotes,
+    onMergeBranch,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -160,6 +180,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter: () => void;
     onPublishBranch: (branch: string) => void;
     onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
+    onMergeBranch: (source: import("@/domain/git").MergeSource) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -171,6 +192,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
+      <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
@@ -194,6 +216,12 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       ) : null}
     </div>
   ),
+}));
+
+vi.mock("@/presentation/MergeDialog", () => ({
+  MergeDialog: ({ onConfirm }: {
+    onConfirm: (mode: import("@/domain/git").MergeMode, policy: import("@/domain/git").MergeDirtyPolicy) => void;
+  }) => <button type="button" onClick={() => onConfirm("default", "refuse")}>confirm merge</button>,
 }));
 
 vi.mock("@/presentation/RecoveryCenter", () => ({
@@ -235,6 +263,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       operationId: "operation-stash-checkout",
       promise: Promise.resolve("stash@{0}"),
     });
+    vi.mocked(runMergeBranch).mockClear();
     vi.mocked(runExecuteDestructiveAction).mockReset();
     vi.mocked(runExecuteDestructiveAction).mockReturnValue({
       operationId: "operation-destructive",
@@ -687,6 +716,41 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "workspace-1",
       ["status", "operation", "working", "history", "refs"],
     );
+  });
+
+  it("publishes a conflicted merge result directly to the operation banner cache", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge" }));
+
+    await waitFor(() => expect(runMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/heads/feature", kind: "localBranch" },
+      "default",
+      "refuse",
+    ));
+    expect(queryClientMock.setQueryData).toHaveBeenCalledWith(
+      ["repos", "repo-1", "operationState"],
+      expect.objectContaining({
+        operation: { kind: "merge", head: "abc", incoming: ["def"] },
+        conflictedPaths: ["src/conflict.ts"],
+      }),
+    );
+  });
+
+  it("reports a retained merge stash even when the operation is cancelled", async () => {
+    vi.mocked(runMergeBranch).mockReturnValueOnce({
+      operationId: "operation-merge",
+      promise: Promise.reject({ code: "operation_cancelled", stash_ref: "stash@{0}" }),
+    });
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge" }));
+
+    await waitFor(() => expect(screen.getByTestId("action-success")).toHaveTextContent(
+      "merge.dirty.stashRetained",
+    ));
+    expect(screen.getByTestId("action-error")).toBeEmptyDOMElement();
   });
 
   it("routes operation abort through destructive preflight", async () => {

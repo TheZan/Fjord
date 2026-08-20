@@ -19,9 +19,9 @@ use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, PatchSelection, PatchSource,
-    ReflogEntry, ReflogPage, RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges,
-    WorkingFile,
+    FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, MergeDirtyPolicy, MergeMode,
+    MergePreflight, MergeResult, MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage,
+    RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -42,6 +42,7 @@ mod destructive_preflight;
 mod diff;
 mod history;
 mod initialization;
+mod merge;
 mod mutations;
 mod operation_control;
 mod operation_state;
@@ -209,6 +210,34 @@ impl GitBackend for LocalGitBackend {
 
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError> {
         refs::branches(repo).await
+    }
+
+    async fn merge_preflight(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+    ) -> Result<MergePreflight, GitError> {
+        merge::preflight(self.operation_origins.clone(), repo, source).await
+    }
+
+    async fn merge_branch(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        mode: MergeMode,
+        dirty_policy: MergeDirtyPolicy,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<MergeResult, GitError> {
+        merge::run(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            source,
+            mode,
+            dirty_policy,
+            context,
+        )
+        .await
     }
 
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {

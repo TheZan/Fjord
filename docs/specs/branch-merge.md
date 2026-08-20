@@ -82,11 +82,11 @@ and it has no preflight, no mode selection, and no UI entry point.
 | Merge state detection | ✅ `RepoOperationState::Merge { head, incoming }` with conflicted paths, computed controls, and `detected_externally` (`P9-01`, `P9-02`). |
 | Conflict UI | ✅ Operation banner with bounded conflicted paths, merge-tool handoff, Continue/Abort (`P9-03`, `P9-04`). |
 | Abort | ✅ `DestructiveAction::AbortOperation` through the shared preflight and token-bound executor (`P9-05`, `P9-06`). |
-| Merge initiation | 🚧 Absent. No domain type, no port method, no IPC command, no UI entry point. |
+| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking and squash sources remain owned by `P10-MERGE-02` and `P10-MERGE-03`. |
 | Local merge machinery | ⚠️ `integrate_upstream` performs a `git2` up-to-date / fast-forward / normal-merge analysis for `pull` only. Not a product action; not reused by this spec (§7). |
-| Branch context menu | ⚠️ Checkout, create branch here, rename, set/unset upstream, publish, delete, copy (`RepoTree.tsx`, `GitContextMenu.tsx`). No merge entry. |
-| Commit-graph branch labels | ⚠️ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` in `CommitGraph.tsx` render refs and support click-to-checkout. They have **no context menu at all**; only the commit row has one, and it is keyed by commit, not by ref. |
-| Command palette | ✅ `Ctrl/Cmd+K` actions registry ([`ui-shell.md`](ui-shell.md) §6). No merge action. |
+| Branch context menu | ✅ Local branches expose the shared merge action with source/target labels and disabled reasons; remote-tracking refs are visibly deferred. |
+| Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. |
+| Command palette | ✅ `Ctrl/Cmd+K` lists eligible local branches as **Merge branch…** actions and dispatches the same application flow. |
 
 ## Proposed design
 
@@ -411,6 +411,10 @@ Contract rules:
   `merge_unborn_head`, `operation_already_in_progress`, `merge_failed`
   (sanitized diagnostics), plus `operation_cancelled`. No normal Git outcome is
   encoded as a free-form error string.
+- If the explicit stash was created before any of those failures or a
+  cancellation, the error also carries `stash_ref: "stash@{0}"`; the frontend
+  reports that verified fact and never infers retention merely from
+  `dirty_policy = StashFirst`.
 
 **Engine and locking.** Merge runs through **system Git** with the shared
 resolved executable and the cancellable process-tree runner, arguments passed

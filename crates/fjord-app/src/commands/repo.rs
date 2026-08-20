@@ -1,9 +1,10 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult,
-    RepoOperationState, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    GlobalSearchResult, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
+    MergeSource, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState,
+    RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -66,6 +67,44 @@ pub async fn get_branches(
 ) -> Result<GenerationEnvelope<Vec<BranchInfo>>, AppError> {
     let data = state.repos.get_branches(repo_id).await?;
     versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_merge_preflight(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+) -> Result<GenerationEnvelope<MergePreflight>, AppError> {
+    let data = state.repos.get_merge_preflight(repo_id, &source).await?;
+    Ok(GenerationEnvelope {
+        generations: data.generations,
+        data,
+    })
+}
+
+#[tauri::command]
+pub async fn merge_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+    mode: MergeMode,
+    dirty_policy: MergeDirtyPolicy,
+    operation_id: Option<String>,
+) -> Result<MergeResult, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Merge,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .merge_branch_with_context(repo_id, &source, mode, dirty_policy, context)
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -993,6 +1032,11 @@ where
     let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
     let guard = state.operations.begin(operation_id);
     let scope = OperationScope::Repo { repo_id };
+    let total = if matches!(kind, OperationKind::Merge) {
+        0
+    } else {
+        1
+    };
     emit_operation(
         app,
         OperationProgress {
@@ -1002,7 +1046,7 @@ where
             status: OperationStatus::Started,
             repo_id: Some(repo_id),
             completed: 0,
-            total: 1,
+            total,
             message: None,
             error: None,
         },
@@ -1029,7 +1073,7 @@ where
 
     state.askpass.finish_operation(guard.id());
     let (status, completed, error) = match &result {
-        Ok(_) => (OperationStatus::Succeeded, 1, None),
+        Ok(_) => (OperationStatus::Succeeded, total, None),
         Err(error) if error.code == "operation_cancelled" => (OperationStatus::Cancelled, 0, None),
         Err(error) => (
             OperationStatus::Failed,
@@ -1050,7 +1094,7 @@ where
             status,
             repo_id: Some(repo_id),
             completed,
-            total: 1,
+            total,
             message: None,
             error,
         },

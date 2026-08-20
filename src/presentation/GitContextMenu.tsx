@@ -29,7 +29,8 @@ export type ContextMenuIcon =
   | "delete"
   | "reset"
   | "revert"
-  | "tag";
+  | "tag"
+  | "merge";
 
 export function ContextMenu({
   position,
@@ -46,6 +47,11 @@ export function ContextMenu({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [menuPosition, setMenuPosition] = useState(position);
   const [activeIndex, setActiveIndex] = useState(() => firstEnabledIndex(items));
+
+  useEffect(() => {
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => invoker?.focus();
+  }, []);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -199,6 +205,7 @@ function MenuIcon({ kind }: { kind: ContextMenuIcon }) {
       {kind === "reset" ? <><path d="M3 5V2L1 4" /><path d="M3 3a6 6 0 1 1-1 7" /><path d="M8 5v3l2 1" /></> : null}
       {kind === "revert" ? <><path d="m5 4-3 3 3 3" /><path d="M2 7h7a4 4 0 0 1 4 4v2" /></> : null}
       {kind === "tag" ? <><path d="M2 2h5l7 7-5 5-7-7V2Z" /><circle cx="5" cy="5" r="1" /></> : null}
+      {kind === "merge" ? <><path d="M3 2v3a3 3 0 0 0 3 3h4" /><path d="m8 5 3 3-3 3" /><circle cx="3" cy="2" r="1.25" /><circle cx="3" cy="13" r="1.25" /><path d="M3 12V8" /></> : null}
     </svg>
   );
 }

@@ -13,6 +13,8 @@ pub struct AppError {
     pub diagnostics: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stash_ref: Option<String>,
 }
 
 impl AppError {
@@ -22,6 +24,7 @@ impl AppError {
             message,
             diagnostics: None,
             paths: None,
+            stash_ref: None,
         }
     }
 
@@ -141,6 +144,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 message: "repository operation step failed".to_string(),
                 diagnostics: Some(diagnostics),
                 paths: None,
+                stash_ref: None,
             };
         }
         GitError::CheckoutWouldOverwrite { paths } => {
@@ -149,7 +153,31 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 message: "checkout would overwrite local changes".to_string(),
                 diagnostics: None,
                 paths: Some(paths),
+                stash_ref: None,
             };
+        }
+        GitError::MergeWouldOverwrite { paths } => {
+            return AppError {
+                code: "merge_would_overwrite".to_string(),
+                message: "merge would overwrite local changes".to_string(),
+                diagnostics: None,
+                paths: Some(paths),
+                stash_ref: None,
+            };
+        }
+        GitError::MergeFailed(diagnostics) => {
+            return AppError {
+                code: "merge_failed".to_string(),
+                message: "merge failed".to_string(),
+                diagnostics: Some(diagnostics),
+                paths: None,
+                stash_ref: None,
+            };
+        }
+        GitError::MergeStashRetained(source) => {
+            let mut error = git_error_to_app_error(*source);
+            error.stash_ref = Some("stash@{0}".to_string());
+            return error;
         }
         other => other,
     };
@@ -174,6 +202,17 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::MergeSourceNotFound => "merge_source_not_found",
+        GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",
+        GitError::MergeSourceUnsupported => "merge_source_unsupported",
+        GitError::MergeNotFastForward => "merge_not_fast_forward",
+        GitError::MergeWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::MergeIndexHasStagedChanges => "merge_index_has_staged_changes",
+        GitError::MergeDetachedHead => "merge_detached_head",
+        GitError::MergeUnbornHead => "merge_unborn_head",
+        GitError::OperationAlreadyInProgress => "operation_already_in_progress",
+        GitError::MergeFailed(_) => unreachable!("handled above"),
+        GitError::MergeStashRetained(_) => unreachable!("handled above"),
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::Cancelled => "operation_cancelled",
         GitError::OperationNotInProgress => "operation_not_in_progress",
@@ -194,6 +233,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
         message: err.to_string(),
         diagnostics: err.diagnostics().map(ToString::to_string),
         paths: None,
+        stash_ref: None,
     }
 }
 
@@ -334,5 +374,15 @@ mod tests {
             git_error_to_app_error(GitError::OperationStepFailed("sanitized".into())).diagnostics,
             Some("sanitized".into())
         );
+    }
+
+    #[test]
+    fn merge_errors_report_a_retained_stash_without_changing_the_stable_code() {
+        let error = git_error_to_app_error(GitError::MergeStashRetained(Box::new(
+            GitError::MergeNotFastForward,
+        )));
+
+        assert_eq!(error.code, "merge_not_fast_forward");
+        assert_eq!(error.stash_ref.as_deref(), Some("stash@{0}"));
     }
 }
