@@ -35,10 +35,10 @@ vi.mock("@tanstack/react-virtual", () => ({
 
 const changes: WorkingChanges = {
   unstaged: [
-    { path: "src/app.ts", changeType: "modified", conflicted: false },
-    { path: "src/conflict.ts", changeType: "modified", conflicted: true },
+    { path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false },
+    { path: "src/conflict.ts", changeType: "modified", tracked: true, conflicted: true },
   ],
-  staged: [{ path: "README.md", changeType: "added", conflicted: false }],
+  staged: [{ path: "README.md", changeType: "added", tracked: true, conflicted: false }],
 };
 
 function props(overrides: Partial<React.ComponentProps<typeof WorkingChangesPanel>> = {}) {

@@ -135,6 +135,7 @@ pub(crate) enum MutationKind {
     Stage,
     Unstage,
     Discard,
+    Ignore,
     Commit,
     IntegrateUpstream,
     Merge { stash: bool },
@@ -171,9 +172,10 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             touches_working_tree: true,
         } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::StashPush | MutationKind::StashPop => GenerationMask::WORKING_STASH,
-        MutationKind::Stage | MutationKind::Unstage | MutationKind::Discard => {
-            GenerationMask::WORKING_TREE
-        }
+        MutationKind::Stage
+        | MutationKind::Unstage
+        | MutationKind::Discard
+        | MutationKind::Ignore => GenerationMask::WORKING_TREE,
         MutationKind::Fetch | MutationKind::Push | MutationKind::DeleteRemoteBranch => {
             GenerationMask::REFS_HISTORY
         }
@@ -234,6 +236,7 @@ mod tests {
             (MutationKind::Stage, GenerationMask::WORKING_TREE),
             (MutationKind::Unstage, GenerationMask::WORKING_TREE),
             (MutationKind::Discard, GenerationMask::WORKING_TREE),
+            (MutationKind::Ignore, GenerationMask::WORKING_TREE),
             (MutationKind::Commit, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::IntegrateUpstream,

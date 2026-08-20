@@ -12,6 +12,9 @@ import type {
   DiffWhitespaceMode,
   GenerationSet,
   GitAuthPrompt,
+  IgnoreRuleKind,
+  IgnoreRuleOutcome,
+  IgnoreRulePreview,
   InteractionTrace,
   MergeDirtyPolicy,
   MergeMode,
@@ -881,6 +884,22 @@ export function openRepositoryPath(
 
 export function revealRepositoryPath(repoId: string, path: string): Promise<void> {
   return invoke("reveal_repository_path", { repoId, path });
+}
+
+export function previewIgnoreRule(
+  repoId: string,
+  path: string,
+  ruleKind: IgnoreRuleKind,
+): Promise<IgnoreRulePreview> {
+  return invoke("preview_ignore_rule", { repoId, path, ruleKind });
+}
+
+export function addIgnoreRule(
+  repoId: string,
+  path: string,
+  ruleKind: IgnoreRuleKind,
+): Promise<IgnoreRuleOutcome> {
+  return invoke("add_ignore_rule", { repoId, path, ruleKind });
 }
 
 export function bulkFetch(

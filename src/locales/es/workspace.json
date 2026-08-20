@@ -603,7 +603,24 @@
     "openWithDefault": "Abrir con la aplicación predeterminada",
     "showInFolder": "Mostrar en carpeta",
     "openMergeTool": "Abrir herramienta de fusión",
-    "copyPath": { "label": "Copiar ruta", "relative": "Ruta relativa", "absolute": "Ruta absoluta" }
+    "copyPath": { "label": "Copiar ruta", "relative": "Ruta relativa", "absolute": "Ruta absoluta" },
+    "ignore": {
+      "label": "Ignorar",
+      "file": "Ignorar este archivo",
+      "extension": "Ignorar todos los archivos .{{extension}}",
+      "directory": "Ignorar esta carpeta ({{directory}})",
+      "title": "Añadir regla a .gitignore",
+      "description": "Revise la regla exacta para {{path}} antes de escribirla.",
+      "loading": "Comprobando .gitignore…",
+      "rulePreview": "Regla que se añadirá",
+      "confirm": "Añadir regla",
+      "adding": "Añadiendo…",
+      "close": "Cerrar",
+      "added": "Regla añadida a .gitignore.",
+      "alreadyPresent": "Esta regla exacta ya existe en .gitignore.",
+      "trackedFile": "Los archivos rastreados no se pueden ignorar. Git debe dejar de rastrearlos primero.",
+      "encodingUnsupported": ".gitignore debe estar en UTF-8, con o sin BOM. El archivo no se modificó."
+    }
   },
   "working": {
     "title": "Cambios sin commit",

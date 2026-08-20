@@ -8,10 +8,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
-    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
-    Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus, StashEntry, TagInfo,
-    WorkingChanges,
+    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
+    RepoOperationState, RepoStatus, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -257,6 +257,12 @@ pub enum GitError {
     PatchApplyFailed(String),
     #[error("the selected change cannot be represented as a line patch: {0}")]
     PatchUnsupported(String),
+    #[error("ignore rules are unavailable for tracked file: {0}")]
+    IgnoreRuleUnsupportedForTrackedFile(String),
+    #[error(".gitignore is not valid UTF-8")]
+    IgnoreFileEncodingUnsupported,
+    #[error("failed to update .gitignore: {0}")]
+    IgnoreWriteFailed(String),
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -459,6 +465,22 @@ pub trait GitBackend: Send + Sync {
             .working_file_diff(repo, path, staged)
             .await?
             .into_window(options.offset, options.limit))
+    }
+    async fn preview_ignore_rule(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRulePreview, GitError> {
+        Err(GitError::NotImplemented("preview_ignore_rule"))
+    }
+    async fn add_ignore_rule(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRuleOutcome, GitError> {
+        Err(GitError::NotImplemented("add_ignore_rule"))
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;

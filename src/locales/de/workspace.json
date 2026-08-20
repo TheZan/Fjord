@@ -603,7 +603,24 @@
     "openWithDefault": "Mit Standardanwendung öffnen",
     "showInFolder": "Im Ordner anzeigen",
     "openMergeTool": "Merge-Werkzeug öffnen",
-    "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" }
+    "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" },
+    "ignore": {
+      "label": "Ignorieren",
+      "file": "Diese Datei ignorieren",
+      "extension": "Alle .{{extension}}-Dateien ignorieren",
+      "directory": "Diesen Ordner ignorieren ({{directory}})",
+      "title": "Regel zu .gitignore hinzufügen",
+      "description": "Prüfen Sie vor dem Schreiben die genaue Regel für {{path}}.",
+      "loading": ".gitignore wird geprüft…",
+      "rulePreview": "Hinzuzufügende Regel",
+      "confirm": "Regel hinzufügen",
+      "adding": "Wird hinzugefügt…",
+      "close": "Schließen",
+      "added": "Regel wurde zu .gitignore hinzugefügt.",
+      "alreadyPresent": "Diese genaue Regel ist bereits in .gitignore vorhanden.",
+      "trackedFile": "Verfolgte Dateien können nicht ignoriert werden. Git muss die Verfolgung zuerst beenden.",
+      "encodingUnsupported": ".gitignore muss UTF-8 mit oder ohne BOM sein. Die Datei wurde nicht geändert."
+    }
   },
   "working": {
     "title": "Nicht committete Änderungen",

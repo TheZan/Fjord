@@ -82,6 +82,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Backend `whitespace` flags determine the displayed hunk structure. `load_anyway` overrides only the source-file display ceiling; response bounds remain mandatory. Every page independently carries its served `offset`, the full diff's `baseDigest`, and complete `GenerationSet`; the digest and existing `working_tree` generation are captured coherently and retained for cross-page validation. Partial patch actions are unavailable unless `whitespace = show`. |
 | `get_merge_preflight` | `{ repo_id, source }` | `GenerationEnvelope<MergePreflight>` | Read-only, generation-stamped branch integration facts (`P10-MERGE-01`) |
 | `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
+| `preview_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRulePreview` | Returns the exact root-`.gitignore` rule and duplicate state without writing; refuses tracked files and non-UTF-8 `.gitignore` bytes |
 | `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Bounded consequences for all destructive actions. Returns a short-lived token bound to repository, exact action/scope, authoritative facts, and coherent generation stamp. |
 | `execute_destructive_action` | `{ repo_id, action, expected_generations, confirmation_token, operation_id? }` | `RepoOperationState?` | Atomically consumes the exact P9 confirmation before local execution; remote deletion consumes it before transport. Returns the new state for operation abort and `null` otherwise. |
 
@@ -102,6 +103,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
+| `add_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRuleOutcome` | Appends an exact file, extension, or directory rule to the root `.gitignore`; preserves UTF-8 BOM and dominant line endings, returns `alreadyPresent` without writing duplicates, and advances `working_tree` only on addition |
 | `commit_repo` | `{ repo_id, message, amend }` | `string` | New commit id; amend preserves `HEAD`'s author and parents and permits a message-only rewrite; ordinary commit returns `nothing_to_commit` when the index matches `HEAD` |
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
@@ -158,7 +160,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `preview_ignore_rule` / `add_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRulePreview` / `IgnoreRuleOutcome` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-02` |
 | `export_patch` | `{ repo_id, path, source, destination }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-03` |
 | `stash_file` | `{ repo_id, path, message? }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-05` |
 | `open_external_diff` | `{ repo_id, path, source }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4 | `P10-WC-06` |

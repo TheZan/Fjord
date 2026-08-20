@@ -6,12 +6,12 @@ use fjord_domain::{
     CommitSummary, Consequence, CreateRepositoryRequest, CreateRepositoryResult, DestructiveAction,
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
-    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, MergeDirtyPolicy,
-    MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget, PatchSelection,
-    Recoverability, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
-    RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, SearchResultKind,
-    SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges,
-    WorkspaceId,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, OpenTarget, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
+    RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -1548,6 +1548,36 @@ impl RepoService {
         Ok(self.ide.reveal_path(&resolved.absolute).await?)
     }
 
+    pub async fn preview_ignore_rule(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRulePreview, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        require_launchable_file(&resolved.absolute)?;
+        Ok(self
+            .git
+            .preview_ignore_rule(&RepoPath::new(repo.path), &resolved.relative, kind)
+            .await?)
+    }
+
+    pub async fn add_ignore_rule(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRuleOutcome, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        require_launchable_file(&resolved.absolute)?;
+        Ok(self
+            .git
+            .add_ignore_rule(&RepoPath::new(repo.path), &resolved.relative, kind)
+            .await?)
+    }
+
     pub async fn stage_files(
         &self,
         repo_id: RepositoryId,
@@ -2773,6 +2803,7 @@ mod tests {
                 unstaged: vec![WorkingFile {
                     path: "src/main.rs".into(),
                     change_type: FileChangeType::Modified,
+                    tracked: true,
                     conflicted: false,
                 }],
             })

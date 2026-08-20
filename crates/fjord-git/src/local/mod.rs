@@ -19,9 +19,10 @@ use async_trait::async_trait;
 use fjord_domain::{
     BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
     DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, HunkSelection, LogCursor, MergeDirtyPolicy, MergeMode,
-    MergePreflight, MergeResult, MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage,
-    RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    FileDiffDetail, FileDiffWindow, HunkSelection, IgnoreRuleKind, IgnoreRuleOutcome,
+    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
+    MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RepoStatus,
+    StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -41,6 +42,7 @@ mod destructive_execution;
 mod destructive_preflight;
 mod diff;
 mod history;
+mod ignore;
 mod initialization;
 mod merge;
 mod mutations;
@@ -372,6 +374,24 @@ impl GitBackend for LocalGitBackend {
             options.whitespace,
         )
         .await
+    }
+
+    async fn preview_ignore_rule(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRulePreview, GitError> {
+        ignore::preview(repo, path, kind).await
+    }
+
+    async fn add_ignore_rule(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRuleOutcome, GitError> {
+        ignore::add(repo, path, kind).await
     }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError> {

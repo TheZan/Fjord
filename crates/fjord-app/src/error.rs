@@ -226,6 +226,11 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::PreflightStale => "preflight_stale",
         GitError::PatchApplyFailed(_) => "patch_apply_failed",
         GitError::PatchUnsupported(_) => "patch_unsupported",
+        GitError::IgnoreRuleUnsupportedForTrackedFile(_) => {
+            "ignore_rule_unsupported_for_tracked_file"
+        }
+        GitError::IgnoreFileEncodingUnsupported => "ignore_file_encoding_unsupported",
+        GitError::IgnoreWriteFailed(_) => "ignore_write_failed",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())
@@ -342,6 +347,25 @@ mod tests {
         assert_eq!(preflight_stale.code, "preflight_stale");
         assert_eq!(apply.code, "patch_apply_failed");
         assert_eq!(unsupported.code, "patch_unsupported");
+    }
+
+    #[test]
+    fn ignore_failures_have_distinct_stable_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreRuleUnsupportedForTrackedFile(
+                "tracked.txt".into(),
+            ))
+            .code,
+            "ignore_rule_unsupported_for_tracked_file",
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreFileEncodingUnsupported).code,
+            "ignore_file_encoding_unsupported",
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreWriteFailed("locked".into())).code,
+            "ignore_write_failed",
+        );
     }
 
     #[test]

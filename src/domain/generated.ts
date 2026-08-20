@@ -99,7 +99,11 @@ export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
 
 export type FileDiff = { path: string, changeType: FileChangeType, additions: number, deletions: number, };
 
-export type WorkingFile = { path: string, changeType: FileChangeType, 
+export type WorkingFile = { path: string, changeType: FileChangeType,
+/**
+ * `true` when the path already has an index entry.
+ */
+tracked: boolean,
 /**
  * `true` when the entry is an unresolved merge conflict.
  */
@@ -114,6 +118,12 @@ export type WorkingFileTarget = { path: string, source: PatchSource, };
 export type RepositoryFilePath = { relative: string, absolute: string, };
 
 export type OpenTarget = { "kind": "configuredEditor", line: number | null, } | { "kind": "defaultApplication" };
+
+export type IgnoreRuleKind = "file" | "extension" | "directory";
+
+export type IgnoreRulePreview = { rule: string, alreadyPresent: boolean, };
+
+export type IgnoreRuleOutcome = "added" | "alreadyPresent";
 
 export type HunkSelection = { oldStart: number, oldLines: number, newStart: number, newLines: number,
 /**

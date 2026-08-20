@@ -603,7 +603,24 @@
     "openWithDefault": "Ouvrir avec l’application par défaut",
     "showInFolder": "Afficher dans le dossier",
     "openMergeTool": "Ouvrir l’outil de fusion",
-    "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" }
+    "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" },
+    "ignore": {
+      "label": "Ignorer",
+      "file": "Ignorer ce fichier",
+      "extension": "Ignorer tous les fichiers .{{extension}}",
+      "directory": "Ignorer ce dossier ({{directory}})",
+      "title": "Ajouter une règle à .gitignore",
+      "description": "Vérifiez la règle exacte pour {{path}} avant de l'écrire.",
+      "loading": "Vérification de .gitignore…",
+      "rulePreview": "Règle à ajouter",
+      "confirm": "Ajouter la règle",
+      "adding": "Ajout…",
+      "close": "Fermer",
+      "added": "Règle ajoutée à .gitignore.",
+      "alreadyPresent": "Cette règle exacte existe déjà dans .gitignore.",
+      "trackedFile": "Les fichiers suivis ne peuvent pas être ignorés. Git doit d'abord cesser de les suivre.",
+      "encodingUnsupported": ".gitignore doit être en UTF-8, avec ou sans BOM. Le fichier n'a pas été modifié."
+    }
   },
   "working": {
     "title": "Changements non commités",

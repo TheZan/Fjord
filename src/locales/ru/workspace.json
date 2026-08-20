@@ -611,7 +611,24 @@
     "openWithDefault": "Открыть приложением по умолчанию",
     "showInFolder": "Показать в папке",
     "openMergeTool": "Открыть инструмент слияния",
-    "copyPath": { "label": "Копировать путь", "relative": "Относительный путь", "absolute": "Абсолютный путь" }
+    "copyPath": { "label": "Копировать путь", "relative": "Относительный путь", "absolute": "Абсолютный путь" },
+    "ignore": {
+      "label": "Игнорировать",
+      "file": "Игнорировать этот файл",
+      "extension": "Игнорировать все файлы .{{extension}}",
+      "directory": "Игнорировать эту папку ({{directory}})",
+      "title": "Добавить правило в .gitignore",
+      "description": "Проверьте точное правило для {{path}} перед записью.",
+      "loading": "Проверка .gitignore…",
+      "rulePreview": "Добавляемое правило",
+      "confirm": "Добавить правило",
+      "adding": "Добавление…",
+      "close": "Закрыть",
+      "added": "Правило добавлено в .gitignore.",
+      "alreadyPresent": "Такое правило уже есть в .gitignore.",
+      "trackedFile": "Отслеживаемый файл нельзя игнорировать. Сначала Git должен перестать его отслеживать.",
+      "encodingUnsupported": ".gitignore должен быть в UTF-8 с BOM или без него. Файл не изменён."
+    }
   },
   "working": {
     "title": "Незакоммиченные изменения",

@@ -14,11 +14,12 @@ import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import { useWorkingFileActions, type WorkingFileAction } from "@/application/useWorkingFileActions";
-import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
+import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
+  addIgnoreRule,
   checkoutBranch,
   cherryPick,
   commitRepo,
@@ -62,6 +63,7 @@ import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
 import { MergeDialog } from "@/presentation/MergeDialog";
+import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
@@ -121,12 +123,13 @@ export function RepoDetailContainer({
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
-  const onWorkingFileAction = useWorkingFileActions({
+  const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
     onStage,
     onUnstage,
     onDiscard: requestWorkingFileDiscard,
     onOpenMergeTool: () => onAction("merge-tool"),
+    onAddIgnore,
     onError: (error) => setActionError(userErrorMessage(error)),
   });
   const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
@@ -703,6 +706,21 @@ export function RepoDetailContainer({
     setSelectedCommit(commit);
   }
 
+  async function onAddIgnore(
+    target: WorkingFileTarget,
+    kind: IgnoreRuleKind,
+  ): Promise<IgnoreRuleOutcome | null> {
+    let outcome: IgnoreRuleOutcome | null = null;
+    const ok = await runRepoAction(
+      "ignore-file",
+      async () => {
+        outcome = await addIgnoreRule(repo.id, target.path, kind);
+      },
+      ["status", "working"],
+    );
+    return ok ? outcome : null;
+  }
+
   return (
     snapshot.ready ? <>
     {recoveryCenterOpen ? (
@@ -785,7 +803,7 @@ export function RepoDetailContainer({
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
       onWorkingFileAction={(action: WorkingFileAction, target: WorkingFileTarget) => {
-        void onWorkingFileAction(action, target);
+        void workingFileActions.dispatch(action, target);
       }}
       onCommit={onCommit}
     />
@@ -896,6 +914,13 @@ export function RepoDetailContainer({
           );
           if (ok) setWorkingFileDiscard(null);
         }}
+      />
+    ) : null}
+    {workingFileActions.ignoreRule ? (
+      <IgnoreRuleDialog
+        state={workingFileActions.ignoreRule}
+        onClose={workingFileActions.closeIgnoreRule}
+        onConfirm={() => void workingFileActions.confirmIgnoreRule()}
       />
     ) : null}
     </> : (

@@ -633,7 +633,24 @@
     "openWithDefault": "Open with default application",
     "showInFolder": "Show in folder",
     "openMergeTool": "Open merge tool",
-    "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" }
+    "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" },
+    "ignore": {
+      "label": "Ignore",
+      "file": "Ignore this file",
+      "extension": "Ignore all .{{extension}} files",
+      "directory": "Ignore this folder ({{directory}})",
+      "title": "Add rule to .gitignore",
+      "description": "Review the exact rule for {{path}} before writing it.",
+      "loading": "Checking .gitignore…",
+      "rulePreview": "Rule to add",
+      "confirm": "Add rule",
+      "adding": "Adding…",
+      "close": "Close",
+      "added": "Rule added to .gitignore.",
+      "alreadyPresent": "This exact rule is already present in .gitignore.",
+      "trackedFile": "Tracked files cannot be ignored. Git must stop tracking the file first.",
+      "encodingUnsupported": ".gitignore must be UTF-8, with or without a BOM. The file was not changed."
+    }
   },
   "working": {
     "title": "Uncommitted changes",

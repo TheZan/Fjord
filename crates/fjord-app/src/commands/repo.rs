@@ -1,10 +1,11 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
-    MergeSource, OpenTarget, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult,
-    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
+    PatchSelection, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
+    RepositoryFilePath, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot,
+    TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -595,6 +596,32 @@ pub async fn reveal_repository_path(
     path: String,
 ) -> Result<(), AppError> {
     Ok(state.repos.reveal_repository_path(repo_id, &path).await?)
+}
+
+#[tauri::command]
+pub async fn preview_ignore_rule(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    rule_kind: IgnoreRuleKind,
+) -> Result<IgnoreRulePreview, AppError> {
+    Ok(state
+        .repos
+        .preview_ignore_rule(repo_id, &path, rule_kind)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn add_ignore_rule(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    rule_kind: IgnoreRuleKind,
+) -> Result<IgnoreRuleOutcome, AppError> {
+    Ok(state
+        .repos
+        .add_ignore_rule(repo_id, &path, rule_kind)
+        .await?)
 }
 
 #[tauri::command]

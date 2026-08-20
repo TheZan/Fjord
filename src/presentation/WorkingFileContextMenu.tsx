@@ -75,5 +75,55 @@ export function workingFileMenuItems(
         { id: "discard", label: t("workingFile.discard"), disabled: busy },
       ]
     : [{ id: "unstage", label: t("workingFile.unstage"), disabled: busy }];
-  return [...primary, ...openItems, { ...copyPath, separatorBefore: true }];
+  const ignore = target.source === "worktree" ? ignoreMenuItem(file, busy, t) : null;
+  return [
+    ...primary,
+    ...(ignore ? [ignore] : []),
+    ...openItems,
+    { ...copyPath, separatorBefore: true },
+  ];
+}
+
+function ignoreMenuItem(
+  file: WorkingFile,
+  busy: boolean,
+  t: TFunction<"workspace">,
+): ContextMenuItem {
+  if (file.tracked) {
+    return {
+      id: "ignore",
+      label: t("workingFile.ignore.label"),
+      disabled: true,
+      disabledReason: t("workingFile.ignore.trackedFile"),
+      separatorBefore: true,
+    };
+  }
+
+  const normalized = file.path.replaceAll("\\", "/");
+  const fileName = normalized.slice(normalized.lastIndexOf("/") + 1);
+  const dot = fileName.lastIndexOf(".");
+  const extension = dot > 0 && dot < fileName.length - 1 ? fileName.slice(dot + 1) : null;
+  const directory = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/") + 1) : null;
+  const children: ContextMenuItem[] = [
+    { id: "ignoreFile", label: t("workingFile.ignore.file") },
+  ];
+  if (extension) {
+    children.push({
+      id: "ignoreExtension",
+      label: t("workingFile.ignore.extension", { extension }),
+    });
+  }
+  if (directory) {
+    children.push({
+      id: "ignoreDirectory",
+      label: t("workingFile.ignore.directory", { directory }),
+    });
+  }
+  return {
+    id: "ignore",
+    label: t("workingFile.ignore.label"),
+    disabled: busy,
+    separatorBefore: true,
+    children,
+  };
 }

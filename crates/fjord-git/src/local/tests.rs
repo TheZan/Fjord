@@ -4,9 +4,9 @@
 use super::*;
 use crate::GenerationSet;
 use fjord_domain::{
-    Consequence, MergeDirtyPolicy, MergeMode, MergeOutcome, MergePrediction, MergeSource,
-    MergeSourceKind, OperationControl, RebaseKind, Recoverability, RepoOperation,
-    RepoOperationState, ResetMode,
+    Consequence, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeOutcome,
+    MergePrediction, MergeSource, MergeSourceKind, OperationControl, RebaseKind, Recoverability,
+    RepoOperation, RepoOperationState, ResetMode,
 };
 use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
@@ -53,6 +53,13 @@ fn write_file(repo: &RepoPath, path: &str, content: &str) {
 
 fn write_bytes(repo: &RepoPath, path: &str, content: &[u8]) {
     std::fs::write(repo.0.join(path), content).unwrap();
+}
+
+fn write_nested_file(repo: &RepoPath, path: &str, content: &[u8]) {
+    if let Some(parent) = repo.0.join(path).parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    write_bytes(repo, path, content);
 }
 
 fn index_blob(repo: &RepoPath, path: &str) -> Option<Vec<u8>> {
@@ -4995,6 +5002,123 @@ async fn staging_a_deleted_file_records_the_deletion() {
     assert_eq!(changes.staged.len(), 1);
     assert_eq!(changes.staged[0].change_type, FileChangeType::Deleted);
     assert!(changes.unstaged.is_empty());
+}
+
+#[tokio::test]
+async fn ignore_rules_remove_untracked_targets_and_duplicates_are_byte_exact_no_ops() {
+    let cases = [
+        (IgnoreRuleKind::File, "/src/generated/debug.log\n"),
+        (IgnoreRuleKind::Extension, "*.log\n"),
+        (IgnoreRuleKind::Directory, "/src/generated/\n"),
+    ];
+
+    for (kind, expected) in cases {
+        let (_dir, repo_path) = empty_repo();
+        let backend = LocalGitBackend::new();
+        write_nested_file(&repo_path, "src/generated/debug.log", b"debug\n");
+        let before = backend.generations(&repo_path).unwrap();
+
+        let preview = backend
+            .preview_ignore_rule(&repo_path, "src/generated/debug.log", kind)
+            .await
+            .unwrap();
+        assert!(!preview.already_present);
+        assert_eq!(
+            backend
+                .add_ignore_rule(&repo_path, "src/generated/debug.log", kind)
+                .await
+                .unwrap(),
+            IgnoreRuleOutcome::Added
+        );
+        assert_eq!(
+            std::fs::read(repo_path.0.join(".gitignore")).unwrap(),
+            expected.as_bytes()
+        );
+        let after = backend.generations(&repo_path).unwrap();
+        assert_eq!(after.working_tree, before.working_tree + 1);
+        let changes = backend.working_changes(&repo_path).await.unwrap();
+        assert!(!changes
+            .unstaged
+            .iter()
+            .any(|file| file.path == "src/generated/debug.log"));
+
+        let exact_bytes = std::fs::read(repo_path.0.join(".gitignore")).unwrap();
+        assert_eq!(
+            backend
+                .add_ignore_rule(&repo_path, "src/generated/debug.log", kind)
+                .await
+                .unwrap(),
+            IgnoreRuleOutcome::AlreadyPresent
+        );
+        assert_eq!(
+            std::fs::read(repo_path.0.join(".gitignore")).unwrap(),
+            exact_bytes
+        );
+        assert_eq!(backend.generations(&repo_path).unwrap(), after);
+    }
+}
+
+#[tokio::test]
+async fn ignore_writer_preserves_utf8_bom_and_dominant_terminators_and_refuses_invalid_bytes() {
+    let cases: &[(&[u8], &[u8])] = &[
+        (b"existing\n", b"existing\n/new.log\n"),
+        (b"existing\r\n", b"existing\r\n/new.log\r\n"),
+        (b"existing", b"existing\n/new.log\n"),
+        (
+            b"\xef\xbb\xbfexisting\r\n",
+            b"\xef\xbb\xbfexisting\r\n/new.log\r\n",
+        ),
+    ];
+    for (initial, expected) in cases {
+        let (_dir, repo_path) = empty_repo();
+        let backend = LocalGitBackend::new();
+        write_file(&repo_path, "new.log", "debug\n");
+        write_bytes(&repo_path, ".gitignore", initial);
+        backend
+            .add_ignore_rule(&repo_path, "new.log", IgnoreRuleKind::File)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read(repo_path.0.join(".gitignore")).unwrap(),
+            *expected
+        );
+    }
+
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "new.log", "debug\n");
+    write_bytes(&repo_path, ".gitignore", &[0xff, 0xfe, 0xfd]);
+    let original = std::fs::read(repo_path.0.join(".gitignore")).unwrap();
+    assert!(matches!(
+        backend
+            .add_ignore_rule(&repo_path, "new.log", IgnoreRuleKind::File)
+            .await,
+        Err(GitError::IgnoreFileEncodingUnsupported)
+    ));
+    assert_eq!(
+        std::fs::read(repo_path.0.join(".gitignore")).unwrap(),
+        original
+    );
+}
+
+#[tokio::test]
+async fn ignore_rule_refuses_a_tracked_file_without_writing() {
+    let (_dir, repo_path) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo_path, "tracked.log", "tracked\n");
+    backend
+        .stage(&repo_path, &[PathBuf::from("tracked.log")])
+        .await
+        .unwrap();
+    backend.commit(&repo_path, "Track file").await.unwrap();
+
+    assert!(matches!(
+        backend
+            .add_ignore_rule(&repo_path, "tracked.log", IgnoreRuleKind::File)
+            .await,
+        Err(GitError::IgnoreRuleUnsupportedForTrackedFile(path)) if path == "tracked.log"
+    ));
+    assert!(!repo_path.0.join(".gitignore").exists());
 }
 
 #[tokio::test]

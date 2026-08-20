@@ -17,7 +17,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
 }));
 
 const changes: WorkingChanges = {
-  staged: [{ path: "README.md", changeType: "modified", conflicted: false }],
+  staged: [{ path: "README.md", changeType: "modified", tracked: true, conflicted: false }],
   unstaged: [],
 };
 

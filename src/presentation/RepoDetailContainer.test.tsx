@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -80,6 +80,8 @@ vi.mock("@/presentation/performance", () => ({
 vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   checkoutBranch: vi.fn(async () => undefined),
+  previewIgnoreRule: vi.fn(async () => ({ rule: "*.log", alreadyPresent: false })),
+  addIgnoreRule: vi.fn(async () => "added" as const),
   createBranchAt: vi.fn(async () => undefined),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
   runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
@@ -218,6 +220,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
+      <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
@@ -274,6 +277,9 @@ const repo: RepositoryEntry = {
 describe("RepoDetailContainer checkout confirmation", () => {
   beforeEach(() => {
     vi.mocked(checkoutBranch).mockClear();
+    vi.mocked(previewIgnoreRule).mockClear();
+    vi.mocked(addIgnoreRule).mockReset();
+    vi.mocked(addIgnoreRule).mockResolvedValue("added");
     vi.mocked(createBranchAt).mockClear();
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runPublishBranch).mockReset();
@@ -612,6 +618,31 @@ describe("RepoDetailContainer checkout confirmation", () => {
       { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
       "discard-file-token-2",
     ));
+  });
+
+  it("previews an ignore rule before the validated mutation and refreshes working state", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "ignore log files" }));
+
+    expect(await screen.findByText("*.log")).toBeInTheDocument();
+    expect(previewIgnoreRule).toHaveBeenCalledWith("repo-1", "logs/debug.log", "extension");
+    expect(addIgnoreRule).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "workingFile.ignore.confirm" }));
+
+    await waitFor(() => expect(addIgnoreRule).toHaveBeenCalledWith(
+      "repo-1",
+      "logs/debug.log",
+      "extension",
+    ));
+    await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(),
+      "repo-1",
+      "workspace-1",
+      ["status", "working"],
+    ));
+    expect(await screen.findByText("workingFile.ignore.added")).toBeInTheDocument();
   });
 
   it("does not submit a second patch mutation from rapid clicks", async () => {

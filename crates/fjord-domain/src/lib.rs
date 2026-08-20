@@ -570,8 +570,15 @@ pub struct FileDiff {
 pub struct WorkingFile {
     pub path: String,
     pub change_type: FileChangeType,
+    /// `true` when the path already has an index entry.
+    #[serde(default = "tracked_by_default")]
+    pub tracked: bool,
     /// `true` when the entry is an unresolved merge conflict.
     pub conflicted: bool,
+}
+
+const fn tracked_by_default() -> bool {
+    true
 }
 
 /// Split of the working directory into what a commit would include (`staged`)
@@ -628,6 +635,31 @@ pub struct RepositoryFilePath {
 pub enum OpenTarget {
     ConfiguredEditor { line: Option<u32> },
     DefaultApplication,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleKind {
+    File,
+    Extension,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct IgnoreRulePreview {
+    pub rule: String,
+    pub already_present: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleOutcome {
+    Added,
+    AlreadyPresent,
 }
 
 /// Coordinates for one selected hunk in the complete rendered diff.
@@ -1322,6 +1354,16 @@ mod tests {
         let value = serde_json::to_value(summary).unwrap();
 
         assert_eq!(value["lastSyncedAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn legacy_working_files_default_to_tracked_for_safe_ignore_behavior() {
+        let file: WorkingFile = serde_json::from_str(
+            r#"{"path":"README.md","changeType":"modified","conflicted":false}"#,
+        )
+        .unwrap();
+
+        assert!(file.tracked);
     }
 
     #[test]

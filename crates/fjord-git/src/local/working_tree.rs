@@ -34,6 +34,7 @@ pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, G
                         out.staged.push(WorkingFile {
                             path,
                             change_type: LocalGitBackend::classify_delta(delta.status()),
+                            tracked: true,
                             conflicted,
                         });
                     }
@@ -49,6 +50,7 @@ pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, G
                         out.unstaged.push(WorkingFile {
                             path,
                             change_type: LocalGitBackend::classify_delta(delta.status()),
+                            tracked: delta.status() != git2::Delta::Untracked,
                             conflicted,
                         });
                     }

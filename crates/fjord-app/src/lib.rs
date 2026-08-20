@@ -137,6 +137,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::resolve_repository_file_path,
             commands::open_repository_path,
             commands::reveal_repository_path,
+            commands::preview_ignore_rule,
+            commands::add_ignore_rule,
             commands::stage_files,
             commands::stage_patch,
             commands::unstage_files,

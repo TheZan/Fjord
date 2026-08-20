@@ -9,13 +9,14 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
-    InteractionSpan, InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode,
-    MergeOutcome, MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind,
-    OpenTarget, OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection,
-    PatchSource, RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult,
-    RemoteRef, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
-    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, InteractionSpan, InteractionTrace,
+    LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome, MergePrediction,
+    MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget, OperationControl,
+    OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability,
+    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoOperation,
+    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
+    RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, ResetMode,
+    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
     Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
     WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
@@ -94,12 +95,15 @@ fn generated_types() -> String {
     push::<CommitPushResult>(&mut output, &config);
     push::<FileChangeType>(&mut output, &config);
     push::<FileDiff>(&mut output, &config);
-    push::<WorkingFile>(&mut output, &config);
+    push_without_trailing_whitespace::<WorkingFile>(&mut output, &config);
     push::<WorkingChanges>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSource>(&mut output, &config);
     push::<WorkingFileTarget>(&mut output, &config);
     push::<RepositoryFilePath>(&mut output, &config);
     push_without_trailing_whitespace::<OpenTarget>(&mut output, &config);
+    push::<IgnoreRuleKind>(&mut output, &config);
+    push::<IgnoreRulePreview>(&mut output, &config);
+    push::<IgnoreRuleOutcome>(&mut output, &config);
     push_without_trailing_whitespace::<HunkSelection>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);

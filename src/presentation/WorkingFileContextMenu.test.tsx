@@ -11,7 +11,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-const normal: WorkingFile = { path: "src/app.ts", changeType: "modified", conflicted: false };
+const normal: WorkingFile = { path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false };
 const worktree: WorkingFileTarget = { path: normal.path, source: "worktree" };
 const index: WorkingFileTarget = { path: normal.path, source: "index" };
 const t = ((key: string) => key) as never;
@@ -22,10 +22,40 @@ describe("WorkingFileContextMenu", () => {
     const staged = ids(workingFileMenuItems(normal, index, false, t));
 
     expect(unstaged).toEqual(expect.arrayContaining(["stage", "discard", "openEditor", "copyPath"]));
+    expect(unstaged).toContain("ignore");
     expect(unstaged).not.toContain("unstage");
     expect(staged).toEqual(expect.arrayContaining(["unstage", "openEditor", "copyPath"]));
     expect(staged).not.toContain("stage");
     expect(staged).not.toContain("discard");
+    expect(staged).not.toContain("ignore");
+  });
+
+  it("offers adaptive ignore rules only for untracked worktree files", () => {
+    const trackedIgnore = workingFileMenuItems(normal, worktree, false, t).find((item) => item.id === "ignore");
+    expect(trackedIgnore).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.ignore.trackedFile",
+    });
+
+    const nested = workingFileMenuItems(
+      { ...normal, tracked: false, path: "src/generated/debug.log" },
+      { path: "src/generated/debug.log", source: "worktree" },
+      false,
+      t,
+    ).find((item) => item.id === "ignore");
+    expect(nested?.children?.map((item) => item.id)).toEqual([
+      "ignoreFile",
+      "ignoreExtension",
+      "ignoreDirectory",
+    ]);
+
+    const rootDotfile = workingFileMenuItems(
+      { ...normal, tracked: false, path: ".env" },
+      { path: ".env", source: "worktree" },
+      false,
+      t,
+    ).find((item) => item.id === "ignore");
+    expect(rootDotfile?.children?.map((item) => item.id)).toEqual(["ignoreFile"]);
   });
 
   it("withholds mutations for conflicts and hides file launches for deleted rows", () => {
