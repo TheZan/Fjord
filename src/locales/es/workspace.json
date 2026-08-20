@@ -495,10 +495,15 @@
       "title": "¿Restaurar HEAD a este estado?",
       "confirm": "Restaurar HEAD"
     },
+    "deleteFile": {
+      "title": "¿Eliminar este archivo?",
+      "confirm": "Eliminar archivo"
+    },
     "recoverability": {
       "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
       "stash": "Tus cambios se guardarán en el stash.",
-      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración."
+      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración.",
+      "committed": "La versión confirmada permanece en HEAD y puede restaurarse desde allí."
     },
     "blockers": {
       "binary_changes_unsupported": "Los cambios binarios no se pueden descartar con esta granularidad.",
@@ -507,7 +512,10 @@
       "current_branch_cannot_be_deleted": "No se puede eliminar la rama actualmente activa.",
       "operation_not_in_progress": "No hay ninguna operación de Git que abortar.",
       "ref_not_found": "La referencia de destino ya no existe.",
-      "stash_not_found": "La entrada de stash seleccionada ya no existe."
+      "stash_not_found": "La entrada de stash seleccionada ya no existe.",
+      "delete_target_not_a_file": "Desde este menú solo se pueden eliminar archivos.",
+      "delete_file_partially_staged": "{{path}} también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
+      "delete_file_conflicted": "{{path}} tiene conflictos sin resolver. Resuélvelos primero."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
@@ -523,7 +531,9 @@
       "branchDeletedUnmerged": "Eliminar la rama {{name}}, que no está fusionada en {{unmergedInto}}.",
       "tagDeleted": "Eliminar la etiqueta {{name}}.",
       "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos."
+      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos.",
+      "fileRemovedTracked": "Quitar {{path}} del árbol de trabajo; aparecerá como una eliminación de Git.",
+      "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo."
     }
   },
   "repoActions": {
@@ -617,7 +627,11 @@
     "createPatchStaged": "Crear parche a partir de los cambios preparados…",
     "copyPatch": "Copiar parche al portapapeles",
     "patchSaved": "Parche guardado en {{path}}.",
-    "disabled": { "whitespaceMode": "El diff mostrado no coincide con el parche que aplicaría Git." },
+    "delete": "Eliminar archivo…",
+    "disabled": {
+      "whitespaceMode": "El diff mostrado no coincide con el parche que aplicaría Git.",
+      "deleteAlsoStaged": "Este archivo también tiene cambios preparados. Despreparalos antes de eliminar el archivo."
+    },
     "ignore": {
       "label": "Ignorar",
       "file": "Ignorar este archivo",

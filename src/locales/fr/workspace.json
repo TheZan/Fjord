@@ -495,10 +495,15 @@
       "title": "Restaurer HEAD à cet état ?",
       "confirm": "Restaurer HEAD"
     },
+    "deleteFile": {
+      "title": "Supprimer ce fichier ?",
+      "confirm": "Supprimer le fichier"
+    },
     "recoverability": {
       "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
       "stash": "Vos modifications seront enregistrées dans le stash.",
-      "notRecoverable": "Git ne conserve aucune copie de récupération garantie de ces changements. Fjord ne peut pas promettre leur restauration."
+      "notRecoverable": "Git ne conserve aucune copie de récupération garantie de ces changements. Fjord ne peut pas promettre leur restauration.",
+      "committed": "La version validée reste dans HEAD et peut y être restaurée."
     },
     "blockers": {
       "binary_changes_unsupported": "Les modifications binaires ne peuvent pas être abandonnées à cette granularité.",
@@ -507,7 +512,10 @@
       "current_branch_cannot_be_deleted": "La branche actuellement extraite ne peut pas être supprimée.",
       "operation_not_in_progress": "Aucune opération Git n’est en cours d’abandon.",
       "ref_not_found": "La référence cible n’existe plus.",
-      "stash_not_found": "L’entrée de stash sélectionnée n’existe plus."
+      "stash_not_found": "L’entrée de stash sélectionnée n’existe plus.",
+      "delete_target_not_a_file": "Seuls des fichiers peuvent être supprimés depuis ce menu.",
+      "delete_file_partially_staged": "{{path}} a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
+      "delete_file_conflicted": "{{path}} a des conflits non résolus. Résolvez-les d’abord."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Abandonner les modifications dans {{count}} fichier modifié : {{sample}}.",
@@ -523,7 +531,9 @@
       "branchDeletedUnmerged": "Supprimer la branche {{name}}, qui n’est pas fusionnée dans {{unmergedInto}}.",
       "tagDeleted": "Supprimer le tag {{name}}.",
       "stashEntryConsumed": "Appliquer et consommer le stash {{index}} : {{message}}.",
-      "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants."
+      "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants.",
+      "fileRemovedTracked": "Retirer {{path}} de l’arbre de travail ; il apparaîtra comme une suppression Git.",
+      "fileRemovedUntracked": "Supprimer {{path}}. Git n’a aucune copie de ce fichier."
     }
   },
   "repoActions": {
@@ -617,7 +627,11 @@
     "createPatchStaged": "Créer un patch à partir des modifications indexées…",
     "copyPatch": "Copier le patch dans le presse-papiers",
     "patchSaved": "Patch enregistré dans {{path}}.",
-    "disabled": { "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait." },
+    "delete": "Supprimer le fichier…",
+    "disabled": {
+      "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait.",
+      "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier."
+    },
     "ignore": {
       "label": "Ignorer",
       "file": "Ignorer ce fichier",

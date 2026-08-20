@@ -134,6 +134,7 @@ export function RepoDetailContainer({
     onStage,
     onUnstage,
     onDiscard: requestWorkingFileDiscard,
+    onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
     onOpenMergeTool: () => onAction("merge-tool"),
     onAddIgnore,
     onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
@@ -1049,6 +1050,8 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
       return ["status", "working", "history", "refs", "reflog"];
     case "abortOperation":
       return ["status", "operation", "working", "history", "refs"];
+    case "deleteFile":
+      return ["status", "working"];
     case "discard":
     case "forceWithLease":
       return [];

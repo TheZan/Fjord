@@ -1296,7 +1296,8 @@ impl RepoService {
                 | DestructiveAction::StashPop { .. }
                 | DestructiveAction::CheckoutDiscard { .. }
                 | DestructiveAction::AbortOperation
-                | DestructiveAction::RecoveryRestore { .. } => {
+                | DestructiveAction::RecoveryRestore { .. }
+                | DestructiveAction::DeleteFile { .. } => {
                     let facts = self
                         .git
                         .destructive_action_facts(&path, &action, PREFLIGHT_SAMPLE_LIMIT as u32)

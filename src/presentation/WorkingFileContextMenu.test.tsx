@@ -21,13 +21,41 @@ describe("WorkingFileContextMenu", () => {
     const unstaged = ids(workingFileMenuItems(normal, worktree, false, t));
     const staged = ids(workingFileMenuItems(normal, index, false, t));
 
-    expect(unstaged).toEqual(expect.arrayContaining(["stage", "discard", "openEditor", "copyPath"]));
+    expect(unstaged).toEqual(expect.arrayContaining(["stage", "discard", "openEditor", "copyPath", "delete"]));
     expect(unstaged).toContain("ignore");
     expect(unstaged).not.toContain("unstage");
     expect(staged).toEqual(expect.arrayContaining(["unstage", "openEditor", "copyPath"]));
     expect(staged).not.toContain("stage");
     expect(staged).not.toContain("discard");
     expect(staged).not.toContain("ignore");
+    expect(staged).not.toContain("delete");
+  });
+
+  it("renders delete last, danger-styled, and enabled by default on the unstaged row only", () => {
+    const unstaged = workingFileMenuItems(normal, worktree, false, t);
+    expect(unstaged.at(-1)).toMatchObject({
+      id: "delete",
+      label: "workingFile.delete",
+      danger: true,
+      separatorBefore: true,
+      disabled: false,
+    });
+
+    const staged = workingFileMenuItems(normal, index, false, t);
+    expect(staged.find((item) => item.id === "delete")).toBeUndefined();
+  });
+
+  it("disables delete with the stated reason when the same path is also staged", () => {
+    const blocked = workingFileMenuItems(normal, worktree, false, t, undefined, "workingFile.disabled.deleteAlsoStaged");
+    expect(blocked.find((item) => item.id === "delete")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.deleteAlsoStaged",
+    });
+  });
+
+  it("disables delete while busy", () => {
+    const busy = workingFileMenuItems(normal, worktree, true, t);
+    expect(busy.find((item) => item.id === "delete")).toMatchObject({ disabled: true });
   });
 
   it("offers patch export from both rows, with clipboard copy on the unstaged row only", () => {
@@ -94,7 +122,7 @@ describe("WorkingFileContextMenu", () => {
 
     const deleted = ids(workingFileMenuItems({ ...normal, changeType: "deleted" }, worktree, false, t));
     expect(deleted).toContain("discard");
-    expect(deleted).not.toEqual(expect.arrayContaining(["openEditor", "openDefault", "reveal"]));
+    expect(deleted).not.toEqual(expect.arrayContaining(["openEditor", "openDefault", "reveal", "delete"]));
     expect(deleted).toEqual(expect.arrayContaining(["copyPath", "createPatch", "copyPatch"]));
   });
 
@@ -115,6 +143,41 @@ describe("WorkingFileContextMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.copyPath.absolute" }));
 
     expect(onAction).toHaveBeenCalledWith("copyAbsolute", worktree);
+  });
+
+  it("dispatches delete for the exact unstaged target when clicked", () => {
+    const onAction = vi.fn();
+    const state: WorkingFileMenuState = { file: normal, target: worktree, position: { x: 10, y: 20 } };
+    render(
+      <WorkingFileContextMenu
+        state={state}
+        busy={false}
+        onAction={onAction}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.delete" }));
+
+    expect(onAction).toHaveBeenCalledWith("delete", worktree);
+  });
+
+  it("does not dispatch when the disabled delete entry is activated", () => {
+    const onAction = vi.fn();
+    const state: WorkingFileMenuState = { file: normal, target: worktree, position: { x: 10, y: 20 } };
+    render(
+      <WorkingFileContextMenu
+        state={state}
+        busy={false}
+        deleteDisabledReason="workingFile.disabled.deleteAlsoStaged"
+        onAction={onAction}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.delete" }));
+
+    expect(onAction).not.toHaveBeenCalled();
   });
 });
 

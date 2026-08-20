@@ -495,10 +495,15 @@
       "title": "HEAD auf diesen Stand wiederherstellen?",
       "confirm": "HEAD wiederherstellen"
     },
+    "deleteFile": {
+      "title": "Diese Datei löschen?",
+      "confirm": "Datei löschen"
+    },
     "recoverability": {
       "reflog": "Die Commits bleiben über das Reflog erreichbar und können im Wiederherstellungscenter wiederhergestellt werden.",
       "stash": "Ihre Änderungen werden im Stash gespeichert.",
-      "notRecoverable": "Git bewahrt keine garantierte Wiederherstellungskopie dieser Änderungen auf. Fjord kann ihre Wiederherstellung nicht versprechen."
+      "notRecoverable": "Git bewahrt keine garantierte Wiederherstellungskopie dieser Änderungen auf. Fjord kann ihre Wiederherstellung nicht versprechen.",
+      "committed": "Die committete Version bleibt in HEAD erhalten und kann von dort wiederhergestellt werden."
     },
     "blockers": {
       "binary_changes_unsupported": "Binäre Änderungen können in dieser Granularität nicht verworfen werden.",
@@ -507,7 +512,10 @@
       "current_branch_cannot_be_deleted": "Der aktuell ausgecheckte Branch kann nicht gelöscht werden.",
       "operation_not_in_progress": "Es gibt keinen Git-Vorgang zum Abbrechen.",
       "ref_not_found": "Die Ziel-Referenz existiert nicht mehr.",
-      "stash_not_found": "Der ausgewählte Stash-Eintrag existiert nicht mehr."
+      "stash_not_found": "Der ausgewählte Stash-Eintrag existiert nicht mehr.",
+      "delete_target_not_a_file": "Über dieses Menü können nur Dateien gelöscht werden.",
+      "delete_file_partially_staged": "{{path}} hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
+      "delete_file_conflicted": "{{path}} hat ungelöste Konflikte. Lösen Sie diese zuerst auf."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Änderungen in {{count}} geänderter Datei verwerfen: {{sample}}.",
@@ -523,7 +531,9 @@
       "branchDeletedUnmerged": "Branch {{name}} löschen, der nicht in {{unmergedInto}} zusammengeführt ist.",
       "tagDeleted": "Tag {{name}} löschen.",
       "stashEntryConsumed": "Stash {{index}} anwenden und verbrauchen: {{message}}.",
-      "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen."
+      "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen.",
+      "fileRemovedTracked": "{{path}} aus dem Arbeitsverzeichnis entfernen; es erscheint als Git-Löschung.",
+      "fileRemovedUntracked": "{{path}} löschen. Git besitzt keine Kopie dieser Datei."
     }
   },
   "repoActions": {
@@ -617,7 +627,11 @@
     "createPatchStaged": "Patch aus vorgemerkten Änderungen erstellen…",
     "copyPatch": "Patch in die Zwischenablage kopieren",
     "patchSaved": "Patch gespeichert unter {{path}}.",
-    "disabled": { "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde." },
+    "delete": "Datei löschen…",
+    "disabled": {
+      "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde.",
+      "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen."
+    },
     "ignore": {
       "label": "Ignorieren",
       "file": "Diese Datei ignorieren",

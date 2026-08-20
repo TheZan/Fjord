@@ -532,6 +532,12 @@ export function RepoDetailView({
               ? t("workingFile.disabled.whitespaceMode")
               : undefined
           }
+          deleteDisabledReason={
+            workingFileMenu.target.source === "worktree"
+              && changes.staged.some((file) => file.path === workingFileMenu.target.path)
+              ? t("workingFile.disabled.deleteAlsoStaged")
+              : undefined
+          }
           onClose={() => setWorkingFileMenu(null)}
           onAction={onWorkingFileAction}
         />

@@ -495,10 +495,15 @@
       "title": "Восстановить HEAD до этого состояния?",
       "confirm": "Восстановить HEAD"
     },
+    "deleteFile": {
+      "title": "Удалить этот файл?",
+      "confirm": "Удалить файл"
+    },
     "recoverability": {
       "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
       "stash": "Изменения будут сохранены в stash.",
-      "notRecoverable": "Git не гарантирует сохранение резервной копии этих изменений. Fjord не может обещать их восстановление."
+      "notRecoverable": "Git не гарантирует сохранение резервной копии этих изменений. Fjord не может обещать их восстановление.",
+      "committed": "Закоммиченная версия останется в HEAD, и её можно будет восстановить оттуда."
     },
     "blockers": {
       "binary_changes_unsupported": "Двоичные изменения нельзя отменить с такой детализацией.",
@@ -507,7 +512,10 @@
       "current_branch_cannot_be_deleted": "Нельзя удалить ветку, на которую сейчас переключён репозиторий.",
       "operation_not_in_progress": "Нет операции Git, которую можно прервать.",
       "ref_not_found": "Целевая ссылка больше не существует.",
-      "stash_not_found": "Выбранная запись stash больше не существует."
+      "stash_not_found": "Выбранная запись stash больше не существует.",
+      "delete_target_not_a_file": "Из этого меню можно удалять только файлы.",
+      "delete_file_partially_staged": "У файла {{path}} есть и подготовленные изменения. Уберите их из индекса перед удалением файла.",
+      "delete_file_conflicted": "У файла {{path}} есть неразрешённые конфликты. Сначала разрешите их."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Отменить изменения в {{count}} изменённом файле: {{sample}}.",
@@ -531,7 +539,9 @@
       "branchDeletedUnmerged": "Удалить ветку {{name}}, не слитую с {{unmergedInto}}.",
       "tagDeleted": "Удалить тег {{name}}.",
       "stashEntryConsumed": "Применить и удалить stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}."
+      "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}.",
+      "fileRemovedTracked": "Удалить {{path}} из рабочей директории; это будет выглядеть как удаление в Git.",
+      "fileRemovedUntracked": "Удалить {{path}}. У Git нет копии этого файла."
     }
   },
   "repoActions": {
@@ -625,7 +635,11 @@
     "createPatchStaged": "Создать патч из подготовленных изменений…",
     "copyPatch": "Копировать патч в буфер обмена",
     "patchSaved": "Патч сохранён в {{path}}.",
-    "disabled": { "whitespaceMode": "Отображаемый diff не совпадает с патчем, который применит Git." },
+    "delete": "Удалить файл…",
+    "disabled": {
+      "whitespaceMode": "Отображаемый diff не совпадает с патчем, который применит Git.",
+      "deleteAlsoStaged": "У этого файла есть и подготовленные изменения. Уберите их из индекса перед удалением файла."
+    },
     "ignore": {
       "label": "Игнорировать",
       "file": "Игнорировать этот файл",

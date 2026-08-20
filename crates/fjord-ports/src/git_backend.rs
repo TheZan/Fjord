@@ -263,6 +263,12 @@ pub enum GitError {
     IgnoreFileEncodingUnsupported,
     #[error("failed to update .gitignore: {0}")]
     IgnoreWriteFailed(String),
+    #[error("only files can be deleted from this menu")]
+    DeleteTargetNotAFile,
+    #[error("{path} also has staged changes")]
+    DeleteFilePartiallyStaged { path: String },
+    #[error("{path} has unresolved conflicts")]
+    DeleteFileConflicted { path: String },
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]

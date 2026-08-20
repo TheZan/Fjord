@@ -80,7 +80,7 @@ resolution.
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
 | Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
-| File deletion | 🚧 No delete action exists. `P10-WC-04` adds `DestructiveAction::DeleteFile` to §3's enum and executor ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). |
+| File deletion | ✅ `DestructiveAction::DeleteFile` on the same §3 enum and executor ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Its supported
@@ -217,8 +217,9 @@ pub enum Consequence {
     TagDeleted             { name: String, target_commit_id: Option<CommitId> },
     StashEntryConsumed     { index: u32, message: String },
     RemoteRefUpdated       { remote: String, ref_name: String, dropped_commits: u32 },
-    // 🚧 P10-WC-04
-    FileRemovedFromWorktree { path: String, tracked: bool, uncommitted_changes: bool },
+    // A tracked file with worktree-only modifications pairs this with the
+    // existing `ModifiedFilesDiscarded` rather than a third message.
+    FileRemoved            { path: String, tracked: bool },
 }
 ```
 
@@ -227,7 +228,7 @@ Covered actions: `reset --hard`, `reset --mixed` with staged content, discard
 delete branch, delete remote branch, delete tag, stash pop with a dirty tree,
 force-with-lease push, checkout that would overwrite, abort of an operation.
 
-🚧 `P10-WC-04` adds one action to the same enum and the same executor:
+`P10-WC-04` adds one action to the same enum and the same executor:
 `DeleteFile { path }`, raised from the Working Changes file context menu
 ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). It adds no
 command, no private code path, and no second confirmation model — it exists

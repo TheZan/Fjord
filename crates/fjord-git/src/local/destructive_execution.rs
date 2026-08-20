@@ -46,6 +46,20 @@ pub(super) async fn execute(
         .map(Some);
     }
 
+    if let DestructiveAction::DeleteFile { path } = &action {
+        let delete_repo = repo.clone();
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            LocalGitBackend::with_runtime_git2(&delete_repo, |git| {
+                super::delete_file::execute(git, &delete_repo, &path)
+            })
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))??;
+        runtime::bump_mutation(&repo, MutationKind::DeleteFile);
+        return Ok(None);
+    }
+
     let (args, mutation) = command(&action)?;
     let command_repo = repo.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -103,7 +117,8 @@ fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), Gi
         DestructiveAction::Discard { .. }
         | DestructiveAction::ForceWithLease
         | DestructiveAction::DeleteRemoteBranch { .. }
-        | DestructiveAction::AbortOperation => return Err(GitError::PreflightStale),
+        | DestructiveAction::AbortOperation
+        | DestructiveAction::DeleteFile { .. } => return Err(GitError::PreflightStale),
     };
     Ok(command)
 }

@@ -15,6 +15,7 @@ export type WorkingFileAction =
   | "stage"
   | "unstage"
   | "discard"
+  | "delete"
   | "openEditor"
   | "openDefault"
   | "reveal"
@@ -42,6 +43,7 @@ export function useWorkingFileActions({
   onStage,
   onUnstage,
   onDiscard,
+  onDelete,
   onOpenMergeTool,
   onAddIgnore,
   onPatchSaved,
@@ -51,6 +53,7 @@ export function useWorkingFileActions({
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onDiscard: (target: WorkingFileTarget) => void;
+  onDelete: (target: WorkingFileTarget) => void;
   onOpenMergeTool: () => void;
   onAddIgnore: (target: WorkingFileTarget, kind: IgnoreRuleKind) => Promise<IgnoreRuleOutcome | null>;
   onPatchSaved: (destination: string) => void;
@@ -79,6 +82,7 @@ export function useWorkingFileActions({
       if (action === "stage") return onStage([target.path]);
       if (action === "unstage") return onUnstage([target.path]);
       if (action === "discard") return onDiscard(target);
+      if (action === "delete") return onDelete(target);
       if (action === "openMergeTool") return onOpenMergeTool();
       if (action === "openEditor") {
         return await openRepositoryPath(repoId, target.path, {
@@ -108,7 +112,7 @@ export function useWorkingFileActions({
     } catch (error) {
       onError(error);
     }
-  }, [onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onUnstage, repoId]);
+  }, [onDelete, onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onUnstage, repoId]);
 
   const confirmIgnoreRule = useCallback(async () => {
     if (!ignoreRule?.preview || ignoreRule.loading || ignoreRule.pending || ignoreRule.preview.alreadyPresent) return;

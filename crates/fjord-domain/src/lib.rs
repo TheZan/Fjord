@@ -801,6 +801,7 @@ pub enum DestructiveAction {
     CheckoutDiscard { branch: String },
     AbortOperation,
     RecoveryRestore { commit_id: String },
+    DeleteFile { path: String },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only
@@ -821,6 +822,10 @@ pub enum Recoverability {
     Reflog,
     Stash,
     NotRecoverable,
+    /// The content is still in `HEAD` and can be restored from there. Used
+    /// only where an action's *complete* consequence set leaves nothing else
+    /// uncommitted lost — see `DestructiveAction::DeleteFile`.
+    Committed,
 }
 
 /// A concrete, bounded consequence. Every sample is capped by the service at
@@ -872,6 +877,10 @@ pub enum Consequence {
         remote: String,
         ref_name: String,
         dropped_commits: u32,
+    },
+    FileRemoved {
+        path: String,
+        tracked: bool,
     },
 }
 

@@ -14,6 +14,7 @@ export function WorkingFileContextMenu({
   state,
   busy,
   patchExportDisabledReason,
+  deleteDisabledReason,
   onAction,
   onClose,
 }: {
@@ -23,6 +24,9 @@ export function WorkingFileContextMenu({
    * whitespace-ignoring mode active — the displayed diff would not match
    * the exported patch. */
   patchExportDisabledReason?: string;
+  /** Set when the same path also appears in the staged list — deleting the
+   * worktree file would orphan independently staged content. */
+  deleteDisabledReason?: string;
   onAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onClose: () => void;
 }) {
@@ -30,7 +34,7 @@ export function WorkingFileContextMenu({
   return (
     <ContextMenu
       position={state.position}
-      items={workingFileMenuItems(state.file, state.target, busy, t, patchExportDisabledReason)}
+      items={workingFileMenuItems(state.file, state.target, busy, t, patchExportDisabledReason, deleteDisabledReason)}
       onClose={onClose}
       onSelect={(id) => {
         onClose();
@@ -46,6 +50,7 @@ export function workingFileMenuItems(
   busy: boolean,
   t: TFunction<"workspace">,
   patchExportDisabledReason?: string,
+  deleteDisabledReason?: string,
 ): ContextMenuItem[] {
   const copyPath: ContextMenuItem = {
     id: "copyPath",
@@ -94,6 +99,16 @@ export function workingFileMenuItems(
     disabled: Boolean(patchExportDisabledReason),
     disabledReason: patchExportDisabledReason,
   };
+  const deleteItem: ContextMenuItem | null = target.source === "worktree" && !deleted
+    ? {
+        id: "delete",
+        label: t("workingFile.delete"),
+        danger: true,
+        separatorBefore: true,
+        disabled: busy || Boolean(deleteDisabledReason),
+        disabledReason: deleteDisabledReason,
+      }
+    : null;
   return [
     ...primary,
     ...(ignore ? [ignore] : []),
@@ -101,6 +116,7 @@ export function workingFileMenuItems(
     { ...copyPath, separatorBefore: true },
     createPatch,
     ...(target.source === "worktree" ? [copyPatch] : []),
+    ...(deleteItem ? [deleteItem] : []),
   ];
 }
 

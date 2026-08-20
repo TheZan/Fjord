@@ -235,6 +235,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         }
         GitError::IgnoreFileEncodingUnsupported => "ignore_file_encoding_unsupported",
         GitError::IgnoreWriteFailed(_) => "ignore_write_failed",
+        GitError::DeleteTargetNotAFile => "delete_target_not_a_file",
+        GitError::DeleteFilePartiallyStaged { .. } => "delete_file_partially_staged",
+        GitError::DeleteFileConflicted { .. } => "delete_file_conflicted",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())

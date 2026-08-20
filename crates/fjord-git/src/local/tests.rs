@@ -7059,3 +7059,286 @@ async fn failed_operation_step_returns_sanitized_diagnostics_and_detectable_stat
     ));
     assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
 }
+
+#[tokio::test]
+async fn delete_file_untracked_is_not_recoverable_and_atomic() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("base.txt", b"base\n")]).await;
+    write_file(&repo, "scratch.txt", "untracked\n");
+
+    let action = DestructiveAction::DeleteFile {
+        path: "scratch.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert!(facts.blockers.is_empty());
+    assert_eq!(
+        facts.consequences,
+        vec![Consequence::FileRemoved {
+            path: "scratch.txt".into(),
+            tracked: false,
+        }]
+    );
+
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(!repo.0.join("scratch.txt").exists());
+}
+
+#[tokio::test]
+async fn delete_file_tracked_unmodified_is_committed_and_head_retrievable() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("tracked.txt", b"content\n")]).await;
+
+    let action = DestructiveAction::DeleteFile {
+        path: "tracked.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert!(facts.blockers.is_empty());
+    assert_eq!(
+        facts.consequences,
+        vec![Consequence::FileRemoved {
+            path: "tracked.txt".into(),
+            tracked: true,
+        }]
+    );
+
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::Committed).await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(!repo.0.join("tracked.txt").exists());
+    assert_eq!(head_blob(&repo, "tracked.txt"), b"content\n");
+    let changes = backend.working_changes(&repo).await.unwrap();
+    assert!(changes.staged.is_empty());
+    let unstaged = changes
+        .unstaged
+        .iter()
+        .find(|file| file.path == "tracked.txt")
+        .expect("deletion appears in the unstaged list");
+    assert_eq!(unstaged.change_type, FileChangeType::Deleted);
+}
+
+#[tokio::test]
+async fn delete_file_tracked_modified_degrades_to_not_recoverable() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("tracked.txt", b"base\n")]).await;
+    write_file(&repo, "tracked.txt", "modified\n");
+
+    let action = DestructiveAction::DeleteFile {
+        path: "tracked.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
+    assert!(facts.consequences.contains(&Consequence::FileRemoved {
+        path: "tracked.txt".into(),
+        tracked: true,
+    }));
+    assert!(facts
+        .consequences
+        .contains(&Consequence::ModifiedFilesDiscarded {
+            count: 1,
+            sample: vec!["tracked.txt".into()],
+        }));
+}
+
+#[tokio::test]
+async fn delete_file_partially_staged_is_blocked_while_discard_still_works() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("tracked.txt", b"base\n")]).await;
+    write_file(&repo, "tracked.txt", "staged\n");
+    backend
+        .stage(&repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    write_file(&repo, "tracked.txt", "staged and then modified further\n");
+
+    let action = DestructiveAction::DeleteFile {
+        path: "tracked.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.blockers, ["delete_file_partially_staged"]);
+
+    // Even a token issued directly (bypassing the blocker-aware service
+    // layer) must be refused at execution: the backend fails closed on its
+    // own, independent of whoever asked for a token.
+    let generations = backend.generations(&repo).unwrap();
+    let token = backend
+        .issue_action_confirmation(&repo, &action, generations)
+        .await
+        .unwrap();
+    let staged_before = index_blob(&repo, "tracked.txt");
+    let worktree_before = std::fs::read(repo.0.join("tracked.txt")).unwrap();
+    let result = backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(GitError::DeleteFilePartiallyStaged { path }) if path == "tracked.txt"
+    ));
+    assert_eq!(index_blob(&repo, "tracked.txt"), staged_before);
+    assert_eq!(
+        std::fs::read(repo.0.join("tracked.txt")).unwrap(),
+        worktree_before
+    );
+
+    // The paired rule: Discard on the same unstaged row still works and
+    // leaves the independently staged content untouched.
+    let detail = backend
+        .working_file_diff(&repo, "tracked.txt", false)
+        .await
+        .unwrap();
+    let selection = whole_patch_selection(&detail, 0..detail.hunks.len());
+    let discard_generations = backend.generations(&repo).unwrap();
+    discard_confirmed(&backend, &repo, &selection, discard_generations)
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo, "tracked.txt"), staged_before);
+}
+
+#[tokio::test]
+async fn delete_file_conflicted_is_blocked() {
+    let (_directory, repo, backend) = start_revert_conflict();
+    let action = DestructiveAction::DeleteFile {
+        path: "operation.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.blockers, ["delete_file_conflicted"]);
+}
+
+#[tokio::test]
+async fn delete_file_refuses_a_directory() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    std::fs::create_dir_all(repo.0.join("dir")).unwrap();
+    commit_fixture(&backend, &repo, &[("dir/file.txt", b"content\n")]).await;
+
+    let action = DestructiveAction::DeleteFile { path: "dir".into() };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.blockers, ["delete_target_not_a_file"]);
+
+    let generations = backend.generations(&repo).unwrap();
+    let token = backend
+        .issue_action_confirmation(&repo, &action, generations)
+        .await
+        .unwrap();
+    let result = backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(result, Err(GitError::DeleteTargetNotAFile)));
+    assert!(repo.0.join("dir").join("file.txt").exists());
+}
+
+#[tokio::test]
+async fn delete_file_rejects_path_traversal() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("tracked.txt", b"base\n")]).await;
+
+    let action = DestructiveAction::DeleteFile {
+        path: "../outside.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert_eq!(facts.blockers, ["delete_target_not_a_file"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn delete_file_unlinks_a_symlink_without_touching_its_target() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo, "target.txt", "target content\n");
+    std::os::unix::fs::symlink("target.txt", repo.0.join("link.txt")).unwrap();
+    backend
+        .stage(
+            &repo,
+            &[PathBuf::from("target.txt"), PathBuf::from("link.txt")],
+        )
+        .await
+        .unwrap();
+    backend.commit(&repo, "add target and link").await.unwrap();
+
+    let action = DestructiveAction::DeleteFile {
+        path: "link.txt".into(),
+    };
+    let facts = backend
+        .destructive_action_facts(&repo, &action, 5)
+        .await
+        .unwrap();
+    assert!(facts.blockers.is_empty());
+    assert_eq!(facts.recoverable, Recoverability::Committed);
+
+    let (generations, token) =
+        safety_preflight(&backend, &repo, &action, Recoverability::Committed).await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(std::fs::symlink_metadata(repo.0.join("link.txt")).is_err());
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("target.txt")).unwrap(),
+        "target content\n"
+    );
+}

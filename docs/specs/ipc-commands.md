@@ -171,9 +171,9 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
 | `get_workspace_health` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §4 | `P10-08` |
 
-One planned addition extends existing shapes rather than adding a command:
-`preflight_destructive_action` / `execute_destructive_action` gain the
-`DeleteFile { path }` action through the existing enum and executor
+One addition already shipped by extending existing shapes rather than adding a
+command: `preflight_destructive_action` / `execute_destructive_action` gained
+the `DeleteFile { path }` action through the existing enum and executor
 ([`repository-safety.md`](repository-safety.md) §3, `P10-WC-04`).
 
 Every planned command above takes a **repository-relative** path and never a
@@ -187,7 +187,7 @@ and validates containment before acting. `merge_branch` takes a typed
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, `delete_target_not_a_file`, `delete_file_conflicted`, `delete_file_partially_staged`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 Planned codes, added with the commands above and listed here so no task invents
 its own spelling. A normal Git outcome is never one of these — merge reports
@@ -203,13 +203,12 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   same set except `merge_not_fast_forward`, which has no squash equivalent —
   a conflicting squash is a typed `Conflicted { paths }` result, not an error,
   exactly like a conflicting merge.
-- Remaining working-file actions (`P10-WC-02`–`P10-WC-06`):
-  `ignore_rule_unsupported_for_tracked_file`,
+- Remaining working-file actions (`P10-WC-02`, `P10-WC-03`, `P10-WC-05`,
+  `P10-WC-06`): `ignore_rule_unsupported_for_tracked_file`,
   `ignore_file_encoding_unsupported`, `ignore_write_failed`,
   `patch_export_failed`, `stash_file_unsupported`, `stash_file_conflicted`,
-  `delete_target_not_a_file`, `delete_file_conflicted`,
-  `delete_file_partially_staged`, `diff_tool_not_configured`,
-  `diff_tool_name_invalid`, plus the existing `ide_not_allowed`.
+  `diff_tool_not_configured`, `diff_tool_name_invalid`, plus the existing
+  `ide_not_allowed`.
 
 `delete_file_partially_staged` and `delete_file_conflicted` are also
 `DestructivePreflight.blockers` values: they disable confirmation so no token is

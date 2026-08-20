@@ -541,10 +541,15 @@
       "title": "Restore HEAD to this state?",
       "confirm": "Restore HEAD"
     },
+    "deleteFile": {
+      "title": "Delete this file?",
+      "confirm": "Delete file"
+    },
     "recoverability": {
       "reflog": "The commits remain reachable through the reflog and can be restored from the Recovery Center.",
       "stash": "Your changes will be saved to the stash.",
-      "notRecoverable": "Git does not retain a guaranteed recovery copy of these changes. Fjord cannot promise they can be restored."
+      "notRecoverable": "Git does not retain a guaranteed recovery copy of these changes. Fjord cannot promise they can be restored.",
+      "committed": "The committed version stays in HEAD and can be restored from there."
     },
     "blockers": {
       "binary_changes_unsupported": "Binary changes cannot be discarded at this granularity.",
@@ -553,7 +558,10 @@
       "current_branch_cannot_be_deleted": "The currently checked-out branch cannot be deleted.",
       "operation_not_in_progress": "There is no Git operation to abort.",
       "ref_not_found": "The target ref no longer exists.",
-      "stash_not_found": "The selected stash entry no longer exists."
+      "stash_not_found": "The selected stash entry no longer exists.",
+      "delete_target_not_a_file": "Only files can be deleted from this menu.",
+      "delete_file_partially_staged": "{{path}} also has staged changes. Unstage them before deleting the file.",
+      "delete_file_conflicted": "{{path}} has unresolved conflicts. Resolve them first."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Discard changes in {{count}} modified file: {{sample}}.",
@@ -569,7 +577,9 @@
       "branchDeletedUnmerged": "Delete branch {{name}}, which is not merged into {{unmergedInto}}.",
       "tagDeleted": "Delete tag {{name}}.",
       "stashEntryConsumed": "Apply and consume stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits."
+      "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits.",
+      "fileRemovedTracked": "Remove {{path}} from the working tree; it will appear as a Git deletion.",
+      "fileRemovedUntracked": "Delete {{path}}. Git has no copy of this file."
     }
   },
   "repoActions": {
@@ -663,8 +673,10 @@
     "createPatchStaged": "Create patch from staged changes…",
     "copyPatch": "Copy patch to clipboard",
     "patchSaved": "Patch saved to {{path}}.",
+    "delete": "Delete file…",
     "disabled": {
-      "whitespaceMode": "The displayed diff is not the patch Git would apply."
+      "whitespaceMode": "The displayed diff is not the patch Git would apply.",
+      "deleteAlsoStaged": "This file also has staged changes. Unstage them before deleting the file."
     },
     "ignore": {
       "label": "Ignore",

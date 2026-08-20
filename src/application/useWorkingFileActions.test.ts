@@ -55,6 +55,16 @@ describe("useWorkingFileActions", () => {
     expect(onUnstage).toHaveBeenCalledWith(["src/app.ts"]);
   });
 
+  it("routes delete through the onDelete callback with the exact target", async () => {
+    const onDelete = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onDelete })));
+    const target = { path: "src/app.ts", source: "worktree" as const };
+
+    await act(() => result.current.dispatch("delete", target));
+
+    expect(onDelete).toHaveBeenCalledWith(target);
+  });
+
   it("uses backend-resolved paths for launches, reveal, and absolute-path copy", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -140,6 +150,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     onStage: vi.fn(),
     onUnstage: vi.fn(),
     onDiscard: vi.fn(),
+    onDelete: vi.fn(),
     onOpenMergeTool: vi.fn(),
     onAddIgnore: vi.fn(async () => "added" as const),
     onPatchSaved: vi.fn(),

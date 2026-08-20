@@ -37,6 +37,7 @@ use gix::object::tree::diff::{Change, ChangeDetached};
 use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
+mod delete_file;
 mod destructive_confirmation;
 mod destructive_execution;
 mod destructive_preflight;
