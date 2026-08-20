@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -130,6 +130,18 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     }),
   })),
   runFetchRepo: vi.fn(() => ({ operationId: "operation-fetch", promise: Promise.resolve() })),
+  runSquashMergeBranch: vi.fn(() => ({
+    operationId: "operation-squash-merge",
+    promise: Promise.resolve({
+      outcome: { kind: "staged", message: "Squash of feature\n\nDetails" },
+      source: { refName: "refs/heads/feature", kind: "localBranch" },
+      sourceLabel: "feature",
+      targetBranch: "main",
+      targetCommit: "target-commit",
+      stashRef: null,
+      generations: { workingTree: 2, refs: 1, history: 1, stash: 0, config: 0 },
+    }),
+  })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -182,7 +194,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPublishBranch,
     onPushToRemotes,
     onMergeBranch,
+    onSquashMergeBranch,
     onWorkingFileAction,
+    pendingDraftMessage,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash-pop") => void;
@@ -205,13 +219,16 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPublishBranch: (branch: string) => void;
     onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
     onMergeBranch: (source: import("@/domain/git").MergeSource) => void;
+    onSquashMergeBranch: (source: import("@/domain/git").MergeSource) => void;
     onWorkingFileAction: (
       action: import("@/application/useWorkingFileActions").WorkingFileAction,
       target: import("@/domain/git").WorkingFileTarget,
     ) => void;
+    pendingDraftMessage: string | null;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
+      <output data-testid="pending-draft-message">{pendingDraftMessage ?? ""}</output>
       <output data-testid="action-error">{actionError ?? ""}</output>
       <output data-testid="action-success">{actionSuccess ?? ""}</output>
       <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
@@ -222,6 +239,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
+      <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
@@ -262,6 +280,12 @@ vi.mock("@/presentation/MergeDialog", () => ({
       <button type="button" onClick={() => onConfirm("default", "refuse", true)}>confirm merge with fetch</button>
     </>
   ),
+}));
+
+vi.mock("@/presentation/SquashMergeDialog", () => ({
+  SquashMergeDialog: ({ onConfirm }: {
+    onConfirm: (policy: import("@/domain/git").MergeDirtyPolicy) => void;
+  }) => <button type="button" onClick={() => onConfirm("refuse")}>confirm squash merge</button>,
 }));
 
 vi.mock("@/presentation/RecoveryCenter", () => ({
@@ -307,6 +331,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       promise: Promise.resolve("stash@{0}"),
     });
     vi.mocked(runMergeBranch).mockClear();
+    vi.mocked(runSquashMergeBranch).mockClear();
     vi.mocked(runFetchRepo).mockReset();
     vi.mocked(runFetchRepo).mockReturnValue({
       operationId: "operation-fetch",
@@ -891,6 +916,50 @@ describe("RepoDetailContainer checkout confirmation", () => {
     await waitFor(() => expect(screen.getByTestId("action-pending")).toBeEmptyDOMElement());
     expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
     expect(runMergeBranch).not.toHaveBeenCalled();
+  });
+
+  it("stages a squash merge and hands the suggested message to the commit draft", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "squash merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm squash merge" }));
+
+    await waitFor(() => expect(runSquashMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/heads/feature", kind: "localBranch" },
+      "refuse",
+    ));
+    await waitFor(() => expect(screen.getByTestId("pending-draft-message")).toHaveTextContent(
+      "Squash of feature",
+    ));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock,
+      "repo-1",
+      "workspace-1",
+      ["status", "working", "stashes", "merge"],
+    );
+  });
+
+  it("reports a conflicted squash merge naming the files to resolve", async () => {
+    vi.mocked(runSquashMergeBranch).mockReturnValueOnce({
+      operationId: "operation-squash-merge",
+      promise: Promise.resolve({
+        outcome: { kind: "conflicted", paths: ["src/app.ts"] },
+        source: { refName: "refs/heads/feature", kind: "localBranch" },
+        sourceLabel: "feature",
+        targetBranch: "main",
+        targetCommit: "target-commit",
+        stashRef: null,
+        generations: { workingTree: 2, refs: 1, history: 1, stash: 0, config: 0 },
+      }),
+    });
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "squash merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm squash merge" }));
+
+    await waitFor(() => expect(screen.getByTestId("action-success")).toHaveTextContent(
+      "squashMerge.outcome.conflicted",
+    ));
+    expect(screen.getByTestId("pending-draft-message")).toBeEmptyDOMElement();
   });
 
   it("routes operation abort through destructive preflight", async () => {

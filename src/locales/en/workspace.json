@@ -151,8 +151,28 @@
       "failed": "The merge could not be completed. The repository was not changed beyond what Git reported."
     }
   },
+  "squashMerge": {
+    "title": "Squash merge {{source}} into {{target}}",
+    "loading": "Checking the repository…",
+    "running": "Squash merging…",
+    "dismiss": "Close",
+    "confirm": "Squash merge",
+    "cancel": "Cancel",
+    "explanation": "This will stage the combined changes from {{source}} without creating a commit. Review and commit them from Working Changes.",
+    "dirty": { "stashAndSquashMerge": "Stash changes and squash merge" },
+    "outcome": {
+      "alreadyUpToDate": "{{target}} already contains {{source}}. Nothing to squash.",
+      "staged": "Squashed {{source}} into {{target}}: changes staged for commit.",
+      "conflicted_one": "{{source}} conflicts with {{target}}: 1 file needs resolving in Working Changes, then commit. To discard the squash, use Reset (Hard) to the current commit.",
+      "conflicted_other": "{{source}} conflicts with {{target}}: {{count}} files need resolving in Working Changes, then commit. To discard the squash, use Reset (Hard) to the current commit."
+    },
+    "error": {
+      "failed": "The squash merge could not be completed. The repository was not changed beyond what Git reported."
+    }
+  },
   "context": {
     "mergeInto": "Merge {{source}} into {{target}}…",
+    "squashMergeInto": "Squash merge {{source}} into {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

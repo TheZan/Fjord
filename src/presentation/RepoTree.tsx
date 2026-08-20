@@ -431,7 +431,7 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "merge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "delete" | "copy";
 
 function branchMenuItems(
@@ -458,6 +458,20 @@ function branchMenuItems(
       }),
       icon: "merge",
       separatorBefore: true,
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent
+        ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
+    },
+    {
+      id: "squashMerge",
+      label: t("context.squashMergeInto", {
+        source: branch.name,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
       disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
       disabledReason: branch.isCurrent
         ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })

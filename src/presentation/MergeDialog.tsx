@@ -160,13 +160,13 @@ export function MergeDialog({
   );
 }
 
-function mergeSourceLabel(source: MergeSource) {
+export function mergeSourceLabel(source: MergeSource) {
   return source.refName
     .replace(/^refs\/heads\//, "")
     .replace(/^refs\/remotes\//, "");
 }
 
-function predictionText(
+export function predictionText(
   preflight: MergePreflight,
   t: (key: string, values?: Record<string, unknown>) => string,
 ) {
@@ -185,7 +185,7 @@ function predictionText(
   }
 }
 
-function blockerText(
+export function blockerText(
   blocker: string,
   source: string,
   target: string,
@@ -202,7 +202,7 @@ function blockerText(
   return t(keys[blocker] ?? "merge.error.failed", { source, target });
 }
 
-function preflightErrorText(
+export function preflightErrorText(
   code: string | null,
   source: string,
   target: string,

@@ -82,6 +82,7 @@ export function RepoDetailView({
   onCreateBranchAt,
   onRenameBranch,
   onMergeBranch,
+  onSquashMergeBranch,
   onPreflightAction,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
@@ -101,6 +102,8 @@ export function RepoDetailView({
   onDiscardPatch,
   onWorkingFileAction,
   onCommit,
+  pendingDraftMessage,
+  onPendingDraftMessageConsumed,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -144,6 +147,7 @@ export function RepoDetailView({
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
   onMergeBranch: (source: MergeSource) => void;
+  onSquashMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
@@ -168,6 +172,8 @@ export function RepoDetailView({
   ) => Promise<boolean>;
   onWorkingFileAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
+  pendingDraftMessage: string | null;
+  onPendingDraftMessageConsumed: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
@@ -256,6 +262,8 @@ export function RepoDetailView({
       }}
       onPrepareAmend={onPrepareAmend}
       onCommit={onCommit}
+      pendingDraftMessage={pendingDraftMessage}
+      onPendingDraftMessageConsumed={onPendingDraftMessageConsumed}
     />
   ) : selectedCommit ? (
     <CommitInspector
@@ -394,6 +402,7 @@ export function RepoDetailView({
                 onRevealCommit={handleRevealCommit}
                 onCheckout={operationInProgress ? undefined : onCheckout}
                 onMergeBranch={onMergeBranch}
+                onSquashMergeBranch={onSquashMergeBranch}
                 onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
@@ -521,6 +530,7 @@ export function RepoDetailView({
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
       case "merge": onMergeBranch(mergeSourceForBranch(branch)); break;
+      case "squashMerge": onSquashMergeBranch(mergeSourceForBranch(branch)); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
       case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
       case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;

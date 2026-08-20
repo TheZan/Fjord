@@ -47,6 +47,7 @@ import {
   runExecuteDestructiveAction,
   runStashAndCheckout,
   runMergeBranch,
+  runSquashMergeBranch,
   setBranchUpstream,
   renameBranch,
   revertCommit,
@@ -64,6 +65,7 @@ import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
 import { MergeDialog } from "@/presentation/MergeDialog";
+import { SquashMergeDialog } from "@/presentation/SquashMergeDialog";
 import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
@@ -134,6 +136,8 @@ export function RepoDetailContainer({
     onError: (error) => setActionError(userErrorMessage(error)),
   });
   const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
+  const [squashMergeSource, setSquashMergeSource] = useState<MergeSource | null>(null);
+  const [pendingDraftMessage, setPendingDraftMessage] = useState<string | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
   const operationInProgress = isOperationInProgress(operationState?.operation);
@@ -478,6 +482,60 @@ export function RepoDetailContainer({
     });
   }
 
+  function onSquashMergeBranch(source: MergeSource) {
+    if (operationInProgress) {
+      setActionError(t("merge.blocked.operationInProgress"));
+      return;
+    }
+    if (!status?.branch) {
+      setActionError(t("merge.blocked.detachedHead"));
+      return;
+    }
+    setSquashMergeSource(source);
+  }
+
+  function executeSquashMerge(dirtyPolicy: MergeDirtyPolicy) {
+    if (!squashMergeSource) return;
+    const source = squashMergeSource;
+    void runRepoAction(
+      "squash-merge",
+      async () => {
+        const task = runSquashMergeBranch(repo.id, source, dirtyPolicy);
+        setActionOperationId(task.operationId);
+        const result = await task.promise;
+        if (result.outcome.kind === "staged") {
+          setPendingDraftMessage(result.outcome.message);
+        }
+        const message = t(`squashMerge.outcome.${result.outcome.kind}`, {
+          source: result.sourceLabel,
+          target: result.targetBranch,
+          ...(result.outcome.kind === "conflicted" ? { count: result.outcome.paths.length } : {}),
+        });
+        setActionSuccess(result.stashRef
+          ? `${message} ${t("merge.dirty.stashRetained", { stash: result.stashRef })}`
+          : message);
+      },
+      ["status", "working", "stashes", "merge"],
+      (error) => {
+        const code = invokeErrorCode(error);
+        const stashRef = invokeErrorStashRef(error);
+        const retained = stashRef
+          ? t("merge.dirty.stashRetained", { stash: stashRef })
+          : null;
+        if (retained) setActionSuccess(retained);
+        if (code === "merge_failed") {
+          const message = t("squashMerge.error.failed");
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        return false;
+      },
+      true,
+    ).then((ok) => {
+      if (ok) setSquashMergeSource(null);
+    });
+  }
+
   function onCherryPick(commitId: string) {
     void runRepoAction(
       "cherry-pick",
@@ -794,6 +852,7 @@ export function RepoDetailContainer({
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
       onMergeBranch={onMergeBranch}
+      onSquashMergeBranch={onSquashMergeBranch}
       onPreflightAction={setDestructiveAction}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
@@ -818,6 +877,8 @@ export function RepoDetailContainer({
         void workingFileActions.dispatch(action, target);
       }}
       onCommit={onCommit}
+      pendingDraftMessage={pendingDraftMessage}
+      onPendingDraftMessageConsumed={() => setPendingDraftMessage(null)}
     />
     )}
     {forcePushPreflight ? (
@@ -847,6 +908,16 @@ export function RepoDetailContainer({
         pending={actionPending === "merge"}
         onClose={() => setMergeSource(null)}
         onConfirm={executeMerge}
+      />
+    ) : null}
+    {squashMergeSource && status?.branch ? (
+      <SquashMergeDialog
+        repoId={repo.id}
+        source={squashMergeSource}
+        currentBranch={status.branch}
+        pending={actionPending === "squash-merge"}
+        onClose={() => setSquashMergeSource(null)}
+        onConfirm={executeSquashMerge}
       />
     ) : null}
     {checkoutOverwrite ? (

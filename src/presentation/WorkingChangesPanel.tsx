@@ -38,6 +38,8 @@ export function WorkingChangesPanel({
   onFileContextMenu,
   onPrepareAmend,
   onCommit,
+  pendingDraftMessage,
+  onPendingDraftMessageConsumed,
 }: {
   changes: WorkingChanges;
   loading: boolean;
@@ -55,6 +57,9 @@ export function WorkingChangesPanel({
   ) => void;
   onPrepareAmend: () => Promise<AmendInfo | null>;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
+  /** A suggested message set from outside (e.g. a squash merge's SQUASH_MSG). */
+  pendingDraftMessage?: string | null;
+  onPendingDraftMessageConsumed?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
@@ -130,6 +135,16 @@ export function WorkingChangesPanel({
     document.addEventListener("fjord:commit", onShortcutCommit);
     return () => document.removeEventListener("fjord:commit", onShortcutCommit);
   });
+
+  useEffect(() => {
+    if (pendingDraftMessage === null || pendingDraftMessage === undefined) return;
+    const message = splitCommitMessage(pendingDraftMessage);
+    setSummary(message.summary);
+    setDescription(message.description);
+    onPendingDraftMessageConsumed?.();
+    // Runs exactly once per pending message: the effect's own consumption
+    // callback clears the prop before this could re-fire.
+  }, [pendingDraftMessage]);
 
   function changeViewMode(mode: FileViewMode) {
     setViewMode(mode);

@@ -117,8 +117,16 @@
     "blocked": { "sourceIsCurrentBranch": "{{target}} ya es la rama actual.", "sourceNotFound": "{{source}} ya no existe.", "remoteSourceNotSupported": "La fusión de una rama remota aún no está disponible. Haz checkout o fetch y fusiona la rama local.", "sourceKindUnsupported": "Solo se pueden fusionar ramas.", "operationInProgress": "Ya hay otra operación Git en curso.", "detachedHead": "HEAD está separado. Haz checkout de una rama antes de fusionar.", "unbornHead": "{{target}} aún no tiene commits.", "stagedChanges_one": "Hay que confirmar o guardar en stash {{count}} cambio preparado antes de fusionar.", "stagedChanges_other": "Hay que confirmar o guardar en stash {{count}} cambios preparados antes de fusionar.", "wouldOverwrite_one": "La fusión sobrescribiría {{count}} archivo con cambios locales.", "wouldOverwrite_other": "La fusión sobrescribiría {{count}} archivos con cambios locales." },
     "error": { "notFastForward": "{{source}} no puede avanzar por fast-forward en {{target}}. Usa una fusión predeterminada o rebase primero.", "failed": "No se pudo completar la fusión. El repositorio no cambió más allá de lo indicado por Git." }
   },
+  "squashMerge": {
+    "title": "Fusión squash de {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Realizando fusión squash…", "dismiss": "Cerrar", "confirm": "Fusión squash", "cancel": "Cancelar",
+    "explanation": "Esto dejará preparados en el índice los cambios combinados de {{source}} sin crear un commit. Revísalos y confírmalos desde Cambios en curso.",
+    "dirty": { "stashAndSquashMerge": "Guardar cambios en stash y hacer fusión squash" },
+    "outcome": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que aplastar.", "staged": "Se fusionó {{source}} en {{target}} con squash: cambios preparados para confirmar.", "conflicted_one": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivo en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual.", "conflicted_other": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivos en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual." },
+    "error": { "failed": "No se pudo completar la fusión squash. El repositorio no cambió más allá de lo indicado por Git." }
+  },
   "context": {
     "mergeInto": "Fusionar {{source}} en {{target}}…",
+    "squashMergeInto": "Fusión squash de {{source}} en {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

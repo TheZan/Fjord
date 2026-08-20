@@ -117,8 +117,16 @@
     "blocked": { "sourceIsCurrentBranch": "{{target}} est déjà la branche actuelle.", "sourceNotFound": "{{source}} n’existe plus.", "remoteSourceNotSupported": "La fusion d’une branche distante n’est pas encore disponible. Extrayez-la, ou effectuez un fetch puis fusionnez la branche locale.", "sourceKindUnsupported": "Seules les branches peuvent être fusionnées.", "operationInProgress": "Une autre opération Git est déjà en cours.", "detachedHead": "HEAD est détachée. Extrayez une branche avant la fusion.", "unbornHead": "{{target}} ne contient encore aucun commit.", "stagedChanges_one": "{{count}} modification indexée doit être validée ou remisée avant la fusion.", "stagedChanges_other": "{{count}} modifications indexées doivent être validées ou remisées avant la fusion.", "wouldOverwrite_one": "{{count}} fichier avec des modifications locales serait écrasé.", "wouldOverwrite_other": "{{count}} fichiers avec des modifications locales seraient écrasés." },
     "error": { "notFastForward": "{{source}} ne peut pas avancer en fast-forward dans {{target}}. Utilisez une fusion par défaut ou rebasez d’abord.", "failed": "La fusion n’a pas pu aboutir. Le dépôt n’a pas été modifié au-delà de ce que Git a signalé." }
   },
+  "squashMerge": {
+    "title": "Fusion squash de {{source}} dans {{target}}", "loading": "Vérification du dépôt…", "running": "Fusion squash en cours…", "dismiss": "Fermer", "confirm": "Fusion squash", "cancel": "Annuler",
+    "explanation": "Les modifications combinées de {{source}} seront indexées sans créer de commit. Vérifiez-les et validez-les depuis Modifications en cours.",
+    "dirty": { "stashAndSquashMerge": "Remiser les modifications et fusionner en squash" },
+    "outcome": { "alreadyUpToDate": "{{target}} contient déjà {{source}}. Rien à squasher.", "staged": "{{source}} a été fusionnée en squash dans {{target}} : modifications indexées pour validation.", "conflicted_one": "{{source}} est en conflit avec {{target}} : {{count}} fichier doit être résolu dans Modifications en cours, puis validé. Pour annuler le squash, utilisez Reset (Hard) vers le commit actuel.", "conflicted_other": "{{source}} est en conflit avec {{target}} : {{count}} fichiers doivent être résolus dans Modifications en cours, puis validés. Pour annuler le squash, utilisez Reset (Hard) vers le commit actuel." },
+    "error": { "failed": "La fusion squash n’a pas pu aboutir. Le dépôt n’a pas été modifié au-delà de ce que Git a signalé." }
+  },
   "context": {
     "mergeInto": "Fusionner {{source}} dans {{target}}…",
+    "squashMergeInto": "Fusion squash de {{source}} dans {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

@@ -11,7 +11,7 @@ use fjord_domain::{
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
     MergeResult, MergeSource, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
-    RepoOperationState, RepoStatus, StashEntry, TagInfo, WorkingChanges,
+    RepoOperationState, RepoStatus, SquashMergeResult, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -362,6 +362,18 @@ pub trait GitBackend: Send + Sync {
         _context: GitOperationContext,
     ) -> Result<MergeResult, GitError> {
         Err(GitError::NotImplemented("merge_branch"))
+    }
+    /// `merge --squash`: stages the combined diff (or leaves it conflicted)
+    /// without a merge commit or moving any ref. Shares `merge_preflight`'s
+    /// blockers and dirty-tree rules.
+    async fn squash_merge_branch(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+        _dirty_policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<SquashMergeResult, GitError> {
+        Err(GitError::NotImplemented("squash_merge_branch"))
     }
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(

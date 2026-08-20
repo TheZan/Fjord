@@ -4,8 +4,8 @@ use fjord_domain::{
     GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
     PatchSelection, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
-    RepositoryFilePath, RepositoryId, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot,
-    TagInfo, WorkingChanges, WorkspaceId,
+    RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult, StashEntry,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -103,6 +103,30 @@ pub async fn merge_branch(
             state
                 .repos
                 .merge_branch_with_context(repo_id, &source, mode, dirty_policy, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn squash_merge_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+    dirty_policy: MergeDirtyPolicy,
+    operation_id: Option<String>,
+) -> Result<SquashMergeResult, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::SquashMerge,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .squash_merge_branch_with_context(repo_id, &source, dirty_policy, context)
         },
     )
     .await
@@ -1093,7 +1117,7 @@ where
     let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
     let guard = state.operations.begin(operation_id);
     let scope = OperationScope::Repo { repo_id };
-    let total = if matches!(kind, OperationKind::Merge) {
+    let total = if matches!(kind, OperationKind::Merge | OperationKind::SquashMerge) {
         0
     } else {
         1

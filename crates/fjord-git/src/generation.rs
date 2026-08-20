@@ -139,6 +139,7 @@ pub(crate) enum MutationKind {
     Commit,
     IntegrateUpstream,
     Merge { stash: bool },
+    SquashMerge { stash: bool },
     Fetch,
     Push,
     PublishBranch,
@@ -165,6 +166,10 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         | MutationKind::IntegrateUpstream
         | MutationKind::Merge { stash: false } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::Merge { stash: true } => GenerationMask::new(true, true, true, true, false),
+        MutationKind::SquashMerge { stash: false } => GenerationMask::WORKING_TREE,
+        MutationKind::SquashMerge { stash: true } => {
+            GenerationMask::new(true, false, false, true, false)
+        }
         MutationKind::Reset {
             touches_working_tree: false,
         } => GenerationMask::REFS_HISTORY,
@@ -249,6 +254,14 @@ mod tests {
             (
                 MutationKind::Merge { stash: true },
                 GenerationMask::new(true, true, true, true, false),
+            ),
+            (
+                MutationKind::SquashMerge { stash: false },
+                GenerationMask::WORKING_TREE,
+            ),
+            (
+                MutationKind::SquashMerge { stash: true },
+                GenerationMask::new(true, false, false, true, false),
             ),
             (MutationKind::Fetch, GenerationMask::REFS_HISTORY),
             (MutationKind::Push, GenerationMask::REFS_HISTORY),

@@ -242,6 +242,24 @@ impl GitBackend for LocalGitBackend {
         .await
     }
 
+    async fn squash_merge_branch(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        dirty_policy: MergeDirtyPolicy,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::SquashMergeResult, GitError> {
+        merge::run_squash(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            source,
+            dirty_policy,
+            context,
+        )
+        .await
+    }
+
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError> {
         refs::tags(repo).await
     }

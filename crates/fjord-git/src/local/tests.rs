@@ -6,7 +6,7 @@ use crate::GenerationSet;
 use fjord_domain::{
     Consequence, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeOutcome,
     MergePrediction, MergeSource, MergeSourceKind, OperationControl, RebaseKind, Recoverability,
-    RepoOperation, RepoOperationState, ResetMode,
+    RepoOperation, RepoOperationState, ResetMode, SquashMergeOutcome,
 };
 use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
@@ -6596,6 +6596,212 @@ async fn merge_remote_tracking_source_merges_exact_ref_without_creating_local_br
         .collect();
     local_names_after.sort();
     assert_eq!(local_names_before, local_names_after);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn squash_merge_already_up_to_date_advances_no_generation() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    let before = backend.generations(&repo).unwrap();
+
+    let result = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, SquashMergeOutcome::AlreadyUpToDate));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn squash_merge_stages_the_diff_without_a_commit_or_moved_ref() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    write_file(&repo, "topic.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "topic.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "topic work"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    let head_before = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    let before = backend.generations(&repo).unwrap();
+
+    let result = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    let SquashMergeOutcome::Staged { message } = result.outcome else {
+        panic!("expected Staged, got {:?}", result.outcome);
+    };
+    assert!(message.contains("topic work"), "message was {message:?}");
+    assert_eq!(result.target_commit.0, head_before);
+
+    // No commit, no ref moved.
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        head_before
+    );
+    // Staged: the file exists in the index but the working tree is clean of
+    // any *unstaged* delta (status still reports it, just as an addition).
+    let staged_paths: Vec<String> = backend
+        .working_changes(&repo)
+        .await
+        .unwrap()
+        .staged
+        .into_iter()
+        .map(|file| file.path)
+        .collect();
+    assert_eq!(staged_paths, vec!["topic.txt".to_string()]);
+
+    let after = backend.generations(&repo).unwrap();
+    assert_eq!(after.working_tree, before.working_tree + 1);
+    assert_eq!(after.refs, before.refs);
+    assert_eq!(after.history, before.history);
+
+    // Squash never sets MERGE_HEAD: no banner-worthy operation is detected.
+    let state = backend.operation_state(&repo).await.unwrap();
+    assert_eq!(state.operation, RepoOperation::Normal);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn squash_merge_conflict_is_a_typed_result_without_merge_head_and_reset_hard_discards_it() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo, "shared.txt", "base\n");
+    run_git_success(&backend, &repo, &["add", "shared.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "base"]);
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    write_file(&repo, "shared.txt", "main change\n");
+    run_git_success(&backend, &repo, &["commit", "-am", "main change"]);
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    write_file(&repo, "shared.txt", "topic change\n");
+    run_git_success(&backend, &repo, &["commit", "-am", "topic change"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    let head_before = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let result = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    let SquashMergeOutcome::Conflicted { paths } = result.outcome else {
+        panic!("expected Conflicted, got {:?}", result.outcome);
+    };
+    assert_eq!(paths, vec!["shared.txt".to_string()]);
+    assert_eq!(result.target_commit.0, head_before);
+
+    // No MERGE_HEAD, so RepoOperationState stays Normal even with a real
+    // conflicted index — this is exactly the "own conflict semantics"
+    // squash needs, distinct from an ordinary merge conflict.
+    let state = backend.operation_state(&repo).await.unwrap();
+    assert_eq!(state.operation, RepoOperation::Normal);
+
+    // The conflict is still visible through the ordinary live-status path.
+    let changes = backend.working_changes(&repo).await.unwrap();
+    assert!(changes
+        .unstaged
+        .iter()
+        .chain(changes.staged.iter())
+        .any(|file| file.path == "shared.txt" && file.conflicted));
+
+    // Discarding reuses the existing Reset (Hard) to the unmoved target
+    // commit — no bespoke abort mechanism.
+    backend.reset(&repo, &head_before, "hard").await.unwrap();
+    let clean = backend.status(&repo).await.unwrap();
+    assert_eq!(clean.dirty_count, 0);
+    assert!(!clean.has_conflict);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn squash_merge_dirty_policy_matches_merge_refuse_or_named_stash() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    write_file(&repo, "topic.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "topic.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "topic work"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    write_file(&repo, "unrelated.txt", "dirty\n");
+    run_git_success(&backend, &repo, &["add", "unrelated.txt"]);
+
+    let refused = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(
+        refused,
+        Err(GitError::MergeIndexHasStagedChanges)
+    ));
+
+    let stashed = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("topic"),
+            MergeDirtyPolicy::StashFirst,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(stashed.outcome, SquashMergeOutcome::Staged { .. }));
+    assert_eq!(stashed.stash_ref.as_deref(), Some("stash@{0}"));
+    assert_eq!(backend.stashes(&repo).await.unwrap().len(), 1);
+    drop(directory);
+}
+
+#[tokio::test]
+async fn squash_merge_refuses_the_current_branch_before_launching_git() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    let before = backend.generations(&repo).unwrap();
+
+    let result = backend
+        .squash_merge_branch(
+            &repo,
+            &local_merge_source("main"),
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(GitError::MergeSourceIsCurrentBranch)
+    ));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
     drop(directory);
 }
 

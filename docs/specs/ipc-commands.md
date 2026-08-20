@@ -92,7 +92,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 |---|---|---|---|
 | `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch when needed; before switching, returns `checkout_would_overwrite` with at most 100 affected paths if local work would be replaced |
 | `stash_and_checkout` | `{ repo_id, branch, operation_id? }` | `string` | Saves tracked and untracked work with a source→target message, checks out the target, never auto-pops, and returns `stash@{0}` |
-| `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Cancellable local-branch merge through system Git (`P10-MERGE-01`) |
+| `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Cancellable branch merge through system Git; supports local and remote-tracking sources (`P10-MERGE-01`, `P10-MERGE-02`) |
+| `squash_merge_branch` | `{ repo_id, source, dirty_policy, operation_id? }` | `SquashMergeResult` | Cancellable `merge --squash` through system Git; shares `get_merge_preflight`'s blockers and dirty-tree policy. Stages the combined diff (or leaves it conflicted) without a merge commit and without moving any ref, so a conflict is a live index read rather than a `RepoOperationState`, and any outcome can be discarded with a plain Reset (Hard) to the returned `targetCommit` (`P10-MERGE-03`) |
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |
@@ -196,7 +197,10 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   `merge_not_fast_forward`, `merge_would_overwrite`,
   `merge_index_has_staged_changes`, `merge_detached_head`, `merge_unborn_head`,
   `merge_failed`, and the shared `operation_already_in_progress` (which
-  `start_rebase` also uses).
+  `start_rebase` also uses). `squash_merge_branch` (`P10-MERGE-03`) reuses this
+  same set except `merge_not_fast_forward`, which has no squash equivalent —
+  a conflicting squash is a typed `Conflicted { paths }` result, not an error,
+  exactly like a conflicting merge.
 - Remaining working-file actions (`P10-WC-02`–`P10-WC-06`):
   `ignore_rule_unsupported_for_tracked_file`,
   `ignore_file_encoding_unsupported`, `ignore_write_failed`,

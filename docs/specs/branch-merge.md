@@ -82,7 +82,7 @@ and it has no preflight, no mode selection, and no UI entry point.
 | Merge state detection | ✅ `RepoOperationState::Merge { head, incoming }` with conflicted paths, computed controls, and `detected_externally` (`P9-01`, `P9-02`). |
 | Conflict UI | ✅ Operation banner with bounded conflicted paths, merge-tool handoff, Continue/Abort (`P9-03`, `P9-04`). |
 | Abort | ✅ `DestructiveAction::AbortOperation` through the shared preflight and token-bound executor (`P9-05`, `P9-06`). |
-| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2). Squash merge remains owned by `P10-MERGE-03`. |
+| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2). Squash merge is implemented by `P10-MERGE-03` (§9), reusing the same preflight/blockers/dirty policy. |
 | Local merge machinery | ⚠️ `integrate_upstream` performs a `git2` up-to-date / fast-forward / normal-merge analysis for `pull` only. Not a product action; not reused by this spec (§7). |
 | Branch context menu | ✅ Local and remote-tracking branches both expose the shared merge action with source/target labels and disabled reasons; only the current branch is disabled. |
 | Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. |
@@ -554,10 +554,46 @@ current one, and resolves to the same `onMergeBranch` with the same
 - **P10-MERGE-02 — remote-tracking sources.** Semantics fixed in §2; the task
   implements them and removes the `merge_source_unsupported` refusal for
   `RemoteTracking`.
-- **P10-MERGE-03 — squash merge.** `merge --squash` leaves staged content and no
-  merge commit, so its product model is "stage the result of a merge, then
-  commit" and it needs its own message flow and its own conflict semantics. It is
-  deliberately not folded into v1.
+- **P10-MERGE-03 — squash merge.** ✅ Implemented. `merge --squash` leaves
+  staged content and no merge commit, so its product model is "stage the
+  result of a merge, then commit" and it needs its own message flow and its
+  own conflict semantics — both are supplied by *reuse* rather than new
+  surface area:
+  - It shares `get_merge_preflight`'s exact blockers, `MergePrediction`, and
+    dirty-tree (refuse / stash-first) policy with an ordinary merge; there is
+    no second preflight endpoint. `MergeMode` does not apply — squash never
+    fast-forwards — so there is no mode selector in its dialog.
+  - `squash_merge_branch` runs `git merge --squash -- <ref>` through the same
+    engine, locking, and stash machinery as `merge_branch`, but bumps only
+    `working_tree` (and `stash` when stashed) — never `refs` or `history` —
+    because no ref moves and no commit is created.
+  - **Own conflict semantics**, as promised: `git merge --squash` never
+    writes `MERGE_HEAD`, so a conflicted squash is *not* a
+    `RepoOperationState` the Phase 9 banner recognizes. The backend instead
+    reads the live index directly (`conflict_paths`/`fresh_index`, the same
+    primitive `operation_state::detect` itself uses) and returns a typed
+    `SquashMergeOutcome::Conflicted { paths }` — a successful operation
+    result, not an error. The conflicted files are already visible through
+    the ordinary Working Changes panel (which has always read conflict state
+    live, independent of `RepoOperationState`), so no new conflict UI exists.
+  - **Own message flow**, as promised: on `Staged { message }`, the
+    backend's bounded read of Git's own `.git/SQUASH_MSG` becomes the
+    working-changes commit draft (`WorkingChangesPanel`'s existing amend-style
+    "prepare" pattern, extended with a `pendingDraftMessage` prop) — the user
+    reviews and commits through the existing Phase 1/8 commit panel, not a
+    new one.
+  - **Discarding a squash is a plain Reset (Hard)**, deliberately not a
+    second abort mechanism: because no ref ever moves, `SquashMergeResult`
+    carries the pre-squash `targetCommit`, and the existing
+    `DestructiveAction::Reset` (already preflighted, already tested) to that
+    commit is exactly correct and sufficient. No `AbortSquashMerge` action
+    was added.
+  - Entry points are the branch-tree and commit-graph context menus only
+    (`Squash merge {{source}} into {{target}}…`, next to `Merge`), sharing
+    one `MergeSource`/`onSquashMergeBranch` dispatch. It is **not** in the
+    command palette or the remote-tracking "fetch before merging" flow —
+    both are deliberately out of scope for v1 and can be added later without
+    changing this model.
 
 ## i18n
 

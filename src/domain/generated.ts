@@ -73,6 +73,17 @@ export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwar
 
 export type MergeResult = { outcome: MergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, stashRef: string | null, generations: GenerationSet, };
 
+export type SquashMergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "staged", message: string, } | { "kind": "conflicted", paths: Array<string>, };
+
+export type SquashMergeResult = { outcome: SquashMergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, 
+/**
+ * `HEAD` before the squash ran — unmoved by any outcome. Lets the
+ * caller offer a plain Reset (Hard) to this commit as the discard path,
+ * reusing the existing destructive-preflight `Reset` action rather than
+ * inventing a second abort mechanism.
+ */
+targetCommit: CommitId, stashRef: string | null, generations: GenerationSet, };
+
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };

@@ -195,6 +195,36 @@ describe("WorkingChangesPanel", () => {
     expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue("Draft body");
   });
 
+  it("prefills a pending draft message (e.g. from a squash merge) and consumes it exactly once", () => {
+    const onPendingDraftMessageConsumed = vi.fn();
+    const view = render(
+      <WorkingChangesPanel
+        {...props({ onPendingDraftMessageConsumed })}
+        pendingDraftMessage={"Squash of feature/x\n\nCombined change details"}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Squash of feature/x");
+    expect(screen.getByPlaceholderText("working.descriptionPlaceholder")).toHaveValue(
+      "Combined change details",
+    );
+    expect(onPendingDraftMessageConsumed).toHaveBeenCalledTimes(1);
+
+    // Consumption clears the prop; re-rendering with the same (already
+    // consumed) value must not overwrite further edits.
+    fireEvent.change(screen.getByPlaceholderText("working.summaryPlaceholder"), {
+      target: { value: "Edited after prefill" },
+    });
+    view.rerender(
+      <WorkingChangesPanel
+        {...props({ onPendingDraftMessageConsumed })}
+        pendingDraftMessage={null}
+      />,
+    );
+    expect(screen.getByPlaceholderText("working.summaryPlaceholder")).toHaveValue("Edited after prefill");
+    expect(onPendingDraftMessageConsumed).toHaveBeenCalledTimes(1);
+  });
+
   it("runs commit and push as one deliberate action", async () => {
     const onCommit = vi.fn(async () => true);
     render(<WorkingChangesPanel {...props({ onCommit })} />);

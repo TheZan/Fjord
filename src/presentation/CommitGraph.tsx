@@ -59,6 +59,7 @@ export function CommitGraph({
   onRevealCommit,
   onCheckout,
   onMergeBranch,
+  onSquashMergeBranch,
   onCommitContextAction,
   workingFileCount = 0,
   workingSelected = false,
@@ -73,6 +74,7 @@ export function CommitGraph({
   onRevealCommit?: (commit: CommitSummary) => void;
   onCheckout?: (branch: string) => void;
   onMergeBranch?: (source: MergeSource) => void;
+  onSquashMergeBranch?: (source: MergeSource) => void;
   onCommitContextAction?: (action: CommitContextAction, commit: CommitSummary) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
   workingFileCount?: number;
@@ -448,11 +450,13 @@ export function CommitGraph({
             const refInfo = refMenu.refInfo;
             setRefMenu(null);
             if (action === "checkout" && refInfo.checkoutTarget) onCheckout?.(refInfo.checkoutTarget);
-            if (action === "merge" && refInfo.kind === "branch") {
-              onMergeBranch?.({
+            if ((action === "merge" || action === "squashMerge") && refInfo.kind === "branch") {
+              const source = {
                 refName: refInfo.canonical,
-                kind: refInfo.remote ? "remoteTracking" : "localBranch",
-              });
+                kind: refInfo.remote ? ("remoteTracking" as const) : ("localBranch" as const),
+              };
+              if (action === "merge") onMergeBranch?.(source);
+              else onSquashMergeBranch?.(source);
             }
             if (action === "copy") void navigator.clipboard?.writeText(refInfo.label);
           }}
@@ -1140,6 +1144,16 @@ function refMenuItems(
       }),
       icon: "merge",
       separatorBefore: true,
+      disabled: mergeDisabled,
+      disabledReason: mergeDisabledReason,
+    },
+    {
+      id: "squashMerge",
+      label: t("context.squashMergeInto", {
+        source: refInfo.label,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
       disabled: mergeDisabled,
       disabledReason: mergeDisabledReason,
     },

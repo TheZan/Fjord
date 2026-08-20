@@ -17,7 +17,8 @@ use fjord_domain::{
     RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
     RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, ResetMode,
     SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
-    SidebarUiStatePatch, SnapshotRevalidation, StashEntry, StoredRepositorySnapshot, TagInfo,
+    SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult, StashEntry,
+    StoredRepositorySnapshot, TagInfo,
     Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
     WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
 };
@@ -82,6 +83,8 @@ fn generated_types() -> String {
     push::<MergePreflight>(&mut output, &config);
     push_without_trailing_whitespace::<MergeOutcome>(&mut output, &config);
     push::<MergeResult>(&mut output, &config);
+    push_without_trailing_whitespace::<SquashMergeOutcome>(&mut output, &config);
+    push::<SquashMergeResult>(&mut output, &config);
     push::<RemoteRef>(&mut output, &config);
     push::<TagInfo>(&mut output, &config);
     push::<StashEntry>(&mut output, &config);

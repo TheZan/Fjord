@@ -35,7 +35,9 @@ vi.mock("react-i18next", () => ({
     t: (key: string, values?: Record<string, unknown>) =>
       key === "context.mergeInto"
         ? `Merge ${values?.source} into ${values?.target}…`
-        : values && "count" in values ? `${key}:${values.count}` : key,
+        : key === "context.squashMergeInto"
+          ? `Squash merge ${values?.source} into ${values?.target}…`
+          : values && "count" in values ? `${key}:${values.count}` : key,
   }),
 }));
 
@@ -362,6 +364,36 @@ describe("CommitGraph", () => {
       refName: "refs/remotes/origin/feature",
       kind: "remoteTracking",
     });
+  });
+
+  it("offers a separate squash-merge entry dispatching onSquashMergeBranch, not onMergeBranch", () => {
+    const onMergeBranch = vi.fn();
+    const onSquashMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Shared tip")];
+    graphState.branches = [branch("develop", true), branch("feature/x", false)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+        onSquashMergeBranch={onSquashMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature/x"));
+    expect(screen.getByRole("menuitem", { name: "Merge feature/x into develop…" })).toBeInTheDocument();
+    const squashItem = screen.getByRole("menuitem", {
+      name: "Squash merge feature/x into develop…",
+    });
+    fireEvent.click(squashItem);
+    expect(onSquashMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/heads/feature/x",
+      kind: "localBranch",
+    });
+    expect(onMergeBranch).not.toHaveBeenCalled();
   });
 });
 

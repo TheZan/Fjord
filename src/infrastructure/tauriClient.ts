@@ -25,6 +25,7 @@ import type {
   PatchSelection,
   RepoOperationState,
   SnapshotRevalidation,
+  SquashMergeResult,
   StoredRepositorySnapshot,
   UiState,
   UiStatePatch,
@@ -104,7 +105,8 @@ export type OperationKind =
   | "abort-operation"
   | "destructive-action"
   | "stash-checkout"
-  | "merge";
+  | "merge"
+  | "squash-merge";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -392,6 +394,14 @@ export function runMergeBranch(
   dirtyPolicy: MergeDirtyPolicy,
 ): OperationTask<MergeResult> {
   return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
+}
+
+export function runSquashMergeBranch(
+  repoId: string,
+  source: MergeSource,
+  dirtyPolicy: MergeDirtyPolicy,
+): OperationTask<SquashMergeResult> {
+  return invokeOperation("squash-merge", "squash_merge_branch", { repoId, source, dirtyPolicy });
 }
 
 export function listenGitAuthPrompts(

@@ -12,7 +12,9 @@ vi.mock("react-i18next", () => ({
         ? `${values?.matched}/${values?.total}`
         : key === "context.mergeInto"
           ? `Merge ${values?.source} into ${values?.target}…`
-          : key,
+          : key === "context.squashMergeInto"
+            ? `Squash merge ${values?.source} into ${values?.target}…`
+            : key,
   }),
 }));
 
@@ -179,6 +181,23 @@ describe("RepoTree", () => {
     expect(remote).toBeEnabled();
     fireEvent.click(remote);
     expect(onBranchContextAction).toHaveBeenCalledWith("merge", branches[2], ["origin/release"]);
+  });
+
+  it("offers a squash-merge entry alongside merge, disabled/enabled by the same rules", () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
+    const current = screen.getByRole("menuitem", { name: "Squash merge main into main…" });
+    expect(current).toBeDisabled();
+    expect(current).toHaveAttribute("title", "merge.blocked.sourceIsCurrentBranch");
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "feature/ui" }));
+    const squashMerge = screen.getByRole("menuitem", { name: "Squash merge feature/ui into main…" });
+    expect(squashMerge).toBeEnabled();
+    fireEvent.click(squashMerge);
+    expect(onBranchContextAction).toHaveBeenCalledWith("squashMerge", branches[1], ["origin/release"]);
   });
 
   it("blocks checkout gestures and explains the disabled context action", () => {

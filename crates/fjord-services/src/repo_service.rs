@@ -10,8 +10,8 @@ use fjord_domain::{
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
     MergeResult, MergeSource, OpenTarget, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
     RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -773,6 +773,20 @@ impl RepoService {
                 dirty_policy,
                 context,
             )
+            .await?)
+    }
+
+    pub async fn squash_merge_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+        dirty_policy: MergeDirtyPolicy,
+        context: GitOperationContext,
+    ) -> Result<SquashMergeResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .squash_merge_branch(&RepoPath::new(repo.path), source, dirty_policy, context)
             .await?)
     }
 

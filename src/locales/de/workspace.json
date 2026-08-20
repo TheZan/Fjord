@@ -117,8 +117,16 @@
     "blocked": { "sourceIsCurrentBranch": "{{target}} ist bereits der aktuelle Branch.", "sourceNotFound": "{{source}} existiert nicht mehr.", "remoteSourceNotSupported": "Remote-Branches können noch nicht zusammengeführt werden. Checken Sie ihn aus oder führen Sie Fetch und den lokalen Branch zusammen.", "sourceKindUnsupported": "Nur Branches können zusammengeführt werden.", "operationInProgress": "Eine andere Git-Operation läuft bereits.", "detachedHead": "HEAD ist detached. Checken Sie vor dem Merge einen Branch aus.", "unbornHead": "{{target}} enthält noch keine Commits.", "stagedChanges_one": "{{count}} vorgemerkte Änderung muss vor dem Merge committet oder gestasht werden.", "stagedChanges_other": "{{count}} vorgemerkte Änderungen müssen vor dem Merge committet oder gestasht werden.", "wouldOverwrite_one": "{{count}} Datei mit lokalen Änderungen würde überschrieben.", "wouldOverwrite_other": "{{count}} Dateien mit lokalen Änderungen würden überschrieben." },
     "error": { "notFastForward": "{{source}} kann nicht per Fast-forward in {{target}} integriert werden. Verwenden Sie einen Standard-Merge oder zuerst Rebase.", "failed": "Der Merge konnte nicht abgeschlossen werden. Das Repository wurde nur so weit geändert, wie Git gemeldet hat." }
   },
+  "squashMerge": {
+    "title": "{{source}} als Squash-Merge in {{target}} zusammenführen", "loading": "Repository wird geprüft…", "running": "Squash-Merge läuft…", "dismiss": "Schließen", "confirm": "Squash-Merge", "cancel": "Abbrechen",
+    "explanation": "Die zusammengeführten Änderungen aus {{source}} werden im Index vorgemerkt, ohne einen Commit zu erstellen. Prüfen und committen Sie sie in den Änderungen.",
+    "dirty": { "stashAndSquashMerge": "Änderungen stashen und Squash-Merge ausführen" },
+    "outcome": { "alreadyUpToDate": "{{target}} enthält {{source}} bereits. Nichts zu squashen.", "staged": "{{source}} wurde per Squash-Merge in {{target}} zusammengeführt und für den Commit vorgemerkt.", "conflicted_one": "{{source}} steht in Konflikt mit {{target}}: {{count}} Datei muss in den Änderungen gelöst werden, dann committen. Um den Squash-Merge zu verwerfen, verwenden Sie Reset (Hard) auf den aktuellen Commit.", "conflicted_other": "{{source}} steht in Konflikt mit {{target}}: {{count}} Dateien müssen in den Änderungen gelöst werden, dann committen. Um den Squash-Merge zu verwerfen, verwenden Sie Reset (Hard) auf den aktuellen Commit." },
+    "error": { "failed": "Der Squash-Merge konnte nicht abgeschlossen werden. Das Repository wurde nur so weit geändert, wie Git gemeldet hat." }
+  },
   "context": {
     "mergeInto": "{{source}} in {{target}} zusammenführen…",
+    "squashMergeInto": "{{source}} als Squash-Merge in {{target}} zusammenführen…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",

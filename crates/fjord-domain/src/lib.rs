@@ -430,6 +430,42 @@ pub struct MergeResult {
     pub generations: GenerationSet,
 }
 
+/// `git merge --squash`: stages the combined diff (or leaves it conflicted)
+/// without creating a merge commit or moving any ref. See P10-MERGE-03.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SquashMergeOutcome {
+    AlreadyUpToDate,
+    Staged { message: String },
+    Conflicted { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SquashMergeResult {
+    pub outcome: SquashMergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    /// `HEAD` before the squash ran — unmoved by any outcome. Lets the
+    /// caller offer a plain Reset (Hard) to this commit as the discard path,
+    /// reusing the existing destructive-preflight `Reset` action rather than
+    /// inventing a second abort mechanism.
+    pub target_commit: CommitId,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
 /// A reference advertised by a remote repository. `symbolic_target` is set
 /// for entries such as `HEAD` returned by `git ls-remote --symref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

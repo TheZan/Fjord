@@ -42,6 +42,8 @@ export type {
   ReflogPage,
   ResetMode,
   SearchResultKind,
+  SquashMergeOutcome,
+  SquashMergeResult,
   StashEntry,
   TagInfo,
   WorkingChanges,
