@@ -109,9 +109,16 @@ Full runs, fixtures, and the regression reporting live in
 ## Install
 
 Fjord runs on **Windows 11 x64**, **macOS 13+** (Intel and Apple Silicon), and
-**Ubuntu 22.04+ x64**. Grab the signed Windows installer, the notarized macOS
-package, or the Linux AppImage from the
+**Ubuntu 22.04+ x64**. Grab the Windows installer, the macOS package, or the
+Linux AppImage from the
 [Releases page](https://github.com/TheZan/Fjord/releases).
+
+**v0.1 platform packages are not code-signed.** Windows SmartScreen and macOS
+Gatekeeper will show an unknown-publisher warning on first run (Windows: *More
+info* → *Run anyway*; macOS: allow the app under *System Settings → Privacy &
+Security*, or run `xattr -cr` on it). This does not affect update security:
+every updater artifact is cryptographically signed and verified by the
+mandatory Tauri updater key regardless of platform signing.
 
 ## Build from source
 

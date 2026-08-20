@@ -420,7 +420,7 @@ pub struct WorkingFileTarget {
 
 | Row | Diff side | Discard | Delete | Patch export |
 |---|---|---|---|---|
-| Unstaged | `INDEX -> WORKTREE` | ✅ worktree changes only | ✅ | from working changes |
+| Unstaged | `INDEX -> WORKTREE` | ✅ worktree changes only | ✅ — unless the path is also staged | from working changes |
 | Staged | `HEAD -> INDEX` | ❌ not offered | ❌ not offered | from staged changes |
 
 **Discard is never offered from a staged row**, and discarding from an unstaged
@@ -429,9 +429,42 @@ guarantee `discard_patch` enforces (§1). This removes, by construction, the
 "Discard ambiguously destroyed my staged work" failure mode. A user who wants to
 drop staged content unstages first, which is one visible step.
 
-`Delete file…` is likewise offered only from the unstaged row (§6.5): deleting a
-file that also carries staged content is exactly the ambiguous case this spec
-refuses rather than guesses.
+`Delete file…` is offered only from the unstaged row, and even there it is
+**refused while the same path also appears in the staged list** — see the
+partially-staged rule below.
+
+##### Partially staged paths
+
+When one path appears in *both* sections, the two actions diverge, and the
+difference is not cosmetic:
+
+- **Discard stays enabled.** It reverses only the `INDEX -> WORKTREE` selection,
+  so the independently staged `HEAD -> INDEX` content survives byte-for-byte.
+  That is a bounded, stated consequence the preflight can compute exactly.
+- **Delete must not execute.** Removing the worktree file while the index holds
+  independent staged content has no single honest consequence: the staged blob
+  is not lost (it is still in the index) but is now orphaned from any file on
+  disk, and a later commit would record a state the user never reviewed. This is
+  precisely the ambiguous case §6 refuses rather than guesses.
+
+The UX follows Fjord's existing convention for an action the user reasonably
+expects to be there — **disabled with a stated reason**, never silently hidden:
+
+```text
+Delete file…            (disabled)
+   This file also has staged changes. Unstage them before deleting the file.
+```
+
+(`workingFile.disabled.deleteAlsoStaged`, §6.10.)
+
+**The backend fails closed independently of the menu.** `DeleteFile` computes
+the path's staged state during preflight and raises the blocker
+`delete_file_partially_staged`, which disables confirmation and therefore
+prevents a token from being consumed; execution re-checks under the repository
+write lock and refuses with the same stable code if the staged state appeared
+between preflight and confirmation. Frontend disabling is a convenience, never
+the guarantee — the same principle `P9-10` already establishes for every other
+destructive action.
 
 #### 6.2 Menu composition
 
@@ -454,7 +487,7 @@ Copy path ▸  Relative path
 Create patch from changes…
 Copy patch to clipboard        (P10-WC-03 follow-up)
 ──────────────────────────
-Delete file…
+Delete file…                   (disabled when the path is also staged, §6.1)
 ```
 
 **Staged file:**
@@ -495,9 +528,10 @@ Adaptivity rules:
 
 - An action that does not apply to the row is **disabled with a stated reason**,
   not silently missing, wherever the user could reasonably expect it (Ignore on a
-  tracked file, merge/diff-tool entries with nothing configured). Actions that
-  belong to the other section entirely (Discard on a staged row) are absent — a
-  disabled "Discard" on a staged row would teach the wrong model.
+  tracked file, Delete on a partially staged path, merge/diff-tool entries with
+  nothing configured). Actions that belong to the other section entirely (Discard
+  on a staged row) are absent — a disabled "Discard" on a staged row would teach
+  the wrong model.
 - Deleted files (`changeType = deleted`) hide Open / Show in folder / Delete;
   Copy path and patch export remain.
 - Binary and mode-only changes hide patch export (`patch_unsupported`, §1) and
@@ -588,18 +622,54 @@ async fn reveal_path(&self, path: &Path) -> Result<(), LaunchError>;
   path inside the repository.
 
 **External diff tool.** The merge tool and the diff tool are **not** assumed to be
-the same application. `open_merge_tool` shells out to `git mergetool`, which is
-conflict-only and drives `merge.tool`; a diff tool is `diff.tool` /
-`difftool.<name>.cmd` and applies to any changed file. `P10-WC-06` therefore adds:
+the same application, and the two concepts stay separate throughout. Conflict
+resolution is `open_merge_tool` → `git mergetool`, driven by the user's
+`merge.tool`. Reviewing a changed file is `git difftool`, driven by `diff.tool` /
+`difftool.<name>.cmd`. `P10-WC-06` adds the second, and nothing about the first
+changes.
 
-- a `Settings.diff_tool: Option<String>` preference
-  ([`data-model.md`](data-model.md) planned additions), empty by default;
-- `open_external_diff { repo_id, path, source }`, which runs the user's system
-  Git `difftool --no-prompt -- <path>` (with `--cached` for a staged row) through
-  the shared resolved executable, so the user's existing `diff.tool`
-  configuration is honored and Fjord stores no tool command line of its own;
-- when neither `Settings.diff_tool` nor Git's `diff.tool` resolves, the entry is
-  disabled with a reason rather than failing at launch.
+*What Fjord stores.* Exactly one thing: an optional **Git difftool name**.
+
+```rust
+/// null  -> Auto: let Git resolve `diff.tool` / `difftool.<name>.cmd`
+/// "meld" -> invoke Git's difftool with `--tool=meld`
+pub diff_tool: Option<String>,
+```
+
+`Settings.diff_tool` is a nullable string because that matches every other
+optional preference in `Settings` (`default_ide`, `git_executable_path`); the
+two-state semantics above are the contract, and a validation rule keeps them
+honest. Fjord **never** stores an executable path, a shell command, or an
+arbitrary command line in this field — a value containing a path separator,
+whitespace, a quote, or a shell metacharacter is rejected at the settings
+boundary with `diff_tool_name_invalid`. The tool's actual command line lives in
+the user's own Git configuration, where `git difftool` already resolves it. This
+is the same reason `open_merge_tool` never stores a merge-tool command line.
+
+*Invocation.* `open_external_diff { repo_id, path, source }` runs system Git
+through the shared resolved executable, arguments passed individually:
+
+| Preference | Unstaged row (`PatchSource::Worktree`) | Staged row (`PatchSource::Index`) |
+|---|---|---|
+| `null` (Auto) | `difftool --no-prompt -- <path>` | `difftool --no-prompt --cached -- <path>` |
+| `Some("meld")` | `difftool --tool=meld --no-prompt -- <path>` | `difftool --tool=meld --no-prompt --cached -- <path>` |
+
+`--cached` is what makes the staged row show `HEAD -> INDEX` rather than the
+worktree diff, matching §6.1's row-identity rule.
+
+*Resolution outcomes.* All four combinations have a defined, stable behavior, so
+the entry is never a control that fails after the user clicks it:
+
+| Fjord preference | Git `diff.tool` | Behavior |
+|---|---|---|
+| `null` | configured | Enabled; `difftool` uses the user's configured tool. |
+| `null` | not configured | **Entry disabled** with `workingFile.disabled.noDiffTool`. Fjord checks resolvability before enabling rather than letting Git drop into its interactive tool-chooser prompt, which a `--no-prompt` GUI launch cannot answer. |
+| `Some(name)` | irrelevant | Enabled when Git can resolve `name`; `--tool=<name>` wins over `diff.tool`. |
+| `Some(name)` | — | Git cannot resolve `name` → the command fails with the stable code `diff_tool_not_configured`, whose localized message names the tool. The failure is reported once; nothing is retried and no fallback tool is silently substituted. |
+
+Resolvability is read through the existing `GitEnvironmentProvider` /
+configuration read path, alongside the other Git environment facts Settings
+already inspects — no new discovery mechanism.
 
 **Copy path.** *Relative path* is the repository-relative path as Git reports it
 (forward slashes, the form that is portable and pasteable into a Git command).
@@ -628,10 +698,20 @@ For `src/generated/debug.log` the submenu offers three rules, each showing the
   the global excludes file, `.git/info/exclude`, `core.excludesFile`, or any
   system/global Git configuration. A future feature may add those explicitly;
   this one must not.
-- Missing `.gitignore` → created with UTF-8 content, no BOM, and LF terminators.
-- Existing `.gitignore` → the file's dominant line terminator and encoding are
-  preserved, a missing final terminator is added first, and the rule is appended
-  as one new line. **No existing line is reordered, reformatted, or removed.**
+- **Encoding support is exactly UTF-8, with or without a BOM** — nothing wider.
+  Fjord does **not** guess Windows-1251/1252, UTF-16, or any other charset, and
+  does not carry a charset-detection dependency to satisfy this feature. A
+  `.gitignore` whose bytes are not valid UTF-8 (after an optional BOM) is
+  **never rewritten**: the action fails closed with the stable code
+  `ignore_file_encoding_unsupported`, the entry is disabled with a localized
+  reason, and the file is left byte-for-byte untouched. Refusing to write is
+  strictly better than corrupting a file Git reads on every status.
+- Existing `.gitignore` (valid UTF-8) → **BOM presence is preserved** as found,
+  the file's **dominant line terminator** (CRLF vs. LF) is reused for the
+  appended line, a missing final terminator is added first, and the rule is
+  appended as one new line. **No existing byte is reordered, reformatted, or
+  removed.**
+- Missing `.gitignore` → created as UTF-8 **without** a BOM, with LF terminators.
 - Duplicates: if the exact rule already exists as a non-comment, non-negated
   line (after trimming), nothing is written and the result is
   `IgnoreRuleOutcome::AlreadyPresent`, reported to the user. Fjord never appends
@@ -709,21 +789,31 @@ DestructiveAction::DeleteFile { path: String }
   through `preflight_destructive_action` → shared dialog → one-use token →
   `execute_destructive_action` ([`repository-safety.md`](repository-safety.md) §3).
   It reuses the shipped executor; it does not get a private command.
-- Consequences and recoverability are exact and distinct:
+- Consequences and recoverability are exact and distinct. The **staged state of
+  the path is part of the classification**, not an afterthought:
 
-  | File state | Consequence stated | Recoverability |
+  | File state | Consequence stated | Result |
   |---|---|---|
-  | Untracked | The file is not tracked by Git. Nothing — not the reflog, not a stash — holds a copy. | `NotRecoverable` |
-  | Tracked, unmodified | Removed from the working tree; it appears as a Git deletion. The committed version stays in `HEAD`. | `Committed` |
-  | Tracked, with uncommitted or staged changes | Both the file and those uncommitted changes are lost; the committed version stays in `HEAD`. | `NotRecoverable` |
-  | Conflicted | Refused (`delete_file_conflicted`). | — |
+  | Untracked, not staged | The file is not tracked by Git. Nothing — not the reflog, not a stash — holds a copy. | `NotRecoverable` |
+  | Tracked, unmodified in the worktree, nothing staged | Removed from the working tree; it appears as a Git deletion. The committed version stays in `HEAD`. | `Committed` |
+  | Tracked, modified in the worktree, nothing staged | Both the file and those uncommitted worktree changes are lost; the committed version stays in `HEAD`. | `NotRecoverable` |
+  | **Any path that also appears in the staged list** (partially staged, or newly added and staged) | — | **Blocked**: `delete_file_partially_staged` |
+  | Conflicted | — | **Blocked**: `delete_file_conflicted` |
 
   `Recoverability::Committed` is a new variant of the existing enum, meaning "the
   content is still in `HEAD` and can be restored from there". It is contractual
   in the same way the existing labels are: an action labeled `Committed` must
   leave the content retrievable from `HEAD`, asserted in tests. The existing rule
   that the label applies to the **complete** consequence set governs — this is
-  exactly why a modified tracked file degrades to `NotRecoverable`.
+  exactly why a worktree-modified tracked file degrades to `NotRecoverable`.
+- **The partially-staged case is a blocker, not a labeled consequence** (§6.1).
+  Fjord does not offer to delete a file whose index side holds independent staged
+  content, because there is no single honest sentence describing the result. The
+  blocker is computed in `preflight_destructive_action`, so confirmation is
+  disabled and no token is ever issued for that state; execution re-checks the
+  staged state under the repository write lock and refuses with the same code if
+  it appeared after the preflight. The user's path forward is the ordinary one:
+  unstage, then delete.
 - **Never recursive.** The action exists only on file rows. The backend refuses a
   path that resolves to a directory (`delete_target_not_a_file`); no directory is
   ever removed by a file-row action.
@@ -843,6 +933,7 @@ embedded in translated strings ([`i18n.md`](i18n.md)).
 | `workingFile.ignore.rulePreview` | `Adds {{rule}} to .gitignore` |
 | `workingFile.ignore.alreadyPresent` | `.gitignore already contains {{rule}}.` |
 | `workingFile.ignore.trackedFile` | `{{path}} is tracked by Git. Adding it to .gitignore would not stop tracking it.` |
+| `workingFile.ignore.encodingUnsupported` | `.gitignore is not valid UTF-8, so Fjord will not modify it.` |
 | `workingFile.stashFile` | `Stash file…` |
 | `workingFile.stashFile.title` | `Stash changes in {{path}}` |
 | `workingFile.stashFile.message` | `Message` |
@@ -850,15 +941,23 @@ embedded in translated strings ([`i18n.md`](i18n.md)).
 | `workingFile.stashFile.stagedNotPreserved` | `Staged state is not preserved: restoring this stash brings the changes back as unstaged.` |
 | `workingFile.stashFile.unsupportedGit` | `Stashing a single file needs Git 2.13 or newer.` |
 | `workingFile.disabled.conflicted` | `{{path}} has unresolved conflicts. Resolve them first.` |
+| `workingFile.disabled.deleteAlsoStaged` | `This file also has staged changes. Unstage them before deleting the file.` |
 | `workingFile.disabled.noEditor` | `No editor is configured. Choose one in Settings → Tools.` |
-| `workingFile.disabled.noDiffTool` | `No external diff tool is configured.` |
+| `workingFile.disabled.noDiffTool` | `No external diff tool is configured. Set diff.tool in Git, or choose one in Settings → Tools.` |
 | `workingFile.disabled.whitespaceMode` | `The displayed diff is not the patch Git would apply.` |
+| `settings.diffTool.label` | `External diff tool` |
+| `settings.diffTool.auto` | `Use the tool configured in Git` |
+| `settings.diffTool.invalidName` | `Enter a Git difftool name, such as meld — not a path or a command.` |
+| `errors.diff_tool_not_configured` | `Git could not resolve the difftool {{tool}}.` |
+| `errors.ignore_file_encoding_unsupported` | `.gitignore is not valid UTF-8. Fjord left it unchanged.` |
 | `preflight.deleteFile.title` | `Delete this file?` |
 | `preflight.deleteFile.confirm` | `Delete file` |
 | `preflight.recoverability.committed` | `The committed version stays in HEAD and can be restored from there.` |
 | `preflight.consequences.fileRemovedTracked` | `Remove {{path}} from the working tree; it will appear as a Git deletion.` |
 | `preflight.consequences.fileRemovedUntracked` | `Delete {{path}}. Git has no copy of this file.` |
 | `preflight.blockers.delete_target_not_a_file` | `Only files can be deleted from this menu.` |
+| `preflight.blockers.delete_file_partially_staged` | `{{path}} also has staged changes. Unstage them before deleting the file.` |
+| `preflight.blockers.delete_file_conflicted` | `{{path}} has unresolved conflicts. Resolve them first.` |
 
 
 ## Alternatives considered
@@ -999,15 +1098,25 @@ Additional rules for the §6 file actions:
   user's own Git `difftool` configuration rather than a Fjord-stored command.
 - `Delete file…` is destructive and runs only through the shared preflight,
   confirmation token, and `execute_destructive_action` executor. It is never
-  recursive, never follows a symlink to its target, and refuses a directory or a
-  conflicted file rather than guessing.
+  recursive, never follows a symlink to its target, and refuses a directory, a
+  conflicted file, or a **partially staged path** rather than guessing. The
+  partially-staged refusal is computed and re-checked backend-side under the
+  repository write lock; a disabled menu entry is a convenience, never the
+  guarantee.
 - Discard from a file row remains the shipped `PatchSource::Worktree`
   whole-file selection. There is no `git checkout -- <path>` and no unchecked
   service method anywhere in the context-menu path.
 - The `.gitignore` writer touches exactly one file in the repository working
   tree. It never writes global excludes, `.git/info/exclude`, `core.excludesFile`,
   or any global/system Git configuration, and it never rewrites, reorders, or
-  removes an existing line.
+  removes an existing line. Its supported encoding is UTF-8 with or without a
+  BOM; anything else fails closed with `ignore_file_encoding_unsupported` and
+  leaves the file byte-for-byte untouched rather than guessing a charset.
+- The external diff tool is invoked through the user's own Git `difftool`
+  configuration. `Settings.diff_tool` holds a **Git tool name only**; values
+  containing path separators, whitespace, quotes, or shell metacharacters are
+  rejected at the settings boundary, so no executable path or command line can be
+  stored or launched through this preference.
 - Patch bytes are written by the backend and never logged, and clipboard
   contents (paths or patches) are never logged (SDD §10).
 - Recoverability labels stay contractual: `Committed` must leave the content
@@ -1038,18 +1147,22 @@ Additional rules for the §6 file actions:
    file hides Open/Show/Delete; a binary file hides patch export; a
    whitespace-ignoring mode disables patch export with its reason; Ignore is
    disabled with `workingFile.ignore.trackedFile` on a tracked row.
-5. Stage and Unstage from the menu dispatch the **same** call with the same
+5. **Partially staged path** (`P10-WC-04`): with the same path present in both
+   sections, right-clicking the **unstaged** row renders **Discard enabled** and
+   **Delete disabled** with `workingFile.disabled.deleteAlsoStaged`; activating
+   the disabled entry dispatches nothing.
+6. Stage and Unstage from the menu dispatch the **same** call with the same
    payload as the inline row control, asserted against one spy.
-6. Every destructive entry (Discard, Delete) opens the shared preflight dialog
+7. Every destructive entry (Discard, Delete) opens the shared preflight dialog
    and executes nothing before confirmation.
-7. Escape closes the menu and restores focus to the originating row; the menu
+8. Escape closes the menu and restores focus to the originating row; the menu
    also closes when its target file leaves its section.
-8. `Shift+F10` and the Context Menu key open the menu on the focused row with the
+9. `Shift+F10` and the Context Menu key open the menu on the focused row with the
    identical payload as right-click.
-9. Virtualized row identity: scrolling the list while a menu is open must not
-   retarget it — the menu keeps `{ path, source }` and does not follow the
-   recycled DOM node.
-10. Tree view: a **directory** row exposes no destructive action, and no `Delete`
+10. Virtualized row identity: scrolling the list while a menu is open must not
+    retarget it — the menu keeps `{ path, source }` and does not follow the
+    recycled DOM node.
+11. Tree view: a **directory** row exposes no destructive action, and no `Delete`
     entry exists on it in any state.
 
 **Backend / integration tests:**
@@ -1060,36 +1173,58 @@ Additional rules for the §6 file actions:
 3. Ignore writes the directory rule (`/src/generated/`) — same assertions.
 4. A duplicate rule is a no-op returning `AlreadyPresent`; the file is unchanged
    byte-for-byte, including its terminators.
-5. `.gitignore` creation, terminator preservation on an existing CRLF file, and
-   preservation of every unrelated line.
-6. Ignore for a **tracked** file is unavailable and, if requested directly, is
+5. Encoding and terminator matrix, each asserting the appended line's bytes and
+   that every unrelated byte is preserved: **UTF-8 + LF**, **UTF-8 + CRLF**,
+   **UTF-8 with BOM** (BOM still present and still first after the write), a file
+   with **no final newline** (one is added before the rule), and **`.gitignore`
+   creation** when the file is absent (UTF-8, no BOM, LF).
+6. A `.gitignore` that is **not valid UTF-8** is refused with
+   `ignore_file_encoding_unsupported`, and the file is byte-for-byte identical
+   afterwards — no partial write, no charset guess.
+7. Ignore for a **tracked** file is unavailable and, if requested directly, is
    refused by the backend — it never writes.
-7. `stash_file` on one file leaves every unrelated staged entry, worktree byte,
+8. `stash_file` on one file leaves every unrelated staged entry, worktree byte,
    and untracked file identical — the §6.5 invariant, asserted for each of the
    five file states (`P10-WC-05`).
-8. `stash_file` on a conflicted file is refused; an unsupported Git version is
+9. `stash_file` on a conflicted file is refused; an unsupported Git version is
    refused before any mutation.
-9. Configured-editor open validates the path: traversal, absolute paths, `.git`
-   paths, and a symlink whose target lies outside the repository are all
-   rejected without spawning a process.
-10. Default-application open and reveal perform the same validation and
+10. Configured-editor open validates the path: traversal, absolute paths, `.git`
+    paths, and a symlink whose target lies outside the repository are all
+    rejected without spawning a process.
+11. Default-application open and reveal perform the same validation and
     construct the documented per-platform argument vector with no shell string.
-11. `open_external_diff` operates on exactly the selected file and side, and is
-    refused when no diff tool resolves (`P10-WC-06`).
-12. An exported **unstaged** patch passes `git apply --check` against the fixture
+12. `open_external_diff` argument construction per §6.4's table
+    (`P10-WC-06`): `null` preference emits no `--tool`, a stored name emits
+    `--tool=<name>`, and an unstaged row omits while a staged row includes
+    `--cached` — so the invocation matches the row's diff side.
+13. `open_external_diff` is unavailable when the preference is `null` and Git has
+    no `diff.tool`, and fails with `diff_tool_not_configured` naming the tool when
+    a stored name cannot be resolved by Git.
+14. `Settings.diff_tool` rejects a value containing a path separator, whitespace,
+    a quote, or a shell metacharacter with `diff_tool_name_invalid`, so no
+    executable path or command line can be persisted.
+15. An exported **unstaged** patch passes `git apply --check` against the fixture
     and reproduces the change when applied (`P10-WC-03`).
-13. An exported **staged** patch passes `git apply --cached --check` and
+16. An exported **staged** patch passes `git apply --cached --check` and
     reproduces the index state.
-14. Deleting an **untracked** file is labeled `NotRecoverable` in its preflight,
+17. Deleting an **untracked** file is labeled `NotRecoverable` in its preflight,
     and the deletion is atomic against a forged/unissued token (`P10-WC-04`).
-15. Deleting a **tracked, unmodified** file is labeled `Committed`, produces the
+18. Deleting a **tracked, unmodified** file is labeled `Committed`, produces the
     expected Git deletion in `working_changes`, and the content is retrievable
-    from `HEAD`; a tracked file with uncommitted changes degrades to
+    from `HEAD`; a tracked file with worktree-only changes degrades to
     `NotRecoverable`.
-16. Delete refuses a directory (`delete_target_not_a_file`) and a conflicted
+19. **Partially staged delete fails closed.** With one path staged and further
+    modified in the worktree: the preflight returns the blocker
+    `delete_file_partially_staged` and issues no confirmation token, a directly
+    invoked `execute_destructive_action` for that path is refused, and afterwards
+    the staged index content and the worktree file are both unchanged. The same
+    fixture asserts that **Discard on the unstaged side succeeds and leaves the
+    staged index content untouched**, which is what makes the two rules a pair
+    rather than two opinions.
+20. Delete refuses a directory (`delete_target_not_a_file`) and a conflicted
     file, and deletes a symlink without touching its target.
-17. `resolve_repository_file_path` returns the canonical relative and absolute
-    forms and rejects every escape attempt in test 9's set.
+21. `resolve_repository_file_path` returns the canonical relative and absolute
+    forms and rejects every escape attempt in test 10's set.
 
 Existing preflight, token, staging, and patch-construction tests are **reused**;
 none of the above re-tests `discard_patch`, `stage_files`, or the patch
@@ -1148,9 +1283,14 @@ constructor themselves.
     path reaches an unchecked Git call.
 20. A file present in both the staged and unstaged sections offers Discard only
     from the unstaged row, and that discard leaves the staged content untouched.
+    On that same row **`Delete file…` is disabled with a stated reason**, and the
+    backend refuses the action for that path even when invoked directly, leaving
+    the index and the worktree unchanged.
 21. `Ignore` is offered only for untracked files, shows the exact rule before
     writing it, appends it to the repository-root `.gitignore` without altering
-    any other line, and never appends a duplicate.
+    any other line, and never appends a duplicate. A `.gitignore` that is UTF-8
+    keeps its BOM presence and dominant terminator across the write; one that is
+    not valid UTF-8 is refused and left untouched.
 22. Stashing one file leaves every unrelated staged, unstaged, and untracked
     change identical, and the dialog states whether staged state is preserved.
 23. An exported patch applies cleanly with `git apply` against the state it was
@@ -1158,6 +1298,10 @@ constructor themselves.
 24. `Delete file…` never executes immediately, states its consequence and
     recoverability per §6.5, is never available on a directory row, and deletes a
     symlink rather than its target.
-25. `FileEntryList` exposes only a context-menu callback and remains free of Git
+25. **Open in external diff tool** invokes `git difftool` with `--tool=<name>`
+    only when Fjord stores a tool name, includes `--cached` exactly for a staged
+    row, is disabled when no tool resolves, and can never carry a Fjord-stored
+    executable path or command line.
+26. `FileEntryList` exposes only a context-menu callback and remains free of Git
     semantics; the menu's item list and its dispatcher are testable without
     rendering the working-changes panel.

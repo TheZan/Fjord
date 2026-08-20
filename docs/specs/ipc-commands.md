@@ -200,9 +200,17 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   `start_rebase` also uses).
 - Working-file actions (`P10-WC-01`–`P10-WC-06`): `path_outside_repository`,
   `path_not_found`, `ignore_rule_unsupported_for_tracked_file`,
-  `ignore_write_failed`, `patch_export_failed`, `stash_file_unsupported`,
-  `stash_file_conflicted`, `delete_target_not_a_file`, `delete_file_conflicted`,
-  `diff_tool_not_configured`, plus the existing `ide_not_allowed`.
+  `ignore_file_encoding_unsupported`, `ignore_write_failed`,
+  `patch_export_failed`, `stash_file_unsupported`, `stash_file_conflicted`,
+  `delete_target_not_a_file`, `delete_file_conflicted`,
+  `delete_file_partially_staged`, `diff_tool_not_configured`,
+  `diff_tool_name_invalid`, plus the existing `ide_not_allowed`.
+
+`delete_file_partially_staged` and `delete_file_conflicted` are also
+`DestructivePreflight.blockers` values: they disable confirmation so no token is
+ever issued, and execution re-checks them under the repository write lock — a
+disabled menu entry is never the guarantee
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.1, §6.5).
 
 ## What's not a command
 

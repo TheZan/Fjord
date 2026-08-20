@@ -160,14 +160,35 @@ already fixed here so the follow-up task has no product semantics left to invent
   fetch by default. Fjord does not silently make the ref fresher than the user's
   last fetch, because a merge whose input changed between the preview and the
   action is exactly the failure the preflight exists to prevent.
-- Freshness is surfaced, not resolved: the merge dialog states the
-  remote-tracking ref's short id and the age of the last fetch for that remote,
-  and offers an explicit **Fetch {{remote}} first** checkbox. When selected, the
-  merge runs the existing cancellable `fetch_repo` operation for that one remote
-  through the existing `GitRemoteBackend`, authentication, progress, and
-  cancellation infrastructure, then **re-resolves the source ref and re-runs the
-  preflight** before merging. A targeted fetch is never implied by the merge
-  action alone.
+- Freshness is **named, not measured**. The dialog identifies exactly which
+  object will be merged and says plainly what that object is:
+
+  ```text
+  origin/feature/payments
+  Known commit: a18c34f
+
+  This is the remote-tracking branch as Fjord last saw it.
+
+  [ ] Fetch origin before merging
+  ```
+
+  The short id is the whole freshness signal, and it is authoritative because it
+  is read from `refs/remotes/` at preflight time. **Fjord must not claim to know
+  when the ref was last refreshed.** A user can fetch from a terminal, another
+  GUI, or an IDE at any time, so any Fjord-owned "last fetched N minutes ago"
+  would be wrong exactly when it mattered — and no task in this spec may
+  introduce a persisted fetch timestamp to make such a claim possible. If a
+  future feature needs fetch recency, it must derive it from a repository-owned
+  source and justify that source on its own terms.
+- The explicit **Fetch {{remote}} before merging** checkbox is the only way a merge
+  touches the network. When selected, the merge runs the existing cancellable
+  `fetch_repo` operation for that one remote through the existing
+  `GitRemoteBackend`, authentication, progress, and cancellation infrastructure,
+  then **re-resolves the source ref and re-runs the preflight** before merging;
+  the dialog shows the re-resolved short id, so a ref that moved is visible
+  before the merge. A cancelled or failed fetch cancels the merge and leaves the
+  repository untouched. A targeted fetch is never implied by the merge action
+  alone.
 - **A local branch is never created.** Choosing Merge on `origin/feature/payments`
   merges that remote-tracking ref and leaves `refs/heads/` untouched. Creating a
   local tracking branch remains the separate, existing Checkout action.
@@ -557,6 +578,9 @@ names are interpolation variables only — never inside a translated string
 | `merge.dirty.title` | `You have local changes.` |
 | `merge.dirty.stashAndMerge` | `Stash changes and merge` |
 | `merge.dirty.stashRetained` | `Your work is in {{stash}}.` |
+| `merge.remote.knownCommit` | `Known commit: {{sha}}` |
+| `merge.remote.explanation` | `This is the remote-tracking branch as Fjord last saw it.` |
+| `merge.remote.fetchFirst` | `Fetch {{remote}} before merging` |
 | `merge.outcome.alreadyUpToDate` | `{{target}} was already up to date.` |
 | `merge.outcome.fastForwarded` | `{{target}} was fast-forwarded to {{source}}.` |
 | `merge.outcome.merged` | `Merged {{source}} into {{target}}.` |
@@ -575,6 +599,11 @@ names are interpolation variables only — never inside a translated string
 | `merge.error.notFastForward` | `{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.` |
 | `merge.error.failed` | `The merge could not be completed. The repository was not changed beyond what Git reported.` |
 | `commandPalette.mergeBranch` | `Merge branch…` |
+
+`merge.remote.*` ship with `P10-MERGE-02`; every other key ships with
+`P10-MERGE-01`. Note that no key states a fetch time — `merge.remote.knownCommit`
+names the object Fjord will merge, which is a fact it can prove, unlike a
+recency claim (§2).
 
 Russian renders `merge` as «слияние» per `src/locales/en/glossary.md`; branch
 names stay verbatim through interpolation.
@@ -615,7 +644,13 @@ names stay verbatim through interpolation.
   logs or the UI; log lines carry ref names and counts, never file contents.
 - v1 performs no network access. P10-MERGE-02's optional targeted fetch reuses
   the existing `GitRemoteBackend`, askpass, and cancellation infrastructure and
-  introduces no new transport path.
+  introduces no new transport path; it is reachable only through the explicit
+  checkbox, never as a side effect of opening the dialog or confirming a merge.
+- Fjord states only facts it can prove about a remote-tracking source: the
+  commit id read from `refs/remotes/` at preflight time. It makes no claim about
+  when that ref was last refreshed, because fetches performed outside Fjord are
+  invisible to it, and no persisted fetch timestamp is introduced to manufacture
+  one (§2).
 
 ## Testing strategy
 
@@ -667,6 +702,14 @@ names stay verbatim through interpolation.
 `FastForwardOnly` against a diverged source failing with `merge_not_fast_forward`
 and changing nothing is covered as part of case 4's fixture.
 
+`P10-MERGE-02` adds three cases to this list: merging a stale remote-tracking ref
+merges exactly the object in `refs/remotes/` and performs **no** network call;
+selecting **Fetch {{remote}} before merging** runs the existing fetch, re-resolves
+the ref, and merges
+the updated object, with the dialog showing the re-resolved commit id; and a
+cancelled or failed fetch cancels the merge, leaving `HEAD`, the ref set, and the
+working tree unchanged. No case asserts or requires a fetch timestamp.
+
 **Frontend / component coverage (required):**
 
 1. The left branch-tree context menu renders `Merge {{source}} into {{target}}…`
@@ -715,7 +758,11 @@ lists local branches excluding the current one.
    and untracked work, never pops it, and reports where the work is.
 10. Merging a remote-tracking branch is either implemented per §2
     (P10-MERGE-02) or refused with a stated reason — never silently absent and
-    never a hidden local-branch creation.
+    never a hidden local-branch creation. When implemented, the dialog names the
+    exact commit it will merge, states no fetch time, performs no network access
+    unless **Fetch {{remote}} before merging** is selected, and re-resolves the ref and
+    re-runs the preflight after that fetch. No task introduces a persisted
+    fetch timestamp.
 11. `Fast-forward only` against a diverged branch fails cleanly and changes
     nothing.
 12. The branch tree, the graph branch label, and the command palette dispatch one

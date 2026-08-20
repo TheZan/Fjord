@@ -233,8 +233,21 @@ force-with-lease push, checkout that would overwrite, abort of an operation.
 command, no private code path, and no second confirmation model — it exists
 precisely so file deletion cannot become the first destructive action that
 bypasses `execute_destructive_action`. Its blockers are
-`delete_target_not_a_file` and `delete_file_conflicted`; it is never recursive
-and never follows a symlink to its target.
+`delete_target_not_a_file`, `delete_file_conflicted`, and
+`delete_file_partially_staged`; it is never recursive and never follows a symlink
+to its target.
+
+The last blocker is the interesting one and is the reason `blockers` exists as a
+concept distinct from `consequences`. A path that appears in *both* the staged
+and unstaged lists has no single honest deletion consequence: the staged blob
+survives in the index but is orphaned from any file on disk. Rather than pick a
+sentence, Fjord refuses — and refuses **backend-side**, so a disabled menu entry
+is a convenience rather than the guarantee. The blocker is computed during
+preflight (no token is issued) and re-checked under the repository write lock at
+execution, in case the staged state appeared in between. Discard on the same
+path's unstaged row stays available, because it reverses only
+`INDEX -> WORKTREE` and provably preserves the staged side
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.1).
 
 Command: `preflight_destructive_action(repo_id, action, patch_selection?)` →
 `DestructivePreflight`.

@@ -87,9 +87,14 @@ Designed but not migrated yet. Each is forward-only and owned by a spec.
 -- See specs/workspace-workflows.md §5.
 ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
 
--- Phase 10 (P10-WC-06). Nullable: empty means "use the diff tool Git already
--- resolves from diff.tool". Fjord stores a tool *name*, never a command line.
--- See specs/working-tree-and-diff.md §6.4.
+-- Phase 10 (P10-WC-06). Holds a Git difftool NAME and nothing else.
+--   NULL   -> let Git resolve diff.tool / difftool.<name>.cmd
+--   'meld' -> invoke `git difftool --tool=meld`
+-- Never an executable path, a shell command, or a command line: values
+-- containing path separators, whitespace, quotes, or shell metacharacters are
+-- rejected at the settings boundary (`diff_tool_name_invalid`), so this column
+-- can never become a launch vector. The tool's actual command line stays in the
+-- user's own Git configuration. See specs/working-tree-and-diff.md §6.4.
 ALTER TABLE settings ADD COLUMN diff_tool TEXT;
 ```
 
