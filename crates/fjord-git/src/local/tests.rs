@@ -6464,7 +6464,12 @@ async fn merge_validates_exact_source_current_missing_remote_and_staged_state() 
         kind: MergeSourceKind::RemoteTracking,
     };
     let remote_preflight = backend.merge_preflight(&repo, &remote).await.unwrap();
-    assert_eq!(remote_preflight.blockers, vec!["merge_source_unsupported"]);
+    assert!(remote_preflight.blockers.is_empty());
+    assert_eq!(remote_preflight.source_label, "origin/topic");
+    assert!(matches!(
+        remote_preflight.prediction,
+        MergePrediction::AlreadyUpToDate
+    ));
 
     write_file(&repo, "staged.txt", "staged\n");
     run_git_success(&backend, &repo, &["add", "staged.txt"]);
@@ -6476,6 +6481,121 @@ async fn merge_validates_exact_source_current_missing_remote_and_staged_state() 
     assert!(staged
         .blockers
         .contains(&"merge_index_has_staged_changes".into()));
+    drop(directory);
+}
+
+#[tokio::test]
+async fn merge_remote_tracking_source_merges_exact_ref_without_creating_local_branch() {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    commit_with_cli(&backend, &repo, "topic ahead\n", "topic ahead");
+    let topic_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+
+    // A stale remote-tracking ref, as if it had never been fetched past "base".
+    run_git_success(
+        &backend,
+        &repo,
+        &["update-ref", "refs/remotes/origin/topic", "main"],
+    );
+    let source = MergeSource {
+        ref_name: "refs/remotes/origin/topic".into(),
+        kind: MergeSourceKind::RemoteTracking,
+    };
+    let stale_preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert!(matches!(
+        stale_preflight.prediction,
+        MergePrediction::AlreadyUpToDate
+    ));
+    let before = backend.generations(&repo).unwrap();
+    let stale_merge = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        stale_merge.outcome,
+        MergeOutcome::AlreadyUpToDate
+    ));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+
+    let mut local_names_before: Vec<String> = backend
+        .branches(&repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|b| !b.is_remote)
+        .map(|b| b.name)
+        .collect();
+    local_names_before.sort();
+
+    // Simulate a fetch: the remote-tracking ref moves to the branch's real tip.
+    // No network access, and no local branch is created by this step or by merge.
+    run_git_success(
+        &backend,
+        &repo,
+        &["update-ref", "refs/remotes/origin/topic", "topic"],
+    );
+    let fresh_preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(fresh_preflight.source_commit.0, topic_head);
+    assert_eq!(fresh_preflight.source_label, "origin/topic");
+    assert!(matches!(
+        fresh_preflight.prediction,
+        MergePrediction::FastForward { commits: 1 }
+    ));
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        result.outcome,
+        MergeOutcome::FastForwarded { ref head } if head.0 == topic_head
+    ));
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        topic_head
+    );
+    assert_eq!(
+        String::from_utf8(git_output(
+            &backend,
+            &repo,
+            &["rev-parse", "refs/remotes/origin/topic"],
+        ))
+        .unwrap()
+        .trim(),
+        topic_head
+    );
+
+    let mut local_names_after: Vec<String> = backend
+        .branches(&repo)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|b| !b.is_remote)
+        .map(|b| b.name)
+        .collect();
+    local_names_after.sort();
+    assert_eq!(local_names_before, local_names_after);
     drop(directory);
 }
 

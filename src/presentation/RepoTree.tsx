@@ -458,14 +458,12 @@ function branchMenuItems(
       }),
       icon: "merge",
       separatorBefore: true,
-      disabled: branch.isCurrent || branch.isRemote || !currentBranch || Boolean(checkoutDisabledReason),
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
       disabledReason: branch.isCurrent
         ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
-        : branch.isRemote
-          ? t("merge.blocked.remoteSourceNotSupported")
-          : !currentBranch
-            ? t("merge.blocked.detachedHead")
-            : checkoutDisabledReason,
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
     },
     {
       id: "createBranch",

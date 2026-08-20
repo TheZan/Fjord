@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
+import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import {
@@ -417,12 +418,23 @@ export function RepoDetailContainer({
     setMergeSource(source);
   }
 
-  function executeMerge(mode: MergeMode, dirtyPolicy: MergeDirtyPolicy) {
+  function executeMerge(mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) {
     if (!mergeSource) return;
     const source = mergeSource;
     void runRepoAction(
       "merge",
       async () => {
+        if (fetchFirst) {
+          const remote = mergeSourceRemoteName(source);
+          if (remote) {
+            const fetchTask = runFetchRepo(repo.id, remote);
+            setActionOperationId(fetchTask.operationId);
+            await fetchTask.promise;
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.repos.mergePreflight(repo.id, source.refName),
+            });
+          }
+        }
         const task = runMergeBranch(repo.id, source, mode, dirtyPolicy);
         setActionOperationId(task.operationId);
         const result = await task.promise;

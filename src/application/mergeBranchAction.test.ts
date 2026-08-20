@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { commandPaletteMergeBranches, mergeSourceForBranch } from "@/application/mergeBranchAction";
+import {
+  commandPaletteMergeBranches,
+  mergeSourceForBranch,
+  mergeSourceRemoteName,
+} from "@/application/mergeBranchAction";
 import type { BranchInfo } from "@/domain/git";
 
 describe("merge branch application action", () => {
@@ -18,6 +22,12 @@ describe("merge branch application action", () => {
       refName: "refs/remotes/origin/feature",
       kind: "remoteTracking",
     });
+  });
+
+  it("extracts the remote name from a remote-tracking source and returns null for a local one", () => {
+    expect(mergeSourceRemoteName({ refName: "refs/remotes/origin/feature/payments", kind: "remoteTracking" }))
+      .toBe("origin");
+    expect(mergeSourceRemoteName({ refName: "refs/heads/feature", kind: "localBranch" })).toBeNull();
   });
 });
 

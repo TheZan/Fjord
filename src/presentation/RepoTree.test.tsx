@@ -162,19 +162,23 @@ describe("RepoTree", () => {
     expect(feature).toHaveFocus();
   });
 
-  it("keeps current and remote merge entries visible with stated disabled reasons", () => {
+  it("keeps the current-branch merge entry visible with a stated disabled reason", () => {
     render(<RepoTree repoId="repo-1" />);
     fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
     const current = screen.getByRole("menuitem", { name: "Merge main into main…" });
     expect(current).toBeDisabled();
     expect(current).toHaveAttribute("title", "merge.blocked.sourceIsCurrentBranch");
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+  });
 
+  it("offers an enabled merge entry for a remote-tracking branch and dispatches its remote-tracking source", () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
     fireEvent.click(screen.getByRole("button", { name: /tree.remote/ }));
     fireEvent.contextMenu(screen.getByRole("button", { name: "release" }));
     const remote = screen.getByRole("menuitem", { name: "Merge origin/release into main…" });
-    expect(remote).toBeDisabled();
-    expect(remote).toHaveAttribute("title", "merge.blocked.remoteSourceNotSupported");
+    expect(remote).toBeEnabled();
+    fireEvent.click(remote);
+    expect(onBranchContextAction).toHaveBeenCalledWith("merge", branches[2], ["origin/release"]);
   });
 
   it("blocks checkout gestures and explains the disabled context action", () => {

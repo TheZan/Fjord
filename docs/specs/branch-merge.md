@@ -82,9 +82,9 @@ and it has no preflight, no mode selection, and no UI entry point.
 | Merge state detection | ✅ `RepoOperationState::Merge { head, incoming }` with conflicted paths, computed controls, and `detected_externally` (`P9-01`, `P9-02`). |
 | Conflict UI | ✅ Operation banner with bounded conflicted paths, merge-tool handoff, Continue/Abort (`P9-03`, `P9-04`). |
 | Abort | ✅ `DestructiveAction::AbortOperation` through the shared preflight and token-bound executor (`P9-05`, `P9-06`). |
-| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking and squash sources remain owned by `P10-MERGE-02` and `P10-MERGE-03`. |
+| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2). Squash merge remains owned by `P10-MERGE-03`. |
 | Local merge machinery | ⚠️ `integrate_upstream` performs a `git2` up-to-date / fast-forward / normal-merge analysis for `pull` only. Not a product action; not reused by this spec (§7). |
-| Branch context menu | ✅ Local branches expose the shared merge action with source/target labels and disabled reasons; remote-tracking refs are visibly deferred. |
+| Branch context menu | ✅ Local and remote-tracking branches both expose the shared merge action with source/target labels and disabled reasons; only the current branch is disabled. |
 | Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. |
 | Command palette | ✅ `Ctrl/Cmd+K` lists eligible local branches as **Merge branch…** actions and dispatches the same application flow. |
 

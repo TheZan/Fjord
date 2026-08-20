@@ -27,6 +27,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 const source = { refName: "refs/heads/feature", kind: "localBranch" as const };
+const remoteSource = { refName: "refs/remotes/origin/feature", kind: "remoteTracking" as const };
 
 describe("MergeDialog", () => {
   beforeEach(() => {
@@ -53,8 +54,41 @@ describe("MergeDialog", () => {
     expect(screen.getByText(/merge\.prediction\.fastForward/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse");
+    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false);
     expect((await axe.run(container)).violations).toEqual([]);
+  });
+
+  it("offers fetch-before-merge for a remote-tracking source and names the known commit", () => {
+    const onConfirm = vi.fn();
+    mergeState.preflight = {
+      ...preflight({ kind: "fastForward", commits: 2 }),
+      source: remoteSource,
+      sourceLabel: "origin/feature",
+    };
+    render(
+      <MergeDialog
+        repoId="repo-1"
+        source={remoteSource}
+        currentBranch="main"
+        pending={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText("merge.remote.knownCommit:sha=source-")).toBeInTheDocument();
+    expect(screen.getByText("merge.remote.explanation")).toBeInTheDocument();
+    const checkbox = screen.getByLabelText("merge.remote.fetchFirst:remote=origin");
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true);
+  });
+
+  it("never offers fetch-before-merge for a local-branch source", () => {
+    render(dialog(vi.fn()));
+    expect(screen.queryByText(/merge\.remote\.fetchFirst/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/merge\.remote\.knownCommit/)).not.toBeInTheDocument();
   });
 
   it("renders already-up-to-date, merge-commit, and dirty choices distinctly", () => {
@@ -75,15 +109,15 @@ describe("MergeDialog", () => {
     };
     rerender(dialog(onConfirm));
     fireEvent.click(screen.getByRole("button", { name: "merge.dirty.stashAndMerge" }));
-    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst");
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false);
   });
 });
 
-function renderDialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy) => void) {
+function renderDialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void) {
   return render(dialog(onConfirm));
 }
 
-function dialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy) => void) {
+function dialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void) {
   return (
     <MergeDialog
       repoId="repo-1"

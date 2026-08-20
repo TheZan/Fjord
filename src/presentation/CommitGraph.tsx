@@ -1115,18 +1115,15 @@ function refMenuItems(
   const mergeDisabled =
     refInfo.kind !== "branch" ||
     refInfo.active ||
-    refInfo.remote ||
     !currentBranch ||
     !canMerge;
   const mergeDisabledReason = refInfo.kind !== "branch"
     ? t("merge.blocked.sourceKindUnsupported")
     : refInfo.active
       ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? refInfo.label })
-      : refInfo.remote
-        ? t("merge.blocked.remoteSourceNotSupported")
-        : !currentBranch
-          ? t("merge.blocked.detachedHead")
-          : undefined;
+      : !currentBranch
+        ? t("merge.blocked.detachedHead")
+        : undefined;
 
   return [
     {

@@ -122,6 +122,11 @@
       "mergeCommit": "{{source}} is {{ahead}} commits ahead and {{behind}} behind {{target}}. This will create a merge commit."
     },
     "dirty": { "title": "You have local changes.", "stashAndMerge": "Stash changes and merge", "stashRetained": "Your work is in {{stash}}." },
+    "remote": {
+      "knownCommit": "Known commit: {{sha}}",
+      "explanation": "This is the remote-tracking branch as Fjord last saw it.",
+      "fetchFirst": "Fetch {{remote}} before merging"
+    },
     "outcome": {
       "alreadyUpToDate": "{{target}} was already up to date.",
       "fastForwarded": "{{target}} was fast-forwarded to {{source}}.",

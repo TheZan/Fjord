@@ -336,6 +336,33 @@ describe("CommitGraph", () => {
       kind: "localBranch",
     });
   });
+
+  it("offers an enabled merge entry for a remote-tracking branch label", () => {
+    const onMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Remote tip")];
+    graphState.branches = [branch("develop", true), branch("origin/feature", false, true)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature"));
+    const mergeItem = screen.getByRole("menuitem", {
+      name: "Merge feature into develop…",
+    });
+    expect(mergeItem).toBeEnabled();
+    fireEvent.click(mergeItem);
+    expect(onMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/remotes/origin/feature",
+      kind: "remoteTracking",
+    });
+  });
 });
 
 function commit(id: string, message: string): CommitSummary {
@@ -350,11 +377,11 @@ function commit(id: string, message: string): CommitSummary {
   };
 }
 
-function branch(name: string, isCurrent: boolean): BranchInfo {
+function branch(name: string, isCurrent: boolean, isRemote = false): BranchInfo {
   return {
     name,
     isCurrent,
-    isRemote: false,
+    isRemote,
     upstream: null,
     ahead: 0,
     behind: 0,

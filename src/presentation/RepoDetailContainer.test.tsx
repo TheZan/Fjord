@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 import { RepoDetailContainer } from "@/presentation/RepoDetailContainer";
@@ -22,6 +22,7 @@ const operationStateMock = vi.hoisted(() => ({
 const queryClientMock = vi.hoisted(() => ({
   setQueryData: vi.fn(),
   getQueryData: vi.fn(() => operationStateMock.state),
+  invalidateQueries: vi.fn(async () => undefined),
 }));
 
 vi.mock("react-i18next", async (importOriginal) => ({
@@ -128,6 +129,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
       generations: { workingTree: 2, refs: 2, history: 2, stash: 0, config: 0 },
     }),
   })),
+  runFetchRepo: vi.fn(() => ({ operationId: "operation-fetch", promise: Promise.resolve() })),
   runCommitAndPushRepo: vi.fn(() => ({
     operationId: "operation-commit-push",
     promise: Promise.resolve({
@@ -219,6 +221,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
+      <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
@@ -248,8 +251,17 @@ vi.mock("@/presentation/RepoDetailView", () => ({
 
 vi.mock("@/presentation/MergeDialog", () => ({
   MergeDialog: ({ onConfirm }: {
-    onConfirm: (mode: import("@/domain/git").MergeMode, policy: import("@/domain/git").MergeDirtyPolicy) => void;
-  }) => <button type="button" onClick={() => onConfirm("default", "refuse")}>confirm merge</button>,
+    onConfirm: (
+      mode: import("@/domain/git").MergeMode,
+      policy: import("@/domain/git").MergeDirtyPolicy,
+      fetchFirst: boolean,
+    ) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onConfirm("default", "refuse", false)}>confirm merge</button>
+      <button type="button" onClick={() => onConfirm("default", "refuse", true)}>confirm merge with fetch</button>
+    </>
+  ),
 }));
 
 vi.mock("@/presentation/RecoveryCenter", () => ({
@@ -295,6 +307,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
       promise: Promise.resolve("stash@{0}"),
     });
     vi.mocked(runMergeBranch).mockClear();
+    vi.mocked(runFetchRepo).mockReset();
+    vi.mocked(runFetchRepo).mockReturnValue({
+      operationId: "operation-fetch",
+      promise: Promise.resolve(),
+    });
     vi.mocked(runExecuteDestructiveAction).mockReset();
     vi.mocked(runExecuteDestructiveAction).mockReturnValue({
       operationId: "operation-destructive",
@@ -840,6 +857,40 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "merge.dirty.stashRetained",
     ));
     expect(screen.getByTestId("action-error")).toBeEmptyDOMElement();
+  });
+
+  it("fetches the remote before merging, re-resolves the preflight, then merges", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge remote feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge with fetch" }));
+
+    await waitFor(() => expect(runMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/remotes/origin/feature", kind: "remoteTracking" },
+      "default",
+      "refuse",
+    ));
+    expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
+    expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["repos", "repo-1", "mergePreflight", "refs/remotes/origin/feature"],
+    });
+    const fetchOrder = vi.mocked(runFetchRepo).mock.invocationCallOrder[0];
+    const mergeOrder = vi.mocked(runMergeBranch).mock.invocationCallOrder[0];
+    expect(fetchOrder).toBeLessThan(mergeOrder);
+  });
+
+  it("cancels the merge without calling merge_branch when the fetch fails", async () => {
+    vi.mocked(runFetchRepo).mockReturnValueOnce({
+      operationId: "operation-fetch",
+      promise: Promise.reject({ code: "network_unreachable" }),
+    });
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge remote feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge with fetch" }));
+
+    await waitFor(() => expect(screen.getByTestId("action-pending")).toBeEmptyDOMElement());
+    expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
+    expect(runMergeBranch).not.toHaveBeenCalled();
   });
 
   it("routes operation abort through destructive preflight", async () => {

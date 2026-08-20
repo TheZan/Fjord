@@ -207,7 +207,7 @@ fn preflight_locked(
     LocalGitBackend::with_runtime_git2(repo, |git| {
         let state = super::operation_state::detect(git, repo, origins)?;
         let actual_kind = classify_source(&source.ref_name)?;
-        if actual_kind != source.kind || actual_kind == MergeSourceKind::RemoteTracking {
+        if actual_kind != source.kind {
             return preflight_for_unsupported(git, repo, source, origins);
         }
         let source_ref =
@@ -234,11 +234,7 @@ fn preflight_locked(
         let target_commit = head
             .peel_to_commit()
             .map_err(LocalGitBackend::map_git2_error)?;
-        let source_label = source
-            .ref_name
-            .strip_prefix("refs/heads/")
-            .unwrap_or(&source.ref_name)
-            .to_string();
+        let source_label = strip_ref_prefix(&source.ref_name);
         let (ahead, behind) = git
             .graph_ahead_behind(source_commit.id(), target_commit.id())
             .map_err(LocalGitBackend::map_git2_error)?;
@@ -317,11 +313,7 @@ fn preflight_for_unsupported(
         .to_string();
     Ok(MergePreflight {
         source: source.clone(),
-        source_label: source
-            .ref_name
-            .strip_prefix("refs/remotes/")
-            .unwrap_or(&source.ref_name)
-            .to_string(),
+        source_label: strip_ref_prefix(&source.ref_name),
         source_commit: CommitId(source_commit.id().to_string()),
         target_branch,
         target_commit: CommitId(target_commit.id().to_string()),
@@ -335,6 +327,16 @@ fn preflight_for_unsupported(
         blockers: vec!["merge_source_unsupported".into()],
         generations: repository_generations(repo)?,
     })
+}
+
+/// Display label for a merge source: the branch or remote-tracking name
+/// without its `refs/heads/` or `refs/remotes/` qualifier.
+fn strip_ref_prefix(ref_name: &str) -> String {
+    ref_name
+        .strip_prefix("refs/heads/")
+        .or_else(|| ref_name.strip_prefix("refs/remotes/"))
+        .unwrap_or(ref_name)
+        .to_string()
 }
 
 fn classify_source(ref_name: &str) -> Result<MergeSourceKind, GitError> {
@@ -526,5 +528,15 @@ mod tests {
             classify_source("feature"),
             Err(GitError::MergeSourceUnsupported)
         ));
+    }
+
+    #[test]
+    fn strips_either_canonical_prefix_for_display() {
+        assert_eq!(strip_ref_prefix("refs/heads/feature"), "feature");
+        assert_eq!(
+            strip_ref_prefix("refs/remotes/origin/feature"),
+            "origin/feature"
+        );
+        assert_eq!(strip_ref_prefix("feature"), "feature");
     }
 }

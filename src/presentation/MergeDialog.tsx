@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
 import { useMergeBranch } from "@/application/useMergeBranch";
 import type {
   MergeDirtyPolicy,
@@ -22,13 +23,15 @@ export function MergeDialog({
   source: MergeSource;
   currentBranch: string;
   pending: boolean;
-  onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy) => void;
+  onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const dialogRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<MergeMode>("default");
+  const [fetchFirst, setFetchFirst] = useState(false);
   const { preflight, loading, error, errorCode } = useMergeBranch(repoId, source);
+  const remoteName = mergeSourceRemoteName(source);
   useDialogFocusTrap(dialogRef, onClose);
 
   const sourceLabel = preflight?.sourceLabel ?? mergeSourceLabel(source);
@@ -70,6 +73,12 @@ export function MergeDialog({
             </p>
           ) : null}
           {preflight ? <p>{predictionText(preflight, t)}</p> : null}
+          {remoteName && preflight ? (
+            <div className="mt-2">
+              <p>{t("merge.remote.knownCommit", { sha: preflight.sourceCommit.slice(0, 7) })}</p>
+              <p>{t("merge.remote.explanation")}</p>
+            </div>
+          ) : null}
           {dirtyBlocked ? (
             <div className="mt-3 rounded-md px-3 py-2" style={{ background: "var(--amber-tint)" }}>
               <p className="font-medium" style={{ color: "var(--amber-ink)" }}>{t("merge.dirty.title")}</p>
@@ -116,6 +125,18 @@ export function MergeDialog({
           </fieldset>
         ) : null}
 
+        {!alreadyUpToDate && hardBlockers.length === 0 && remoteName ? (
+          <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+            <input
+              type="checkbox"
+              checked={fetchFirst}
+              disabled={pending || loading}
+              onChange={(event) => setFetchFirst(event.target.checked)}
+            />
+            {t("merge.remote.fetchFirst", { remote: remoteName })}
+          </label>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-2">
           <Button onClick={onClose} disabled={pending}>
             {alreadyUpToDate ? t("merge.dismiss") : t("merge.cancel")}
@@ -124,7 +145,7 @@ export function MergeDialog({
             <Button
               variant="primary"
               disabled={pending || loading}
-              onClick={() => onConfirm(mode, dirtyBlocked ? "stashFirst" : "refuse")}
+              onClick={() => onConfirm(mode, dirtyBlocked ? "stashFirst" : "refuse", fetchFirst)}
             >
               {pending
                 ? t("merge.running")
