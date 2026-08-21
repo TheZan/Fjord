@@ -23,6 +23,7 @@ import type {
   MergeSource,
   OpenTarget,
   PatchSelection,
+  PatchSource,
   RepoOperationState,
   SnapshotRevalidation,
   SquashMergeResult,
@@ -748,6 +749,14 @@ export function stashPush(repoId: string, message: string | null = null): Promis
   return invoke("stash_push", { repoId, message });
 }
 
+export function stashFile(repoId: string, path: string, message: string): Promise<void> {
+  return invoke("stash_file", { repoId, path, message });
+}
+
+export function stashFileSupported(): Promise<boolean> {
+  return invoke("stash_file_supported");
+}
+
 export function openTerminal(repoId: string): Promise<void> {
   return invoke("open_terminal", { repoId });
 }
@@ -887,6 +896,18 @@ export function runPublishBranch(repoId: string, remote: string | null = null): 
 
 export function openMergeTool(repoId: string): Promise<void> {
   return invoke("open_merge_tool", { repoId });
+}
+
+export function diffToolAvailability(repoId: string): Promise<boolean> {
+  return invoke("diff_tool_availability", { repoId });
+}
+
+export function openExternalDiff(
+  repoId: string,
+  path: string,
+  source: PatchSource,
+): Promise<void> {
+  return invoke("open_external_diff", { repoId, path, source });
 }
 
 export function openInIde(repoId: string, ide: string | null = null): Promise<void> {

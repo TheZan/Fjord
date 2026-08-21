@@ -119,11 +119,39 @@ describe("WorkingFileContextMenu", () => {
   it("withholds mutations for conflicts and hides file launches for deleted rows", () => {
     const conflict = ids(workingFileMenuItems({ ...normal, conflicted: true }, worktree, false, t));
     expect(conflict).toEqual(["openEditor", "openDefault", "reveal", "openMergeTool", "copyPath"]);
+    expect(conflict).not.toContain("openExternalDiff");
+    expect(conflict).not.toContain("stashFile");
 
     const deleted = ids(workingFileMenuItems({ ...normal, changeType: "deleted" }, worktree, false, t));
     expect(deleted).toContain("discard");
     expect(deleted).not.toEqual(expect.arrayContaining(["openEditor", "openDefault", "reveal", "delete"]));
-    expect(deleted).toEqual(expect.arrayContaining(["copyPath", "createPatch", "copyPatch"]));
+    expect(deleted).toEqual(expect.arrayContaining(["copyPath", "createPatch", "copyPatch", "openExternalDiff"]));
+  });
+
+  it("offers Stash file only on the unstaged row, and external diff on both", () => {
+    const unstaged = ids(workingFileMenuItems(normal, worktree, false, t));
+    const staged = ids(workingFileMenuItems(normal, index, false, t));
+
+    expect(unstaged).toContain("stashFile");
+    expect(unstaged).toContain("openExternalDiff");
+    expect(staged).not.toContain("stashFile");
+    expect(staged).toContain("openExternalDiff");
+  });
+
+  it("disables Stash file with the stated reason on an unsupported Git", () => {
+    const items = workingFileMenuItems(normal, worktree, false, t, undefined, undefined, undefined, "workingFile.stashFile.unsupportedGit");
+    expect(items.find((item) => item.id === "stashFile")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.stashFile.unsupportedGit",
+    });
+  });
+
+  it("disables the external diff entry with the stated reason when no tool resolves", () => {
+    const items = workingFileMenuItems(normal, worktree, false, t, undefined, undefined, "workingFile.disabled.noDiffTool");
+    expect(items.find((item) => item.id === "openExternalDiff")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.noDiffTool",
+    });
   });
 
   it("dispatches the exact row target and exposes copy-path children through the shared submenu", async () => {
@@ -160,6 +188,25 @@ describe("WorkingFileContextMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.delete" }));
 
     expect(onAction).toHaveBeenCalledWith("delete", worktree);
+  });
+
+  it("dispatches stashFile and openExternalDiff for the exact target when clicked", () => {
+    const onAction = vi.fn();
+    const state: WorkingFileMenuState = { file: normal, target: worktree, position: { x: 10, y: 20 } };
+    render(
+      <WorkingFileContextMenu
+        state={state}
+        busy={false}
+        onAction={onAction}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.stashFile.label" }));
+    expect(onAction).toHaveBeenCalledWith("stashFile", worktree);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.openExternalDiff" }));
+    expect(onAction).toHaveBeenCalledWith("openExternalDiff", worktree);
   });
 
   it("does not dispatch when the disabled delete entry is activated", () => {

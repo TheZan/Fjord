@@ -8,10 +8,10 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, IgnoreRuleKind,
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
-    MergeResult, MergeSource, OpenTarget, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
-    RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    MergeResult, MergeSource, OpenTarget, PatchSelection, PatchSource, Recoverability, ReflogPage,
+    RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry,
+    RepositoryFilePath, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
+    SquashMergeResult, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -1920,6 +1920,53 @@ impl RepoService {
     pub async fn open_merge_tool(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.open_merge_tool(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn diff_tool_availability(&self, repo_id: RepositoryId) -> Result<bool, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .git
+            .diff_tool_availability(&RepoPath::new(repo.path), settings.diff_tool.as_deref())
+            .await?)
+    }
+
+    pub async fn open_external_diff(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        source: PatchSource,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .git
+            .open_external_diff(
+                &RepoPath::new(repo.path),
+                &resolved.relative,
+                source,
+                settings.diff_tool.as_deref(),
+            )
+            .await?)
+    }
+
+    pub async fn stash_file_supported(&self) -> Result<bool, RepoError> {
+        Ok(self.git.stash_file_supported().await?)
+    }
+
+    pub async fn stash_file(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        message: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        Ok(self
+            .git
+            .stash_file(&RepoPath::new(repo.path), &resolved.relative, message)
+            .await?)
     }
 
     pub async fn open_in_ide(

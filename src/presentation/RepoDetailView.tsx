@@ -107,6 +107,8 @@ export function RepoDetailView({
   onPendingDraftMessageConsumed,
   openWorkingDiffWhitespace,
   onWorkingDiffWhitespaceModeChange,
+  diffToolDisabledReason,
+  stashFileDisabledReason,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -182,6 +184,10 @@ export function RepoDetailView({
     target: { path: string; source: DiffSource } | null,
     mode: DiffWhitespaceMode,
   ) => void;
+  /** Set when no external diff tool currently resolves. */
+  diffToolDisabledReason?: string;
+  /** Set when the resolved Git cannot run a pathspec-scoped `stash push`. */
+  stashFileDisabledReason?: string;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
@@ -538,6 +544,8 @@ export function RepoDetailView({
               ? t("workingFile.disabled.deleteAlsoStaged")
               : undefined
           }
+          diffToolDisabledReason={diffToolDisabledReason}
+          stashFileDisabledReason={stashFileDisabledReason}
           onClose={() => setWorkingFileMenu(null)}
           onAction={onWorkingFileAction}
         />

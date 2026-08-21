@@ -42,6 +42,7 @@ mod destructive_confirmation;
 mod destructive_execution;
 mod destructive_preflight;
 mod diff;
+mod diff_tool;
 mod history;
 mod ignore;
 mod initialization;
@@ -56,6 +57,7 @@ mod refs;
 mod remotes;
 mod repository;
 mod runtime;
+mod stash_file;
 mod status;
 mod working_tree;
 
@@ -569,6 +571,16 @@ impl GitBackend for LocalGitBackend {
         Ok(())
     }
 
+    async fn stash_file(&self, repo: &RepoPath, path: &str, message: &str) -> Result<(), GitError> {
+        stash_file::stash(&self.commands, repo, path, message).await?;
+        runtime::bump_mutation(repo, MutationKind::StashPush);
+        Ok(())
+    }
+
+    async fn stash_file_supported(&self) -> Result<bool, GitError> {
+        stash_file::supported(&self.commands).await
+    }
+
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
         mutations::stash_pop(repo).await?;
         runtime::bump_mutation(repo, MutationKind::StashPop);
@@ -782,6 +794,24 @@ impl GitBackend for LocalGitBackend {
 
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError> {
         mutations::open_merge_tool(&self.commands, repo).await
+    }
+
+    async fn diff_tool_availability(
+        &self,
+        repo: &RepoPath,
+        preference: Option<&str>,
+    ) -> Result<bool, GitError> {
+        diff_tool::availability(&self.commands, repo, preference).await
+    }
+
+    async fn open_external_diff(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        source: PatchSource,
+        preference: Option<&str>,
+    ) -> Result<(), GitError> {
+        diff_tool::open(&self.commands, repo, path, source, preference).await
     }
 
     fn set_git_executable(&self, resolution: GitExecutableResolution) {

@@ -245,7 +245,14 @@ export type Settings = {
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, 
+/**
+ * A Git difftool **name** only — never a path, shell command, or command
+ * line. `None` means "let Git resolve `diff.tool` /
+ * `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+ * --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+ */
+diffTool: string | null, };
 
 export type UiDiffMode = "unified" | "split";
 

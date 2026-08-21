@@ -15,6 +15,8 @@ pub struct AppError {
     pub paths: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stash_ref: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
 }
 
 impl AppError {
@@ -25,6 +27,7 @@ impl AppError {
             diagnostics: None,
             paths: None,
             stash_ref: None,
+            tool: None,
         }
     }
 
@@ -55,6 +58,7 @@ impl From<StoreError> for AppError {
             StoreError::RepositoryNotFound(_) => "repository_not_found",
             StoreError::RepositoryAlreadyExists(_) => "repository_already_added",
             StoreError::Database(_) => "database_error",
+            StoreError::InvalidSetting(code) => *code,
         };
         Self::new(code, err.to_string())
     }
@@ -153,6 +157,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 diagnostics: Some(diagnostics),
                 paths: None,
                 stash_ref: None,
+                tool: None,
             };
         }
         GitError::CheckoutWouldOverwrite { paths } => {
@@ -162,6 +167,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 diagnostics: None,
                 paths: Some(paths),
                 stash_ref: None,
+                tool: None,
             };
         }
         GitError::MergeWouldOverwrite { paths } => {
@@ -171,6 +177,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 diagnostics: None,
                 paths: Some(paths),
                 stash_ref: None,
+                tool: None,
             };
         }
         GitError::MergeFailed(diagnostics) => {
@@ -180,12 +187,23 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 diagnostics: Some(diagnostics),
                 paths: None,
                 stash_ref: None,
+                tool: None,
             };
         }
         GitError::MergeStashRetained(source) => {
             let mut error = git_error_to_app_error(*source);
             error.stash_ref = Some("stash@{0}".to_string());
             return error;
+        }
+        GitError::DiffToolNotConfigured { tool } => {
+            return AppError {
+                code: "diff_tool_not_configured".to_string(),
+                message: format!("Git could not resolve the difftool {tool}"),
+                diagnostics: None,
+                paths: None,
+                stash_ref: None,
+                tool: Some(tool),
+            };
         }
         other => other,
     };
@@ -238,6 +256,9 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::DeleteTargetNotAFile => "delete_target_not_a_file",
         GitError::DeleteFilePartiallyStaged { .. } => "delete_file_partially_staged",
         GitError::DeleteFileConflicted { .. } => "delete_file_conflicted",
+        GitError::DiffToolNotConfigured { .. } => unreachable!("handled above"),
+        GitError::StashFileUnsupportedGit => "stash_file_unsupported_git",
+        GitError::StashFileConflicted { .. } => "stash_file_conflicted",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())
@@ -250,6 +271,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
         diagnostics: err.diagnostics().map(ToString::to_string),
         paths: None,
         stash_ref: None,
+        tool: None,
     }
 }
 

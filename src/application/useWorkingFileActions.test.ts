@@ -4,6 +4,7 @@ import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import {
   exportPatch,
   getPatchText,
+  openExternalDiff,
   openRepositoryPath,
   previewIgnoreRule,
   resolveRepositoryFilePath,
@@ -14,6 +15,7 @@ import { buildWholeFilePatchSelection } from "@/application/wholeFilePatchSelect
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   openRepositoryPath: vi.fn(async () => undefined),
+  openExternalDiff: vi.fn(async () => undefined),
   previewIgnoreRule: vi.fn(async () => ({ rule: "/src/app.ts", alreadyPresent: false })),
   resolveRepositoryFilePath: vi.fn(async () => ({
     relative: "src/app.ts",
@@ -63,6 +65,25 @@ describe("useWorkingFileActions", () => {
     await act(() => result.current.dispatch("delete", target));
 
     expect(onDelete).toHaveBeenCalledWith(target);
+  });
+
+  it("routes stashFile through the onStashFile callback with the exact target", async () => {
+    const onStashFile = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onStashFile })));
+    const target = { path: "src/app.ts", source: "worktree" as const };
+
+    await act(() => result.current.dispatch("stashFile", target));
+
+    expect(onStashFile).toHaveBeenCalledWith(target);
+  });
+
+  it("opens the external diff tool for the exact row target", async () => {
+    const { result } = renderHook(() => useWorkingFileActions(dependencies()));
+    const target = { path: "src/app.ts", source: "index" as const };
+
+    await act(() => result.current.dispatch("openExternalDiff", target));
+
+    expect(openExternalDiff).toHaveBeenCalledWith("repo-1", target.path, target.source);
   });
 
   it("uses backend-resolved paths for launches, reveal, and absolute-path copy", async () => {
@@ -152,6 +173,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     onDiscard: vi.fn(),
     onDelete: vi.fn(),
     onOpenMergeTool: vi.fn(),
+    onStashFile: vi.fn(),
     onAddIgnore: vi.fn(async () => "added" as const),
     onPatchSaved: vi.fn(),
     onError: vi.fn(),

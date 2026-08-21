@@ -668,15 +668,26 @@
     "openWithDefault": "Open with default application",
     "showInFolder": "Show in folder",
     "openMergeTool": "Open merge tool",
+    "openExternalDiff": "Open in external diff tool",
     "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" },
     "createPatch": "Create patch from changes…",
     "createPatchStaged": "Create patch from staged changes…",
     "copyPatch": "Copy patch to clipboard",
     "patchSaved": "Patch saved to {{path}}.",
     "delete": "Delete file…",
+    "stashFile": {
+      "label": "Stash file…",
+      "title": "Stash changes in {{path}}",
+      "message": "Message",
+      "defaultMessage": "Fjord: stash {{path}}",
+      "stagedNotPreserved": "Staged state is not preserved: restoring this stash brings the changes back as unstaged.",
+      "unsupportedGit": "Stashing a single file needs Git 2.13 or newer.",
+      "confirm": "Stash file"
+    },
     "disabled": {
       "whitespaceMode": "The displayed diff is not the patch Git would apply.",
-      "deleteAlsoStaged": "This file also has staged changes. Unstage them before deleting the file."
+      "deleteAlsoStaged": "This file also has staged changes. Unstage them before deleting the file.",
+      "noDiffTool": "No external diff tool is configured. Set diff.tool in Git, or choose one in Settings → Tools."
     },
     "ignore": {
       "label": "Ignore",

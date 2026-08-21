@@ -118,6 +118,7 @@ async fn settings_round_trip_through_the_real_store() {
             auto_fetch: true,
             performance_diagnostics: true,
             git_executable_path: None,
+            diff_tool: None,
         })
         .await
         .unwrap();

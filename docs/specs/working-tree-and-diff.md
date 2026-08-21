@@ -399,9 +399,9 @@ both **Path** and **Tree** view modes (`FileViewMode`, [`ui-shell.md`](ui-shell.
 Delivered by `P10-WC-01`–`P10-WC-06`; §6.9 fixes the dependency order.
 `P10-WC-01` is implemented: file rows now expose the shared adaptive menu with
 Stage/Unstage, token-bound whole-file Discard, Open/Reveal, merge-tool access,
-and backend-resolved path copying. `P10-WC-02` (Ignore) and `P10-WC-03` (patch
-export) are implemented; delete, file stash, and external diff remain owned
-independently by `P10-WC-04`–`P10-WC-06`.
+and backend-resolved path copying. `P10-WC-02` (Ignore), `P10-WC-03` (patch
+export), `P10-WC-04` (delete), `P10-WC-05` (file stash), and `P10-WC-06`
+(external diff tool) are all implemented.
 
 `P10-WC-03` reuses the `P8-01` patch constructor unchanged: a new read-only
 `export_patch` backend function (`crates/fjord-git/src/local/working_tree.rs`)

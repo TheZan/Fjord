@@ -53,6 +53,7 @@ import {
   revertCommit,
   stageFiles,
   stagePatch,
+  stashFile,
   stashPush,
   unstageFiles,
   unstagePatch,
@@ -67,11 +68,14 @@ import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog"
 import { MergeDialog } from "@/presentation/MergeDialog";
 import { SquashMergeDialog } from "@/presentation/SquashMergeDialog";
 import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
+import { StashFileDialog } from "@/presentation/StashFileDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
 import { isOperationInProgress } from "@/presentation/OperationBanner";
 import { queryKeys } from "@/application/queryKeys";
+import { useDiffToolAvailability } from "@/application/useDiffToolAvailability";
+import { useStashFileSupported } from "@/application/useStashFileSupported";
 
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
@@ -126,9 +130,12 @@ export function RepoDetailContainer({
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
+  const [stashFileTarget, setStashFileTarget] = useState<WorkingFileTarget | null>(null);
   const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
     { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
   >(null);
+  const diffToolAvailable = useDiffToolAvailability(repo.id, snapshot.ready);
+  const stashFileSupported = useStashFileSupported();
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
     onStage,
@@ -136,6 +143,7 @@ export function RepoDetailContainer({
     onDiscard: requestWorkingFileDiscard,
     onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
     onOpenMergeTool: () => onAction("merge-tool"),
+    onStashFile: (target) => setStashFileTarget(target),
     onAddIgnore,
     onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
     onError: (error) => setActionError(userErrorMessage(error)),
@@ -878,8 +886,26 @@ export function RepoDetailContainer({
             : null,
         );
       }}
+      diffToolDisabledReason={diffToolAvailable ? undefined : t("workingFile.disabled.noDiffTool")}
+      stashFileDisabledReason={stashFileSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
     />
     )}
+    {stashFileTarget ? (
+      <StashFileDialog
+        target={stashFileTarget}
+        onClose={() => setStashFileTarget(null)}
+        onConfirm={(message) => {
+          const target = stashFileTarget;
+          void runWorkingAction(
+            "stash-file",
+            () => stashFile(repo.id, target.path, message),
+            ["status", "working", "stashes"],
+          ).then((ok) => {
+            if (ok) setStashFileTarget(null);
+          });
+        }}
+      />
+    ) : null}
     {forcePushPreflight ? (
       <DestructivePreflightDialog
         repoId={repo.id}

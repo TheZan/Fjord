@@ -19,6 +19,7 @@ CREATE TABLE settings (
     auto_fetch      INTEGER NOT NULL DEFAULT 0,
     performance_diagnostics INTEGER NOT NULL DEFAULT 0,
     git_executable_path TEXT,
+    diff_tool       TEXT,                          -- Git difftool NAME only; see below
     updated_at      TEXT NOT NULL
 );
 
@@ -76,7 +77,22 @@ does not enable background network activity in the current product.
 
 Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
 `0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
-`0005_repo_snapshot.sql`, and `0006_ui_state.sql`.
+`0005_repo_snapshot.sql`, `0006_ui_state.sql`, and `0007_diff_tool.sql`.
+
+`0007_diff_tool.sql` (`P10-WC-06`) adds `settings.diff_tool`, holding a Git
+difftool **name** and nothing else:
+
+```sql
+-- NULL   -> let Git resolve diff.tool / difftool.<name>.cmd
+-- 'meld' -> invoke `git difftool --tool=meld`
+ALTER TABLE settings ADD COLUMN diff_tool TEXT;
+```
+
+Never an executable path, a shell command, or a command line: values
+containing path separators, whitespace, quotes, or shell metacharacters are
+rejected at the settings boundary (`diff_tool_name_invalid`), so this column
+can never become a launch vector. The tool's actual command line stays in the
+user's own Git configuration. See [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4.
 
 ## Planned additions
 
@@ -86,16 +102,6 @@ Designed but not migrated yet. Each is forward-only and owned by a spec.
 -- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
 -- See specs/workspace-workflows.md §5.
 ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
-
--- Phase 10 (P10-WC-06). Holds a Git difftool NAME and nothing else.
---   NULL   -> let Git resolve diff.tool / difftool.<name>.cmd
---   'meld' -> invoke `git difftool --tool=meld`
--- Never an executable path, a shell command, or a command line: values
--- containing path separators, whitespace, quotes, or shell metacharacters are
--- rejected at the settings boundary (`diff_tool_name_invalid`), so this column
--- can never become a launch vector. The tool's actual command line stays in the
--- user's own Git configuration. See specs/working-tree-and-diff.md §6.4.
-ALTER TABLE settings ADD COLUMN diff_tool TEXT;
 ```
 
 Neither the merge workflow ([`branch-merge.md`](branch-merge.md)) nor the Working

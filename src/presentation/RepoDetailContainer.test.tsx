@@ -69,6 +69,12 @@ vi.mock("@/application/useWorkingChanges", () => ({
     error: null,
   }),
 }));
+vi.mock("@/application/useDiffToolAvailability", () => ({
+  useDiffToolAvailability: () => true,
+}));
+vi.mock("@/application/useStashFileSupported", () => ({
+  useStashFileSupported: () => true,
+}));
 vi.mock("@/application/invalidateRepoData", () => ({
   invalidateRepoData: vi.fn(async () => undefined),
 }));

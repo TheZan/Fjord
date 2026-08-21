@@ -1160,6 +1160,11 @@ pub struct Settings {
     pub performance_diagnostics: bool,
     #[ts(type = "string | null")]
     pub git_executable_path: Option<PathBuf>,
+    /// A Git difftool **name** only — never a path, shell command, or command
+    /// line. `None` means "let Git resolve `diff.tool` /
+    /// `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+    /// --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+    pub diff_tool: Option<String>,
 }
 
 impl Default for Settings {
@@ -1171,6 +1176,7 @@ impl Default for Settings {
             auto_fetch: false,
             performance_diagnostics: false,
             git_executable_path: None,
+            diff_tool: None,
         }
     }
 }

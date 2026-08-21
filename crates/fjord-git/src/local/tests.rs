@@ -7342,3 +7342,226 @@ async fn delete_file_unlinks_a_symlink_without_touching_its_target() {
         "target content\n"
     );
 }
+
+#[tokio::test]
+async fn stash_file_unstaged_tracked_preserves_unrelated_state() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[("target.txt", b"base\n"), ("other.txt", b"other\n")],
+    )
+    .await;
+    write_file(&repo, "target.txt", "base\nmodified\n");
+    write_file(&repo, "other.txt", "other\nunstaged-unrelated\n");
+    write_file(&repo, "untracked.txt", "untracked-unrelated\n");
+
+    backend
+        .stash_file(&repo, "target.txt", "Fjord: stash target.txt")
+        .await
+        .unwrap();
+
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"base\n");
+    assert_eq!(
+        std::fs::read(repo.0.join("other.txt")).unwrap(),
+        b"other\nunstaged-unrelated\n"
+    );
+    assert_eq!(
+        std::fs::read(repo.0.join("untracked.txt")).unwrap(),
+        b"untracked-unrelated\n"
+    );
+    let stashes = backend.stashes(&repo).await.unwrap();
+    assert_eq!(stashes.len(), 1);
+    assert!(stashes[0].message.ends_with("Fjord: stash target.txt"));
+}
+
+#[tokio::test]
+async fn stash_file_staged_tracked_resets_to_head() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[("target.txt", b"base\n"), ("other.txt", b"other\n")],
+    )
+    .await;
+    write_file(&repo, "target.txt", "staged\n");
+    backend
+        .stage(&repo, &[PathBuf::from("target.txt")])
+        .await
+        .unwrap();
+    write_file(&repo, "other.txt", "other\nunstaged-unrelated\n");
+    write_file(&repo, "untracked.txt", "untracked-unrelated\n");
+
+    backend
+        .stash_file(&repo, "target.txt", "Fjord: stash target.txt")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo, "target.txt"),
+        Some(head_blob(&repo, "target.txt"))
+    );
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"base\n");
+    assert_eq!(
+        std::fs::read(repo.0.join("other.txt")).unwrap(),
+        b"other\nunstaged-unrelated\n"
+    );
+    assert_eq!(
+        std::fs::read(repo.0.join("untracked.txt")).unwrap(),
+        b"untracked-unrelated\n"
+    );
+}
+
+#[tokio::test]
+async fn stash_file_both_staged_and_unstaged_are_captured_together() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("target.txt", b"base\n")]).await;
+    write_file(&repo, "target.txt", "staged\n");
+    backend
+        .stage(&repo, &[PathBuf::from("target.txt")])
+        .await
+        .unwrap();
+    write_file(&repo, "target.txt", "staged\nunstaged-on-top\n");
+    write_file(&repo, "untracked.txt", "untracked-unrelated\n");
+
+    backend
+        .stash_file(&repo, "target.txt", "Fjord: stash target.txt")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo, "target.txt"),
+        Some(head_blob(&repo, "target.txt"))
+    );
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"base\n");
+    assert_eq!(
+        std::fs::read(repo.0.join("untracked.txt")).unwrap(),
+        b"untracked-unrelated\n"
+    );
+    let stashes = backend.stashes(&repo).await.unwrap();
+    assert_eq!(stashes.len(), 1);
+}
+
+#[tokio::test]
+async fn stash_file_untracked_removes_it_from_the_worktree() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("other.txt", b"other\n")]).await;
+    write_file(&repo, "target.txt", "brand new\n");
+    write_file(&repo, "other.txt", "other\nunstaged-unrelated\n");
+
+    backend
+        .stash_file(&repo, "target.txt", "Fjord: stash target.txt")
+        .await
+        .unwrap();
+
+    assert!(!repo.0.join("target.txt").exists());
+    assert_eq!(
+        std::fs::read(repo.0.join("other.txt")).unwrap(),
+        b"other\nunstaged-unrelated\n"
+    );
+    let stashes = backend.stashes(&repo).await.unwrap();
+    assert_eq!(stashes.len(), 1);
+}
+
+#[tokio::test]
+async fn stash_file_conflicted_is_refused() {
+    let (_directory, repo, backend) = start_revert_conflict();
+
+    let staged_before = index_blob(&repo, "operation.txt");
+    let worktree_before = std::fs::read(repo.0.join("operation.txt")).unwrap();
+    let result = backend
+        .stash_file(&repo, "operation.txt", "Fjord: stash operation.txt")
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(GitError::StashFileConflicted { path }) if path == "operation.txt"
+    ));
+    assert_eq!(index_blob(&repo, "operation.txt"), staged_before);
+    assert_eq!(
+        std::fs::read(repo.0.join("operation.txt")).unwrap(),
+        worktree_before
+    );
+    assert!(backend.stashes(&repo).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn stash_file_is_supported_by_the_resolved_git() {
+    let backend = LocalGitBackend::new();
+    // The resolved executable in this test environment is a real, current
+    // Git — the version gate is exercised at the unit level (`stash_file`
+    // module tests) against invented `git --version` strings, since faking
+    // an old Git binary end-to-end is out of proportion to what it proves.
+    assert!(backend.stash_file_supported().await.unwrap());
+}
+
+#[tokio::test]
+async fn diff_tool_availability_auto_reflects_configured_diff_tool() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("file.txt", b"content\n")]).await;
+
+    assert!(!backend.diff_tool_availability(&repo, None).await.unwrap());
+
+    run_git_success(&backend, &repo, &["config", "diff.tool", "vimdiff"]);
+    assert!(backend.diff_tool_availability(&repo, None).await.unwrap());
+}
+
+#[tokio::test]
+async fn diff_tool_availability_named_tool_resolves_via_git() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("file.txt", b"content\n")]).await;
+
+    assert!(!backend
+        .diff_tool_availability(&repo, Some("doesnotexist"))
+        .await
+        .unwrap());
+
+    run_git_success(&backend, &repo, &["config", "difftool.mytool.cmd", "true"]);
+    assert!(backend
+        .diff_tool_availability(&repo, Some("mytool"))
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn open_external_diff_fails_closed_when_auto_has_nothing_configured() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("file.txt", b"content\n")]).await;
+    write_file(&repo, "file.txt", "content\nmodified\n");
+
+    let result = backend
+        .open_external_diff(&repo, "file.txt", PatchSource::Worktree, None)
+        .await;
+    assert!(matches!(
+        result,
+        Err(GitError::DiffToolNotConfigured { .. })
+    ));
+}
+
+#[tokio::test]
+async fn open_external_diff_fails_closed_for_an_unresolvable_named_tool() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("file.txt", b"content\n")]).await;
+    write_file(&repo, "file.txt", "content\nmodified\n");
+
+    let result = backend
+        .open_external_diff(
+            &repo,
+            "file.txt",
+            PatchSource::Worktree,
+            Some("doesnotexist"),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(GitError::DiffToolNotConfigured { tool }) if tool == "doesnotexist"
+    ));
+}

@@ -5,6 +5,7 @@ import { pickSaveDestination } from "@/infrastructure/dialog";
 import {
   exportPatch,
   getPatchText,
+  openExternalDiff,
   openRepositoryPath,
   previewIgnoreRule,
   resolveRepositoryFilePath,
@@ -20,6 +21,8 @@ export type WorkingFileAction =
   | "openDefault"
   | "reveal"
   | "openMergeTool"
+  | "openExternalDiff"
+  | "stashFile"
   | "copyRelative"
   | "copyAbsolute"
   | "createPatch"
@@ -45,6 +48,7 @@ export function useWorkingFileActions({
   onDiscard,
   onDelete,
   onOpenMergeTool,
+  onStashFile,
   onAddIgnore,
   onPatchSaved,
   onError,
@@ -55,6 +59,7 @@ export function useWorkingFileActions({
   onDiscard: (target: WorkingFileTarget) => void;
   onDelete: (target: WorkingFileTarget) => void;
   onOpenMergeTool: () => void;
+  onStashFile: (target: WorkingFileTarget) => void;
   onAddIgnore: (target: WorkingFileTarget, kind: IgnoreRuleKind) => Promise<IgnoreRuleOutcome | null>;
   onPatchSaved: (destination: string) => void;
   onError: (error: unknown) => void;
@@ -84,6 +89,10 @@ export function useWorkingFileActions({
       if (action === "discard") return onDiscard(target);
       if (action === "delete") return onDelete(target);
       if (action === "openMergeTool") return onOpenMergeTool();
+      if (action === "stashFile") return onStashFile(target);
+      if (action === "openExternalDiff") {
+        return await openExternalDiff(repoId, target.path, target.source);
+      }
       if (action === "openEditor") {
         return await openRepositoryPath(repoId, target.path, {
           kind: "configuredEditor",
@@ -112,7 +121,7 @@ export function useWorkingFileActions({
     } catch (error) {
       onError(error);
     }
-  }, [onDelete, onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onUnstage, repoId]);
+  }, [onDelete, onDiscard, onError, onOpenMergeTool, onStashFile, onPatchSaved, onStage, onUnstage, repoId]);
 
   const confirmIgnoreRule = useCallback(async () => {
     if (!ignoreRule?.preview || ignoreRule.loading || ignoreRule.pending || ignoreRule.preview.alreadyPresent) return;

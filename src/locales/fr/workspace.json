@@ -622,15 +622,26 @@
     "openWithDefault": "Ouvrir avec l’application par défaut",
     "showInFolder": "Afficher dans le dossier",
     "openMergeTool": "Ouvrir l’outil de fusion",
+    "openExternalDiff": "Ouvrir dans l’outil de diff externe",
     "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" },
     "createPatch": "Créer un patch à partir des modifications…",
     "createPatchStaged": "Créer un patch à partir des modifications indexées…",
     "copyPatch": "Copier le patch dans le presse-papiers",
     "patchSaved": "Patch enregistré dans {{path}}.",
     "delete": "Supprimer le fichier…",
+    "stashFile": {
+      "label": "Remiser le fichier…",
+      "title": "Remiser les modifications de {{path}}",
+      "message": "Message",
+      "defaultMessage": "Fjord : remisage de {{path}}",
+      "stagedNotPreserved": "L'état indexé n'est pas conservé : la restauration de cette remise ramène les modifications comme non indexées.",
+      "unsupportedGit": "Remiser un seul fichier nécessite Git 2.13 ou plus récent.",
+      "confirm": "Remiser le fichier"
+    },
     "disabled": {
       "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait.",
-      "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier."
+      "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
+      "noDiffTool": "Aucun outil de diff externe n'est configuré. Définissez diff.tool dans Git, ou choisissez-en un dans Paramètres → Outils."
     },
     "ignore": {
       "label": "Ignorer",

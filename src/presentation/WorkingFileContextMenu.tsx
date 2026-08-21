@@ -15,6 +15,8 @@ export function WorkingFileContextMenu({
   busy,
   patchExportDisabledReason,
   deleteDisabledReason,
+  diffToolDisabledReason,
+  stashFileDisabledReason,
   onAction,
   onClose,
 }: {
@@ -27,6 +29,12 @@ export function WorkingFileContextMenu({
   /** Set when the same path also appears in the staged list — deleting the
    * worktree file would orphan independently staged content. */
   deleteDisabledReason?: string;
+  /** Set when no external diff tool currently resolves (Auto with no
+   * `diff.tool` configured, or a stored name Git cannot resolve). */
+  diffToolDisabledReason?: string;
+  /** Set when the resolved Git is older than 2.13 and cannot run a
+   * pathspec-scoped `stash push`. */
+  stashFileDisabledReason?: string;
   onAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onClose: () => void;
 }) {
@@ -34,7 +42,16 @@ export function WorkingFileContextMenu({
   return (
     <ContextMenu
       position={state.position}
-      items={workingFileMenuItems(state.file, state.target, busy, t, patchExportDisabledReason, deleteDisabledReason)}
+      items={workingFileMenuItems(
+        state.file,
+        state.target,
+        busy,
+        t,
+        patchExportDisabledReason,
+        deleteDisabledReason,
+        diffToolDisabledReason,
+        stashFileDisabledReason,
+      )}
       onClose={onClose}
       onSelect={(id) => {
         onClose();
@@ -51,6 +68,8 @@ export function workingFileMenuItems(
   t: TFunction<"workspace">,
   patchExportDisabledReason?: string,
   deleteDisabledReason?: string,
+  diffToolDisabledReason?: string,
+  stashFileDisabledReason?: string,
 ): ContextMenuItem[] {
   const copyPath: ContextMenuItem = {
     id: "copyPath",
@@ -87,6 +106,24 @@ export function workingFileMenuItems(
       ]
     : [{ id: "unstage", label: t("workingFile.unstage"), disabled: busy }];
   const ignore = target.source === "worktree" ? ignoreMenuItem(file, busy, t) : null;
+  const stashItem: ContextMenuItem | null = target.source === "worktree"
+    ? {
+        id: "stashFile",
+        label: t("workingFile.stashFile.label"),
+        disabled: busy || Boolean(stashFileDisabledReason),
+        disabledReason: stashFileDisabledReason,
+      }
+    : null;
+  const externalDiff: ContextMenuItem = {
+    id: "openExternalDiff",
+    label: t("workingFile.openExternalDiff"),
+    disabled: Boolean(diffToolDisabledReason),
+    disabledReason: diffToolDisabledReason,
+    // `openItems` carries the leading separator for this visual group; when
+    // the row is deleted, `openItems` is empty, so this item must open the
+    // group itself instead of silently joining the one above it.
+    separatorBefore: deleted,
+  };
   const createPatch: ContextMenuItem = {
     id: "createPatch",
     label: target.source === "worktree" ? t("workingFile.createPatch") : t("workingFile.createPatchStaged"),
@@ -112,7 +149,9 @@ export function workingFileMenuItems(
   return [
     ...primary,
     ...(ignore ? [ignore] : []),
+    ...(stashItem ? [stashItem] : []),
     ...openItems,
+    externalDiff,
     { ...copyPath, separatorBefore: true },
     createPatch,
     ...(target.source === "worktree" ? [copyPatch] : []),

@@ -3,9 +3,9 @@ use fjord_domain::{
     DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
     GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
-    PatchSelection, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
-    RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState,
+    RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult,
+    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -1040,6 +1040,42 @@ pub async fn open_merge_tool(
     repo_id: RepositoryId,
 ) -> Result<(), AppError> {
     Ok(state.repos.open_merge_tool(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn diff_tool_availability(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<bool, AppError> {
+    Ok(state.repos.diff_tool_availability(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn open_external_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    source: PatchSource,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .open_external_diff(repo_id, &path, source)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn stash_file_supported(state: State<'_, AppState>) -> Result<bool, AppError> {
+    Ok(state.repos.stash_file_supported().await?)
+}
+
+#[tauri::command]
+pub async fn stash_file(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    message: String,
+) -> Result<(), AppError> {
+    Ok(state.repos.stash_file(repo_id, &path, &message).await?)
 }
 
 #[tauri::command]

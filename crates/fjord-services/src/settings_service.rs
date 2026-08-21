@@ -22,7 +22,26 @@ impl SettingsService {
     }
 
     pub async fn update_settings(&self, settings: Settings) -> Result<Settings, StoreError> {
+        validate_diff_tool(settings.diff_tool.as_deref())?;
         self.store.update_settings(&settings).await
+    }
+}
+
+/// Fjord stores a Git difftool **name** only — never a path, shell command,
+/// or command line (docs/specs/working-tree-and-diff.md §6.4). A value
+/// containing a path separator, whitespace, a quote, or a shell
+/// metacharacter is rejected outright: only a name Git's own `--tool=<name>`
+/// resolution would accept can ever be persisted here.
+fn validate_diff_tool(name: Option<&str>) -> Result<(), StoreError> {
+    let Some(name) = name else { return Ok(()) };
+    let valid = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if valid {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidSetting("diff_tool_name_invalid"))
     }
 }
 
@@ -73,5 +92,66 @@ mod tests {
 
         let fetched = service.get_settings().await.unwrap();
         assert_eq!(fetched.theme, Theme::Dark);
+    }
+
+    #[tokio::test]
+    async fn accepts_a_plain_diff_tool_name_and_clearing_it() {
+        let store = Arc::new(FakeSettingsStore {
+            settings: Mutex::new(Settings::default()),
+        });
+        let service = SettingsService::new(store);
+        let initial = service.get_settings().await.unwrap();
+
+        let updated = service
+            .update_settings(Settings {
+                diff_tool: Some("meld".to_string()),
+                ..initial.clone()
+            })
+            .await
+            .unwrap();
+        assert_eq!(updated.diff_tool.as_deref(), Some("meld"));
+
+        let cleared = service
+            .update_settings(Settings {
+                diff_tool: None,
+                ..initial
+            })
+            .await
+            .unwrap();
+        assert_eq!(cleared.diff_tool, None);
+    }
+
+    #[tokio::test]
+    async fn rejects_a_diff_tool_value_that_is_a_path_a_command_or_contains_shell_metacharacters() {
+        let store = Arc::new(FakeSettingsStore {
+            settings: Mutex::new(Settings::default()),
+        });
+        let service = SettingsService::new(store);
+        let initial = service.get_settings().await.unwrap();
+
+        for invalid in [
+            "/usr/bin/meld",
+            "C:\\Tools\\meld.exe",
+            "meld --diff",
+            "meld; rm -rf /",
+            "meld$(whoami)",
+            "\"meld\"",
+            "'meld'",
+            "",
+        ] {
+            let result = service
+                .update_settings(Settings {
+                    diff_tool: Some(invalid.to_string()),
+                    ..initial.clone()
+                })
+                .await;
+            assert!(
+                matches!(
+                    result,
+                    Err(StoreError::InvalidSetting("diff_tool_name_invalid"))
+                ),
+                "expected {invalid:?} to be rejected, got {result:?}"
+            );
+        }
     }
 }

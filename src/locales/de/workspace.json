@@ -622,15 +622,26 @@
     "openWithDefault": "Mit Standardanwendung öffnen",
     "showInFolder": "Im Ordner anzeigen",
     "openMergeTool": "Merge-Werkzeug öffnen",
+    "openExternalDiff": "In externem Diff-Tool öffnen",
     "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" },
     "createPatch": "Patch aus Änderungen erstellen…",
     "createPatchStaged": "Patch aus vorgemerkten Änderungen erstellen…",
     "copyPatch": "Patch in die Zwischenablage kopieren",
     "patchSaved": "Patch gespeichert unter {{path}}.",
     "delete": "Datei löschen…",
+    "stashFile": {
+      "label": "Datei stashen…",
+      "title": "Änderungen in {{path}} stashen",
+      "message": "Nachricht",
+      "defaultMessage": "Fjord: Stash {{path}}",
+      "stagedNotPreserved": "Der Bereitstellungsstatus bleibt nicht erhalten: Beim Wiederherstellen dieses Stashs erscheinen die Änderungen als nicht bereitgestellt.",
+      "unsupportedGit": "Zum Stashen einer einzelnen Datei ist Git 2.13 oder neuer erforderlich.",
+      "confirm": "Datei stashen"
+    },
     "disabled": {
       "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde.",
-      "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen."
+      "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
+      "noDiffTool": "Es ist kein externes Diff-Tool konfiguriert. Legen Sie diff.tool in Git fest oder wählen Sie eines unter Einstellungen → Werkzeuge."
     },
     "ignore": {
       "label": "Ignorieren",

@@ -10,7 +10,7 @@ use fjord_domain::{
     AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
-    MergeResult, MergeSource, PatchSelection, Recoverability, ReflogPage, RemoteInfo,
+    MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
     RepoOperationState, RepoStatus, SquashMergeResult, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
@@ -269,6 +269,12 @@ pub enum GitError {
     DeleteFilePartiallyStaged { path: String },
     #[error("{path} has unresolved conflicts")]
     DeleteFileConflicted { path: String },
+    #[error("Git could not resolve the difftool {tool}")]
+    DiffToolNotConfigured { tool: String },
+    #[error("stashing a single file needs Git 2.13 or newer")]
+    StashFileUnsupportedGit,
+    #[error("{path} has unresolved conflicts")]
+    StashFileConflicted { path: String },
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -595,6 +601,25 @@ pub trait GitBackend: Send + Sync {
     async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError>;
     /// Applies and drops `stash@{0}`, the most recent entry.
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
+    /// File-scoped `git stash push -- <path>` (`P10-WC-05`). Every unrelated
+    /// staged, unstaged, and untracked change is preserved byte-for-byte —
+    /// this is Git's own pathspec-scoped stash, never a hide/stash/restore
+    /// sequence. Requires Git >= 2.13, checked by the caller through
+    /// [`GitBackend::stash_file_supported`] before this is reachable from the
+    /// UI; the backend still refuses a genuinely unsupported Git.
+    async fn stash_file(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _message: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("stash_file"))
+    }
+    /// Whether the resolved Git executable supports pathspec-limited
+    /// `stash push -- <path>` (Git >= 2.13).
+    async fn stash_file_supported(&self) -> Result<bool, GitError> {
+        Err(GitError::NotImplemented("stash_file_supported"))
+    }
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     /// Stages a verified line selection against the exact repository
     /// generation from which it was rendered.
@@ -742,6 +767,32 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("integrate_upstream"))
     }
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
+    /// Whether the given diff-tool preference (`None` = Auto, `Some(name)` =
+    /// an explicit Git difftool name) currently resolves to something Git can
+    /// run: `Auto` resolves when `diff.tool` is configured, and a named tool
+    /// resolves when Git recognizes it (`git difftool --tool-help`), whether
+    /// or not its underlying binary happens to be installed. Read-only.
+    async fn diff_tool_availability(
+        &self,
+        _repo: &RepoPath,
+        _preference: Option<&str>,
+    ) -> Result<bool, GitError> {
+        Err(GitError::NotImplemented("diff_tool_availability"))
+    }
+    /// Launches `git difftool` for one file and one diff side (`P10-WC-06`).
+    /// `source == Worktree` diffs `INDEX -> WORKTREE`; `source == Index` adds
+    /// `--cached` to diff `HEAD -> INDEX`, matching the row the user
+    /// right-clicked. Fails with [`GitError::DiffToolNotConfigured`] rather
+    /// than falling back to Git's interactive tool chooser.
+    async fn open_external_diff(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _source: PatchSource,
+        _preference: Option<&str>,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("open_external_diff"))
+    }
     /// Points the backend's own Git subprocess calls at a resolved executable,
     /// so a path chosen in Settings applies to local operations too and not
     /// only to remote transport. [`GitExecutableResolution::Unavailable`] makes

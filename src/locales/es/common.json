@@ -32,6 +32,8 @@
     "create_repository_registration_failed": "El repositorio se creó en el disco, pero no pudo añadirse al workspace. Los archivos se conservaron.",
     "create_repository_request_invalid": "Comprueba el nombre de la carpeta del repositorio y la rama inicial.",
     "database_error": "Fjord no pudo guardar sus datos. Inténtalo de nuevo o reinicia la app.",
+    "diff_tool_name_invalid": "Introduce un nombre de difftool de Git, como meld — no una ruta ni un comando.",
+    "diff_tool_not_configured": "Git no pudo resolver la herramienta de diff {{tool}}.",
     "git_error": "Git no pudo completar la operación. Comprueba el estado del repositorio e inténtalo de nuevo.",
     "git_auth_failed": "La autenticación de Git falló. Comprueba el gestor de credenciales, el token o la clave SSH.",
     "git_auth_required": "Git necesita autenticación.",
@@ -73,6 +75,8 @@
     "remote_name_exists": "Ya existe un remoto con este nombre.",
     "remote_request_invalid": "Comprueba el nombre del remoto y la URL del repositorio.",
     "stash_empty": "No hay stashes guardados para aplicar.",
+    "stash_file_conflicted": "Este archivo tiene conflictos sin resolver. Resuélvalos primero.",
+    "stash_file_unsupported_git": "Guardar un solo archivo en el stash requiere Git 2.13 o posterior.",
     "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
     "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo.",
     "log_folder_unavailable": "No se pudo abrir la carpeta de registros. Abre manualmente la carpeta de datos de la aplicación."
@@ -163,6 +167,11 @@
       "customPlaceholder": "comando-editor",
       "customValue": "Se guarda como custom:<command>.",
       "saveCustom": "Guardar"
+    },
+    "diffTool": {
+      "label": "Herramienta de diff externa",
+      "auto": "Usar la herramienta configurada en Git",
+      "invalidName": "Introduce un nombre de difftool de Git, como meld — no una ruta ni un comando."
     },
     "about": {
       "version": "Versión {{version}}",

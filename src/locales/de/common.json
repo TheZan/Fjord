@@ -32,6 +32,8 @@
     "create_repository_registration_failed": "Das Repository wurde auf dem Datenträger erstellt, konnte aber nicht zum Workspace hinzugefügt werden. Die Dateien bleiben erhalten.",
     "create_repository_request_invalid": "Prüfe den Repository-Ordnernamen und den anfänglichen Branch.",
     "database_error": "Fjord konnte seine Daten nicht speichern. Versuche es erneut oder starte die App neu.",
+    "diff_tool_name_invalid": "Gib einen Git-Difftool-Namen ein, z. B. meld — keinen Pfad und keinen Befehl.",
+    "diff_tool_not_configured": "Git konnte das Difftool {{tool}} nicht auflösen.",
     "git_error": "Git konnte den Vorgang nicht abschließen. Prüfe den Repository-Status und versuche es erneut.",
     "git_auth_failed": "Git-Authentifizierung fehlgeschlagen. Prüfe Credential Helper, Token oder SSH-Schlüssel.",
     "git_auth_required": "Git benötigt eine Authentifizierung.",
@@ -73,6 +75,8 @@
     "remote_name_exists": "Ein Remote mit diesem Namen ist bereits vorhanden.",
     "remote_request_invalid": "Prüfen Sie den Remote-Namen und die Repository-URL.",
     "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
+    "stash_file_conflicted": "Diese Datei hat ungelöste Konflikte. Lösen Sie diese zuerst.",
+    "stash_file_unsupported_git": "Zum Stashen einer einzelnen Datei ist Git 2.13 oder neuer erforderlich.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
     "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut.",
     "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell."
@@ -163,6 +167,11 @@
       "customPlaceholder": "editor-befehl",
       "customValue": "Wird als custom:<command> gespeichert.",
       "saveCustom": "Speichern"
+    },
+    "diffTool": {
+      "label": "Externes Diff-Tool",
+      "auto": "Das in Git konfigurierte Werkzeug verwenden",
+      "invalidName": "Gib einen Git-Difftool-Namen ein, z. B. meld — keinen Pfad und keinen Befehl."
     },
     "about": {
       "version": "Version {{version}}",

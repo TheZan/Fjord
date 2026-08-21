@@ -112,7 +112,11 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
 | `stash_push` | `{ repo_id, message? }` | — | |
+| `stash_file` | `{ repo_id, path, message }` | — | File-scoped `git stash push -u -m … -- <path>`; preserves every unrelated staged, unstaged, and untracked change byte-for-byte; refuses a conflicted path or an unsupported Git (`P10-WC-05`) |
+| `stash_file_supported` | — | `boolean` | Whether the resolved Git supports pathspec-limited `stash push` (>= 2.13) |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
+| `diff_tool_availability` | `{ repo_id }` | `boolean` | Whether `Settings.diff_tool` (or, if unset, Git's own `diff.tool`) currently resolves to something Git can run (`P10-WC-06`) |
+| `open_external_diff` | `{ repo_id, path, source }` | — | `git difftool --no-prompt [--tool=<name>] [--cached] -- <path>`; `source` selects the diff side (`P10-WC-06`) |
 | `continue_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected merge/rebase/cherry-pick/revert sequencer and returns its new state; refuses unresolved conflicts |
 | `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
 | `list_remotes` | `{ repo_id }` | `RemoteInfo[]` | Lists configured remotes with URL userinfo redacted before IPC |
