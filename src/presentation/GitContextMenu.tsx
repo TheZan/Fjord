@@ -201,7 +201,21 @@ function ContextSubmenu({
   onClose: () => void;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(() => firstEnabledIndex(items));
+  const [placement, setPlacement] = useState<{ side: "right" | "left"; offsetY: number }>({ side: "right", offsetY: 0 });
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const bounds = menu.getBoundingClientRect();
+    const overflowBottom = bounds.bottom - (window.innerHeight - 8);
+    setPlacement({
+      side: bounds.right > window.innerWidth - 8 ? "left" : "right",
+      offsetY: overflowBottom > 0 ? -overflowBottom : 0,
+    });
+  }, [items]);
+
   useEffect(() => {
     const frame = requestAnimationFrame(() => refs.current[active]?.focus());
     return () => cancelAnimationFrame(frame);
@@ -217,9 +231,14 @@ function ContextSubmenu({
 
   return (
     <div
+      ref={menuRef}
       role="menu"
-      className="desktop-popover absolute left-full top-0 min-w-52 rounded-md border py-1"
-      style={{ background: "var(--paper)", borderColor: "var(--hairline-strong)" }}
+      className={`desktop-popover absolute top-0 min-w-52 rounded-md border py-1 ${placement.side === "right" ? "left-full" : "right-full"}`}
+      style={{
+        background: "var(--paper)",
+        borderColor: "var(--hairline-strong)",
+        transform: placement.offsetY ? `translateY(${placement.offsetY}px)` : undefined,
+      }}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape") {
