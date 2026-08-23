@@ -61,6 +61,12 @@ Light, dark, or system theme, and English, Russian, German, French, and Spanish
 - **Your Git credentials, untouched.** Network operations run through your system
   Git, so credential helpers, SSH agents, proxies, and corporate certificates
   keep working. Fjord stores no passwords, tokens, or keys.
+- **Merging, from the app.** Merge a local or remote-tracking branch into the one
+  you are on, including squash merge, with the consequences stated up front and a
+  conflicted result handed to the same banner that can continue or abort it.
+- **A real right-click menu on changed files.** Open, reveal, ignore, export a
+  patch, stash, delete, or open your external diff tool — without leaving the
+  window.
 - **Undo for dangerous things.** Destructive actions are preflighted with their
   exact consequences, and a reflog-based Recovery Center brings work back.
 - **Keyboard-first.** Command palette (`⌘K` / `Ctrl+K`), repository switcher, and
@@ -73,13 +79,18 @@ Light, dark, or system theme, and English, Russian, German, French, and Spanish
 Fjord is an Early Preview and is honest about its gaps. These are designed and on
 the roadmap ([`docs/tasks.md`](docs/tasks.md)), not shipped:
 
-- **Starting a merge or a rebase.** Fjord *detects* an in-progress merge, rebase,
+- **Starting a rebase.** Fjord *detects* an in-progress merge, rebase,
   cherry-pick, or revert — including one started in a terminal — lists the
   conflicts, hands off to your merge tool, and can continue, skip, or abort it.
-  It cannot yet begin one; `git merge` and `git rebase` still start elsewhere.
-- **File actions in Working Changes.** A changed file can be staged, unstaged,
-  and discarded. There is no right-click menu yet for opening the file, revealing
-  it, ignoring it, exporting a patch, or deleting it.
+  Merging a branch into the one you are on is now built in, including
+  remote-tracking sources and squash merge; starting a **rebase** is not, so
+  `git rebase` still starts elsewhere.
+- **Stash management.** Changes can be stashed — the whole repository, or a
+  single file from its context menu — and the most recent stash can be popped.
+  What is missing is everything around that: stashes are not listed anywhere you
+  can browse, there is no way to see what one contains, to name one, to act on
+  anything other than the most recent, to apply without consuming, to drop one,
+  or to start a branch from one. Designed as `P10-STASH-01`–`P10-STASH-07`.
 - **Full remote management.** Remotes can be listed and added; editing, renaming,
   and removing them are not implemented.
 - **Worktrees, interactive rebase, and forge integration** (pull requests, issues,

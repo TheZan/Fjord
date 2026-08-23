@@ -1,13 +1,17 @@
 # Spec: working tree, partial staging, and diff experience
 
-Referenced by: P8-00–P8-15, P10-WC-01–P10-WC-06, SDD §5.2, §15.
+Referenced by: P8-00–P8-15, P10-WC-01–P10-WC-06, P10-WC-MULTI-01–P10-WC-MULTI-03,
+SDD §5.2, §15.
 Related: [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md),
 [`repository-safety.md`](repository-safety.md), [`performance.md`](performance.md),
-[`branch-merge.md`](branch-merge.md), [`ui-shell.md`](ui-shell.md).
+[`branch-merge.md`](branch-merge.md), [`ui-shell.md`](ui-shell.md),
+[`stash-management.md`](stash-management.md).
 
-§1–§5 are implemented (Phase 8). §6 is designed and owned by `P10-WC-01`–
-`P10-WC-06`; it is the single normative definition of the Working Changes file
-context menu.
+§1–§5 are implemented (Phase 8), and so is §6 (`P10-WC-01`–`P10-WC-06`). §6 is
+the single normative definition of the Working Changes file context menu; §7 is
+the single normative definition of its **selection model and batch actions**
+(`P10-WC-MULTI-01`–`P10-WC-MULTI-03`, designed). Stash semantics beyond the entry
+point are [`stash-management.md`](stash-management.md).
 
 ## Problem
 
@@ -69,6 +73,17 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 - Committing from a stale snapshot. See [`performance.md`](performance.md) §6.
 - Blame, file history, and per-line authorship. Valuable, but they answer a
   different question and are not what makes a user leave the app mid-commit.
+- Drag or lasso selection, and recursive directory actions. §7's selection is
+  click/`Ctrl`/`Shift` over file rows only; a directory row is never a selection
+  and never expands into one. Rubber-band selection over a virtualized list is a
+  different engineering problem with no daily-driver payoff here.
+- A generic batch-action framework. §7 makes exactly five actions plural —
+  Stage, Unstage, Stash, Discard, and patch export/copy — each because its
+  contract already composes. "Every Git command, in bulk" is not a goal.
+- Silent partial success. No batch action in §7 ever applies to a subset of what
+  the user selected; it succeeds wholly, or refuses and names why.
+- A mixed staged-plus-unstaged batch patch. §7.5 makes such a selection
+  unconstructible rather than defining a two-sided patch format.
 - A file manager. §6's file actions open, reveal, ignore, export, and delete the
   files Git is already reporting as changed. Renaming, moving, creating files,
   browsing the tree outside the change set, and any recursive directory operation
@@ -100,12 +115,14 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Diff transport | ✅ 1,000-line incremental frontend windows, 2,000-line backend maximum, 2 MB response ceiling, and content-free metadata above 10 MB (`P6-16`). Every page is independently stamped with the complete `GenerationSet`; working pages also carry the complete rendered-diff digest. The frontend rejects the full accumulated result unless repository/path/source, digest, generations, file/change/mode metadata, totals, and the offset/continuation chain all agree, then clears selection and refetches from offset zero. |
 | Upstream management | ✅ Local set/unset commands, branch-context selection, persistent publish affordance, and per-branch upstream/divergence display. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). Merge is added by [`branch-merge.md`](branch-merge.md) §8. |
-| Working Changes file actions | 🚧 A file row exposes only the hover Stage/Unstage control in `WorkingChangesPanel.tsx`. There is no context menu in Path or Tree view, and `FileEntryList.tsx` has no context-menu seam. Everything in §6 is unimplemented. |
-| File open / reveal | ⚠️ `open_in_ide` and `open_terminal` operate on the **repository** path only; `IdeLauncher` has no file-or-line shape. `reveal_log_folder` establishes the per-platform folder-opener pattern for app-owned directories but is not reusable for repository files. |
-| External diff tool | ⚠️ Only `open_merge_tool` (`git mergetool --no-prompt`, conflicts only). There is no diff-tool concept, setting, or command; the merge tool is not assumed to be the diff tool (§6.4). |
-| `.gitignore` writing | 🚧 Absent. Fjord never writes `.gitignore`, global excludes, or `.git/info/exclude`. |
-| File-scoped stash | 🚧 Absent. `stash_push` is whole-repository. |
-| Patch export | 🚧 Absent. The `P8-01` patch constructor produces bytes for `git apply` but nothing exports them. |
+| Working Changes file actions | ✅ `P10-WC-01`–`P10-WC-06` shipped §6 end to end: the `onFileContextMenu` seam on `FileEntryList`, the adaptive menu, open/reveal, ignore, patch export, delete, file stash, and external diff. |
+| Multi-selection | 🚧 Absent. `FileEntryList` takes `selectedPath: string \| null` and matches on **path alone**; `FileRow`'s context-menu handlers reset the selection unconditionally; rows carry `data-selected` but no `aria-selected`. Every action is therefore single-file. §7 (`P10-WC-MULTI-01`–`03`). |
+| Batch backend | ⚠️ Split. `stage_files`/`unstage_files` already take a path vector and write the index once, so batch stage/unstage needs **no backend change**. `discard_patch` and `export_patch` each take exactly one `PatchSelection` and need a batch contract (§7.12, §7.13). |
+| File open / reveal | ✅ `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path` (`P10-WC-01`): repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments. `IdeLauncher` carries an optional line. |
+| External diff tool | ✅ `open_external_diff` (`git difftool`) with a `Settings.diff_tool` **name** only, plus `diff_tool_availability` for the live disabled reason (`P10-WC-06`). The merge tool stays a separate concept (§6.4). |
+| `.gitignore` writing | ✅ Root `.gitignore` only, UTF-8 with BOM/terminator preservation and fail-closed on invalid UTF-8 (`P10-WC-02`). Global excludes, `.git/info/exclude`, and `core.excludesFile` are still never touched. |
+| File-scoped stash | ✅ `stash_file` (`P10-WC-05`), Git's own pathspec-scoped `stash push -u -m … -- <path>`, with the unrelated-file invariant proven per file state. `P10-STASH-02` generalizes it to *n* paths under one `create_stash` contract ([`stash-management.md`](stash-management.md) §2). |
+| Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard), both reusing the `P8-01` constructor unchanged (`P10-WC-03`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. That verdict
@@ -401,7 +418,9 @@ Delivered by `P10-WC-01`–`P10-WC-06`; §6.9 fixes the dependency order.
 Stage/Unstage, token-bound whole-file Discard, Open/Reveal, merge-tool access,
 and backend-resolved path copying. `P10-WC-02` (Ignore), `P10-WC-03` (patch
 export), `P10-WC-04` (delete), `P10-WC-05` (file stash), and `P10-WC-06`
-(external diff tool) are all implemented.
+(external diff tool) are all implemented. What §6 still lacks is multi-row
+selection: §7 adds it, together with the batch actions that act on a set rather
+than one path.
 
 `P10-WC-03` reuses the `P8-01` patch constructor unchanged: a new read-only
 `export_patch` backend function (`crates/fjord-git/src/local/working_tree.rs`)
@@ -507,7 +526,7 @@ Stage
 Discard working changes…
 ──────────────────────────
 Ignore ▸                       (untracked files only)
-Stash file…                    (P10-WC-05)
+Stash file… / Stash N files…   (P10-WC-05; N-file form P10-STASH-07)
 ──────────────────────────
 Open in <configured editor>
 Open with default application
@@ -570,6 +589,17 @@ Adaptivity rules:
   keep everything else.
 - While `whitespace != show`, patch export is disabled with the same reason
   P8-13 already uses: the displayed diff is not the patch Git would apply.
+- With a **multi-selection** active, actions that are inherently single-row are
+  *hidden* rather than disabled — a menu that is mostly greyed out teaches
+  nothing. The availability matrix is §7.9.
+
+#### 6.2a Selection
+
+A file row is single-select today, so every action in §6.2 acts on exactly one
+path. Multi-selection and the batch actions built on it are §7 of this spec
+(`P10-WC-MULTI-01`–`P10-WC-MULTI-03`); §6 remains the definition of what the menu
+contains for **one** row, and §7.8 defines how that menu changes when several
+rows are selected.
 
 #### 6.3 Actions that reuse shipped backend behavior
 
@@ -784,9 +814,13 @@ interruption. The mechanism is Git's own pathspec-scoped stash:
 git stash push [-u] -m "Fjord: stash <path>" -- <path>
 ```
 
-- Requires Git ≥ 2.13 for pathspec-limited `stash push`. The version is read
-  through the existing `GitEnvironmentProvider`; an older Git disables the entry
-  with the reason `workingFile.stashFile.unsupportedGit`.
+- Requires Git ≥ 2.13 for pathspec-limited `stash push`. The version is read by
+  parsing `git --version` through the already-resolved `GitCommandFactory` —
+  **not** through `GitEnvironmentProvider`, which this section previously claimed;
+  `P10-WC-05` chose the narrower dependency deliberately, since the check needs
+  nothing else the provider exposes. An older Git disables the entry with the
+  reason `workingFile.stashFile.unsupportedGit`, and the check is repeated
+  fail-closed inside the mutation.
 - Runs under the repository write lock through the shared resolved executable
   with arguments passed individually.
 - Behavior per file state, stated so the implementer invents nothing:
@@ -809,6 +843,22 @@ git stash push [-u] -m "Fjord: stash <path>" -- <path>
   with the tests in §Testing strategy, the correct outcome is to **not ship the
   action** and keep the task open. An approximate file stash is worse than no
   file stash.
+
+**Where this goes next.** `P10-STASH-02` generalizes the shipped single-path
+implementation into one `create_stash` contract over
+`StashScope::{ All, Paths }`, so "stash the repository", "stash this file", and
+"stash these three files" become one engine and one dialog rather than three
+code paths ([`stash-management.md`](stash-management.md) §2). This section keeps
+ownership of the *entry point* — where the menu item sits, when it is disabled,
+and the invariant it must uphold — while the contract, the per-state behavior
+table for *n* paths, the naming rules, and everything downstream of creation
+(browsing, inspection, apply, pop, drop, create-branch) move to that spec. One
+caveat recorded there is worth knowing before reading this section's table as the
+whole truth: a pathspec-scoped stash *records* whole trees even though it only
+*removes* the selected paths from the working tree, so a later `apply` restores
+more than was stashed. The invariant above is about what stays in the working
+tree, which is what the user is looking at; it is not a claim about the entry's
+contents.
 
 **Delete file (`P10-WC-04`).** Destructive, never immediate, always through the
 existing preflight contract:
@@ -990,6 +1040,532 @@ embedded in translated strings ([`i18n.md`](i18n.md)).
 | `preflight.blockers.delete_target_not_a_file` | `Only files can be deleted from this menu.` |
 | `preflight.blockers.delete_file_partially_staged` | `{{path}} also has staged changes. Unstage them before deleting the file.` |
 | `preflight.blockers.delete_file_conflicted` | `{{path}} has unresolved conflicts. Resolve them first.` |
+
+
+### 7. Multi-selection and batch actions (`P10-WC-MULTI-01`–`P10-WC-MULTI-03`)
+
+§6 gave a file row a menu. It did not give the list a *selection*: a row is
+selected to show its diff, one at a time, and every action therefore acts on
+exactly one path. Staging eleven of nineteen changed files is eleven trips
+through the same menu.
+
+This section is the single owner of the Working Changes **selection model** and
+of the batch actions built on it. Multi-file *stash* semantics are
+[`stash-management.md`](stash-management.md) §2 — this section owns only the
+entry point and the selection it passes.
+
+#### 7.1 What already exists
+
+Worth stating, because most of the seam is already correct and this work is
+smaller than it looks:
+
+| Piece | State |
+|---|---|
+| `WorkingFileTarget { path, source }` | ✅ Shipped domain type, already the logical identity of a row, already carried by `onFileContextMenu(file, target, anchor)` from `WorkingChangesPanel` up to `RepoDetailView`. |
+| `onStage` / `onUnstage` callbacks | ✅ Already `(paths: string[]) => void` at every layer, including `stage_files` / `unstage_files`. |
+| Two independent lists | ✅ Staged and unstaged render as two separate `FileEntryList` instances, so a selection confined to one section is the structurally natural shape. |
+| Selection cleanup on refresh | ✅ `RepoDetailView` already drops the selected file when it leaves its section. |
+| Selection state itself | 🚧 `FileEntryList` takes `selectedPath: string \| null` and compares `entry.file.path === selectedPath`. Single-select, and keyed by **path only**. |
+| Right-click and selection | ⚠️ `FileRow`'s `onContextMenu` and `Shift+F10` handlers call `onSelect(file)` **unconditionally** before opening the menu. Desktop-standard behavior requires that only when the row is outside the current selection (§7.4). |
+| Row accessibility | ⚠️ Rows are `<button>` elements in a plain `<ul>` with a `data-selected` attribute. There is no `aria-selected`, no `role="listbox"`/`option`, and nothing that communicates multi-selection to assistive technology. |
+| Batch backend | ✅ for stage/unstage (`stage_files`/`unstage_files` already take a vector and write the index once). 🚧 for discard and patch export, both of which are strictly one `PatchSelection`. |
+
+#### 7.2 Two hazards that shape the design
+
+**`stage_files([])` stages the entire repository.** `stage` in
+`working_tree.rs` branches on an empty path list and calls
+`index.add_all(["*"], …)`. That is correct and deliberate for the *Stage all*
+control, and it is a live hazard for a batch action whose input is a user
+selection: an off-by-one, a filter that emptied the list, or a race that cleared
+the selection would silently stage everything instead of doing nothing.
+
+Therefore: **a batch action never dispatches an empty target set.** The frontend
+refuses before the call, and the check is not decorative — it is the only thing
+standing between an empty selection and a whole-repository stage. The same
+reasoning produced `stash_scope_empty` in
+[`stash-management.md`](stash-management.md) §2.1; this is the identical rule
+applied to the command that already shipped with the convention.
+
+**`add_all` takes pathspecs, not literal paths.** The staged paths are handed to
+libgit2's `add_all`, whose entries are matched as pathspecs. A repository path
+containing pathspec metacharacters — `*`, `?`, or a `[…]` class — could
+therefore match files the user did not select. With single-file staging this is
+a pre-existing, low-exposure quirk; a batch action multiplies both the chance of
+encountering such a path and the damage when it matches. `P10-WC-MULTI-02` must
+**verify this against libgit2 with a fixture whose filename contains `[` and
+`]`**, and if the glob is confirmed, pass the paths with literal pathspec magic
+(`:(literal)<path>`) or switch to per-path `add_path`/`remove_path` within the
+one index transaction. It must not ship a batch stage whose path list is
+interpreted as patterns. This applies equally to `unstage`.
+
+Neither hazard is invented by this section; both are found in shipped code and
+are recorded here because batch selection is what makes them reachable.
+
+#### 7.3 The selection model (`P10-WC-MULTI-01`)
+
+```ts
+/** Logical, section-aware, DOM-free. Mirrors the shipped domain type. */
+type WorkingSelection = {
+  /** Every selected row. Empty is a legal state; it is never dispatched. */
+  targets: ReadonlySet<WorkingFileTarget>;   // keyed by `${source} + ${path}`
+  /** The row that owns focus and drives the diff view. */
+  active: WorkingFileTarget | null;
+  /** Origin of the next Shift range. Set by plain and Ctrl/Cmd clicks. */
+  anchor: WorkingFileTarget | null;
+};
+```
+
+Rules that are not negotiable, because each one is a correctness property rather
+than a preference:
+
+- **Identity is `{ path, source }`.** Never path alone: a partially staged file
+  legitimately appears in both sections and its two rows are two different
+  things with two different actions. Never a row index, virtual item, React key
+  derived from position, or `HTMLElement`: `FileEntryList` virtualizes and
+  recycles rows, so any of those becomes a different file when the user scrolls.
+- **`active` is not the selection.** The diff view follows `active`; the actions
+  consume `targets`. A multi-selection therefore opens no additional diffs and
+  never blanks the diff pane.
+- **Directory rows are never selectable.** In Tree view a directory click
+  expands or collapses, exactly as today. Recursive directory selection is a
+  non-goal (§Non-goals), and a directory is not a changed file.
+- **Selection is frontend-only.** Toggling a row runs no query and no IPC call.
+  Toggle is O(1); deriving the dispatch payload is O(selected).
+
+`FileEntryList` stays presentation-oriented: `selectedPath: string | null`
+becomes `selectedPaths: ReadonlySet<string>` plus `activePath: string | null`,
+scoped to the one section it renders, and its `onSelect` grows the modifier
+flags (`{ toggle, range }`) that the click produced. It gains no knowledge of
+Git, of sources, or of which actions exist — the panel maps its section's paths
+onto `WorkingFileTarget`s, and the application layer owns everything else. This
+is the same boundary `P10-WC-01` drew for the context menu, held one level
+further.
+
+#### 7.4 Gestures
+
+| Gesture | Behavior |
+|---|---|
+| Click | Select exactly that row; it becomes `active` and `anchor`. |
+| `Ctrl`/`Cmd`+Click | Toggle that row; it becomes `active` and `anchor`. Toggling the last selected row off is allowed and leaves an empty selection. |
+| `Shift`+Click | Replace the selection with the inclusive range from `anchor` to that row, **in current display order**. `active` moves to the clicked row; `anchor` does not move, so successive `Shift`+Clicks re-range from the same origin. |
+| `Ctrl`/`Cmd`+`Shift`+Click | Add that range to the existing selection without clearing it. |
+| Arrow up/down | Move `active` and collapse the selection to it; sets `anchor`. |
+| `Shift`+Arrow | Extend the range from `anchor` by one row. |
+| `Ctrl`/`Cmd`+`Space` | Toggle `active` without moving it. |
+| `Ctrl`/`Cmd`+`A` | Select every **file** row currently visible in the focused section (§7.6). |
+| `Escape` | Collapse to `active`. Closing a menu or dialog does **not** clear the selection. |
+
+**Range is computed over the rendered entry list, not the data array.** In Path
+view those coincide. In Tree view they do not: `flattenVisibleTree` is what the
+user sees, so a Shift range spans exactly the rows between the two clicks as
+displayed, skips directory rows, and **never reaches into a collapsed
+directory's hidden descendants**. Selecting what is not on screen is how a batch
+discard removes work the user never saw.
+
+#### 7.5 Cross-section policy: source-homogeneous
+
+**A selection never contains both sources.** Clicking, `Ctrl`/`Cmd`-clicking, or
+`Shift`-clicking a row in the other section **clears the previous selection** and
+starts a new one there.
+
+This is the v1 model, chosen over "allow a mixed selection, then disable
+incompatible actions", for reasons that are specific rather than stylistic:
+
+- Stage applies to worktree rows; Unstage applies to index rows. A mixed
+  selection makes both labels wrong.
+- Discard is `INDEX -> WORKTREE` only. A mixed selection would invite discarding
+  something whose row was the `HEAD -> INDEX` side.
+- A patch has one side. A mixed selection has no single valid patch (§7.9).
+- Stash reads worktree and index state differently per path.
+
+Every one of those is a case where the honest disabled state would be "this
+action cannot apply to what you selected" — which is a worse experience than the
+selection simply not being constructible. The two sections are already two
+separate lists; making the boundary real costs nothing and removes a whole class
+of destructive ambiguity.
+
+The consequence is a stated invariant the batch actions can rely on:
+
+> Every dispatched batch has a non-empty, source-homogeneous target set.
+
+#### 7.6 Select all
+
+`Ctrl`/`Cmd`+`A`, while a Working Changes list has focus, selects every file row
+**currently visible in the focused section**:
+
+- files only — directory rows are skipped;
+- the focused section only — never both;
+- visible only — rows inside a collapsed Tree directory are excluded, because
+  the count in `Stage 12 files` must match what the user can see and check.
+
+It does not fall through to the browser's document-level select-all, and it does
+not select across the commit-file list or any other list on the screen.
+
+#### 7.7 Right-click
+
+Desktop-standard, and a behavioral change to shipped code:
+
+- Right-clicking a row that **is** in the current selection **preserves** the
+  selection and opens the menu for the whole set.
+- Right-clicking a row that is **not** in the current selection **replaces** the
+  selection with that row, then opens the menu.
+
+Today `FileRow` calls `onSelect(file)` unconditionally in both its
+`onContextMenu` and its `Shift+F10`/Context-Menu-key handler. Left as is, a user
+who `Ctrl`-clicks four files and then right-clicks one of them loses the other
+three at the instant they try to act on them — the single most common way this
+feature gets built wrong. The conditional above is therefore a required part of
+`P10-WC-MULTI-01`, and it is tested from both the mouse and the keyboard path.
+
+#### 7.8 Context menu composition
+
+The menu keeps the `P10-WC-01` seam and gains the active selection alongside the
+clicked target. `FileEntryList` still reports only a row and an anchor; the
+application layer resolves the selection, so no Git semantics move down into the
+list.
+
+Labels are singular when one row is selected and counted when several are:
+
+**Four unstaged files selected**
+
+```text
+Stage 4 files
+Discard changes in 4 files…
+──────────────────────────
+Stash 4 files…
+──────────────────────────
+Copy paths
+Create patch from 4 files…
+Copy patch for 4 files
+```
+
+**Three staged files selected**
+
+```text
+Unstage 3 files
+──────────────────────────
+Copy paths
+Create patch from 3 staged files…
+Copy patch for 3 files
+```
+
+Single-row actions — Ignore, Open, Show in folder, Open in external diff tool,
+Delete file…, and the hunk/line-level entries — are **hidden** while a
+multi-selection is active, not disabled. A menu that is mostly greyed out
+teaches nothing about why; a shorter menu that contains exactly what applies is
+self-explanatory. With one row selected the menu is exactly §6.2's, unchanged.
+
+Every counted label is one i18next key with a `count` interpolation and proper
+plural forms per locale — never `t("stage") + " " + n + " " + t("files")`.
+Russian needs `_one`/`_few`/`_many`/`_other`, which the catalog already uses for
+`preflight.consequences.modifiedFilesDiscarded`.
+
+#### 7.9 Availability matrix
+
+Derived from the selection's source, and from every selected row's state:
+
+| Action | Unstaged selection | Staged selection |
+|---|---|---|
+| `Stage N files` | ✅ | ❌ absent |
+| `Unstage N files` | ❌ absent | ✅ |
+| `Discard changes in N files…` | ✅ | ❌ absent (it would mean "unstage", and saying so twice with two verbs is worse than saying it once) |
+| `Stash N files…` | ✅ | ❌ absent in v1 — see below |
+| `Create patch from N files…` | ✅ `INDEX -> WORKTREE` | ✅ `HEAD -> INDEX` |
+| `Copy patch for N files` | ✅ | ✅ |
+| `Copy paths` | ✅ | ✅ |
+
+Per-row states, which gate the whole batch rather than individual entries:
+
+- **Conflicted** — if any selected row is conflicted, every batch action above is
+  refused. §6.2 already withholds all of these from a conflicted row
+  individually; a batch cannot be more permissive than its parts.
+- **Binary / mode-only** — patch export is unavailable for these (`patch_unsupported`,
+  §1). If any selected row is one, the batch patch entry is **disabled with the
+  stated reason**, not silently narrowed to the exportable subset.
+- **Deleted** — keeps its single-file semantics: it participates in stage,
+  unstage, discard, and patch export, and it is excluded from Open/Reveal, which
+  are single-row actions anyway.
+- **Whitespace-ignoring mode active on the open diff** — the existing
+  `workingFile.disabled.whitespaceMode` reason applies to the batch patch entry
+  exactly as it applies to the single-file one.
+
+**Nothing is ever silently skipped.** If one selected row cannot participate, the
+action is disabled or refused for the whole batch with a reason naming the
+offending path. Executing on a subset of what the user selected — especially for
+discard — is the failure mode this rule exists to make impossible. Stash on a
+staged selection is out of v1 for the same honesty reason: stashing from a row
+that represents `HEAD -> INDEX` would silently also capture that path's worktree
+side, which is not what the selected row says.
+
+#### 7.10 Batch Stage and Unstage (`P10-WC-MULTI-02`)
+
+**No backend change.** `stage_files(repo_id, paths)` and
+`unstage_files(repo_id, paths)` already accept a vector, and `stage` already
+writes the index **once** for all of them through a single `add_all` on one
+fresh index. Batch staging is therefore already atomic at the index level; what
+is missing is only a UI that can produce more than one path.
+
+Consequently:
+
+- Exactly **one** IPC call per action. Never a loop of N mutations — that would
+  produce N generation bumps, N invalidations, N partial-failure states, and a
+  visibly stuttering list.
+- Empty target set is refused before dispatch (§7.2).
+- Paths are passed literally, subject to the pathspec verification of §7.2.
+- Failure is whatever the shipped command already does: one error, no partial
+  reporting invented on top of a command that does not produce it.
+
+**Selection after a source-changing action.** Staging moves rows from unstaged to
+staged; the selected targets cease to exist on the side they were selected on.
+The rule is to **follow the work**:
+
+> After a successful batch Stage, the selection becomes the staged targets for
+> the same paths that are present in the refreshed staged list. After a
+> successful batch Unstage, the mirror image.
+
+This is deliberate rather than merely convenient: staging four files and
+immediately wanting to unstage one is a real sequence, and dropping the
+selection makes the user re-select from scratch. Paths that did not appear on
+the other side (a stage that resulted in no staged entry) are dropped from the
+selection rather than kept as ghosts. If the implementation finds this mapping
+genuinely unreliable, clearing the selection is the acceptable fallback — but it
+must then be the *documented* behavior in both directions, never one rule for
+Stage and another for Unstage.
+
+#### 7.11 Batch Stash (`P10-WC-MULTI-02`, entry point only)
+
+`Stash N files…` opens the shared stash dialog with
+`StashScope::Paths { paths }` prefilled from the selection, and the user names
+it. It is the same dialog and the same `create_stash` contract used by "stash
+everything" and "stash this file" — this section adds **no stash API, no second
+dialog, and no stash semantics**. The contract, the per-file-state behavior, the
+unrelated-file invariant, and the naming rules are
+[`stash-management.md`](stash-management.md) §2.
+
+The dependency is therefore real and one-directional: the menu entry can ship
+only once `P10-STASH-02` has generalized the pathspec stash from one path to
+many.
+
+#### 7.12 Batch Discard (`P10-WC-MULTI-03`)
+
+Discard is destructive, so the batch form gets a batch *contract* rather than a
+loop. Running three confirmed single-file discards in sequence would produce
+exactly the partial-success state the safety model exists to prevent: the user
+confirms one sentence and gets one, two, or three files changed depending on
+where it failed.
+
+**Domain shape.** The shipped `PatchSelection` is per-file — one path, one
+source, one `base_digest` — and that stays true; it is the right granularity and
+every existing validator depends on it. The batch is expressed as an ordered
+*vector* of them, and as one new action on the existing enum:
+
+```rust
+// New variant on the shipped DestructiveAction enum.
+DestructiveAction::DiscardFiles { paths: Vec<String> }
+```
+
+```text
+discard_patches { repo_id, action, selections: Vec<PatchSelection>,
+                  expected_generations, confirmation_token } -> GenerationSet
+```
+
+The batch form is whole-file only: hunk and line discard remain single-file
+(`DestructiveAction::Discard`), because a multi-file hunk selection has no UI
+that could produce it and no sentence that could describe it honestly.
+
+**Execution, and why it is genuinely atomic.** `discard_patch` today takes the
+write lock, acquires Git's per-worktree `index.lock`, consumes the token,
+rebuilds the current diff, constructs a reverse patch, runs
+`git apply --reverse --check`, re-verifies the rebuilt patch and the index
+fingerprint, then applies. The batch runs the *same* sequence once, over a
+patch built from all selections concatenated in canonical order (§7.13):
+
+- one write lock, one `index.lock`, one token;
+- one `git apply --reverse --check` over the combined patch — and `git apply`
+  is all-or-nothing by construction: it validates every hunk of every file
+  before touching the worktree and applies nothing if any of them fails;
+- one re-verification and one apply;
+- one `MutationKind::Discard` bump.
+
+So all-or-nothing is not something Fjord layers on top of Git — it is Git's own
+guarantee, reached by giving Git one patch instead of three.
+
+**Preflight.** One dialog, bound to the whole set:
+
+```text
+Discard changes in 4 files?
+
+  4 files · 173 changed lines
+
+  PaymentService.cs
+  PaymentValidator.cs
+  PaymentTests.cs
+  PaymentClient.cs
+  and 1 more
+
+  These working-tree changes will be discarded.
+  Staged changes are not modified.
+
+  Not recoverable — these changes are not stored anywhere and cannot be restored.
+
+                                   [ Cancel ]  [ Discard changes ]
+```
+
+- Consequences aggregate the existing per-file computation: one
+  `ModifiedFilesDiscarded { count, sample }` with the exact total and a
+  five-path sample, plus the summed changed-line count. No new consequence
+  variant is required.
+- Recoverability is `NotRecoverable`, as single-file discard already is.
+- The confirmation token is bound server-side to the repository, the exact
+  action, **every** selection in order, **every** `base_digest`, and the
+  complete `GenerationSet` — the same binding `issue_discard_confirmation`
+  already performs, over a vector instead of one value.
+
+**Staleness is all-or-nothing too.** If *any* selected file changed between
+preflight and execution — a different digest, a moved generation, a vanished
+path — the whole batch fails with `patch_stale` / `preflight_stale` and **nothing
+is discarded**. The remaining files are not "still fine to discard": the user
+confirmed a set, and a subset is not what they confirmed.
+
+**Partially staged files.** Selecting the **unstaged** row of a file that also
+has staged content and batch-discarding it reverses `INDEX -> WORKTREE` for that
+path only; its staged side is untouched. This is exactly the shipped single-file
+behavior (§6.1), and it is why the selection carries `source` rather than a bare
+path. It is asserted directly in §Testing strategy rather than assumed to follow.
+
+#### 7.13 Multi-file patch export (`P10-WC-MULTI-03`)
+
+**One patch, not N files.** `Create patch from 4 files…` produces a single
+unified patch containing all four, valid for `git apply`. Producing four
+separate files is not the default and is not offered in v1; the natural unit is
+"the change I am carrying elsewhere".
+
+- Unstaged selection → combined `INDEX -> WORKTREE` patch.
+- Staged selection → combined `HEAD -> INDEX` patch, applied with `--cached`.
+- **Mixed-source patch is refused** and cannot be constructed, because §7.5
+  makes a mixed selection unconstructible. That is the whole point of the
+  source-homogeneous rule paying off here.
+
+**Contract.** `export_patch` and `get_patch_text` take
+`selections: Vec<PatchSelection>` instead of one selection, and a single-file
+export is a vector of length one. One contract, one code path, no second
+"multi" command beside the singular one — the same consolidation
+[`stash-management.md`](stash-management.md) §2 applies to stash creation. Both
+remain read-only: the repository read lock, no index lock, no generation bump.
+
+**Ordering is canonical, never visual.** Files appear in **byte-lexicographic
+order of their repository-relative path**, which is Git's own diff ordering.
+Selection order, click order, and Tree-view display order are all discarded.
+Two exports of the same selection must be byte-identical, and a patch whose file
+order depended on which row the user happened to click first would not be.
+
+Each file's section is produced by the shipped `P8-01` deterministic constructor
+(`build_unified_patch`) exactly as it is today, then concatenated. There is no
+second patch implementation, and each file's digest is verified before its bytes
+are emitted, so a stale selection fails the whole export with `patch_stale`
+rather than exporting a mix of fresh and stale content.
+
+**Default filename.** `<repository-name>-<n>-files.patch` for a batch;
+the shipped `<file-name>.patch` for a single file.
+
+**Copy patch for N files** is the same bytes through the clipboard instead of a
+file, reusing the identical builder — it does not get its own path.
+
+#### 7.14 Selection toolbar
+
+When two or more rows are selected, the section header shows a compact strip in
+Fjord's existing header idiom — no new visual language, no floating overlay:
+
+```text
+Unstaged (19)                        4 selected  [Stage] [Stash] [⋯]  [Clear]
+```
+
+Batch actions must not be reachable only by right-click: a user who has just
+made a selection with the mouse is looking at the list, not thinking about a
+context menu, and discoverability of a new capability cannot depend on guessing
+that it exists. The strip carries the two or three highest-frequency actions for
+that section plus an overflow that contains the same items as the context menu,
+built from the same item builder.
+
+The strip is part of `P10-WC-MULTI-02`. **The context menu is the required
+surface**; if the strip's layout work threatens that task's scope, it moves to a
+follow-up and the menu ships alone — but the menu never ships as the *only*
+permanent surface.
+
+#### 7.15 Selection survival
+
+Selection is derived state over live queries, so its lifecycle is defined rather
+than emergent:
+
+| Event | Behavior |
+|---|---|
+| Query refresh, target still present | Preserved. |
+| Query refresh, target gone (committed, discarded, externally changed) | Removed from the selection. `active` moves to the nearest surviving row, or becomes `null`. |
+| Successful batch Stage / Unstage | Mapped to the other section per §7.10. |
+| Path ↔ Tree view switch | Preserved for every target still represented. The anchor is preserved if its row is still visible, and cleared otherwise, because a range from an invisible origin is not something the user can predict. |
+| Filter or collapse hides a selected row | The target stays selected but is excluded from `Ctrl+A`'s *new* selections. A hidden-but-selected row still counts in `4 selected`, so the count never lies. |
+| Repository switch | Cleared. |
+| Branch/commit navigation that already clears the working selection | Cleared, unchanged from today. |
+| Menu or dialog closed with `Escape` | Preserved. |
+
+Stale targets are never retained. `RepoDetailView` already runs this cleanup for
+the single selection; it becomes a filter over the set rather than a null check.
+
+#### 7.16 Virtualization and accessibility
+
+**Virtualization.** Mandatory and testable: nothing in the selection, the anchor,
+or the open context menu may hold an `HTMLElement`, a virtual item, or an index
+into the rendered window. A selected row that scrolls out of the virtualizer's
+range unmounts; when it scrolls back it must return **selected**, and the anchor
+must still produce the same range. This is the property the corresponding test
+in §Testing strategy exists to pin.
+
+**Accessibility.** The current markup — `<button>` rows in a plain `<ul>` with
+`data-selected` — cannot express a multi-selection to assistive technology.
+`P10-WC-MULTI-01` gives each section's list `role="listbox"` with
+`aria-multiselectable="true"`, each file row `role="option"` with
+`aria-selected`, and one roving `tabindex` following `active`. Beyond that:
+
+- **Focus is not selection.** Moving focus with arrows collapses the selection to
+  the focused row (§7.4); `Ctrl`/`Cmd`+`Space` toggles without moving. The two
+  concepts stay separate in the state and in the ARIA.
+- The keyboard context-menu path (`Shift+F10`, Context Menu key) obeys the same
+  preserve-or-replace rule as the mouse (§7.7).
+- Counted actions carry the count in their **accessible name**, not only in the
+  visible label, so `Stage 4 files` is what a screen reader announces.
+- The `N selected` count is announced on change through the existing polite live
+  region rather than by focus-stealing.
+- `Escape` closes the menu and returns focus to `active` without destroying the
+  selection.
+
+#### 7.17 i18n
+
+Every counted label is one key with a `count` interpolation and complete plural
+forms per locale. Russian requires `_one`/`_few`/`_many`/`_other`, which the
+catalog already uses for `preflight.consequences.modifiedFilesDiscarded`.
+
+| Key | English (`_one` / `_other`) |
+|---|---|
+| `workingFile.stageFiles` | `Stage` / `Stage {{count}} files` |
+| `workingFile.unstageFiles` | `Unstage` / `Unstage {{count}} files` |
+| `workingFile.discardFiles` | `Discard working changes…` / `Discard changes in {{count}} files…` |
+| `workingFile.stashFiles` | `Stash file…` / `Stash {{count}} files…` |
+| `workingFile.createPatchFiles` | `Create patch from changes…` / `Create patch from {{count}} files…` |
+| `workingFile.createPatchFilesStaged` | `Create patch from staged changes…` / `Create patch from {{count}} staged files…` |
+| `workingFile.copyPatchFiles` | `Copy patch to clipboard` / `Copy patch for {{count}} files` |
+| `workingFile.copyPaths` | `Copy path ▸` / `Copy {{count}} paths` |
+| `workingChanges.selectedCount` | `{{count}} selected` |
+| `workingChanges.clearSelection` | `Clear` |
+| `workingChanges.selectionAnnouncement` | `{{count}} of {{total}} files selected` |
+| `workingFile.disabled.selectionConflicted` | `{{path}} has unresolved conflicts. Batch actions are unavailable while it is selected.` |
+| `workingFile.disabled.selectionUnsupportedPatch` | `{{path}} is binary or mode-only and cannot be exported as a patch.` |
+| `preflight.discardFiles.title` | `Discard changes in {{count}} files?` |
+| `preflight.discardFiles.confirm` | `Discard changes` |
+| `preflight.discardFiles.stagedUnaffected` | `Staged changes are not modified.` |
+
+The singular form of each action key is the string §6.2 already ships; the keys
+are widened with plural forms rather than duplicated, so a one-row menu renders
+exactly the label it renders today.
 
 
 ## Alternatives considered
@@ -1262,6 +1838,94 @@ Existing preflight, token, staging, and patch-construction tests are **reused**;
 none of the above re-tests `discard_patch`, `stage_files`, or the patch
 constructor themselves.
 
+### §7 multi-selection and batch actions — required coverage
+
+**Frontend (component/hook).**
+
+1. A plain click selects exactly one row and clears any previous selection.
+2. `Ctrl`/`Cmd`+Click toggles a row in and out without disturbing the others,
+   including toggling the last one off to an empty selection.
+3. `Shift`+Click selects the inclusive range from the anchor, and a second
+   `Shift`+Click re-ranges from the same anchor rather than from the previous
+   click.
+4. A `Shift`+Click in the *other* section does not produce a cross-section
+   range: it starts a new selection there (§7.5). Asserted in both directions.
+5. Right-clicking a row **inside** the selection preserves it — from the mouse
+   and from `Shift+F10` / the Context Menu key.
+6. Right-clicking a row **outside** the selection replaces the selection with
+   that row before the menu opens — both input paths.
+7. The menu label reads `Stage 4 files` for a four-row unstaged selection and
+   `Stage` for one row, resolved from the i18n catalog with a `count`
+   interpolation rather than assembled from fragments.
+8. The menu label reads `Unstage 3 files` for a three-row staged selection, and
+   the unstaged-only entries are absent from it.
+9. `Stash 4 files…` opens the shared stash dialog carrying **all four** paths as
+   `StashScope::Paths`, not just the clicked one.
+10. Every gesture in (1)–(3) behaves identically in **Path** view.
+11. Every gesture in (1)–(3) behaves identically in **Tree** view, and a `Shift`
+    range there covers visible rows in display order, skips directory rows, and
+    does not reach into a collapsed directory.
+12. Switching Path ↔ Tree preserves the selected targets still represented.
+13. A query refresh that removes a selected path drops exactly that target and
+    keeps the rest; `active` moves to a surviving row.
+14. Switching repository clears the selection.
+15. **Virtualization:** select a row, scroll it far outside the virtualizer's
+    range so it unmounts, scroll back — it is still selected, and the anchor
+    still produces the same range. No selection state holds an element or an
+    index.
+16. Accessibility: the list is a multi-selectable listbox, rows expose
+    `aria-selected`, focus and selection stay separate (arrow collapses,
+    `Ctrl`/`Cmd`+`Space` toggles in place), counted actions carry the count in
+    their accessible name, and `Escape` closes the menu without clearing the
+    selection.
+17. An empty selection dispatches **nothing**: with zero targets the batch
+    entries are absent, and the dispatcher refuses the call if asked to make it
+    anyway. This is the §7.2 whole-repository-stage guard, tested at the layer
+    that enforces it.
+18. A selection containing a conflicted row omits every batch action with a
+    stated reason (§7.9); one containing a binary/mode-only row disables the
+    batch patch entry specifically rather than narrowing the batch.
+19. Five-locale parity for every new key, with Russian `_one`/`_few`/`_many`/
+    `_other` forms present; `npm run check-i18n` green.
+
+**Backend / integration (Rust, real fixtures).**
+
+20. Batch stage applies to **all** selected paths in one call, and paths that
+    were not selected are unchanged in the index.
+21. Batch unstage, mirrored: every selected path returns to its `HEAD` state and
+    unselected staged entries survive untouched.
+22. **Pathspec literality (§7.2):** a fixture containing both `report[1].txt` and
+    `report1.txt`, staging only the former, must leave the latter unstaged. If
+    libgit2's `add_all` treats the entry as a glob, the task fixes it with
+    literal pathspec magic and this test pins the fix. Same for unstage.
+23. Selected-path stash preserves every unrelated staged, unstaged, and
+    untracked change byte-for-byte — the
+    [`stash-management.md`](stash-management.md) invariant, exercised through
+    this entry point.
+24. Batch discard reverses `INDEX -> WORKTREE` for every selected file in one
+    confirmed operation, and unselected modified files are unchanged.
+25. **Stale one file, refuse the whole batch:** issue a preflight for four files,
+    modify one of them on disk, then execute — the call fails
+    `patch_stale`/`preflight_stale` and **none** of the four is discarded.
+26. **Partially staged path:** batch-discarding its unstaged row leaves its
+    staged content byte-identical in the index, asserted before and after.
+27. A batch containing a conflicted path is refused backend-side, not merely
+    hidden in the UI.
+28. Confirmation binding: a token issued for selections `{A,B,C}` cannot execute
+    `{A,B}`, `{A,B,C,D}`, or a reordering of the same three, and is one-use even
+    after a failed attempt.
+29. A combined **unstaged** patch applies: reset the fixture worktree to the
+    index, `git apply --check` then apply the exported patch, and every selected
+    file matches its original working state.
+30. A combined **staged** patch applies: reset the fixture index to `HEAD`,
+    `git apply --cached --check` then apply, and every selected index entry
+    matches its original staged state.
+31. The combined patch contains **no** unselected path, asserted by parsing its
+    `diff --git` headers.
+32. Path ordering is deterministic and byte-lexicographic: exporting the same
+    selection twice yields identical bytes, and shuffling the input selection
+    order does not change the output.
+
 ## Acceptance criteria
 
 1. Staging one hunk of a file with two hunks results in `working_changes`
@@ -1337,3 +2001,25 @@ constructor themselves.
 26. `FileEntryList` exposes only a context-menu callback and remains free of Git
     semantics; the menu's item list and its dispatcher are testable without
     rendering the working-changes panel.
+27. Working Changes supports click / `Ctrl`-click / `Shift`-click / `Ctrl+A`
+    selection in both Path and Tree view, keyed by `{ path, source }`, with a
+    selection that never spans the staged and unstaged sections (§7.3–§7.6).
+28. Right-clicking inside the selection preserves it; right-clicking outside it
+    replaces the selection with that row first — from mouse and keyboard alike.
+29. No batch action is ever dispatched with an empty target set, and none is ever
+    executed on a subset of the selection: it applies wholly, or refuses with a
+    reason that names the offending path.
+30. Batch Stage and Unstage each perform exactly **one** IPC call for the whole
+    selection, and the paths they pass are matched literally rather than as
+    pathspecs.
+31. Batch Discard is one destructive action, one preflight, one token bound to
+    every selection and digest, and one `git apply --reverse` — so a stale member
+    aborts the whole batch and discards nothing. A partially staged path's staged
+    side is never touched.
+32. A multi-file patch is one valid `git apply`-able unified patch, in
+    byte-lexicographic path order, containing exactly the selected files and
+    reproducible byte-for-byte.
+33. Selection survives virtualized unmount/remount, view switching, and query
+    refresh; it never retains a target that no longer exists; and it is exposed
+    accessibly as a multi-selectable listbox.
+

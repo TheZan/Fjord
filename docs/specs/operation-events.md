@@ -1,6 +1,7 @@
 # Spec: long-running operation events
 
-Referenced by: `P4-17`, `P9R-02`, `P9R-03`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
+Referenced by: `P4-17`, `P9R-02`, `P9R-03`, `P10-STASH-06`, SDD §8,
+[`ipc-commands.md`](ipc-commands.md).
 
 ## Purpose
 
@@ -24,6 +25,19 @@ Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operat
 | `cancel_git_auth_prompt` | `{ operation_id, prompt_id }` | `boolean` | Cancels the prompt and its registered Git operation. |
 
 The TypeScript IPC wrapper generates `operationId` before invoking a cancellable command, so the UI can subscribe and cancel immediately.
+
+**Stash mutations are deliberately not on this pipeline.** `create_stash`,
+`apply_stash`, stash pop, stash drop, and `create_branch_from_stash`
+([`stash-management.md`](stash-management.md)) are short local mutations that
+report no countable units and no meaningful message stream, so none of them takes
+an `operation_id`, none emits `fjord-operation-progress`, and none is cancellable
+mid-flight — they complete or fail under the repository write lock. Registering
+them here would buy a cancel button that could only ever fire after the work was
+already done, while adding a second way for a stash mutation to be interrupted.
+A conflicting stash apply or pop is likewise **not** an operation state: it
+writes no `MERGE_HEAD`, so `RepoOperationState` stays `Normal`, the operation
+banner is not shown, and the conflict is returned as a typed result and read live
+from the index — the same shape squash merge (`P10-MERGE-03`) already uses.
 
 ## Event
 

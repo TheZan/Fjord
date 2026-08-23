@@ -109,6 +109,17 @@ Changes file context menu ([`working-tree-and-diff.md`](working-tree-and-diff.md
 §6) adds any other persisted state: merge state lives in Git's own directory and
 is read live, and the context menu is transient UI state, not a preference.
 
+**Stash management ([`stash-management.md`](stash-management.md)) adds no
+persisted state either, and the omission is a design decision rather than an
+oversight.** Git owns stash state: the stack is `refs/stash` and its reflog, a
+stash's name is the entry's own message, and its structure is readable from the
+stash commit's parents. A Fjord-side stash table would be a second source of
+truth that a terminal `git stash drop` falsifies immediately, would orphan rows
+forever, and would make Fjord-created stashes behave differently from everyone
+else's. Stash identity is the stash commit OID — an immutable Git object id, not
+a Fjord-assigned key — so there is nothing to store. Working Changes
+multi-selection (`P10-STASH-07`) is likewise transient view state.
+
 A snapshot row is revalidated on first use after a restart, because generations
 ([`performance.md`](performance.md) §5) are in-memory and reset to zero — a
 persisted snapshot can never be trusted on the strength of a stale generation.

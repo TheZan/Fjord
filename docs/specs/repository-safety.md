@@ -61,8 +61,15 @@ resolution.
   is [`workspace-workflows.md`](workspace-workflows.md) §2. Both hand their
   conflicted result straight to §1's state model and §2's controls, and neither
   introduces a second conflict or abort path.
+- The stash workflow itself. This spec owns the *destructive* facts for stash pop
+  and stash drop — the enum variants, the consequences, the confirmation binding,
+  and the recoverability labels (§3). Everything else about stashes — the model
+  and its identity, creation, browsing, inspection, apply, and create-branch —
+  is [`stash-management.md`](stash-management.md), which references §3 rather
+  than restating it.
 - Recovering data Git itself did not retain (unstaged changes discarded without a
-  stash, garbage-collected unreachable objects). The UI must not imply otherwise.
+  stash, garbage-collected unreachable objects, a dropped stash's dangling
+  objects after `git gc`). The UI must not imply otherwise.
 - Automatic recovery. Every restore is user-initiated and confirmed.
 
 ## Current state
@@ -75,8 +82,9 @@ resolution.
 | Reset | ✅ Soft/mixed/hard and Recovery Center restore have concrete facts and execute only through a fresh confirmation token. |
 | Branch deletion | ✅ Local/remote deletion reports the exact ref, unmerged state, bounded commit sample, current-branch blocker, and conservative recoverability, then executes only the confirmed action. |
 | Checkout | ✅ `checkout_branch` detects and returns bounded overwrite paths before switching, rechecks under the write lock after any targeted fetch, and offers cancel, retained stash-and-checkout, or confirmed discard. |
-| Stash | ✅ `stash_push`, `stash_pop` (pops `stash@{0}` only), `get_stashes`, exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. |
+| Stash | ⚠️ `stash_push`, `get_stashes`, file-scoped `stash_file` (`P10-WC-05`), exact stash-entry consumption facts, and named tracked-plus-untracked stash-and-checkout that never auto-pops. Pop already runs through `execute_destructive_action`, which accepts an arbitrary index; the **frontend** passes a literal `0`, so only the top entry is reachable, and `DestructiveAction::StashPop { index }` keys on a position that moves. There is no Drop. `P10-STASH-01`/`P10-STASH-06` retype the action on the stash commit OID and add Drop ([`stash-management.md`](stash-management.md)). |
 | Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery; P9-09 exposes them through the Recovery Center with HEAD-relative diffs and safe/confirmed recovery actions. |
+| Batch discard | 🚧 Absent. Every discard path takes exactly one `PatchSelection`; discarding four files is four confirmations. `P10-WC-MULTI-03` adds `DiscardFiles` on this same contract ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12). |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
 | Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
@@ -215,6 +223,8 @@ pub enum Consequence {
     CommitsUnreachable     { count: u32, sample: Vec<CommitSummary> },
     BranchDeleted          { name: String, unmerged_into: Option<String> },
     TagDeleted             { name: String, target_commit_id: Option<CommitId> },
+    // `P10-STASH-06` retypes this on stash identity:
+    // { id: StashId, ref_name, title, files_changed, base }.
     StashEntryConsumed     { index: u32, message: String },
     RemoteRefUpdated       { remote: String, ref_name: String, dropped_commits: u32 },
     // A tracked file with worktree-only modifications pairs this with the
@@ -224,8 +234,9 @@ pub enum Consequence {
 ```
 
 Covered actions: `reset --hard`, `reset --mixed` with staged content, discard
-(file / hunk / lines, from [`working-tree-and-diff.md`](working-tree-and-diff.md)),
-delete branch, delete remote branch, delete tag, stash pop with a dirty tree,
+(file / hunk / lines, and batch whole-file from `P10-WC-MULTI-03`, all from
+[`working-tree-and-diff.md`](working-tree-and-diff.md)), delete branch, delete
+remote branch, delete tag, stash pop, stash drop (`P10-STASH-06`),
 force-with-lease push, checkout that would overwrite, abort of an operation.
 
 `P10-WC-04` adds one action to the same enum and the same executor:
@@ -237,6 +248,59 @@ bypasses `execute_destructive_action`. Its blockers are
 `delete_target_not_a_file`, `delete_file_conflicted`, and
 `delete_file_partially_staged`; it is never recursive and never follows a symlink
 to its target.
+
+`P10-STASH-06` extends the same enum and executor a second time, and adds no
+command of its own ([`stash-management.md`](stash-management.md) §6.3–§6.4):
+
+- `StashPop { id: StashId, restore_index: bool }` **replaces**
+  `StashPop { index: u32 }`. The index-keyed variant is an identity bug encoded
+  in the action enum: `stash@{n}` is a position, and it moves whenever an entry
+  is pushed or dropped, so a confirmation computed against slot 2 can execute
+  against whatever later occupies slot 2. The stash commit OID is the identity;
+  the backend re-resolves it to a current `stash@{n}` **under the write lock**,
+  after consuming the token, and fails closed with `stash_not_found` /
+  `stash_ambiguous` rather than acting on a stale position.
+- `StashDrop { id: StashId }` is new, and destructive in the plainest sense: it
+  removes saved work without applying it.
+- `Consequence::StashEntryConsumed` changes from `{ index, message }` to
+  `{ id, ref_name, title, files_changed, base }`, so the dialog names the entry
+  instead of a slot number.
+- Pop's preflight states the consumption is **conditional**: the entry is removed
+  only if the apply succeeds. A conflicting `git stash pop` keeps the entry —
+  Git's own behavior — and Fjord reports that rather than completing the removal.
+- Both are `NotRecoverable`. Dropping a stash leaves dangling objects that
+  `git fsck` may find for a while, but the `refs/stash` reflog entry is gone and
+  automatic `git gc` may collect them at any time. Per the labelling contract
+  below, "usually recoverable for a while" is not a label this app offers.
+
+`P10-WC-MULTI-03` adds one more variant for the same reason — to keep a
+destructive action on the confirmed path rather than beside it
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12):
+
+- `DiscardFiles { paths: Vec<String> }` is whole-file batch discard. It exists
+  because the alternative — running N confirmed single-file discards in sequence
+  — produces exactly the partial-success state this section exists to prevent:
+  the user reads one sentence, confirms once, and gets somewhere between one and
+  N files changed depending on where the sequence failed.
+- Its consequences aggregate the shipped per-file computation into a single
+  `ModifiedFilesDiscarded { count, sample }` with the exact total and a
+  five-path sample, plus the summed changed-line count. **No new `Consequence`
+  variant is required.** Recoverability is `NotRecoverable`, as single-file
+  discard already is.
+- The confirmation token binds the repository, the exact action, **every**
+  selection in order, **every** `base_digest`, and the complete `GenerationSet`.
+  A token issued for `{A,B,C}` cannot execute `{A,B}`, `{A,B,C,D}`, or a
+  reordering.
+- **Staleness aborts the whole batch.** If any selected file changed between
+  preflight and execution, the call fails `patch_stale`/`preflight_stale` and
+  nothing is discarded. The unaffected files are not "still fine to discard":
+  the user confirmed a set, and a subset is not what they confirmed.
+- Atomicity is Git's own rather than something layered on top. The executor runs
+  `discard_patch`'s existing sequence once — one write lock, one `index.lock`,
+  one token, one rebuild, one `git apply --reverse --check`, one re-verification,
+  one apply — over a patch built from all selections concatenated in canonical
+  order, and `git apply` validates every hunk of every file before touching the
+  worktree.
 
 The last blocker is the interesting one and is the reason `blockers` exists as a
 concept distinct from `consequences`. A path that appears in *both* the staged
@@ -271,10 +335,12 @@ the moved ref. Reset and Recovery Center restore are `Reflog` only when they do
 not also discard uncommitted/index state; by the same rule, deleting a tracked
 file that also carries uncommitted or staged changes degrades from `Committed`
 to `NotRecoverable`. Local/remote branch deletion, tag
-deletion, stash pop, checkout discard, operation abort, and force-push are
-`NotRecoverable`: a branch/tag/remote server is not required to preserve a
-usable reflog, and a successfully popped stash is no longer durable recovery
-storage even though its content was applied to the worktree.
+deletion, stash pop, stash drop, checkout discard, operation abort, and
+force-push are `NotRecoverable`: a branch/tag/remote server is not required to
+preserve a usable reflog, a successfully popped stash is no longer durable
+recovery storage even though its content was applied to the worktree, and a
+dropped stash's objects are unreferenced and collectable by `git gc` even though
+`git fsck` may still list them for a while.
 
 A preflight is computed immediately before the dialog opens and is re-validated
 against the repository generation at confirmation time; a generation change

@@ -1,7 +1,8 @@
 # Spec: Tauri IPC command surface
 
 Referenced by: P0-08, Phases 1–5; extended by Phases 6–10 (including
-`P10-MERGE-01`–`P10-MERGE-03` and `P10-WC-01`–`P10-WC-06`).
+`P10-MERGE-01`–`P10-MERGE-03`, `P10-WC-01`–`P10-WC-06`,
+`P10-STASH-01`–`P10-STASH-06`, and `P10-WC-MULTI-01`–`P10-WC-MULTI-03`).
 
 ## Purpose
 
@@ -69,7 +70,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_repo_operation_state` | `{ repo_id }` | `GenerationEnvelope<RepoOperationState>` | Live on-disk operation state; query validity depends on `refs` and `working_tree` |
 | `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
-| `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | |
+| `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | `StashEntry` is `{ index, message }` today. `P10-STASH-01` replaces it with the identity-bearing shape in [`stash-management.md`](stash-management.md) §1.2 |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `GenerationEnvelope<CommitPage>` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
 | `get_reflog` | `{ repo_id, ref_name?, cursor?, limit }` | `GenerationEnvelope<ReflogPage>` | Newest-first, capped at 200 entries per page; omitted `ref_name` reads `HEAD`, and `cursor` is the opaque value from `nextCursor` |
 | `get_reflog_refs` | `{ repo_id }` | `GenerationEnvelope<string[]>` | Canonical `refs/heads/*` names that currently have a reflog |
@@ -100,20 +101,20 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `set_branch_upstream` | `{ repo_id, branch, upstream }` | — | Local config write; `upstream` must name an existing remote-tracking branch |
 | `unset_branch_upstream` | `{ repo_id, branch }` | — | Local config write; no network operation |
 | `create_tag` | `{ repo_id, name, target }` | — | Lightweight tag |
-| `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means all |
+| `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means **all** — one `add_all("*")` over a fresh index. Deliberate for the *Stage all* control, and precisely why a batch action built on a user selection must never dispatch an empty list ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.2). A non-empty list writes the index once, so batch stage is already atomic |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
-| `export_patch` | `{ repo_id, selection, destination }` | — | Read-only against the repository: reuses the `P8-01` patch constructor, then writes the bytes to the caller-chosen `destination` outside the repository (`P10-WC-03`). Patch bytes never cross IPC for this command. |
-| `get_patch_text` | `{ repo_id, selection }` | `string` | Same bytes as `export_patch`, returned as text for the "Copy patch to clipboard" follow-up — the only patch command whose content crosses IPC, since the frontend owns the Clipboard API (`P10-WC-03`) |
+| `export_patch` | `{ repo_id, selection, destination }` | — | Read-only against the repository: reuses the `P8-01` patch constructor, then writes the bytes to the caller-chosen `destination` outside the repository (`P10-WC-03`). Patch bytes never cross IPC for this command. `P10-WC-MULTI-03` widens `selection` to `selections: Vec<PatchSelection>`, a single file being a vector of length one |
+| `get_patch_text` | `{ repo_id, selection }` | `string` | Same bytes as `export_patch`, returned as text for the "Copy patch to clipboard" follow-up — the only patch command whose content crosses IPC, since the frontend owns the Clipboard API (`P10-WC-03`). Widened to `selections` alongside `export_patch` by `P10-WC-MULTI-03` |
 | `add_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRuleOutcome` | Appends an exact file, extension, or directory rule to the root `.gitignore`; preserves UTF-8 BOM and dominant line endings, returns `alreadyPresent` without writing duplicates, and advances `working_tree` only on addition |
 | `commit_repo` | `{ repo_id, message, amend }` | `string` | New commit id; amend preserves `HEAD`'s author and parents and permits a message-only rewrite; ordinary commit returns `nothing_to_commit` when the index matches `HEAD` |
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
-| `stash_push` | `{ repo_id, message? }` | — | |
-| `stash_file` | `{ repo_id, path, message }` | — | File-scoped `git stash push -u -m … -- <path>`; preserves every unrelated staged, unstaged, and untracked change byte-for-byte; refuses a conflicted path or an unsupported Git (`P10-WC-05`) |
-| `stash_file_supported` | — | `boolean` | Whether the resolved Git supports pathspec-limited `stash push` (>= 2.13) |
+| `stash_push` | `{ repo_id, message? }` | — | Whole-repository `git2::stash_save2` with untracked files. Folded into `create_stash` by `P10-STASH-02` |
+| `stash_file` | `{ repo_id, path, message }` | — | File-scoped `git stash push -u -m … -- <path>`; preserves every unrelated staged, unstaged, and untracked change byte-for-byte; refuses a conflicted path or an unsupported Git (`P10-WC-05`). Generalized to a pathspec and folded into `create_stash` by `P10-STASH-02` |
+| `stash_file_supported` | — | `boolean` | Whether the resolved Git supports pathspec-limited `stash push` (>= 2.13), read by parsing `git --version` through the resolved `GitCommandFactory`. Renamed `stash_paths_supported` by `P10-STASH-02` |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `diff_tool_availability` | `{ repo_id }` | `boolean` | Whether `Settings.diff_tool` (or, if unset, Git's own `diff.tool`) currently resolves to something Git can run (`P10-WC-06`) |
 | `open_external_diff` | `{ repo_id, path, source }` | — | `git difftool --no-prompt [--tool=<name>] [--cached] -- <path>`; `source` selects the diff side (`P10-WC-06`) |
@@ -167,9 +168,15 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `export_patch` | `{ repo_id, path, source, destination }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-03` |
-| `stash_file` | `{ repo_id, path, message? }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5 | `P10-WC-05` |
-| `open_external_diff` | `{ repo_id, path, source }` | — | [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4 | `P10-WC-06` |
+| `get_stashes` *(replaces the shipped two-field response)* | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | [`stash-management.md`](stash-management.md) §1 | `P10-STASH-01` |
+| `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | [`stash-management.md`](stash-management.md) §4.2 | `P10-STASH-04` |
+| `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | [`stash-management.md`](stash-management.md) §4.4 | `P10-STASH-04` |
+| `stash_paths_supported` *(replaces `stash_file_supported`)* | — | `boolean` | [`stash-management.md`](stash-management.md) §2.2 | `P10-STASH-02` |
+| `create_stash` *(replaces `stash_push` and `stash_file`)* | `{ repo_id, request: { scope, message, include_untracked } }` | `CreateStashResult` | [`stash-management.md`](stash-management.md) §2 | `P10-STASH-02` |
+| `apply_stash` | `{ repo_id, stash_id, restore_index }` | `StashApplyResult` | [`stash-management.md`](stash-management.md) §6.2 | `P10-STASH-06` |
+| `create_branch_from_stash` | `{ repo_id, stash_id, name, apply, keep }` | `CreateBranchFromStashResult` | [`stash-management.md`](stash-management.md) §6.6 | `P10-STASH-06` |
+| `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12 | `P10-WC-MULTI-03` |
+| `export_patch` / `get_patch_text` *(widened to `selections`)* | `{ repo_id, selections, destination? }` | — / `string` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.13 | `P10-WC-MULTI-03` |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
 | `start_rebase` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §2 | `P10-04` |
 | `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
@@ -179,6 +186,22 @@ One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained
 the `DeleteFile { path }` action through the existing enum and executor
 ([`repository-safety.md`](repository-safety.md) §3, `P10-WC-04`).
+`P10-STASH-06` extends the same enum and executor again — `StashPop { id,
+restore_index }` (replacing the index-keyed variant) and the new
+`StashDrop { id }` — and adds no destructive command of its own.
+`P10-WC-MULTI-03` adds `DiscardFiles { paths }` to the same enum. It needs one
+new command, `discard_patches`, only because discard carries a `PatchSelection`
+payload that the shared `execute_destructive_action` signature does not — exactly
+the reason the shipped single-file `discard_patch` already exists
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12).
+
+Two shipped commands are **removed** by the Stash Management tasks rather than
+kept alongside their replacement, so there is one way to do each thing:
+`stash_push` and `stash_file` fold into `create_stash` (`P10-STASH-02`).
+`stash_file_supported` is renamed `stash_paths_supported` with the same shape.
+Pop needs no command change — it has never had an IPC command and already runs
+through `execute_destructive_action`; `P10-STASH-06` only retypes its action on
+`StashId` and deletes the dead, test-only `GitBackend::stash_pop` port method.
 
 Every planned command above takes a **repository-relative** path and never a
 command line, an executable name, or a shell string; the backend canonicalizes
@@ -210,9 +233,20 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
 - Remaining working-file actions (`P10-WC-02`, `P10-WC-03`, `P10-WC-05`,
   `P10-WC-06`): `ignore_rule_unsupported_for_tracked_file`,
   `ignore_file_encoding_unsupported`, `ignore_write_failed`,
-  `patch_export_failed`, `stash_file_unsupported`, `stash_file_conflicted`,
+  `patch_export_failed`, `stash_file_unsupported_git`, `stash_file_conflicted`,
   `diff_tool_not_configured`, `diff_tool_name_invalid`, plus the existing
-  `ide_not_allowed`.
+  `ide_not_allowed`. (These shipped with `P10-WC-02`–`P10-WC-06`; the list is
+  retained here as the record of their spelling. `stash_file_unsupported_git` is
+  the shipped spelling — an earlier draft of this list said
+  `stash_file_unsupported`, which never existed in code or in any locale.)
+- Stash management (`P10-STASH-01`–`P10-STASH-07`,
+  [`stash-management.md`](stash-management.md) §10): `stash_not_found`,
+  `stash_ambiguous`, `stash_scope_empty`, `stash_apply_would_overwrite` (carries
+  bounded `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
+  existing `nothing_to_stash`, `stash_file_conflicted`, and
+  `stash_file_unsupported_git` are reused unchanged; `stash_empty` is retired
+  with the dead `GitBackend::stash_pop` method. A conflicting stash apply or pop
+  is a typed `StashApplyOutcome::Conflicted { paths }` result, never an error.
 
 `delete_file_partially_staged` and `delete_file_conflicted` are also
 `DestructivePreflight.blockers` values: they disable confirmation so no token is
@@ -222,4 +256,4 @@ disabled menu entry is never the guarantee
 
 ## What's not a command
 
-Anything that's pure frontend state (which row is selected in the commit graph, whether the command palette is open) — that stays in `application/` view-state, never round-trips through IPC. UI state that *must* survive a restart is the documented exception and goes through `get_ui_state`/`update_ui_state` ([`ui-shell.md`](ui-shell.md) §5), not through per-feature commands.
+Anything that's pure frontend state (which rows are selected in Working Changes, which row is selected in the commit graph, whether the command palette is open) — that stays in `application/` view-state, never round-trips through IPC. UI state that *must* survive a restart is the documented exception and goes through `get_ui_state`/`update_ui_state` ([`ui-shell.md`](ui-shell.md) §5), not through per-feature commands.
