@@ -90,7 +90,7 @@ the roadmap ([`docs/tasks.md`](docs/tasks.md)), not shipped:
   What is missing is everything around that: stashes are not listed anywhere you
   can browse, there is no way to see what one contains, to name one, to act on
   anything other than the most recent, to apply without consuming, to drop one,
-  or to start a branch from one. Designed as `P10-STASH-01`–`P10-STASH-07`.
+  or to start a branch from one. Designed as `P10-STASH-01`–`P10-STASH-06`.
 - **Full remote management.** Remotes can be listed and added; editing, renaming,
   and removing them are not implemented.
 - **Worktrees, interactive rebase, and forge integration** (pull requests, issues,

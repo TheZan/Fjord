@@ -67,8 +67,8 @@ The one sentence the rest of the document exists to make true:
 | Stash list | ⚠️ `get_stashes` → `StashEntry { index, message }`. Two fields. There is no identity, no base commit, no branch, no time, no file count, and no way to tell an entry that carries index state from one that does not. |
 | Stash identity | 🚧 Absent. `index` is the only handle, and it is not identity — it shifts whenever an entry is pushed or dropped. |
 | Create stash (all) | ⚠️ `stash_push` via `git2::stash_save2` with `INCLUDE_UNTRACKED`. The message is optional and no UI collects one; the toolbar button stashes unnamed. |
-| Create stash (one path) | ✅ `stash_file` (`P10-WC-05`), system Git `stash push -u -m … -- <path>`, with the unrelated-file invariant proven by five fixtures. |
-| Create stash (many paths) | 🚧 Absent. |
+| Create stash (one path) | ⚠️ `stash_file` (`P10-WC-05`), system Git `stash push -u -m … -- <path>`. It ships **file-scoped worktree removal**: unrelated current changes are preserved, proven by five fixtures — invariant **A** of §2.3. It does **not** prove invariant **B**: the entry it creates records whole trees, so a later `apply` can restore unrelated staged content (§4.3). No fixture applies the entry. `P10-STASH-02` upgrades this into an exact reusable scoped stash and migrates `Stash file…` onto it (§2.9). |
+| Create stash (many paths) | 🚧 Absent — and blocked on the §2.3 proof gate, not merely on plumbing. |
 | Apply | 🚧 Absent. There is no apply-without-consuming anywhere in the product. |
 | Pop | ⚠️ Already on the confirmed destructive path — there is no `stash_pop` IPC command, and `execute_destructive_action`'s `StashPop { index }` arm already builds `stash pop stash@{index}` for an **arbitrary** index. The limitation is entirely in the frontend, which hard-codes `index: 0` at both dispatch sites in `RepoDetailContainer.tsx`, and in the action's index-keyed identity. Separately, `GitBackend::stash_pop` / `mutations::stash_pop` (`git2`, always index 0) is **dead production code** reached only by tests. |
 | Drop | 🚧 Absent. |
@@ -354,14 +354,39 @@ make an off-by-one in a selection handler silently stash the whole repository.
 `message` is required and non-empty. Every creation path already has one: the
 dialog prefills it, and the automation callers pass their generated text.
 
+##### The two scopes are two different contracts
+
+This distinction is **normative**, and it is the reason `StashScope` is an enum
+rather than an optional path list:
+
+| Scope | Contract |
+|---|---|
+| `All` | *Snapshot everything applicable.* Conventional whole-repository stash semantics — Git's own — are correct and are what the user asked for. `include_untracked` has its ordinary repository-wide meaning. |
+| `Paths { paths }` | *An exact semantic subset.* The entry the user creates represents **those paths and nothing else**, both in what leaves the working tree and in what a later Apply / Pop brings back. |
+
+`Paths` is **not** merely "which files are removed from the current working
+tree". It defines the **reusable contents** of the stash. The user-visible
+promise made by the labels `Stash file…` and `Stash N files…` is:
+
+> **"Stash N files" means those N files** — when this entry is applied or
+> popped, later, possibly onto a different branch, exactly those paths are
+> touched and no others.
+
+Git's whole-tree stash storage format is an implementation detail of one possible
+mechanism (§2.2). It is not the product contract, and §2.3 states the two
+invariants that make the promise true.
+
 #### 2.2 The engine
 
-One implementation, generalizing `crates/fjord-git/src/local/stash_file.rs` from
-one path to a pathspec, and renaming the module to `stash.rs`. It is not
-rewritten and no second implementation appears beside it.
+One implementation, one module. `crates/fjord-git/src/local/stash_file.rs` is
+generalized from one path to a scoped set and renamed to `stash.rs`; no second
+implementation appears beside it, and `Stash file…` is migrated onto it rather
+than left on its own path (§2.9).
+
+`All` is settled, and is not the hard part:
 
 ```text
-git stash push [-u] -m <message> [-- <path>...]
+git stash push [-u] -m <message>
 ```
 
 - Arguments are passed individually through the resolved `GitCommandFactory`.
@@ -370,35 +395,125 @@ git stash push [-u] -m <message> [-- <path>...]
   `resolve_repository_file_path` authority `P10-WC-01` established, before any
   of them reaches Git's argument parser.
 - Runs under the repository write lock.
-- `-u` is passed when `include_untracked` is set. For `Paths`, the trailing
-  pathspec is what bounds the operation; `-u` only decides whether untracked
-  files *within* that pathspec are included.
 - `git2`'s `stash_save2` stops being used. `stash_push` was its only caller and
   the only place in the stash feature not already on system Git —
   `stash_and_checkout` and merge's `StashFirst` both run `git stash push` today.
-  Consolidating on system Git gives one engine, honors the user's `stash.*`
-  configuration and hooks, and is the only engine with pathspec support at all.
+  Consolidating on system Git gives one engine, and honors the user's `stash.*`
+  configuration and hooks.
 
-Git version: pathspec-limited `stash push` needs Git ≥ 2.13. `All` does not.
-The gate therefore applies to `Paths` only, is re-checked fail-closed inside the
-mutation, and is surfaced as `stash_paths_supported` — the generalization of
-today's `stash_file_supported`, with the same global (non-repo-scoped) query
-shape, since it depends only on the resolved executable. The version is read the
-way `stash_file.rs` actually reads it today — parsing `git --version` through the
-resolved `GitCommandFactory` — not through `GitEnvironmentProvider`.
+##### `Paths` is a construction problem, not a flag
 
-#### 2.3 The invariant
+The obvious mechanism —
 
-> Stashing selected paths preserves the Git state of every unrelated file —
-> staged entries, worktree contents, and untracked files alike — byte for byte.
+```text
+git stash push [-u] -m <message> -- <path>...
+```
 
-This is `P10-WC-05`'s invariant, unchanged, now stated for *n* paths. It is
-upheld the same way: by Git's own pathspec-scoped stash, never by hiding
-unrelated changes, stashing, and restoring them. That sequence has no atomic
-boundary and fails destructively on interruption. If the multi-path
-generalization cannot demonstrate the invariant with §Testing strategy's
-fixtures, the correct outcome is to keep `P10-STASH-02` open — an approximate
-multi-file stash is worse than none.
+— is **not** adopted here as the final mechanism. It is the shipped `P10-WC-05`
+mechanism, it is the natural starting point, and it satisfies exactly one of the
+two invariants in §2.3. A pathspec-scoped `git stash push` bounds *what leaves
+the working tree*; it does **not** bound *what the entry records*. Verified
+against real Git, the resulting stash commit's index and worktree trees are whole
+trees, so unrelated staged content is stored in the entry and is reapplied by a
+later `git stash apply` (§4.3). That breaks the `Paths` contract of §2.1, which
+is about the entry's reusable contents and not only about the current worktree.
+
+`P10-STASH-02` therefore owns a **construction** problem: produce a stash entry
+whose semantic content is exactly the selected path state. Acceptable directions,
+to be evaluated and one of them chosen with evidence:
+
+- a temporary/private index (`GIT_INDEX_FILE` pointed at a scratch index) used to
+  compose the index and worktree trees for the selected paths only;
+- plumbing (`write-tree` / `commit-tree` / `update-ref refs/stash` /
+  `git stash store`) to build the base → index → worktree parent structure
+  explicitly;
+- constructing the required stash commit/tree structure directly and storing it
+  through Git's own `git stash store`, so the reflog entry is written by Git;
+- any other system-Git mechanism that yields a normal `refs/stash` entry while
+  excluding unrelated paths.
+
+Whatever is chosen, the result must be an **ordinary Git stash**:
+
+```text
+git stash list
+git stash show
+git stash apply
+git stash pop
+```
+
+must all work on a Fjord-created entry, from a terminal, with no Fjord present.
+A Fjord-created stash stays indistinguishable from a hand-made one (§1.3).
+
+Explicitly **not** acceptable, for the same reasons the rest of this document
+gives:
+
+- a proprietary Fjord stash database or side-car metadata file (§1.3);
+- a patch file dressed up as a stash — `git stash list` would not show it;
+- temporarily mutating unrelated working files, at any point, for any duration;
+- "hide unrelated changes → stash → restore them" with no atomic boundary. That
+  sequence fails destructively on interruption and is rejected here exactly as it
+  was in `P10-WC-05`.
+
+Removal of the selected paths from the working tree remains Git's own operation
+under the repository write lock — the creation step must leave unrelated work
+untouched at every intermediate point, not merely at the end.
+
+##### Capability gate
+
+Scoped creation is gated on the Git the user actually has. Pathspec-limited
+`stash push` needs Git ≥ 2.13, which is the floor regardless of mechanism; the
+chosen construction may raise it, and if it does, the raised floor is what the
+gate checks. `All` is not gated. The gate is surfaced as `stash_paths_supported`
+— the generalization of today's `stash_file_supported`, with the same global
+(non-repo-scoped) query shape, since it depends only on the resolved executable —
+and is re-checked fail-closed inside the mutation. The version is read the way
+`stash_file.rs` actually reads it today: parsing `git --version` through the
+resolved `GitCommandFactory`, not through `GitEnvironmentProvider`.
+
+#### 2.3 The two invariants
+
+`Paths` creation must uphold **both** of the following. They are separate
+properties, they fail separately, and satisfying one says nothing about the
+other.
+
+> **A — Worktree-removal invariant.** Creating the stash preserves the Git state
+> of every unrelated file — staged entries, worktree contents, and untracked
+> files alike — byte for byte.
+
+This is `P10-WC-05`'s invariant, unchanged, now stated for *n* paths. It is about
+what the user is looking at right now.
+
+> **B — Stash-content invariant.** What a later `Apply` or `Pop` of that entry
+> restores is confined to the selected paths. No unrelated path is present in the
+> entry's semantic content, whether it was staged, unstaged, partially staged, or
+> untracked at creation time.
+
+This is about the entry as a **reusable object**, days later, possibly on another
+branch. Stated as an assertion an implementation must be able to make:
+
+```text
+set(paths a Fjord-created `Paths` stash touches on apply)
+    == set(paths the request semantically asked for)
+```
+
+The shipped `P10-WC-05` implementation demonstrates **A** only. Its five fixtures
+assert unrelated files immediately after creation; none of them applies the entry
+afterwards. Nothing in this document should be read as a claim that pathspec
+`git stash push` already satisfies **B** — verified against real Git, it does not
+(§4.3).
+
+**Proof gate.** `P10-STASH-02` does not ship until both invariants are proven by
+the fixtures in §Testing strategy — including the apply-side ones, which are the
+important regression. If exact-scope construction cannot be done safely and
+Git-compatibly in the first attempt, the correct outcome is to leave
+`P10-STASH-02` **open**, keep `Stash file…` on its current single-path behavior,
+and not ship `Stash N files…`. A smaller safe product is better than a
+`Stash 4 files` that restores more than four files.
+
+**Fail closed, never approximate.** If a selected state cannot be represented
+exactly by the chosen construction, the request is refused with
+`stash_scope_unrepresentable` naming the path, and nothing is created. An
+approximate scoped stash is worse than none.
 
 #### 2.4 Behavior per file state
 
@@ -409,7 +524,7 @@ For every selected path:
 | Tracked, unstaged changes | Stashed; the path is reverted to its index state. |
 | Tracked, staged changes | Stashed; the path is reset to `HEAD`. |
 | Tracked, staged **and** unstaged | Both sides are captured in the one entry for that path; §4.2 keeps them distinguishable. |
-| Untracked | Requires `include_untracked`; the file is moved out of the worktree into the entry. Without it, the path contributes nothing and, if it was the only selected path, the result is `nothing_to_stash`. |
+| Untracked | Requires `include_untracked`; the file is moved out of the worktree into the entry. Without it the path is **excluded before the request is built** — see §2.4.1, which is the single owner of that rule. |
 | Ignored | Never included. Fjord does not pass `--all`; there is no UI for it, and silently stashing ignored build output is not a behavior a user asks for. |
 | Deleted (tracked, removed from the worktree) | Stashed as a deletion; the file is restored to its index/`HEAD` state. |
 | Renamed | Git records a rename as a delete plus an add. Selecting only one of the two halves stashes only that half. The dialog does not attempt to pair them; the file list the user confirms is exactly the set of paths acted on. |
@@ -429,13 +544,46 @@ key on — §6.5):
   holds unmerged entries. Git would refuse anyway; refusing first gives a
   localized reason instead of a raw Git stderr string.
 
+##### 2.4.1 What `include_untracked` means, per scope
+
+The flag has a different meaning in each scope, and this is the single place that
+says so:
+
+| Scope | `include_untracked = true` | `include_untracked = false` |
+|---|---|---|
+| `All` | Conventional whole-repository meaning: every untracked, non-ignored file in the repository is included (`-u`). | Conventional: no untracked file is included. |
+| `Paths` | **Selected** untracked paths may be included — and only those. It is never a licence to sweep in unrelated untracked files elsewhere in the repository; invariant **B** forbids that as firmly as it forbids unrelated staged content. | Selected untracked paths are **excluded from the operation** (below). |
+
+For `Paths` with the flag off, the chosen behavior — one behavior, not a menu of
+them — is **exclude, and say so before confirming**:
+
+- The dialog computes the **effective** set: the selection minus its untracked
+  members. That effective set is what the confirm button counts
+  (`Stash 3 files…`, not `Stash 5 files…`), what the bounded file list shows, and
+  what is sent as `StashScope::Paths { paths }`. The promise of §2.1 stays
+  literally true, because *N* is what will actually be stashed.
+- Excluded untracked paths are named in the dialog in one sentence
+  (`stash.create.untrackedExcluded`), so nothing disappears from the count
+  silently. Ticking **Include untracked files** moves them back into the
+  effective set and the count updates in place.
+- If the effective set is **empty** — every selected path was untracked — Confirm
+  is disabled with that stated reason, exactly as it is for an empty selection or
+  an unsupported Git. The backend does not rely on this: a request that reaches it
+  with an empty `paths` is `stash_scope_empty`, and one whose paths all turn out to
+  be untracked-and-excluded is `nothing_to_stash` (§2.5).
+
+The effective-set rule is the dialog's, and the dialog is shared, so
+`Stash file…`, `Stash N files…`, and the toolbar entry cannot drift apart on it.
+
 #### 2.5 Nothing to stash
 
-`git stash push -- <paths>` that matches no change prints "No local changes to
-save" and exits **0** without creating an entry. Reporting that as success would
-show a "Stashed" notice with nothing stashed. After the push, the backend
-re-reads `refs/stash`; if the top OID is unchanged, the result is the existing
-`GitError::NothingToStash` → `nothing_to_stash`.
+A scoped creation that matches no change must never be reported as success — a
+"Stashed" notice with nothing stashed is worse than an error. Whatever mechanism
+§2.2 settles on, success is confirmed the same way: after the mutation the
+backend re-reads `refs/stash`, and if no new entry was created the result is the
+existing `GitError::NothingToStash` → `nothing_to_stash`. (With the shipped
+pathspec mechanism this is not hypothetical: `git stash push -- <paths>` that
+matches nothing prints "No local changes to save" and exits **0**.)
 
 #### 2.6 Result
 
@@ -499,9 +647,36 @@ primitive `StashFileDialog.tsx` already uses:
 - The dialog states in one sentence that staged state is not preserved across a
   later plain Apply, and points at the "Restore staged state" option (§6.2).
   That sentence is `P10-WC-05`'s `stagedNotPreserved`, reused.
+- The **Selected files** count and list are the *effective* set of §2.4.1: with
+  **Include untracked files** unticked, selected untracked paths are removed from
+  both, and one sentence names them. The count on the radio row and the count in
+  the `Stash N files…` label that opened the dialog are therefore allowed to
+  differ, and the dialog's is the one that is acted on.
 - Confirm is disabled while the name is empty, while `Paths` is selected with an
-  empty list, and while a `Paths` scope is unavailable on an old Git — with the
-  stated reason, never a silently dead button.
+  empty effective list, and while a `Paths` scope is unavailable on the resolved
+  Git — with the stated reason, never a silently dead button.
+
+#### 2.9 One implementation of interactive scoped stash
+
+`P10-WC-05` shipped **file-scoped worktree removal** via Git's pathspec stash,
+preserving unrelated current changes — invariant **A** of §2.3, proven by five
+fixtures. It made no claim about invariant **B**, and none should be read into it.
+
+`P10-STASH-02` upgrades and generalizes that into a **first-class reusable scoped
+stash whose stored and apply semantics are exact** — A *and* B, for *n* paths.
+
+The consequence is stated plainly rather than left implied:
+
+> When `P10-STASH-02` lands, the shipped `Stash file…` is **migrated** onto the
+> new engine. `stash_file` and its single-path module stop existing; a one-file
+> stash becomes `StashScope::Paths { paths: [p] }` and nothing else.
+
+There must ultimately be **one** implementation of interactive scoped stash.
+Fjord must not end up with an old one-file behavior and a new multi-file behavior
+whose entries apply differently — two stashes created from the same menu, one
+file and four files, must obey the same contract. Until `P10-STASH-02` lands,
+`Stash file…` keeps its shipped behavior unchanged; it is not retro-labelled as
+satisfying **B**.
 
 ### 3. Stashes in the repository tree (`P10-STASH-03`)
 
@@ -625,32 +800,42 @@ it**. There is no honest-but-smaller fallback worth designing: if a future Git
 version changed the parent structure, the correct response would be to fail the
 read, not to flatten the groups and hope.
 
-#### 4.3 The pathspec-stash caveat, stated honestly
+#### 4.3 The inspector is authoritative, and what that means for each origin
 
-Verified against real Git, and the single least obvious fact in this document:
+**The one rule.** The inspector's file list, and `files_changed` with it, is
+always the **true** content of the entry as recorded — the base-to-stash tree
+diff plus the untracked tree, derived per §4.2. It is never a remembered
+selection, never a filter applied for presentation, and never narrower than what
+Apply will do. What the user reads before applying is what gets applied.
 
-> A pathspec-scoped stash records **whole trees**, not a pathspec-filtered
-> subset. Its index and worktree trees contain unrelated staged and unstaged
-> content that was never removed from the working tree — and `git stash apply`
-> reapplies that content too.
+That rule is constant. What differs is what the entry *contains* in the first
+place, and there are exactly two origins:
 
-Reproduced: with `a.txt` both staged and further modified and an unrelated
-`b.txt` staged, `git stash push -u -m "only a" -- a.txt` leaves `b.txt` staged in
-the worktree (the §2.3 invariant holds) — but records `b.txt`'s staged content in
-the entry, `git stash show` lists it, and applying that entry onto a clean tree
-brings `b.txt`'s change back.
+**Fjord-created `Paths` stash.** Invariant **B** of §2.3 makes the entry's
+content the selected paths and nothing else. The inspector therefore shows
+exactly the semantic contents of the selected scope; no unrelated,
+selection-external path appears in it — not because the list was filtered, but
+because the entry does not contain one. The list and the promise agree because
+creation made them agree, which is the whole point of §2.2 being a construction
+problem.
 
-Fjord does not hide this and does not "correct" it:
+**Externally-created stash.** Fjord stays honest. A stash made by `git stash` in
+a terminal — including a pathspec-scoped one — may hold any valid stash
+structure, and the inspector displays the authoritative contents derived from the
+stash commit's trees, whatever they are. In particular, verified against real
+Git: with `a.txt` both staged and further modified and an unrelated `b.txt`
+staged, `git stash push -u -m "only a" -- a.txt` leaves `b.txt` staged in the
+working tree (invariant **A** holds) but records `b.txt`'s staged content **in
+the entry**; `git stash show` lists it, and applying that entry onto a clean tree
+brings `b.txt`'s change back. Fjord shows `b.txt` in the inspector for such an
+entry, because Apply will touch it.
 
-- The inspector's file list is the **true** base-to-stash diff — the exact set of
-  paths Apply will touch. It is never filtered down to the paths the user
-  originally selected, because that list would be a promise Apply does not keep.
-  Git does not record the original pathspec, so Fjord could not filter faithfully
-  even if it wanted to.
-- `files_changed` counts the same true set, so the tree row, the inspector
-  header, and the preflight all agree.
-- The user's mental model stays correct because the thing they read before
-  applying is the thing that gets applied.
+**Fjord does not try to know an external stash's original pathspec.** Git does
+not persist it — there is nothing to read — so any attempt to reconstruct "what
+the user originally meant" would be a guess rendered as fact. The distinction
+Fjord draws is therefore never "who made this stash"; it is simply that a
+correctly created Fjord scoped stash has nothing unrelated in it to show. No flag
+or marker distinguishes the two origins (§1.3, §2.7), and none is needed.
 
 #### 4.4 Diff
 
@@ -992,22 +1177,25 @@ backwards. It is therefore defined once in
 source-homogeneous rule, right-click behavior, `Ctrl+A`, selection survival,
 virtualization, and accessibility.
 
-`P10-STASH-07` is **withdrawn** rather than renumbered; no work is lost, and
-nothing else shifts. What this spec keeps is the half that is genuinely stash:
+`P10-STASH-07` was drafted and then **withdrawn before implementation**, rather
+than renumbered; its scope moved to `P10-WC-MULTI-01`–`P10-WC-MULTI-03`. No work
+is lost and nothing else shifts. It is a historical note here, not an active
+roadmap task, and it is not resurrected anywhere. What this spec keeps is the half that is genuinely stash:
 
 - the `StashScope::Paths { paths }` contract that a multi-file selection is
   passed to (§2.1);
-- the pathspec engine and its unrelated-file invariant (§2.2–§2.3);
+- the scoped-creation engine and its two invariants (§2.2–§2.3);
 - the per-file-state behavior table (§2.4);
 - the shared naming dialog, which the `Stash N files…` entry point opens
   preconfigured (§2.8).
 
 The dependency runs one way and is worth stating plainly: the
 `Stash N files…` **menu entry** ships in `P10-WC-MULTI-02`, and it can only ship
-after `P10-STASH-02` has generalized the pathspec stash from one path to many.
-Selection without the multi-path backend would be a menu entry that cannot
-execute; the multi-path backend without selection is still fully useful, since a
-one-path `Paths` scope is exactly today's `Stash file…`.
+after `P10-STASH-02` has delivered exact-scope creation for *n* paths **and
+passed its §2.3 proof gate**. Selection without that backend would be a menu
+entry that cannot execute — or, worse, one that executes and restores more than
+it named. The scoped backend without selection is still fully useful on its own,
+since a one-path `Paths` scope is what `Stash file…` becomes (§2.9).
 
 ### 8. Generations and invalidation
 
@@ -1090,6 +1278,9 @@ New stable codes, spelled here so no task invents a variant:
 - `stash_not_found` — the selected `StashId` is no longer in the stack (§1.6).
 - `stash_ambiguous` — the same commit appears twice in the stack (§1.6).
 - `stash_scope_empty` — `Paths` with no paths (§2.1).
+- `stash_scope_unrepresentable` — a selected path's state cannot be recorded
+  exactly by the scoped-creation construction, so nothing is created rather than
+  something approximate (§2.3). Carries the offending path in `AppError.paths`.
 - `stash_apply_would_overwrite` — Git refused before writing; carries the bounded
   path list in `AppError.paths` (§6.2).
 - `stash_apply_index_refused` — `--index` could not reinstate the index (§6.2).
@@ -1131,7 +1322,22 @@ interruption.
 
 **Filter the inspector's file list down to the pathspec the stash was created
 with.** Rejected — §4.3. It would show the user a list Apply does not honor, and
-Fjord cannot even know the original pathspec: Git does not record it.
+Fjord cannot even know the original pathspec: Git does not record it. The fix for
+Fjord-created scoped stashes is to make the *entry* exact at creation time
+(§2.2), never to make the *view* look exact over an entry that is not.
+
+**Accept pathspec `git stash push`'s whole-tree recording as the product
+contract for `Paths`, and explain it in the UI.** Rejected. An earlier draft of
+this spec did exactly that. It makes `Stash 4 files` a label that can restore a
+fifth file, and no amount of explanatory text in an inspector fixes a name that
+is wrong. Git's storage format is an implementation detail of one candidate
+mechanism; §2.1 makes the subset contract normative and §2.2 makes producing it a
+solvable construction problem instead.
+
+**Ship `Stash N files…` on the pathspec mechanism now and tighten the semantics
+later.** Rejected — §2.3's proof gate. Users would create entries under one
+promise and apply them under another, and the entries outlive the release that
+made them. A smaller safe product is better than a misleading one.
 
 **Use `git stash branch` for "Create branch from stash".** Rejected — §6.6. It
 drops the stash on success, and a destructive side effect inside a
@@ -1215,19 +1421,40 @@ CLI, not synthetic objects.
    action hit that exact entry.
 4. **Stash all with a custom message** — the created entry's `message` and
    `title` are the user's text; the worktree is clean afterwards.
-5. **Stash one path** — the `P10-WC-05` fixtures, re-run against the generalized
-   engine, unchanged in expectation.
-6. **Stash several paths** — three selected of six changed; exactly the three are
-   removed from the worktree.
-7. **Unrelated state preserved** — for every scope in (5) and (6): an unrelated
-   staged entry, an unrelated unstaged file, and an unrelated untracked file are
-   byte-for-byte identical before and after, index entry and worktree content
-   both asserted.
+5. **Stash one path** — the `P10-WC-05` fixtures, re-run against the new engine,
+   unchanged in expectation for invariant **A**, and additionally carried through
+   cases 28–31 for invariant **B**. A one-path `Paths` is not a weaker contract
+   than a four-path one (§2.9).
+6. **Stash several paths (invariant A)** — the **canonical scoped fixture**,
+   which cases 6–7 and 28–31 all share:
+
+   | Path | Selected | State |
+   |---|:---:|---|
+   | `a.txt` | ✅ | tracked, unstaged change |
+   | `b.txt` | ❌ | tracked, **staged** change |
+   | `c.txt` | ✅ | tracked, **partially staged** (staged change plus a further worktree change) |
+   | `d.txt` | ❌ | tracked, unstaged change |
+   | `u1.txt` | ✅ | untracked |
+   | `u2.txt` | ❌ | untracked |
+
+   Request: `StashScope::Paths { paths: [a.txt, c.txt, u1.txt] }`,
+   `include_untracked: true`. After creation, `a`/`c`/`u1` have left the working
+   tree per §2.4's table, and the entry exists.
+7. **Unrelated state preserved (invariant A)** — for the fixture in (6) and for
+   the one-path case in (5): `b.txt`, `d.txt`, and `u2.txt` are byte-for-byte
+   identical before and after — **index entry and worktree content both
+   asserted**, so an unrelated *staged* entry is proven preserved as a staged
+   entry and not merely as file bytes. The whole unrelated index is compared for
+   Git-state equivalence, not just the sampled paths.
 8. **Mixed selected states** — one unstaged, one staged, one both-sided, one
    deleted, one untracked, in a single request; each behaves per §2.4's table.
-9. **Untracked selected paths** — included with `include_untracked`; with it off,
-   the untracked path contributes nothing, and a request naming only it returns
-   `nothing_to_stash`.
+9. **Untracked selected paths, per §2.4.1** — with `include_untracked: true`,
+   `u1.txt` is in the entry and `u2.txt` is not (an untracked path is included
+   because it was *selected*, never because the flag was set). With it off, the
+   backend receives an effective set that excludes `u1.txt` and `u1.txt` is left
+   untouched in the worktree; a request whose entire effective set is empty
+   returns `nothing_to_stash`, and `Paths { paths: [] }` returns
+   `stash_scope_empty` (case 11).
 10. **Conflicted path refused** — a conflicted path in a `Paths` request and an
     unmerged index for an `All` request both return `stash_file_conflicted` with
     the path, and neither creates an entry.
@@ -1244,11 +1471,17 @@ CLI, not synthetic objects.
 15. **Untracked parent present but empty** — a pathspec stash with `-u` whose
     pathspec excludes every untracked file has `has_untracked == false` and an
     empty `untracked` group.
-16. **Pathspec stash records whole trees** — the §4.3 fixture, asserting
-    explicitly that unrelated staged content *is* in the entry, *is* listed by
-    `get_stash_files`, and *is* reapplied by `apply`, while the worktree copy was
-    never disturbed. This test exists to stop a future "fix" that filters the
-    list.
+16. **An *externally* created pathspec stash is reported honestly** — build the
+    §4.3 fixture with the **Git CLI**, not through `create_stash`: `a.txt` staged
+    and further modified, `b.txt` staged and unrelated, then
+    `git stash push -u -m "only a" -- a.txt`. Assert that Git recorded `b.txt`'s
+    staged content in the entry, that `get_stash_files` lists `b.txt`, and that
+    `apply` reapplies it. This case pins the **inspector's** honesty about
+    entries Fjord did not create (§4.3) and stops a future "fix" that filters the
+    list. It is explicitly **not** a statement about `create_stash`: the same
+    selection made through Fjord must satisfy cases 28–31 instead, and a
+    regression that turns Fjord's own scoped creation into this behavior is a
+    failure of those cases, not a pass of this one.
 17. **Apply a non-top stash** — applying `stash@{2}` by id changes the worktree
     accordingly and leaves the stack length unchanged.
 18. **Apply with `restore_index`** — staged state is staged again; plus a case
@@ -1281,6 +1514,55 @@ CLI, not synthetic objects.
     execute `StashPop { id: B }` or `StashDrop { id: A }`, and a replayed token
     is an atomic no-op.
 
+**Invariant B — the scoped-stash content and apply cases.** These are the proof
+gate of §2.3. They all use the canonical fixture of case 6, they all create the
+stash **through `create_stash`**, and asserting that unrelated files survive
+creation (case 7) does **not** substitute for any of them. The apply side is the
+important regression: it is the one a user meets days later, and the one a
+whole-tree recording silently breaks.
+
+28. **Entry contents are exactly the selected scope** — inspect the entry created
+    in case 6 through `get_stash_files`:
+
+    - `a.txt` present;
+    - `c.txt` present, with its staged and worktree halves in the correct groups
+      per §4.2 (a partially staged selected path keeps its structure — it is not
+      flattened);
+    - `u1.txt` present in the Untracked group (`include_untracked: true`);
+    - `b.txt` **absent**;
+    - `d.txt` **absent**;
+    - `u2.txt` **absent**.
+
+    `files_changed` counts exactly the present set. Assert against the stash
+    commit's trees as well as through `get_stash_files`, so a filtering bug in
+    the read layer cannot make a whole-tree entry look correct.
+29. **Apply restores only the selected paths** — apply the case-6 entry onto a
+    fresh fixture that is clean apart from independent `b.txt` / `d.txt` /
+    `u2.txt` content:
+
+    - `a.txt`, `c.txt`, and `u1.txt` are restored;
+    - `b.txt`, `d.txt`, and `u2.txt` are **untouched** — worktree bytes and index
+      entries both compared, before and after;
+    - the same holds with `restore_index` on and off.
+30. **Pop restores only the selected paths** — the same assertions as (29) via
+    Pop, plus: the entry is removed on a successful apply, and a conflicted pop
+    restores nothing outside the selected set and keeps the entry (case 21's
+    facts, re-asserted on the scoped fixture).
+31. **Set-equality invariant** — the strong, general form, expressed once as a
+    reusable assertion rather than as prose:
+
+    ```text
+    set(paths touched by applying a Fjord-created `Paths` stash)
+        == set(paths of the effective request)
+    ```
+
+    Asserted for at least: one path; several paths; a partially staged path; a
+    selected untracked path with `include_untracked` on; and a selection made
+    while unrelated paths were staged, unstaged, partially staged, and untracked
+    at once. Where a selected state is not representable by the chosen
+    construction, the request must fail `stash_scope_unrepresentable` and create
+    nothing — that outcome is a passing case, an approximate entry is not.
+
 ### Frontend (component and hook tests)
 
 1. The **Stashes** section renders in `RepoTree` after Tags, with its count.
@@ -1310,7 +1592,12 @@ CLI, not synthetic objects.
     call — asserted at this spec's boundary. The selection gestures that produced
     that set are [`working-tree-and-diff.md`](working-tree-and-diff.md) §7's
     frontend cases 1–19 and are not duplicated here.
-15. Five-locale parity: every new key exists in `en`, `ru`, `de`, `fr`, `es`,
+15. **Effective-set semantics in the dialog (§2.4.1)** — a selection containing
+    untracked paths with **Include untracked files** unticked shows the reduced
+    count, names the excluded paths, and dispatches only the effective set;
+    ticking the box restores both in place; an all-untracked selection with the
+    box unticked leaves Confirm disabled with the stated reason.
+16. Five-locale parity: every new key exists in `en`, `ru`, `de`, `fr`, `es`,
     with `npm run check-i18n` green.
 
 `npm run check-ipc-docs` must stay green, which requires the shipped-command
@@ -1337,6 +1624,9 @@ Russian per the glossary.
 | `stash.create.scopeSelected_one` | `Selected file` |
 | `stash.create.scopeSelected_other` | `Selected files ({{count}})` |
 | `stash.create.includeUntracked` | `Include untracked files` |
+| `stash.create.untrackedExcluded_one` | `{{count}} selected untracked file will not be stashed.` |
+| `stash.create.untrackedExcluded_other` | `{{count}} selected untracked files will not be stashed.` |
+| `stash.create.onlyUntracked` | `Every selected file is untracked. Include untracked files to stash them.` |
 | `stash.create.confirm` | `Stash` |
 | `stash.create.andMore` | `and {{count}} more` |
 | `stash.defaultMessage.all` | `Work in progress on {{branch}}` |
@@ -1375,6 +1665,7 @@ Russian per the glossary.
 | `errors.stash_not_found` *(common)* | `That stash no longer exists. Refresh and try again.` |
 | `errors.stash_ambiguous` *(common)* | `More than one stash entry points at the same commit; Fjord will not guess which one you meant.` |
 | `errors.stash_scope_empty` *(common)* | `No files were selected to stash.` |
+| `errors.stash_scope_unrepresentable` *(common)* | `The state of {{path}} cannot be stashed on its own, so nothing was stashed.` |
 | `errors.stash_apply_would_overwrite` *(common)* | `Applying this stash would overwrite local changes.` |
 | `errors.stash_apply_index_refused` *(common)* | `The staged state of this stash could not be restored.` |
 | `errors.stash_apply_failed` *(common)* | `The stash could not be applied.` |
@@ -1392,8 +1683,19 @@ Russian per the glossary.
    no longer exist as commands; `git2::stash_save2` is no longer called anywhere;
    and the dead `GitBackend::stash_pop` / `mutations::stash_pop` pair is deleted,
    leaving one pop implementation on the confirmed destructive path.
-4. Stashing selected paths leaves every unrelated staged, unstaged, and untracked
-   change byte-for-byte unchanged, proven by fixtures for each state in §2.4.
+4. **Both scoped-stash invariants hold, and both are proven.** (A) Stashing
+   selected paths leaves every unrelated staged, unstaged, and untracked change
+   byte-for-byte unchanged, index entries included, proven by fixtures for each
+   state in §2.4. (B) Applying or popping a Fjord-created `StashScope::Paths`
+   entry touches **only** the selected paths — `set(touched) == set(requested)`
+   — proven by backend cases 28–31 on the canonical fixture. `P10-STASH-02` does
+   not ship without (B); an unrepresentable selection fails closed with
+   `stash_scope_unrepresentable` rather than producing an approximate entry.
+   `StashScope::All` keeps conventional whole-repository semantics;
+   `StashScope::Paths` is an exact semantic subset. The two contracts are
+   distinct and normative (§2.1), and `Stash file…` runs on the same engine and
+   the same contract as `Stash N files…` (§2.9) — there is exactly one
+   implementation of interactive scoped stash.
 5. Every interactive stash creation collects an editable name; no Fjord-owned
    stash metadata is persisted anywhere.
 6. The repository tree has a Stashes section, in Git's stack order, with counts,
@@ -1401,8 +1703,13 @@ Russian per the glossary.
    rows.
 7. The Stash Inspector shows base commit, source branch (or an honest detached
    note), time, file count, and the three-group file structure derived from the
-   stash commit's parent trees — with the true base-to-stash file set, not a
-   pathspec-filtered one.
+   stash commit's parent trees — always the entry's **true** contents, never a
+   remembered selection and never a presentation-time filter. For a Fjord-created
+   `Paths` stash that list contains exactly the selected scope, because criterion
+   4(B) made the entry exact; for an externally created stash it contains
+   whatever Git recorded, including unrelated paths a terminal pathspec stash
+   swept in. Fjord never claims to know an external stash's original pathspec —
+   Git does not persist one.
 8. Stash file diffs render through the existing bounded `FileDiffWindow`
    pipeline, with the same ceilings and the same renderer. No unbounded diff path
    exists.

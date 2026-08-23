@@ -113,8 +113,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
 | `stash_push` | `{ repo_id, message? }` | — | Whole-repository `git2::stash_save2` with untracked files. Folded into `create_stash` by `P10-STASH-02` |
-| `stash_file` | `{ repo_id, path, message }` | — | File-scoped `git stash push -u -m … -- <path>`; preserves every unrelated staged, unstaged, and untracked change byte-for-byte; refuses a conflicted path or an unsupported Git (`P10-WC-05`). Generalized to a pathspec and folded into `create_stash` by `P10-STASH-02` |
-| `stash_file_supported` | — | `boolean` | Whether the resolved Git supports pathspec-limited `stash push` (>= 2.13), read by parsing `git --version` through the resolved `GitCommandFactory`. Renamed `stash_paths_supported` by `P10-STASH-02` |
+| `stash_file` | `{ repo_id, path, message }` | — | File-scoped `git stash push -u -m … -- <path>`; preserves every unrelated staged, unstaged, and untracked change in the **working tree** byte-for-byte; refuses a conflicted path or an unsupported Git (`P10-WC-05`). It makes no claim about the entry's contents — a pathspec stash records whole trees. Folded into `create_stash` and migrated onto its exact-scope engine by `P10-STASH-02` ([`stash-management.md`](stash-management.md) §2.3, §2.9) |
+| `stash_file_supported` | — | `boolean` | Whether the resolved Git supports pathspec-limited `stash push` (>= 2.13), read by parsing `git --version` through the resolved `GitCommandFactory`. Renamed `stash_paths_supported` by `P10-STASH-02`, which may raise the floor if its chosen scoped-creation mechanism needs a newer Git |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `diff_tool_availability` | `{ repo_id }` | `boolean` | Whether `Settings.diff_tool` (or, if unset, Git's own `diff.tool`) currently resolves to something Git can run (`P10-WC-06`) |
 | `open_external_diff` | `{ repo_id, path, source }` | — | `git difftool --no-prompt [--tool=<name>] [--cached] -- <path>`; `source` selects the diff side (`P10-WC-06`) |
@@ -171,7 +171,7 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | `get_stashes` *(replaces the shipped two-field response)* | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | [`stash-management.md`](stash-management.md) §1 | `P10-STASH-01` |
 | `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | [`stash-management.md`](stash-management.md) §4.2 | `P10-STASH-04` |
 | `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | [`stash-management.md`](stash-management.md) §4.4 | `P10-STASH-04` |
-| `stash_paths_supported` *(replaces `stash_file_supported`)* | — | `boolean` | [`stash-management.md`](stash-management.md) §2.2 | `P10-STASH-02` |
+| `stash_paths_supported` *(replaces `stash_file_supported`)* | — | `boolean` | [`stash-management.md`](stash-management.md) §2.2 — whether the resolved Git supports **scoped** stash creation; the floor is >= 2.13 and the chosen mechanism may raise it | `P10-STASH-02` |
 | `create_stash` *(replaces `stash_push` and `stash_file`)* | `{ repo_id, request: { scope, message, include_untracked } }` | `CreateStashResult` | [`stash-management.md`](stash-management.md) §2 | `P10-STASH-02` |
 | `apply_stash` | `{ repo_id, stash_id, restore_index }` | `StashApplyResult` | [`stash-management.md`](stash-management.md) §6.2 | `P10-STASH-06` |
 | `create_branch_from_stash` | `{ repo_id, stash_id, name, apply, keep }` | `CreateBranchFromStashResult` | [`stash-management.md`](stash-management.md) §6.6 | `P10-STASH-06` |
@@ -239,10 +239,11 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   retained here as the record of their spelling. `stash_file_unsupported_git` is
   the shipped spelling — an earlier draft of this list said
   `stash_file_unsupported`, which never existed in code or in any locale.)
-- Stash management (`P10-STASH-01`–`P10-STASH-07`,
+- Stash management (`P10-STASH-01`–`P10-STASH-06`,
   [`stash-management.md`](stash-management.md) §10): `stash_not_found`,
-  `stash_ambiguous`, `stash_scope_empty`, `stash_apply_would_overwrite` (carries
-  bounded `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
+  `stash_ambiguous`, `stash_scope_empty`, `stash_scope_unrepresentable` (carries
+  the offending `paths`), `stash_apply_would_overwrite` (carries bounded
+  `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
   existing `nothing_to_stash`, `stash_file_conflicted`, and
   `stash_file_unsupported_git` are reused unchanged; `stash_empty` is retired
   with the dead `GitBackend::stash_pop` method. A conflicting stash apply or pop

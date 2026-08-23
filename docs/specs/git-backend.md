@@ -2,7 +2,7 @@
 
 Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04,
 P9R-06; extended by P10-MERGE-01, P10-WC-01–P10-WC-06, and
-P10-STASH-01–P10-STASH-07.
+P10-STASH-01–P10-STASH-06.
 
 ## Purpose
 
@@ -114,7 +114,7 @@ Stash routing (`P10-STASH-01`–`P10-STASH-06`,
 |---|---|---|---|
 | `stashes` | `git2` refs + reflog + commit/tree reads | The whole model is repository-derived: `refs/stash`'s reflog gives the stack and its order, the stash commit's first parent gives the base, and comparing its parents' trees gives the staged/untracked structure and the file count. No subprocess, no parsing of `git stash list` output, and nothing persisted — Git owns stash state. | `P10-STASH-01` |
 | `stash_files` / `stash_file_diff` | `gix`/`git2` tree diff + the existing bounded diff pipeline | Read-only tree-to-tree diffs between the exact parent pairs each group names, fed through the shipped `FileDiffWindow` construction so ceilings, whitespace modes, digests, and generation envelopes are the ones already proven. No second diff implementation. | `P10-STASH-04` |
-| `create_stash` | system Git (`stash push [-u] -m … [-- <paths>]`) | The generalization of `stash_file` from one path to a pathspec, replacing `git2::stash_save2`. Git's own pathspec-scoped stash is what makes the unrelated-file invariant true by construction, it is the only engine with pathspec support, and it honors the user's `stash.*` configuration and hooks. `stash_and_checkout` and merge's `StashFirst` already run this command. | `P10-STASH-02` |
+| `create_stash` | system Git | Replaces `git2::stash_save2` and folds in `stash_file`, so the whole feature runs on system Git — which honors the user's `stash.*` configuration and hooks, and is what `stash_and_checkout` and merge's `StashFirst` already use. `All` is `stash push [-u] -m …`. **`Paths` is a construction problem, not a flag**: the entry must contain only the selected paths on apply as well as on creation, which pathspec `stash push` alone does not give, so the exact mechanism is chosen and proven in `P10-STASH-02` and is owned normatively by [`stash-management.md`](stash-management.md) §2.2–§2.3, not restated here. Whatever it is, it must produce an ordinary `refs/stash` entry that plain `git stash list`/`show`/`apply`/`pop` handle. | `P10-STASH-02` |
 | `apply_stash` | system Git (`stash apply [--index] stash@{n}`) | Symmetry with creation, and `--index` restoration is Git's own semantics rather than something to reimplement over the index. The `stash@{n}` is constructed from a fresh identity re-resolution under the write lock, never accepted from the caller. A conflict is classified by a live index read, not by the exit code. | `P10-STASH-06` |
 | `stash pop` / `stash drop` (via `execute_confirmed_destructive_action`) | system Git | Already the executor's path; `P10-STASH-06` only retypes the action on the stash commit OID and re-resolves the position under the write lock after the token is consumed. The dead `git2`-backed `GitBackend::stash_pop` (index 0, test-only) is deleted so one pop implementation remains. | `P10-STASH-06` |
 | `create_branch_from_stash` | `git2` branch create + checkout, then system Git apply | Composes two shipped mutations rather than delegating to `git stash branch`, which drops the entry on success — a destructive side effect Fjord will not put inside a constructive action. | `P10-STASH-06` |

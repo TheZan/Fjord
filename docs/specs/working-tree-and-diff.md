@@ -121,7 +121,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | File open / reveal | ✅ `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path` (`P10-WC-01`): repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments. `IdeLauncher` carries an optional line. |
 | External diff tool | ✅ `open_external_diff` (`git difftool`) with a `Settings.diff_tool` **name** only, plus `diff_tool_availability` for the live disabled reason (`P10-WC-06`). The merge tool stays a separate concept (§6.4). |
 | `.gitignore` writing | ✅ Root `.gitignore` only, UTF-8 with BOM/terminator preservation and fail-closed on invalid UTF-8 (`P10-WC-02`). Global excludes, `.git/info/exclude`, and `core.excludesFile` are still never touched. |
-| File-scoped stash | ✅ `stash_file` (`P10-WC-05`), Git's own pathspec-scoped `stash push -u -m … -- <path>`, with the unrelated-file invariant proven per file state. `P10-STASH-02` generalizes it to *n* paths under one `create_stash` contract ([`stash-management.md`](stash-management.md) §2). |
+| File-scoped stash | ⚠️ `stash_file` (`P10-WC-05`), Git's own pathspec-scoped `stash push -u -m … -- <path>`. What shipped is **file-scoped worktree removal** with the unrelated-*current*-changes invariant proven per file state. The entry it creates still records whole trees, so a later apply can restore more than the one file; that is the stash-content invariant `P10-STASH-02` adds ([`stash-management.md`](stash-management.md) §2.3). `P10-STASH-02` generalizes creation to *n* paths under one `create_stash` contract and **migrates this action onto it** (§2.9 there). |
 | Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard), both reusing the `P8-01` constructor unchanged (`P10-WC-03`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
@@ -526,7 +526,7 @@ Stage
 Discard working changes…
 ──────────────────────────
 Ignore ▸                       (untracked files only)
-Stash file… / Stash N files…   (P10-WC-05; N-file form P10-STASH-07)
+Stash file… / Stash N files…   (P10-WC-05; N-file form P10-WC-MULTI-02)
 ──────────────────────────
 Open in <configured editor>
 Open with default application
@@ -801,14 +801,25 @@ reads repository state and writes a file outside it, mutating nothing.
   (and `--cached --check` for the staged variant) succeeds against the matching
   fixture state.
 
-**Stash file (`P10-WC-05`).** The invariant is absolute:
+**Stash file (`P10-WC-05`).** What shipped is **file-scoped worktree removal**,
+and its invariant is absolute:
 
 > Stashing one selected file preserves the Git state of every unrelated file
 > byte-for-byte — index entries, worktree contents, and untracked files alike.
 
-Fjord therefore does **not** implement it by hiding other changes, stashing, and
+That is a statement about the **working tree at creation time**. It is *not* a
+statement about the entry's reusable contents: a pathspec-scoped stash records
+whole trees, so a later apply of a `P10-WC-05` entry can restore unrelated staged
+content. [`stash-management.md`](stash-management.md) §2.3 names these two
+properties invariant **A** (the one proven here) and invariant **B** (the one
+`P10-STASH-02` adds), and §2.9 there records that `Stash file…` is migrated onto
+the `P10-STASH-02` engine so one-file and *n*-file stashes cannot end up with
+different apply semantics. Nothing below should be read as a `P10-WC-05` claim
+about **B**.
+
+Fjord does **not** implement any of this by hiding other changes, stashing, and
 restoring them. That sequence has no atomic boundary and fails destructively on
-interruption. The mechanism is Git's own pathspec-scoped stash:
+interruption. The shipped mechanism is Git's own pathspec-scoped stash:
 
 ```text
 git stash push [-u] -m "Fjord: stash <path>" -- <path>
@@ -840,25 +851,35 @@ git stash push [-u] -m "Fjord: stash <path>" -- <path>
 - Dialog: title `Stash changes in {{path}}`, one message field prefilled with
   `Fjord: stash <path>`, plus the staged-state sentence above.
 - If P10-WC-05's implementation cannot demonstrate the unrelated-file invariant
-  with the tests in §Testing strategy, the correct outcome is to **not ship the
-  action** and keep the task open. An approximate file stash is worse than no
-  file stash.
+  (invariant **A**) with the tests in §Testing strategy, the correct outcome is to
+  **not ship the action** and keep the task open. An approximate file stash is
+  worse than no file stash. The same rule, applied to invariant **B**, is
+  `P10-STASH-02`'s proof gate.
 
-**Where this goes next.** `P10-STASH-02` generalizes the shipped single-path
-implementation into one `create_stash` contract over
+**Where this goes next.** `P10-STASH-02` replaces the shipped single-path
+implementation with one `create_stash` contract over
 `StashScope::{ All, Paths }`, so "stash the repository", "stash this file", and
 "stash these three files" become one engine and one dialog rather than three
 code paths ([`stash-management.md`](stash-management.md) §2). This section keeps
-ownership of the *entry point* — where the menu item sits, when it is disabled,
-and the invariant it must uphold — while the contract, the per-state behavior
-table for *n* paths, the naming rules, and everything downstream of creation
-(browsing, inspection, apply, pop, drop, create-branch) move to that spec. One
-caveat recorded there is worth knowing before reading this section's table as the
-whole truth: a pathspec-scoped stash *records* whole trees even though it only
-*removes* the selected paths from the working tree, so a later `apply` restores
-more than was stashed. The invariant above is about what stays in the working
-tree, which is what the user is looking at; it is not a claim about the entry's
-contents.
+ownership of the *entry point* — where the menu item sits and when it is disabled
+— while the contract, the per-state behavior table for *n* paths, the scoped
+invariants, the naming rules, and everything downstream of creation (browsing,
+inspection, apply, pop, drop, create-branch) belong to that spec.
+
+Two facts from there are worth carrying in mind before reading this section's
+table as the whole truth:
+
+- A pathspec-scoped `git stash push` *records* whole trees even though it only
+  *removes* the selected paths from the working tree, so a later `apply` of a
+  `P10-WC-05` entry restores more than was stashed. The invariant above is about
+  what stays in the working tree — what the user is looking at — and is not a
+  claim about the entry's contents.
+- `P10-STASH-02` makes that unacceptable as a product contract: a Fjord-created
+  `Paths` stash must contain **only** the selected paths, so pathspec
+  `git stash push` is no longer committed to as the final mechanism, and the task
+  does not ship until the apply side is proven
+  ([`stash-management.md`](stash-management.md) §2.2–§2.3). If that proof fails,
+  `Stash file…` stays exactly as it is today and `Stash N files…` does not ship.
 
 **Delete file (`P10-WC-04`).** Destructive, never immediate, always through the
 existing preflight contract:
@@ -1339,12 +1360,21 @@ Stage and another for Unstage.
 it. It is the same dialog and the same `create_stash` contract used by "stash
 everything" and "stash this file" — this section adds **no stash API, no second
 dialog, and no stash semantics**. The contract, the per-file-state behavior, the
-unrelated-file invariant, and the naming rules are
+two scoped invariants, the `include_untracked` rule, and the naming rules are
 [`stash-management.md`](stash-management.md) §2.
 
-The dependency is therefore real and one-directional: the menu entry can ship
-only once `P10-STASH-02` has generalized the pathspec stash from one path to
-many.
+The label is a promise this section must not make on the backend's behalf:
+`Stash 4 files` means those four files, on creation *and* on a later apply or pop
+(§2.1 there). The count the dialog confirms is the *effective* set of §2.4.1
+there — selected untracked paths are excluded from it while **Include untracked
+files** is unticked, and named in the dialog — so the *N* in the label and the
+*N* that gets stashed are the same number.
+
+The dependency is therefore real, one-directional, and gated on a proof, not just
+on plumbing: the menu entry can ship only once `P10-STASH-02` has delivered
+exact-scope creation for *n* paths and passed its §2.3 proof gate. Until then
+this entry point does not ship, and `P10-WC-MULTI-02`'s other batch actions ship
+without it.
 
 #### 7.12 Batch Discard (`P10-WC-MULTI-03`)
 

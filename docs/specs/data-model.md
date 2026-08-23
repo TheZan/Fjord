@@ -118,7 +118,8 @@ truth that a terminal `git stash drop` falsifies immediately, would orphan rows
 forever, and would make Fjord-created stashes behave differently from everyone
 else's. Stash identity is the stash commit OID — an immutable Git object id, not
 a Fjord-assigned key — so there is nothing to store. Working Changes
-multi-selection (`P10-STASH-07`) is likewise transient view state.
+multi-selection (`P10-WC-MULTI-01`–`P10-WC-MULTI-03`) is likewise transient view
+state.
 
 A snapshot row is revalidated on first use after a restart, because generations
 ([`performance.md`](performance.md) §5) are in-memory and reset to zero — a
