@@ -278,7 +278,7 @@ pub enum GitError {
     DiffToolNotConfigured { tool: String },
     #[error("the diff tool name is invalid")]
     DiffToolNameInvalid,
-    #[error("stashing a single file needs Git 2.13 or newer")]
+    #[error("single-file stashing requires Git 2.23 or newer")]
     StashFileUnsupportedGit,
     #[error("{path} has unresolved conflicts")]
     StashFileConflicted { path: String },

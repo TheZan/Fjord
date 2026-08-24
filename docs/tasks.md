@@ -340,15 +340,11 @@ is the same contract `Stash file…` migrates onto. `P10-WC-MULTI-01` leads the
 whole sequence because it is pure frontend, blocks nothing, and is what every
 later batch action reads from.
 
-**`P10-STASH-02` carries a proof gate**, and the order above depends on it.
-`Paths` promises an exact subset — "Stash 4 files" means those four files, on
-apply as well as on creation — and pathspec `git stash push` alone does not
-deliver that ([`specs/stash-management.md`](specs/stash-management.md) §2.2–§2.3).
-If the exact-scope construction cannot be proven safe and Git-compatible,
-`P10-STASH-02` stays open, `Stash file…` keeps its shipped behavior, and step 6
-ships **without** its `Stash N files…` entry point; nothing downstream is
-blocked, because `P10-STASH-03…06` depend on `01`'s identity model rather than on
-`02`.
+**`P10-STASH-02` is complete.** `create_stash` with `scope: Paths` delivers an
+exact subset — "Stash 4 files" means those four files, on apply as well as on
+creation — through explicit tree construction, `write-tree`/`commit-tree` object
+creation, and atomic `update-ref` publication with expected-OID CAS validation
+([`specs/stash-management.md`](specs/stash-management.md) §3).
 
 Why merge is first, explicitly:
 

@@ -10,5 +10,5 @@ export function useStashPathsSupported(): boolean {
     queryFn: () => stashPathsSupported(),
     staleTime: Infinity,
   });
-  return query.data ?? true;
+  return query.data === true;
 }

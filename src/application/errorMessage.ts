@@ -71,7 +71,7 @@ export function errorTranslationKey(error: unknown): string {
 }
 
 export function userErrorMessage(error: unknown): string {
-  return i18n.t(errorTranslationKey(error), { ns: "common", tool: readErrorTool(error) });
+  return i18n.t(errorTranslationKey(error), { ns: "common", tool: readErrorTool(error), path: readErrorPath(error) });
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -87,6 +87,13 @@ function readErrorCode(error: unknown): string | null {
 function readErrorTool(error: unknown): string | null {
   if (error && typeof error === "object" && "tool" in error && typeof error.tool === "string") {
     return error.tool;
+  }
+  return null;
+}
+
+function readErrorPath(error: unknown): string | null {
+  if (error && typeof error === "object" && "paths" in error && Array.isArray(error.paths) && error.paths.length > 0) {
+    return String(error.paths[0]);
   }
   return null;
 }

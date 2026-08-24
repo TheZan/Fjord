@@ -8657,7 +8657,7 @@ async fn directory_scope_is_unrepresentable_and_changes_nothing() {
 
     assert!(matches!(
         result,
-        Err(GitError::StashScopeUnrepresentable { path }) if path == "nested"
+        Err(GitError::StashScopeUnrepresentable { path }) if path == "nested/file.txt"
     ));
     assert_eq!(
         std::fs::read(repo.0.join("nested/file.txt")).unwrap(),

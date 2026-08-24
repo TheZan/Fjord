@@ -213,13 +213,13 @@ fn create_paths(
     };
     untracked.sort();
     untracked.dedup();
-    if tracked
+    if let Some(path) = tracked
         .iter()
         .chain(&untracked)
-        .any(|path| !selected.contains(path))
+        .find(|path| !selected.contains(*path))
     {
         return Err(GitError::StashScopeUnrepresentable {
-            path: selected.iter().next().cloned().unwrap_or_default(),
+            path: path.clone(),
         });
     }
 
@@ -393,26 +393,30 @@ fn create_paths(
     )
     .and_then(|()| before_stash_publication(repo));
     if let Err(error) = cleanup {
-        rollback_scope(
+        if let Err(rollback_error) = rollback_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
             transaction.alternate_index_path(),
-        )?;
+        ) {
+            tracing::warn!("rollback failed after cleanup error: {rollback_error}");
+        }
         return Err(error);
     }
 
     if let Err(error) = transaction.replace_real_while_locked(transaction.alternate_index_path()) {
-        rollback_scope(
+        if let Err(rollback_error) = rollback_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
             transaction.alternate_index_path(),
-        )?;
+        ) {
+            tracing::warn!("rollback failed after index replacement error: {rollback_error}");
+        }
         return Err(error);
     }
     if let Err(error) = publish_stash_atomic(
@@ -422,17 +426,27 @@ fn create_paths(
         stash_before.as_deref(),
         &stash_message,
     ) {
-        rollback_scope(
+        if let Err(rollback_error) = rollback_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
             transaction.alternate_index_path(),
-        )?;
+        ) {
+            tracing::warn!("rollback failed after publish error: {rollback_error}");
+        }
         match original_index.as_ref() {
-            Some(backup) => transaction.replace_real_while_locked(&backup.path)?,
-            None => transaction.remove_real_while_locked()?,
+            Some(backup) => {
+                if let Err(restore_error) = transaction.replace_real_while_locked(&backup.path) {
+                    tracing::warn!("index restoration failed after publish error: {restore_error}");
+                }
+            }
+            None => {
+                if let Err(remove_error) = transaction.remove_real_while_locked() {
+                    tracing::warn!("index removal failed after publish error: {remove_error}");
+                }
+            }
         }
         return Err(error);
     }
