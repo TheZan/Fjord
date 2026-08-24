@@ -57,6 +57,7 @@ mod refs;
 mod remotes;
 mod repository;
 mod runtime;
+mod stash;
 mod stash_file;
 mod status;
 mod working_tree;
@@ -562,7 +563,7 @@ impl GitBackend for LocalGitBackend {
     }
 
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
-        mutations::stashes(repo).await
+        stash::stashes(repo).await
     }
 
     async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {

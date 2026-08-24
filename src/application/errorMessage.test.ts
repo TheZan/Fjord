@@ -28,6 +28,12 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "git_network_unavailable", message: "raw git" })).toBe(
       "errors.git_network_unavailable",
     );
+    expect(errorTranslationKey({ code: "stash_not_found", message: "raw git" })).toBe(
+      "errors.stash_not_found",
+    );
+    expect(errorTranslationKey({ code: "stash_ambiguous", message: "raw git" })).toBe(
+      "errors.stash_ambiguous",
+    );
   });
 
   it("never exposes unknown backend or JavaScript messages", () => {

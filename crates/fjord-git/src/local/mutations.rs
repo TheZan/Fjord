@@ -130,27 +130,6 @@ pub(super) async fn reset(
     .map_err(|e| GitError::Git2(e.to_string()))?
 }
 
-pub(super) async fn stashes(repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
-    let repo = repo.clone();
-    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
-    tokio::task::spawn_blocking(move || {
-        LocalGitBackend::with_runtime_git2(&repo, |git| {
-            let mut out = Vec::new();
-            git.stash_foreach(|index, message, _oid| {
-                out.push(StashEntry {
-                    index: index as u32,
-                    message: message.to_string(),
-                });
-                true
-            })
-            .map_err(LocalGitBackend::map_git2_error)?;
-            Ok(out)
-        })
-    })
-    .await
-    .map_err(|e| GitError::Git2(e.to_string()))?
-}
-
 pub(super) async fn stash_push(repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {
     let repo = repo.clone();
     let message = message.map(ToString::to_string);

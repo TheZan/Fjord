@@ -64,8 +64,8 @@ The one sentence the rest of the document exists to make true:
 
 | Capability | State |
 |---|---|
-| Stash list | ⚠️ `get_stashes` → `StashEntry { index, message }`. Two fields. There is no identity, no base commit, no branch, no time, no file count, and no way to tell an entry that carries index state from one that does not. |
-| Stash identity | 🚧 Absent. `index` is the only handle, and it is not identity — it shifts whenever an entry is pushed or dropped. |
+| Stash list | ✅ `get_stashes` returns the rich repository-derived `StashEntry` of §1, in exact Git stack order and cached against the `stash` generation. |
+| Stash identity | ✅ `StashId` is the stash commit OID. The backend resolver maps it to the current position and fails closed when it is missing or ambiguous; mutation adoption remains owned by `P10-STASH-06`. |
 | Create stash (all) | ⚠️ `stash_push` via `git2::stash_save2` with `INCLUDE_UNTRACKED`. The message is optional and no UI collects one; the toolbar button stashes unnamed. |
 | Create stash (one path) | ⚠️ `stash_file` (`P10-WC-05`), system Git `stash push -u -m … -- <path>`. It ships **file-scoped worktree removal**: unrelated current changes are preserved, proven by five fixtures — invariant **A** of §2.3. It does **not** prove invariant **B**: the entry it creates records whole trees, so a later `apply` can restore unrelated staged content (§4.3). No fixture applies the entry. `P10-STASH-02` upgrades this into an exact reusable scoped stash and migrates `Stash file…` onto it (§2.9). |
 | Create stash (many paths) | 🚧 Absent — and blocked on the §2.3 proof gate, not merely on plumbing. |

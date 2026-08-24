@@ -485,14 +485,30 @@ pub struct TagInfo {
     pub target_commit_id: CommitId,
 }
 
-/// One entry of the stash stack. `index` is the `stash@{n}` position — 0 is
-/// the most recent, which is what a plain "pop" applies.
+/// The stash commit's object id. This is deliberately distinct from
+/// `CommitId`: a stash object is not ordinary checkout/history input.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct StashId(pub String);
+
+/// One repository-derived entry of the stash stack. `id` is immutable;
+/// `index` and `ref_name` are current display positions recomputed per read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct StashEntry {
+    pub id: StashId,
     pub index: u32,
+    pub ref_name: String,
     pub message: String,
+    pub title: String,
+    pub base: CommitId,
+    pub branch: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub created_at: OffsetDateTime,
+    pub files_changed: u32,
+    pub has_index_state: bool,
+    pub has_untracked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1397,6 +1413,32 @@ mod tests {
         let value = serde_json::to_value(commit).unwrap();
 
         assert_eq!(value["authoredAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn stash_entry_serializes_the_rich_camel_case_contract() {
+        let entry = StashEntry {
+            id: StashId("1111111111111111111111111111111111111111".to_string()),
+            index: 2,
+            ref_name: "stash@{2}".to_string(),
+            message: "On main: work".to_string(),
+            title: "work".to_string(),
+            base: CommitId("0000000000000000000000000000000000000000".to_string()),
+            branch: Some("main".to_string()),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            files_changed: 3,
+            has_index_state: true,
+            has_untracked: false,
+        };
+
+        let value = serde_json::to_value(entry).unwrap();
+
+        assert_eq!(value["id"], "1111111111111111111111111111111111111111");
+        assert_eq!(value["refName"], "stash@{2}");
+        assert_eq!(value["createdAt"], "1970-01-01T00:00:00Z");
+        assert_eq!(value["filesChanged"], 3);
+        assert_eq!(value["hasIndexState"], true);
+        assert_eq!(value["hasUntracked"], false);
     }
 
     #[test]

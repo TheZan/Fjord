@@ -231,6 +231,8 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::InvalidRemote(_) => "remote_request_invalid",
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
+        GitError::StashNotFound => "stash_not_found",
+        GitError::StashAmbiguous => "stash_ambiguous",
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
         GitError::MergeSourceNotFound => "merge_source_not_found",
         GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",
@@ -463,6 +465,18 @@ mod tests {
         assert_eq!(
             AppError::from(RepoError::PathNotFound("missing.txt".into())).code,
             "path_not_found"
+        );
+    }
+
+    #[test]
+    fn stash_identity_failures_have_stable_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::StashNotFound).code,
+            "stash_not_found"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::StashAmbiguous).code,
+            "stash_ambiguous"
         );
     }
 

@@ -2208,8 +2208,8 @@ mod tests {
     use fjord_domain::{
         CommitId, CommitPage, CommitSummary, Consequence, DestructiveAction, DiscardSelection,
         FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-        ReflogPage, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, TagInfo,
-        WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+        ReflogPage, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, StashId,
+        TagInfo, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
     };
     use fjord_ports::{DestructiveActionFacts, ForcePushPlan, PushTarget};
     use std::path::{Path, PathBuf};
@@ -2951,8 +2951,17 @@ mod tests {
         async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(vec![StashEntry {
+                id: StashId("1111111111111111111111111111111111111111".into()),
                 index: 0,
-                message: "WIP on main".into(),
+                ref_name: "stash@{0}".into(),
+                message: "WIP on main: 0000000 Initial commit".into(),
+                title: "0000000 Initial commit".into(),
+                base: CommitId("0000000000000000000000000000000000000000".into()),
+                branch: Some("main".into()),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                files_changed: 1,
+                has_index_state: false,
+                has_untracked: false,
             }])
         }
         async fn stash_push(

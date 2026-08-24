@@ -45,6 +45,7 @@ export type {
   SquashMergeOutcome,
   SquashMergeResult,
   StashEntry,
+  StashId,
   TagInfo,
   WorkingChanges,
   WorkingFile,
