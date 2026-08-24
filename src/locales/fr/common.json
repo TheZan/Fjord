@@ -75,6 +75,8 @@
     "remote_name_exists": "Un dépôt distant portant ce nom existe déjà.",
     "remote_request_invalid": "Vérifiez le nom du dépôt distant et l’URL du dépôt.",
     "stash_empty": "Aucun stash enregistré n'est disponible.",
+    "stash_not_found": "Ce stash n’existe plus. Actualisez la vue et réessayez.",
+    "stash_ambiguous": "Plusieurs entrées de stash pointent vers le même commit ; Fjord refuse d’en choisir une arbitrairement.",
     "stash_file_conflicted": "Ce fichier a des conflits non résolus. Résolvez-les d'abord.",
     "stash_file_unsupported_git": "Remiser un seul fichier nécessite Git 2.13 ou plus récent.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",

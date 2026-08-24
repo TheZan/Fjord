@@ -70,7 +70,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_repo_operation_state` | `{ repo_id }` | `GenerationEnvelope<RepoOperationState>` | Live on-disk operation state; query validity depends on `refs` and `working_tree` |
 | `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
-| `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | `StashEntry` is `{ index, message }` today. `P10-STASH-01` replaces it with the identity-bearing shape in [`stash-management.md`](stash-management.md) §1.2 |
+| `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | Rich identity-bearing `StashEntry` from [`stash-management.md`](stash-management.md) §1.2, in exact Git stack order; read-locked and cached against the `stash` generation |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `GenerationEnvelope<CommitPage>` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
 | `get_reflog` | `{ repo_id, ref_name?, cursor?, limit }` | `GenerationEnvelope<ReflogPage>` | Newest-first, capped at 200 entries per page; omitted `ref_name` reads `HEAD`, and `cursor` is the opaque value from `nextCursor` |
 | `get_reflog_refs` | `{ repo_id }` | `GenerationEnvelope<string[]>` | Canonical `refs/heads/*` names that currently have a reflog |
@@ -168,7 +168,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `get_stashes` *(replaces the shipped two-field response)* | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | [`stash-management.md`](stash-management.md) §1 | `P10-STASH-01` |
 | `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | [`stash-management.md`](stash-management.md) §4.2 | `P10-STASH-04` |
 | `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | [`stash-management.md`](stash-management.md) §4.4 | `P10-STASH-04` |
 | `stash_paths_supported` *(replaces `stash_file_supported`)* | — | `boolean` | [`stash-management.md`](stash-management.md) §2.2 — whether the resolved Git supports **scoped** stash creation; the floor is >= 2.13 and the chosen mechanism may raise it | `P10-STASH-02` |

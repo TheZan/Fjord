@@ -401,6 +401,44 @@ async fn commit_fixture(backend: &LocalGitBackend, repo: &RepoPath, files: &[(&s
     backend.commit(repo, "Initial commit").await.unwrap();
 }
 
+async fn initialized_stash_repo() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("tracked.txt", b"base\n")]).await;
+    (directory, repo, backend)
+}
+
+fn push_named_stash(backend: &LocalGitBackend, repo: &RepoPath, message: &str, content: &str) {
+    write_file(repo, "tracked.txt", content);
+    run_git_success(backend, repo, &["stash", "push", "-m", message]);
+    record_repository_changes(
+        repo,
+        fjord_fs::RepoChangeSet {
+            stashes: true,
+            ..Default::default()
+        },
+    );
+}
+
+fn cli_stash_rows(backend: &LocalGitBackend, repo: &RepoPath) -> Vec<(String, String, String)> {
+    String::from_utf8(git_output(
+        backend,
+        repo,
+        &["stash", "list", "--format=%H%x09%gd%x09%gs"],
+    ))
+    .unwrap()
+    .lines()
+    .map(|line| {
+        let mut fields = line.splitn(3, '\t');
+        (
+            fields.next().unwrap().to_string(),
+            fields.next().unwrap().to_string(),
+            fields.next().unwrap().to_string(),
+        )
+    })
+    .collect()
+}
+
 fn assert_patch_applies_without_mutation(backend: &LocalGitBackend, repo: &RepoPath, patch: &[u8]) {
     let mut command = backend.commands.command().unwrap();
     command
@@ -5361,6 +5399,260 @@ async fn context_menu_commit_operations_cherry_pick_revert_and_reset() {
         std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
         "base\n"
     );
+}
+
+#[tokio::test]
+async fn rich_stash_list_matches_git_order_and_keeps_ids_when_positions_shift() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    for (message, content) in [("stash A", "A\n"), ("stash B", "B\n"), ("stash C", "C\n")] {
+        push_named_stash(&backend, &repo, message, content);
+    }
+
+    let entries = backend.stashes(&repo).await.unwrap();
+    let cli_rows = cli_stash_rows(&backend, &repo);
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries.len(), cli_rows.len());
+    for (index, (entry, (oid, ref_name, message))) in entries.iter().zip(&cli_rows).enumerate() {
+        assert_eq!(entry.id.0, *oid);
+        assert_eq!(entry.index, index as u32);
+        assert_eq!(entry.ref_name, *ref_name);
+        assert_eq!(entry.message, *message);
+    }
+    let unique_ids = entries
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(unique_ids.len(), entries.len());
+    let old_positions = entries
+        .iter()
+        .map(|entry| (entry.id.clone(), (entry.index, entry.ref_name.clone())))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    push_named_stash(&backend, &repo, "stash D", "D\n");
+    let shifted = backend.stashes(&repo).await.unwrap();
+    for (id, (old_index, old_ref_name)) in old_positions {
+        let entry = shifted.iter().find(|entry| entry.id == id).unwrap();
+        assert_eq!(entry.index, old_index + 1);
+        assert_eq!(entry.ref_name, format!("stash@{{{}}}", old_index + 1));
+        assert_ne!(entry.ref_name, old_ref_name);
+    }
+    let shifted_cli = cli_stash_rows(&backend, &repo);
+    assert_eq!(
+        shifted
+            .iter()
+            .map(|entry| entry.id.0.as_str())
+            .collect::<Vec<_>>(),
+        shifted_cli
+            .iter()
+            .map(|(oid, _, _)| oid.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    let below_removed = shifted
+        .iter()
+        .filter(|entry| entry.index > 1)
+        .map(|entry| (entry.id.clone(), entry.index))
+        .collect::<Vec<_>>();
+    run_git_success(&backend, &repo, &["stash", "drop", "stash@{1}"]);
+    record_repository_changes(
+        &repo,
+        fjord_fs::RepoChangeSet {
+            stashes: true,
+            ..Default::default()
+        },
+    );
+    let after_drop = backend.stashes(&repo).await.unwrap();
+    for (id, old_index) in below_removed {
+        let entry = after_drop.iter().find(|entry| entry.id == id).unwrap();
+        assert_eq!(entry.index, old_index - 1);
+        assert_eq!(entry.ref_name, format!("stash@{{{}}}", old_index - 1));
+    }
+}
+
+#[tokio::test]
+async fn stash_base_and_committer_time_stay_bound_to_the_stash_commit() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    let base = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    push_named_stash(&backend, &repo, "base fixture", "stashed\n");
+    let before = backend.stashes(&repo).await.unwrap().remove(0);
+    let git = Repository::open(&repo.0).unwrap();
+    let stash_commit = git
+        .find_commit(Oid::from_str(&before.id.0).unwrap())
+        .unwrap();
+    assert_eq!(before.base.0, base);
+    assert_eq!(
+        before.created_at.unix_timestamp(),
+        stash_commit.committer().when().seconds()
+    );
+    drop(stash_commit);
+    drop(git);
+
+    commit_with_cli(&backend, &repo, "later\n", "Later commit");
+    run_git_success(&backend, &repo, &["checkout", "-b", "later-branch"]);
+    let after = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(after.id, before.id);
+    assert_eq!(after.base.0, base);
+    assert_ne!(
+        String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        after.base.0
+    );
+}
+
+#[tokio::test]
+async fn stash_metadata_is_derived_from_trees_without_loading_blob_contents() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "unstaged only", "unstaged\n");
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(entry.title, "unstaged only");
+    assert_eq!(entry.branch.as_deref(), Some("main"));
+    assert_eq!(entry.files_changed, 1);
+    assert!(!entry.has_index_state);
+    assert!(!entry.has_untracked);
+
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_file(&repo, "tracked.txt", "staged\n");
+    run_git_success(&backend, &repo, &["add", "tracked.txt"]);
+    run_git_success(&backend, &repo, &["stash", "push", "-m", "staged only"]);
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(entry.files_changed, 1);
+    assert!(entry.has_index_state);
+    assert!(!entry.has_untracked);
+
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_file(&repo, "tracked.txt", "staged\n");
+    run_git_success(&backend, &repo, &["add", "tracked.txt"]);
+    write_file(&repo, "tracked.txt", "staged\nworktree\n");
+    run_git_success(
+        &backend,
+        &repo,
+        &["stash", "push", "-m", "staged and worktree"],
+    );
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(entry.files_changed, 1, "one path is counted once");
+    assert!(entry.has_index_state);
+
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_file(&repo, "untracked.txt", "untracked\n");
+    run_git_success(&backend, &repo, &["stash", "push", "-u", "-m", "untracked"]);
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(entry.files_changed, 1);
+    assert!(!entry.has_index_state);
+    assert!(entry.has_untracked);
+
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_nested_file(&repo, "nested/deep/untracked.txt", b"nested\n");
+    run_git_success(
+        &backend,
+        &repo,
+        &["stash", "push", "-u", "-m", "nested untracked"],
+    );
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(entry.files_changed, 1, "directory tree nodes are not files");
+    assert!(entry.has_untracked);
+}
+
+#[tokio::test]
+async fn pathspec_stash_with_empty_third_parent_reports_no_untracked_files() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_file(&repo, "tracked.txt", "selected change\n");
+    write_file(&repo, "unrelated-untracked.txt", "excluded\n");
+    run_git_success(
+        &backend,
+        &repo,
+        &[
+            "stash",
+            "push",
+            "-u",
+            "-m",
+            "tracked path only",
+            "--",
+            "tracked.txt",
+        ],
+    );
+
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    let git = Repository::open(&repo.0).unwrap();
+    let commit = git
+        .find_commit(Oid::from_str(&entry.id.0).unwrap())
+        .unwrap();
+    assert_eq!(commit.parent_count(), 3, "real Git created a third parent");
+    assert_eq!(commit.parent(2).unwrap().tree().unwrap().len(), 0);
+    assert!(!entry.has_untracked);
+    assert_eq!(entry.files_changed, 1);
+    assert!(repo.0.join("unrelated-untracked.txt").exists());
+}
+
+#[tokio::test]
+async fn stash_resolver_follows_current_position_and_fails_closed() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "stash A", "A\n");
+    push_named_stash(&backend, &repo, "stash B", "B\n");
+    push_named_stash(&backend, &repo, "stash C", "C\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    assert_eq!(selected.index, 0);
+
+    push_named_stash(&backend, &repo, "stash D", "D\n");
+    let git = Repository::open(&repo.0).unwrap();
+    let resolved = stash::resolve_stash(&git, &selected.id).unwrap();
+    assert_eq!(resolved.id, selected.id);
+    assert_eq!(resolved.index, 1);
+    assert_eq!(resolved.ref_name, "stash@{1}");
+    drop(git);
+
+    run_git_success(&backend, &repo, &["stash", "drop", "stash@{1}"]);
+    let git = Repository::open(&repo.0).unwrap();
+    assert!(matches!(
+        stash::resolve_stash(&git, &selected.id),
+        Err(GitError::StashNotFound)
+    ));
+}
+
+#[tokio::test]
+async fn duplicate_stash_oid_is_ambiguous_instead_of_picking_a_position() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "original", "changed\n");
+    let id = backend.stashes(&repo).await.unwrap().remove(0).id;
+    // Move refs/stash to a different commit first: update-ref deliberately
+    // elides a same-OID update, which would not create a duplicate reflog row.
+    push_named_stash(&backend, &repo, "intervening", "changed again\n");
+    run_git_success(
+        &backend,
+        &repo,
+        &["stash", "store", "-m", "duplicate", &id.0],
+    );
+
+    let git = Repository::open(&repo.0).unwrap();
+    assert!(matches!(
+        stash::resolve_stash(&git, &id),
+        Err(GitError::StashAmbiguous)
+    ));
+}
+
+#[tokio::test]
+async fn malformed_stash_reflog_entry_fails_explicitly() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    run_git_success(
+        &backend,
+        &repo,
+        &[
+            "update-ref",
+            "--create-reflog",
+            "-m",
+            "manual non-stash entry",
+            "refs/stash",
+            "HEAD",
+        ],
+    );
+
+    assert!(matches!(
+        backend.stashes(&repo).await,
+        Err(GitError::Git2(_))
+    ));
 }
 
 #[tokio::test]

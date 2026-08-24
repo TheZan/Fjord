@@ -215,6 +215,10 @@ pub enum GitError {
     NothingToStash,
     #[error("stash is empty")]
     StashEmpty,
+    #[error("the selected stash no longer exists")]
+    StashNotFound,
+    #[error("more than one stash entry points at the selected stash commit")]
+    StashAmbiguous,
     #[error("checkout would overwrite local changes in {paths:?}")]
     CheckoutWouldOverwrite { paths: Vec<String> },
     #[error("merge source was not found")]

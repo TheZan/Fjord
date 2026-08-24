@@ -75,6 +75,8 @@
     "remote_name_exists": "Ein Remote mit diesem Namen ist bereits vorhanden.",
     "remote_request_invalid": "Prüfen Sie den Remote-Namen und die Repository-URL.",
     "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
+    "stash_not_found": "Dieser Stash existiert nicht mehr. Aktualisieren Sie die Ansicht und versuchen Sie es erneut.",
+    "stash_ambiguous": "Mehr als ein Stash-Eintrag verweist auf denselben Commit; Fjord wählt nicht willkürlich einen davon aus.",
     "stash_file_conflicted": "Diese Datei hat ungelöste Konflikte. Lösen Sie diese zuerst.",
     "stash_file_unsupported_git": "Zum Stashen einer einzelnen Datei ist Git 2.13 oder neuer erforderlich.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",

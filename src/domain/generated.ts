@@ -88,7 +88,9 @@ export type RemoteRef = { name: string, target: string, symbolicTarget: string |
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };
 
-export type StashEntry = { index: number, message: string, };
+export type StashId = string;
+
+export type StashEntry = { id: StashId, index: number, refName: string, message: string, title: string, base: CommitId, branch: string | null, createdAt: string, filesChanged: number, hasIndexState: boolean, hasUntracked: boolean, };
 
 export type CommitId = string;
 

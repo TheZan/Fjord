@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import axe from "axe-core";
 import { useStashes } from "@/application/useStashes";
 import { RepoToolbar } from "@/presentation/RepoToolbar";
-import type { RepoStatus } from "@/domain/git";
+import type { RepoStatus, StashEntry } from "@/domain/git";
 import type { RepositoryEntry } from "@/domain/workspace";
 
 vi.mock("react-i18next", () => ({
@@ -28,6 +28,19 @@ const status: RepoStatus = {
   behind: 1,
   dirtyCount: 3,
   hasConflict: false,
+};
+const stash: StashEntry = {
+  id: "1111111111111111111111111111111111111111",
+  index: 0,
+  refName: "stash@{0}",
+  message: "WIP on main: 0000000 Initial commit",
+  title: "0000000 Initial commit",
+  base: "0000000000000000000000000000000000000000",
+  branch: "main",
+  createdAt: "1970-01-01T00:00:00Z",
+  filesChanged: 1,
+  hasIndexState: false,
+  hasUntracked: false,
 };
 
 function props(overrides: Partial<React.ComponentProps<typeof RepoToolbar>> = {}) {
@@ -84,7 +97,7 @@ describe("RepoToolbar", () => {
     expect(screen.getByRole("menuitem", { name: "toolbar.pop" })).toBeDisabled();
 
     vi.mocked(useStashes).mockReturnValue({
-      stashes: [{ index: 0, message: "WIP" }],
+      stashes: [stash],
       loading: false,
       error: null,
     });
@@ -153,7 +166,7 @@ describe("RepoToolbar", () => {
 
   it("disables actions Git refuses during an operation and exposes the reason", () => {
     vi.mocked(useStashes).mockReturnValue({
-      stashes: [{ index: 0, message: "WIP" }],
+      stashes: [stash],
       loading: false,
       error: null,
     });

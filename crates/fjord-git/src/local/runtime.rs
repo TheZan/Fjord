@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use fjord_domain::StashEntry;
 use fjord_fs::RepoChangeSet;
 use fjord_ports::{GitError, RepoPath};
 
@@ -18,6 +19,7 @@ pub(super) struct RepositoryRuntime {
     gix: gix::ThreadSafeRepository,
     git2: Mutex<git2::Repository>,
     generations: Arc<GenerationClock>,
+    stash_cache: Mutex<Option<(u64, Vec<StashEntry>)>>,
 }
 
 impl RepositoryRuntime {
@@ -33,6 +35,7 @@ impl RepositoryRuntime {
             gix,
             git2: Mutex::new(git2),
             generations,
+            stash_cache: Mutex::new(None),
         })
     }
 
@@ -53,6 +56,51 @@ impl RepositoryRuntime {
 
     pub(super) fn generations(&self) -> GenerationSet {
         self.generations.snapshot()
+    }
+
+    /// Single-flighted stash-list cache keyed only by the stash generation.
+    /// The git2 handle lock serializes fills; publication is dropped if a
+    /// watcher or mutation advances the generation during computation.
+    pub(super) fn stashes(
+        &self,
+        compute: impl FnOnce(&mut git2::Repository) -> Result<Vec<StashEntry>, GitError>,
+    ) -> Result<Vec<StashEntry>, GitError> {
+        let expected = self.generations.snapshot();
+        if let Some(entries) = self.cached_stashes(expected.stash) {
+            return Ok(entries);
+        }
+
+        let mut repository = self
+            .git2
+            .lock()
+            .map_err(|_| GitError::Git2("repository handle lock was poisoned".to_string()))?;
+        let expected = self.generations.snapshot();
+        if let Some(entries) = self.cached_stashes(expected.stash) {
+            return Ok(entries);
+        }
+        let entries = compute(&mut repository)?;
+        let cached_entries = entries.clone();
+        let cache = &self.stash_cache;
+        self.generations.commit_if_current(
+            expected,
+            GenerationMask::new(false, false, false, true, false),
+            || {
+                *cache
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    Some((expected.stash, cached_entries));
+            },
+        );
+        Ok(entries)
+    }
+
+    fn cached_stashes(&self, generation: u64) -> Option<Vec<StashEntry>> {
+        self.stash_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|(cached_generation, _)| *cached_generation == generation)
+            .map(|(_, entries)| entries.clone())
     }
 
     fn bump(&self, mask: GenerationMask) {
@@ -481,6 +529,41 @@ mod tests {
                 ..GenerationSet::default()
             }
         );
+    }
+
+    #[test]
+    fn stash_cache_is_shared_until_the_stash_generation_changes() {
+        let directory = tempfile::TempDir::new().unwrap();
+        git2::Repository::init(directory.path()).unwrap();
+        let repo = RepoPath::new(directory.path().to_path_buf());
+        let registry = RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL);
+        let runtime = registry.resolve(&repo).unwrap();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+
+        for _ in 0..2 {
+            runtime
+                .stashes(|_| {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Vec::new())
+                })
+                .unwrap();
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        registry.bump_registered(
+            &repo,
+            watcher_mask(RepoChangeSet {
+                stashes: true,
+                ..RepoChangeSet::default()
+            }),
+        );
+        runtime
+            .stashes(|_| {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Vec::new())
+            })
+            .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     /// Focused diagnostic for P7-PERF-01. It is ignored because timings are

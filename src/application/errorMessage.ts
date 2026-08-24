@@ -55,6 +55,8 @@ const USER_ERROR_CODES = new Set([
   "remote_name_exists",
   "remote_request_invalid",
   "stash_empty",
+  "stash_not_found",
+  "stash_ambiguous",
   "stash_file_conflicted",
   "stash_file_unsupported_git",
   "workspace_not_found",

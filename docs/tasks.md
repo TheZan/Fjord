@@ -438,7 +438,7 @@ multi-path backend **and its passed proof gate** — if `02` stays open, that on
 entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existing
 `P10-*` id is renamed or renumbered.
 
-- [ ] **P10-STASH-01** — Rich stash model with immutable identity, and the reads
+- [x] **P10-STASH-01** — Rich stash model with immutable identity, and the reads
   built on it. New `StashId(String)` newtype carrying the **stash commit OID** —
   distinct from `CommitId` so a stash commit is never offered where a checkoutable
   commit is expected. `StashEntry` grows from `{ index, message }` to

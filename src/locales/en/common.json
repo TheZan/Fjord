@@ -75,6 +75,8 @@
     "remote_name_exists": "A remote with this name already exists.",
     "remote_request_invalid": "Check the remote name and repository URL.",
     "stash_empty": "There are no saved stashes to apply.",
+    "stash_not_found": "That stash no longer exists. Refresh and try again.",
+    "stash_ambiguous": "More than one stash entry points at the same commit; Fjord will not guess which one you meant.",
     "stash_file_conflicted": "This file has unresolved conflicts. Resolve them first.",
     "stash_file_unsupported_git": "Stashing a single file needs Git 2.13 or newer.",
     "unexpected": "Something went wrong. Try again or restart Fjord if the problem continues.",
