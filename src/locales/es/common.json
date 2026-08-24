@@ -80,6 +80,7 @@
     "stash_file_conflicted": "Este archivo tiene conflictos sin resolver. Resuélvalos primero.",
     "stash_file_unsupported_git": "El stash con ámbito limitado requiere Git 2.23 o posterior.",
     "stash_scope_empty": "Selecciona al menos un archivo para guardar en el stash.",
+    "stash_concurrent_update": "El repositorio cambió mientras se creaba el stash. No se guardó nada.",
     "stash_scope_unrepresentable": "El estado del archivo seleccionado no se puede representar exactamente, por lo que no se creó ningún stash.",
     "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
     "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo.",

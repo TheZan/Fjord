@@ -1171,6 +1171,7 @@ dependencies = [
  "git2",
  "gix",
  "gix-lock",
+ "gix-tempfile",
  "libc",
  "regex",
  "sha2 0.10.9",

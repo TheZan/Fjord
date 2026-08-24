@@ -80,6 +80,7 @@
     "stash_file_conflicted": "Ce fichier a des conflits non résolus. Résolvez-les d'abord.",
     "stash_file_unsupported_git": "La remise à portée limitée nécessite Git 2.23 ou plus récent.",
     "stash_scope_empty": "Sélectionnez au moins un fichier à remiser.",
+    "stash_concurrent_update": "Le dépôt a changé pendant la création de la remise. Rien n’a été remisé.",
     "stash_scope_unrepresentable": "L’état du fichier sélectionné ne peut pas être représenté exactement ; aucune remise n’a été créée.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
     "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez.",

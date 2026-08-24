@@ -277,6 +277,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::StashFileUnsupportedGit => "stash_file_unsupported_git",
         GitError::StashFileConflicted { .. } => "stash_file_conflicted",
         GitError::StashScopeEmpty => "stash_scope_empty",
+        GitError::StashConcurrentUpdate => "stash_concurrent_update",
         GitError::StashScopeUnrepresentable { .. } => unreachable!("handled above"),
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
@@ -493,6 +494,10 @@ mod tests {
         assert_eq!(
             git_error_to_app_error(GitError::StashScopeEmpty).code,
             "stash_scope_empty"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::StashConcurrentUpdate).code,
+            "stash_concurrent_update"
         );
         let unrepresentable = git_error_to_app_error(GitError::StashScopeUnrepresentable {
             path: "file.txt".into(),

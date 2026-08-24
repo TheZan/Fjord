@@ -80,6 +80,7 @@
     "stash_file_conflicted": "This file has unresolved conflicts. Resolve them first.",
     "stash_file_unsupported_git": "Scoped stash creation needs Git 2.23 or newer.",
     "stash_scope_empty": "Select at least one file to stash.",
+    "stash_concurrent_update": "The repository changed while the stash was being created. Nothing was stashed.",
     "stash_scope_unrepresentable": "The selected file state cannot be represented exactly, so no stash was created.",
     "unexpected": "Something went wrong. Try again or restart Fjord if the problem continues.",
     "workspace_not_found": "The workspace could not be found. Refresh the app and try again.",

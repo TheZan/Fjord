@@ -236,7 +236,7 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   `stash_file_unsupported`, which never existed in code or in any locale.)
 - Stash management (`P10-STASH-01`–`P10-STASH-06`,
   [`stash-management.md`](stash-management.md) §10): `stash_not_found`,
-  `stash_ambiguous`, `stash_scope_empty`, `stash_scope_unrepresentable` (carries
+  `stash_ambiguous`, `stash_scope_empty`, `stash_concurrent_update`, `stash_scope_unrepresentable` (carries
   the offending `paths`), `stash_apply_would_overwrite` (carries bounded
   `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
   existing `nothing_to_stash`, `stash_file_conflicted`, and

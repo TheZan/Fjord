@@ -485,8 +485,8 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   committed to as the final mechanism** — it is the starting point and the shipped
   prototype, and it is acceptable only if tests prove the finished entry applies
   selected paths alone. `Paths` is a **construction** problem (spec §2.2):
-  evaluate a temporary/private index, plumbing (`write-tree`/`commit-tree`/
-  `git stash store`), or another system-Git mechanism, and pick one with evidence.
+  evaluate a temporary/private index, plumbing (`write-tree`/`commit-tree` plus
+  an atomic `update-ref` CAS), or another system-Git mechanism, and pick one with evidence.
   The result must stay an ordinary Git stash — `git stash list`/`show`/`apply`/`pop`
   must work on it from a terminal. Explicitly forbidden: a Fjord stash database, a
   patch file posing as a stash, temporary mutation of unrelated working files, and
@@ -498,7 +498,8 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   `Stash 4 files` that restores five. A selection whose state the construction
   cannot represent exactly fails closed with `stash_scope_unrepresentable` and
   creates nothing. One engine and one module: `stash.rs` owns the private-index /
-  `write-tree` / `commit-tree` / `git stash store` construction;
+  `write-tree` / `commit-tree` construction, real `index.lock` plus prepared
+  expected-HEAD validation, and reflog-creating `update-ref` CAS publication;
   `git2::stash_save2` is retired, `stash_push`/`stash_file` collapse
   into `create_stash`, and **`Stash file…` is migrated onto the new engine** so
   one-file and *n*-file stashes cannot end up with different apply semantics

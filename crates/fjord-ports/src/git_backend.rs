@@ -284,6 +284,8 @@ pub enum GitError {
     StashFileConflicted { path: String },
     #[error("the scoped stash path set is empty")]
     StashScopeEmpty,
+    #[error("the repository changed while the exact stash was being created")]
+    StashConcurrentUpdate,
     #[error("the selected state cannot be represented exactly: {path}")]
     StashScopeUnrepresentable { path: String },
     #[error("operation not yet implemented on this backend: {0}")]

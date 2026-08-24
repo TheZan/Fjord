@@ -12,6 +12,7 @@ use git2::{ErrorCode, ObjectType, Oid, Repository, Tree};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use super::patch_transaction;
 use super::LocalGitBackend;
 use crate::executable::GitCommandFactory;
 
@@ -89,17 +90,18 @@ fn create_locked(
     }
     reject_conflicts(repo, &request.scope)?;
 
-    let oid = match &request.scope {
-        StashScope::All => create_all(commands, repo, request)?,
-        StashScope::Paths { paths } => create_paths(commands, repo, request, paths)?,
-    };
-
-    LocalGitBackend::with_runtime_git2(repo, |git| {
-        read_stashes(git)?
-            .into_iter()
-            .find(|entry| entry.id.0 == oid)
-            .ok_or_else(|| malformed("created stash is missing from refs/stash"))
-    })
+    match &request.scope {
+        StashScope::All => {
+            let oid = create_all(commands, repo, request)?;
+            LocalGitBackend::with_runtime_git2(repo, |git| {
+                read_stashes(git)?
+                    .into_iter()
+                    .find(|entry| entry.id.0 == oid)
+                    .ok_or_else(|| malformed("created stash is missing from refs/stash"))
+            })
+        }
+        StashScope::Paths { paths } => create_paths(commands, repo, request, paths),
+    }
 }
 
 fn reject_conflicts(repo: &RepoPath, scope: &StashScope) -> Result<(), GitError> {
@@ -144,7 +146,7 @@ fn create_paths(
     repo: &RepoPath,
     request: &CreateStashRequest,
     paths: &[String],
-) -> Result<String, GitError> {
+) -> Result<StashEntry, GitError> {
     if paths.is_empty() {
         return Err(GitError::StashScopeEmpty);
     }
@@ -154,7 +156,10 @@ fn create_paths(
 
     let selected = paths.iter().cloned().collect::<BTreeSet<_>>();
     let pathspecs = literal_pathspecs(selected.iter().map(String::as_str));
+    let index_snapshot = patch_transaction::IndexSnapshot::capture(repo)?;
+    let stash_before = ref_oid(commands, repo, STASH_REF)?;
     let head = text_output(commands, repo, &["rev-parse", "--verify", "HEAD"], None)?;
+    let head_oid = Oid::from_str(&head).map_err(|error| GitError::Git2(error.to_string()))?;
     let base_tree = text_output(
         commands,
         repo,
@@ -174,7 +179,7 @@ fn create_paths(
         )?
         .stdout,
     );
-    tracked.extend(nul_list(
+    let mut head_tracked = nul_list(
         &run_dynamic(
             commands,
             repo,
@@ -184,7 +189,10 @@ fn create_paths(
             None,
         )?
         .stdout,
-    ));
+    );
+    head_tracked.sort();
+    head_tracked.dedup();
+    tracked.extend(head_tracked.iter().cloned());
     tracked.sort();
     tracked.dedup();
 
@@ -285,8 +293,8 @@ fn create_paths(
     }
     let worktree_tree = text_output(commands, repo, &["write-tree"], Some(&index_file.path))?;
 
-    let untracked_commit = if untracked.is_empty() {
-        None
+    let (untracked_tree, untracked_commit) = if untracked.is_empty() {
+        (None, None)
     } else {
         let untracked_index = TemporaryIndex::new(&git_dir);
         run(
@@ -306,7 +314,7 @@ fn create_paths(
             None,
         )?;
         let tree = text_output(commands, repo, &["write-tree"], Some(&untracked_index.path))?;
-        Some(commit_tree(
+        let commit = commit_tree(
             commands,
             repo,
             &tree,
@@ -315,7 +323,8 @@ fn create_paths(
                 "untracked files on {branch}: {short_head} {}",
                 request.message.trim()
             ),
-        )?)
+        )?;
+        (Some(tree), Some(commit))
     };
 
     if index_tree == base_tree && worktree_tree == base_tree && untracked_commit.is_none() {
@@ -328,105 +337,493 @@ fn create_paths(
     }
     let stash_message = format!("On {branch}: {}", request.message.trim());
     let stash_oid = commit_tree(commands, repo, &worktree_tree, &parents, &stash_message)?;
+    let created_entry = LocalGitBackend::with_runtime_git2(repo, |git| {
+        build_entry(
+            git,
+            0,
+            Oid::from_str(&stash_oid).map_err(LocalGitBackend::map_git2_error)?,
+            stash_message.clone(),
+        )
+    })?;
 
-    // Objects are complete before the first user-state mutation. Cleanup is
-    // selected-path-only; on any later failure the exact object is applied
-    // back with `--index` before returning.
-    let cleanup: Result<(), GitError> = (|| {
-        if !untracked.is_empty() {
-            let specs = literal_pathspecs(untracked.iter().map(String::as_str));
-            run_dynamic(commands, repo, ["clean", "-f", "--"], &specs, None, None)?;
-        }
-        if !tracked.is_empty() {
-            let specs = literal_pathspecs(tracked.iter().map(String::as_str));
-            run_dynamic(
-                commands,
-                repo,
-                ["restore", "--source=HEAD", "--staged", "--worktree", "--"],
-                &specs,
-                None,
-                None,
-            )?;
-        }
-        Ok(())
-    })();
-    if cleanup.is_err() {
-        rollback_scope(commands, repo, &stash_oid)?;
-        return Err(GitError::StashScopeUnrepresentable {
-            path: selected.iter().next().cloned().unwrap_or_default(),
-        });
+    // The object graph is complete before the cross-process mutation boundary.
+    // The real index lock is an alternate transaction index: Git can update it
+    // without attempting to acquire the already-held real `index.lock`.
+    let transaction =
+        patch_transaction::IndexTransaction::begin_expected(commands, repo, index_snapshot)
+            .map_err(stash_transaction_error)?;
+    let original_index = if index_snapshot.is_missing() {
+        None
+    } else {
+        let backup = TemporaryIndex::new(&git_dir);
+        std::fs::copy(transaction.alternate_index_path(), &backup.path).map_err(io_error)?;
+        Some(backup)
+    };
+    let _head_lock = patch_transaction::HeadLock::acquire_expected(commands, repo, Some(head_oid))
+        .map_err(stash_transaction_error)?;
+
+    patch_transaction::pause_before_mutation(repo);
+    validate_selected_state(
+        commands,
+        repo,
+        &SelectedStateValidation {
+            git_dir: &git_dir,
+            selected_specs: &pathspecs,
+            tracked: &tracked,
+            untracked: &untracked,
+            include_untracked: request.include_untracked,
+            index_tree: &index_tree,
+            worktree_tree: &worktree_tree,
+            untracked_tree: untracked_tree.as_deref(),
+            transaction_index: transaction.alternate_index_path(),
+        },
+    )?;
+    transaction
+        .verify_original_unchanged()
+        .map_err(stash_transaction_error)?;
+
+    let cleanup = cleanup_scope(
+        commands,
+        repo,
+        &head,
+        &tracked,
+        &head_tracked,
+        &untracked,
+        transaction.alternate_index_path(),
+    )
+    .and_then(|()| before_stash_publication(repo));
+    if let Err(error) = cleanup {
+        rollback_scope(
+            commands,
+            repo,
+            &stash_oid,
+            &tracked,
+            &untracked,
+            transaction.alternate_index_path(),
+        )?;
+        return Err(error);
     }
 
-    let before = ref_oid(commands, repo, STASH_REF)?;
-    let stored = run(
+    if let Err(error) = transaction.replace_real_while_locked(transaction.alternate_index_path()) {
+        rollback_scope(
+            commands,
+            repo,
+            &stash_oid,
+            &tracked,
+            &untracked,
+            transaction.alternate_index_path(),
+        )?;
+        return Err(error);
+    }
+    if let Err(error) = publish_stash_atomic(
+        commands,
+        repo,
+        &stash_oid,
+        stash_before.as_deref(),
+        &stash_message,
+    ) {
+        rollback_scope(
+            commands,
+            repo,
+            &stash_oid,
+            &tracked,
+            &untracked,
+            transaction.alternate_index_path(),
+        )?;
+        match original_index.as_ref() {
+            Some(backup) => transaction.replace_real_while_locked(&backup.path)?,
+            None => transaction.remove_real_while_locked()?,
+        }
+        return Err(error);
+    }
+
+    // No fallible work remains after the atomic ref/reflog CAS. Dropping the
+    // transaction now only releases `index.lock`; the real index was already
+    // atomically replaced while that lock remained present.
+    Ok(created_entry)
+}
+
+struct SelectedStateValidation<'a> {
+    git_dir: &'a Path,
+    selected_specs: &'a [OsString],
+    tracked: &'a [String],
+    untracked: &'a [String],
+    include_untracked: bool,
+    index_tree: &'a str,
+    worktree_tree: &'a str,
+    untracked_tree: Option<&'a str>,
+    transaction_index: &'a Path,
+}
+
+fn validate_selected_state(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    state: &SelectedStateValidation<'_>,
+) -> Result<(), GitError> {
+    if state.include_untracked {
+        let mut current_untracked = nul_list(
+            &run_dynamic(
+                commands,
+                repo,
+                ["ls-files", "--others", "--exclude-standard", "-z", "--"],
+                state.selected_specs,
+                Some(state.transaction_index),
+                None,
+            )?
+            .stdout,
+        );
+        current_untracked.sort();
+        current_untracked.dedup();
+        if current_untracked != state.untracked {
+            return Err(GitError::StashConcurrentUpdate);
+        }
+    }
+
+    let validation_index = TemporaryIndex::new(state.git_dir);
+    run(
         commands,
         repo,
         &[
-            OsString::from("stash"),
-            OsString::from("store"),
-            OsString::from("-m"),
-            OsString::from(&stash_message),
-            OsString::from(&stash_oid),
+            OsString::from("read-tree"),
+            OsString::from(state.index_tree),
         ],
+        Some(&validation_index.path),
         None,
-        None,
-    );
-    let after = ref_oid(commands, repo, STASH_REF)?;
-    if stored.is_err() || after.as_deref() != Some(stash_oid.as_str()) || after == before {
-        if after.as_deref() == Some(stash_oid.as_str()) {
-            restore_stash_ref(commands, repo, before.as_deref(), &stash_oid)?;
-        }
-        rollback_scope(commands, repo, &stash_oid)?;
-        return stored.map(|_| ()).and(Err(GitError::Git2(
-            "git did not publish the exact stash".to_string(),
-        )));
+    )?;
+    if !state.tracked.is_empty() {
+        let tracked_specs = literal_pathspecs(state.tracked.iter().map(String::as_str));
+        run_dynamic(
+            commands,
+            repo,
+            ["add", "-A", "--"],
+            &tracked_specs,
+            Some(&validation_index.path),
+            None,
+        )?;
+    }
+    if text_output(
+        commands,
+        repo,
+        &["write-tree"],
+        Some(&validation_index.path),
+    )? != state.worktree_tree
+    {
+        return Err(GitError::StashConcurrentUpdate);
     }
 
-    Ok(stash_oid)
+    if let Some(expected_tree) = state.untracked_tree {
+        let validation_untracked = TemporaryIndex::new(state.git_dir);
+        run(
+            commands,
+            repo,
+            &[OsString::from("read-tree"), OsString::from("--empty")],
+            Some(&validation_untracked.path),
+            None,
+        )?;
+        let specs = literal_pathspecs(state.untracked.iter().map(String::as_str));
+        run_dynamic(
+            commands,
+            repo,
+            ["add", "--"],
+            &specs,
+            Some(&validation_untracked.path),
+            None,
+        )?;
+        if text_output(
+            commands,
+            repo,
+            &["write-tree"],
+            Some(&validation_untracked.path),
+        )? != expected_tree
+        {
+            return Err(GitError::StashConcurrentUpdate);
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_scope(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    head: &str,
+    tracked: &[String],
+    head_tracked: &[String],
+    untracked: &[String],
+    transaction_index: &Path,
+) -> Result<(), GitError> {
+    if !tracked.is_empty() {
+        let specs = literal_pathspecs(tracked.iter().map(String::as_str));
+        run_dynamic(
+            commands,
+            repo,
+            ["rm", "-f", "--ignore-unmatch", "--"],
+            &specs,
+            Some(transaction_index),
+            None,
+        )?;
+        if !head_tracked.is_empty() {
+            let head_specs = literal_pathspecs(head_tracked.iter().map(String::as_str));
+            run_dynamic(
+                commands,
+                repo,
+                ["checkout", "--force", head, "--"],
+                &head_specs,
+                Some(transaction_index),
+                None,
+            )?;
+        }
+    }
+    if !untracked.is_empty() {
+        let specs = literal_pathspecs(untracked.iter().map(String::as_str));
+        run_dynamic(
+            commands,
+            repo,
+            ["clean", "-f", "--"],
+            &specs,
+            Some(transaction_index),
+            None,
+        )?;
+    }
+    Ok(())
 }
 
 fn rollback_scope(
     commands: &GitCommandFactory,
     repo: &RepoPath,
     stash_oid: &str,
+    tracked: &[String],
+    untracked: &[String],
+    transaction_index: &Path,
 ) -> Result<(), GitError> {
-    run(
-        commands,
-        repo,
-        &[
-            OsString::from("stash"),
-            OsString::from("apply"),
-            OsString::from("--index"),
-            OsString::from(stash_oid),
-        ],
-        None,
-        None,
-    )?;
+    if !tracked.is_empty() {
+        let specs = literal_pathspecs(tracked.iter().map(String::as_str));
+        let index_source = format!("--source={stash_oid}^2");
+        run_dynamic(
+            commands,
+            repo,
+            ["restore", index_source.as_str(), "--staged", "--"],
+            &specs,
+            Some(transaction_index),
+            None,
+        )?;
+        let git_dir = LocalGitBackend::with_runtime_git2(repo, |git| Ok(git.path().to_path_buf()))?;
+        let worktree_index = TemporaryIndex::new(&git_dir);
+        run(
+            commands,
+            repo,
+            &[OsString::from("read-tree"), OsString::from("--empty")],
+            Some(&worktree_index.path),
+            None,
+        )?;
+        run_dynamic(
+            commands,
+            repo,
+            ["clean", "-f", "-x", "--"],
+            &specs,
+            Some(&worktree_index.path),
+            None,
+        )?;
+        let present = nul_list(
+            &run_dynamic(
+                commands,
+                repo,
+                ["ls-tree", "-r", "--name-only", "-z", stash_oid, "--"],
+                &specs,
+                None,
+                None,
+            )?
+            .stdout,
+        );
+        if !present.is_empty() {
+            run(
+                commands,
+                repo,
+                &[OsString::from("read-tree"), OsString::from(stash_oid)],
+                Some(&worktree_index.path),
+                None,
+            )?;
+            let present_specs = literal_pathspecs(present.iter().map(String::as_str));
+            run_dynamic(
+                commands,
+                repo,
+                ["checkout", "--force", stash_oid, "--"],
+                &present_specs,
+                Some(&worktree_index.path),
+                None,
+            )?;
+        }
+    }
+    if !untracked.is_empty() {
+        let specs = literal_pathspecs(untracked.iter().map(String::as_str));
+        let source = format!("--source={stash_oid}^3");
+        run_dynamic(
+            commands,
+            repo,
+            ["restore", source.as_str(), "--worktree", "--"],
+            &specs,
+            Some(transaction_index),
+            None,
+        )?;
+    }
     Ok(())
 }
 
-fn restore_stash_ref(
+fn publish_stash_atomic(
     commands: &GitCommandFactory,
     repo: &RepoPath,
+    stash_oid: &str,
     previous: Option<&str>,
-    current: &str,
+    message: &str,
 ) -> Result<(), GitError> {
-    let args = match previous {
-        Some(previous) => vec![
-            OsString::from("update-ref"),
-            OsString::from(STASH_REF),
-            OsString::from(previous),
-            OsString::from(current),
-        ],
-        None => vec![
-            OsString::from("update-ref"),
-            OsString::from("-d"),
-            OsString::from(STASH_REF),
-            OsString::from(current),
-        ],
-    };
-    run(commands, repo, &args, None, None)?;
+    let expected = previous
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "0".repeat(stash_oid.len()));
+    let output = command(commands, repo, &["update-ref"], None)?
+        .args([
+            "--create-reflog",
+            "-m",
+            message,
+            STASH_REF,
+            stash_oid,
+            expected.as_str(),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(io_error)?;
+    if output.success() {
+        Ok(())
+    } else {
+        Err(GitError::StashConcurrentUpdate)
+    }
+}
+
+fn stash_transaction_error(error: GitError) -> GitError {
+    match error {
+        GitError::PatchStale => GitError::StashConcurrentUpdate,
+        other => other,
+    }
+}
+
+#[cfg(not(test))]
+fn before_stash_publication(_repo: &RepoPath) -> Result<(), GitError> {
     Ok(())
+}
+
+#[cfg(test)]
+use publication_test_hooks::before as before_stash_publication;
+
+#[cfg(test)]
+pub(super) use publication_test_hooks::{
+    install_failure as install_stash_publication_failure,
+    install_pause as install_stash_publication_pause,
+};
+
+#[cfg(test)]
+mod publication_test_hooks {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{mpsc, Mutex, OnceLock};
+    use tokio::sync::oneshot;
+
+    enum Hook {
+        Pause {
+            reached: oneshot::Sender<()>,
+            resume: mpsc::Receiver<()>,
+        },
+        Fail,
+    }
+
+    fn hooks() -> &'static Mutex<HashMap<PathBuf, Hook>> {
+        static HOOKS: OnceLock<Mutex<HashMap<PathBuf, Hook>>> = OnceLock::new();
+        HOOKS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn key(repo: &RepoPath) -> PathBuf {
+        std::fs::canonicalize(&repo.0).unwrap_or_else(|_| repo.0.clone())
+    }
+
+    pub(crate) struct PublicationPause {
+        reached: oneshot::Receiver<()>,
+        resume: Option<mpsc::SyncSender<()>>,
+    }
+
+    impl PublicationPause {
+        pub(crate) async fn wait_until_reached(&mut self) {
+            (&mut self.reached)
+                .await
+                .expect("stash publication should reach the installed hook");
+        }
+
+        pub(crate) fn resume(mut self) {
+            if let Some(resume) = self.resume.take() {
+                let _ = resume.send(());
+            }
+        }
+    }
+
+    impl Drop for PublicationPause {
+        fn drop(&mut self) {
+            if let Some(resume) = self.resume.take() {
+                let _ = resume.send(());
+            }
+        }
+    }
+
+    pub(crate) struct PublicationFailure {
+        key: PathBuf,
+    }
+
+    impl Drop for PublicationFailure {
+        fn drop(&mut self) {
+            hooks().lock().unwrap().remove(&self.key);
+        }
+    }
+
+    fn insert(key: PathBuf, hook: Hook) {
+        let previous = hooks().lock().unwrap().insert(key, hook);
+        assert!(
+            previous.is_none(),
+            "only one stash publication hook may exist per repository"
+        );
+    }
+
+    pub(crate) fn install_pause(repo: &RepoPath) -> PublicationPause {
+        let key = key(repo);
+        let (reached_tx, reached_rx) = oneshot::channel();
+        let (resume_tx, resume_rx) = mpsc::sync_channel(0);
+        insert(
+            key,
+            Hook::Pause {
+                reached: reached_tx,
+                resume: resume_rx,
+            },
+        );
+        PublicationPause {
+            reached: reached_rx,
+            resume: Some(resume_tx),
+        }
+    }
+
+    pub(crate) fn install_failure(repo: &RepoPath) -> PublicationFailure {
+        let key = key(repo);
+        insert(key.clone(), Hook::Fail);
+        PublicationFailure { key }
+    }
+
+    pub(crate) fn before(repo: &RepoPath) -> Result<(), GitError> {
+        match hooks().lock().unwrap().remove(&key(repo)) {
+            Some(Hook::Pause { reached, resume }) => {
+                let _ = reached.send(());
+                resume
+                    .recv()
+                    .expect("test should resume paused stash publication");
+                Ok(())
+            }
+            Some(Hook::Fail) => Err(GitError::StashConcurrentUpdate),
+            None => Ok(()),
+        }
+    }
 }
 
 fn commit_tree(

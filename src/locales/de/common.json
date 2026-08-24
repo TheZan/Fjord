@@ -80,6 +80,7 @@
     "stash_file_conflicted": "Diese Datei hat ungelöste Konflikte. Lösen Sie diese zuerst.",
     "stash_file_unsupported_git": "Bereichsbezogene Stashes benötigen Git 2.23 oder neuer.",
     "stash_scope_empty": "Wählen Sie mindestens eine Datei zum Stashen aus.",
+    "stash_concurrent_update": "Das Repository wurde während der Stash-Erstellung geändert. Es wurde nichts gestasht.",
     "stash_scope_unrepresentable": "Der ausgewählte Dateizustand kann nicht exakt dargestellt werden; es wurde kein Stash erstellt.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
     "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut.",

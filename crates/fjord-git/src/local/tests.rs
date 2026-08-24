@@ -333,6 +333,28 @@ fn assert_head_locks_cleaned(backend: &LocalGitBackend, repo: &RepoPath) {
     }
 }
 
+fn assert_stash_transaction_artifacts_cleaned(backend: &LocalGitBackend, repo: &RepoPath) {
+    assert_index_lock_cleaned(repo);
+    assert_head_locks_cleaned(backend, repo);
+    let stash_lock = lock_path(&resolved_git_path(backend, repo, "refs/stash"));
+    assert!(
+        !stash_lock.exists(),
+        "stale refs/stash lock: {}",
+        stash_lock.display()
+    );
+    let git_dir = Repository::open(&repo.0).unwrap().path().to_path_buf();
+    let leftovers = std::fs::read_dir(git_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("fjord-stash-"))
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "temporary stash indexes remain: {leftovers:?}"
+    );
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct AtomicPatchState {
     head: Option<Oid>,
@@ -7850,6 +7872,250 @@ fn paths_stash_request(
 }
 
 #[tokio::test]
+async fn exact_stash_serializes_external_git_add_at_the_cleanup_boundary() {
+    let (_dir, repo) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo, &[("target.txt", b"A\n")]).await;
+    write_file(&repo, "target.txt", "B\n");
+    let generations_before = backend.generations(&repo).unwrap();
+    let mut pause = patch_transaction::install_mutation_pause(&repo);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo = repo.clone();
+        tokio::spawn(async move {
+            backend
+                .create_stash(
+                    &repo,
+                    &paths_stash_request(&["target.txt"], "atomic add boundary", false),
+                )
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_add = run_git_status(&backend, &repo, &["add", "target.txt"]);
+    pause.resume();
+    let result = operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_add.success(),
+        "external add must honor the exact-stash index.lock"
+    );
+    assert_eq!(
+        index_blob(&repo, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"A\n");
+    assert_eq!(result.entry.index, 0);
+    assert_eq!(
+        result.generations.working_tree,
+        generations_before.working_tree + 1
+    );
+    assert_stash_transaction_artifacts_cleaned(&backend, &repo);
+}
+
+#[tokio::test]
+async fn exact_stash_serializes_external_head_change_at_the_cleanup_boundary() {
+    let (_dir, repo) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(
+        &backend,
+        &repo,
+        &[("target.txt", b"A\n"), ("other.txt", b"other A\n")],
+    )
+    .await;
+    write_file(&repo, "target.txt", "B\n");
+    write_file(&repo, "other.txt", "other B\n");
+    run_git_success(&backend, &repo, &["add", "other.txt"]);
+    let head_before = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    let mut pause = patch_transaction::install_mutation_pause(&repo);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo = repo.clone();
+        tokio::spawn(async move {
+            backend
+                .create_stash(
+                    &repo,
+                    &paths_stash_request(&["target.txt"], "atomic HEAD boundary", false),
+                )
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    let external_commit = run_git_status(&backend, &repo, &["commit", "-m", "external"]);
+    pause.resume();
+    operation.await.unwrap().unwrap();
+
+    assert!(
+        !external_commit.success(),
+        "external commit must honor the prepared HEAD/index locks"
+    );
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        head_before
+    );
+    assert_eq!(
+        index_blob(&repo, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(
+        index_blob(&repo, "other.txt").as_deref(),
+        Some(b"other B\n".as_slice())
+    );
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"A\n");
+    assert_eq!(
+        std::fs::read(repo.0.join("other.txt")).unwrap(),
+        b"other B\n"
+    );
+    assert_eq!(backend.stashes(&repo).await.unwrap().len(), 1);
+    assert_stash_transaction_artifacts_cleaned(&backend, &repo);
+}
+
+#[tokio::test]
+async fn exact_stash_publication_cas_leaves_only_the_external_reflog_entry() {
+    let (_dir, repo) = empty_repo();
+    let backend = std::sync::Arc::new(LocalGitBackend::new());
+    commit_fixture(&backend, &repo, &[("target.txt", b"A\n")]).await;
+    write_file(&repo, "target.txt", "B\n");
+    let external_oid = String::from_utf8(git_output(
+        &backend,
+        &repo,
+        &["stash", "create", "external publication"],
+    ))
+    .unwrap()
+    .trim()
+    .to_string();
+    assert!(!external_oid.is_empty());
+    let index_before = std::fs::read(resolved_index_path(&repo)).unwrap();
+    let generations_before = backend.generations(&repo).unwrap();
+    let mut pause = stash::install_stash_publication_pause(&repo);
+
+    let operation = {
+        let backend = std::sync::Arc::clone(&backend);
+        let repo = repo.clone();
+        tokio::spawn(async move {
+            backend
+                .create_stash(
+                    &repo,
+                    &paths_stash_request(&["target.txt"], "Fjord publication", false),
+                )
+                .await
+        })
+    };
+    pause.wait_until_reached().await;
+    run_git_success(
+        &backend,
+        &repo,
+        &[
+            "stash",
+            "store",
+            "-m",
+            "external publication",
+            &external_oid,
+        ],
+    );
+    pause.resume();
+    let result = operation.await.unwrap();
+
+    assert!(matches!(result, Err(GitError::StashConcurrentUpdate)));
+    let rows = cli_stash_rows(&backend, &repo);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, external_oid);
+    assert_eq!(rows[0].2, "external publication");
+    assert_eq!(std::fs::read(repo.0.join("target.txt")).unwrap(), b"B\n");
+    assert_eq!(
+        index_blob(&repo, "target.txt").as_deref(),
+        Some(b"A\n".as_slice())
+    );
+    assert_eq!(
+        std::fs::read(resolved_index_path(&repo)).unwrap(),
+        index_before
+    );
+    assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    assert_stash_transaction_artifacts_cleaned(&backend, &repo);
+}
+
+#[tokio::test]
+async fn exact_stash_failure_before_publication_rolls_back_exactly() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("selected.txt", b"selected A\n"),
+            ("other-staged.txt", b"staged A\n"),
+            ("other-worktree.txt", b"worktree A\n"),
+        ],
+    )
+    .await;
+    write_file(&repo, "selected.txt", "selected staged\n");
+    run_git_success(&backend, &repo, &["add", "selected.txt"]);
+    write_file(
+        &repo,
+        "selected.txt",
+        "selected staged\nselected worktree\n",
+    );
+    write_file(&repo, "selected-new.txt", "selected untracked\n");
+    write_file(&repo, "other-staged.txt", "staged B\n");
+    run_git_success(&backend, &repo, &["add", "other-staged.txt"]);
+    write_file(&repo, "other-worktree.txt", "worktree B\n");
+    write_file(&repo, "other-new.txt", "other untracked\n");
+
+    let index_before = std::fs::read(resolved_index_path(&repo)).unwrap();
+    let files_before = [
+        "selected.txt",
+        "selected-new.txt",
+        "other-staged.txt",
+        "other-worktree.txt",
+        "other-new.txt",
+    ]
+    .map(|path| (path, std::fs::read(repo.0.join(path)).unwrap()));
+    let reflog_before = cli_stash_rows(&backend, &repo);
+    let stash_before = run_git_status(
+        &backend,
+        &repo,
+        &["rev-parse", "--verify", "--quiet", "refs/stash"],
+    )
+    .success();
+    let generations_before = backend.generations(&repo).unwrap();
+    let _failure = stash::install_stash_publication_failure(&repo);
+
+    let result = backend
+        .create_stash(
+            &repo,
+            &paths_stash_request(
+                &["selected.txt", "selected-new.txt"],
+                "must roll back",
+                true,
+            ),
+        )
+        .await;
+
+    assert!(matches!(result, Err(GitError::StashConcurrentUpdate)));
+    assert_eq!(
+        std::fs::read(resolved_index_path(&repo)).unwrap(),
+        index_before
+    );
+    for (path, bytes) in files_before {
+        assert_eq!(std::fs::read(repo.0.join(path)).unwrap(), bytes, "{path}");
+    }
+    assert_eq!(cli_stash_rows(&backend, &repo), reflog_before);
+    assert_eq!(
+        run_git_status(
+            &backend,
+            &repo,
+            &["rev-parse", "--verify", "--quiet", "refs/stash"],
+        )
+        .success(),
+        stash_before
+    );
+    assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    assert_stash_transaction_artifacts_cleaned(&backend, &repo);
+}
+
+#[tokio::test]
 async fn exact_scoped_stash_preserves_unrelated_state_and_applies_only_selected_paths() {
     let (_dir, repo) = empty_repo();
     let backend = LocalGitBackend::new();
@@ -7895,6 +8161,11 @@ async fn exact_scoped_stash_preserves_unrelated_state_and_applies_only_selected_
     assert_eq!(result.entry.files_changed, 3);
     assert!(result.entry.has_index_state);
     assert!(result.entry.has_untracked);
+    assert_eq!(result.entry.message, "On main: canonical exact scope");
+    let published_rows = cli_stash_rows(&backend, &repo);
+    assert_eq!(published_rows.len(), 1);
+    assert_eq!(published_rows[0].0, result.entry.id.0);
+    assert_eq!(published_rows[0].2, "On main: canonical exact scope");
 
     assert_eq!(std::fs::read(repo.0.join("a.txt")).unwrap(), b"a base\n");
     assert_eq!(std::fs::read(repo.0.join("c.txt")).unwrap(), b"c base\n");

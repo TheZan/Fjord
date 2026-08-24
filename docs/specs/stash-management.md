@@ -422,15 +422,31 @@ The implemented construction uses private temporary indexes. Starting from
 then stages only selected tracked worktree state to write the stash tree. A
 separate empty private index writes only selected eligible untracked paths.
 `commit-tree` creates Git's ordinary base → index → worktree topology (plus the
-optional third untracked parent), and `git stash store` publishes the completed
-object through Git's own `refs/stash` reflog. Every unrelated path equals `HEAD`
-in all constructed trees, so it is absent from the stash's semantic diff.
-The objects are complete before selected-path cleanup begins. Publication is
-last; a cleanup/publication failure applies the already-built exact object back
-with `--index` before returning, and generations advance only after success.
-RAII cleanup removes both private index files and any sibling `.lock` files on
-every exit path; a failure before publication leaves no stash ref or reflog
-entry.
+optional third untracked parent). Every unrelated path equals `HEAD` in all
+constructed trees, so it is absent from the stash's semantic diff.
+
+The objects are complete before selected-path cleanup begins. At the mutation
+boundary Fjord acquires the resolved real `index.lock` as an alternate index
+transaction and prepares a verify-only `update-ref` transaction for the exact
+captured `HEAD`. The complete raw index fingerprint, `HEAD`, selected tracked
+worktree tree, and selected untracked tree are revalidated under those locks.
+Cleanup writes the alternate index and only the selected worktree paths; standard
+Git index/HEAD writers therefore serialize or fail on Git's own locks. A failure
+before publication restores the selected index/worktree split directly from the
+already-built stash parents while the same boundary is still held.
+
+While `index.lock` remains present, Fjord atomically replaces the real index from
+the cleaned alternate index and then publishes with one `git update-ref
+--create-reflog -m … refs/stash <new> <expected-old>` compare-and-swap. The CAS
+either changes `refs/stash` and appends its ordinary Git reflog entry together,
+or changes neither; there is no `stash store` followed by a racy readback and no
+compensating ref rewind that leaves a hidden reflog entry. If the CAS loses, the
+captured raw index bytes and selected worktree state are restored while
+`index.lock` still excludes conforming Git writers. After CAS success there is
+no fallible operation left: dropping the transaction only releases the lock.
+Generations advance only after the complete operation succeeds. RAII cleanup
+removes the real index/HEAD locks, private index files, and sibling `.lock` files
+on every exit path.
 
 Whatever is chosen, the result must be an **ordinary Git stash**:
 
@@ -1273,6 +1289,10 @@ New stable codes, spelled here so no task invents a variant:
 - `stash_not_found` — the selected `StashId` is no longer in the stack (§1.6).
 - `stash_ambiguous` — the same commit appears twice in the stack (§1.6).
 - `stash_scope_empty` — `Paths` with no paths (§2.1).
+- `stash_concurrent_update` — the captured index, `HEAD`, selected worktree
+  state, or expected previous `refs/stash` changed before the exact-scope
+  transaction could publish; cleanup is rolled back and no Fjord reflog entry is
+  created.
 - `stash_scope_unrepresentable` — a selected path's state cannot be recorded
   exactly by the scoped-creation construction, so nothing is created rather than
   something approximate (§2.3). Carries the offending path in `AppError.paths`.
@@ -1557,6 +1577,20 @@ whole-tree recording silently breaks.
     at once. Where a selected state is not representable by the chosen
     construction, the request must fail `stash_scope_unrepresentable` and create
     nothing — that outcome is a passing case, an approximate entry is not.
+32. **External add at cleanup boundary** — pause after the real `index.lock` and
+    expected-HEAD transaction are prepared; an external `git add` is refused,
+    and the final real index/worktree match one valid serialization with no stale
+    lock.
+33. **External HEAD change at cleanup boundary** — the same deterministic pause
+    races a CLI commit; the prepared ref and index locks prevent captured
+    `HEAD=A` state from being cleaned against `HEAD=B`.
+34. **Stash publication CAS race** — pause after cleanup, insert an external
+    ordinary stash, and assert Fjord returns `stash_concurrent_update`, restores
+    its selected state, and leaves only the external OID in the actual
+    `refs/stash` reflog.
+35. **Failure before publication** — inject failure after cleanup and compare
+    raw index bytes, selected and unrelated tracked/untracked bytes, ref value,
+    complete stash reflog, generations, and every transaction/temp lock.
 
 ### Frontend (component and hook tests)
 
@@ -1660,6 +1694,7 @@ Russian per the glossary.
 | `errors.stash_not_found` *(common)* | `That stash no longer exists. Refresh and try again.` |
 | `errors.stash_ambiguous` *(common)* | `More than one stash entry points at the same commit; Fjord will not guess which one you meant.` |
 | `errors.stash_scope_empty` *(common)* | `No files were selected to stash.` |
+| `errors.stash_concurrent_update` *(common)* | `The repository changed while the stash was being created. Nothing was stashed.` |
 | `errors.stash_scope_unrepresentable` *(common)* | `The state of {{path}} cannot be stashed on its own, so nothing was stashed.` |
 | `errors.stash_apply_would_overwrite` *(common)* | `Applying this stash would overwrite local changes.` |
 | `errors.stash_apply_index_refused` *(common)* | `The staged state of this stash could not be restored.` |
