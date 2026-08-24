@@ -2,9 +2,16 @@
 
 This is the actionable breakdown of [`SDD.md`](SDD.md) **with per-task status**. It replaces the former `plan.md` — the task IDs (`P0-01`, ...) are stable and unchanged, so references from commits, code comments, and specs keep working.
 
-Legend: `[x]` done · `[ ]` open. A task is done when it's merged **and** covered by the testing approach described in SDD §8 for its layer — "works on my machine" doesn't close a task.
+Legend: `[x]` done · `[ ]` open.
 
-**How `[x]` is set, in practice.** This board has always been updated in the same commit as the implementation, on the feature branch that carries it — `P10-MERGE-01`–`03` and `P10-WC-01`–`06` were all marked in their own feature commits and are, at the time of writing, on `feature/merge-flow` rather than on `develop`. `[x]` therefore means "implemented, tested to the SDD §8 approach for its layer, and on its way in"; the merge into `develop` is the release step, not a separate re-review that flips the box afterwards. This is a stated convention rather than a silent one, so the legend and the board agree: a `[x]` task whose branch has not landed yet is on the board correctly, and no task is ever marked `[x]` before its tests pass.
+A task is marked `[x]` when its implementation is complete and covered by
+the testing approach described in SDD §8 for its layer. The implementation
+may still be awaiting integration into `develop` on its feature branch —
+"works on my machine" does not close a task.
+
+Task boxes are normally updated in the same feature commit that completes
+the implementation and its required tests; merging that branch into
+`develop` is the subsequent integration step.
 
 Last status review: 2026-08 (roadmap audit; Phases 6–11 were added from its findings, together with the residual Phase 5.x items). Amended 2026-08-20 with the two missing daily-driver capabilities — `P10-MERGE-01`–`P10-MERGE-03` (starting a branch merge) and `P10-WC-01`–`P10-WC-06` (Working Changes file context actions) — and with an explicit Phase 10 execution order. Amended 2026-08-23 with `P10-STASH-01`–`P10-STASH-06` (Stash Management), placed after the completed Working Changes context actions and before Workspace Intelligence, and owned by the new [`specs/stash-management.md`](specs/stash-management.md), and with `P10-WC-MULTI-01`–`P10-WC-MULTI-03` (Working Changes multi-selection and batch actions), owned by [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §7. A seventh stash task was drafted and **withdrawn before implementation**; its scope moved to `P10-WC-MULTI-*`, and it is not an active roadmap item — see the note under Stash Management. No existing task ID was renamed or renumbered.
 
