@@ -121,7 +121,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | File open / reveal | ✅ `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path` (`P10-WC-01`): repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments. `IdeLauncher` carries an optional line. |
 | External diff tool | ✅ `open_external_diff` (`git difftool`) with a `Settings.diff_tool` **name** only, plus `diff_tool_availability` for the live disabled reason (`P10-WC-06`). The merge tool stays a separate concept (§6.4). |
 | `.gitignore` writing | ✅ Root `.gitignore` only, UTF-8 with BOM/terminator preservation and fail-closed on invalid UTF-8 (`P10-WC-02`). Global excludes, `.git/info/exclude`, and `core.excludesFile` are still never touched. |
-| File-scoped stash | ⚠️ `stash_file` (`P10-WC-05`), Git's own pathspec-scoped `stash push -u -m … -- <path>`. What shipped is **file-scoped worktree removal** with the unrelated-*current*-changes invariant proven per file state. The entry it creates still records whole trees, so a later apply can restore more than the one file; that is the stash-content invariant `P10-STASH-02` adds ([`stash-management.md`](stash-management.md) §2.3). `P10-STASH-02` generalizes creation to *n* paths under one `create_stash` contract and **migrates this action onto it** (§2.9 there). |
+| File-scoped stash | ✅ `Stash file…` is the one-path case of `create_stash { scope: Paths }` (`P10-STASH-02`). Its normal Git stash entry contains only the selected semantic path, preserves partially staged structure, and excludes unrelated staged/unstaged/untracked state both at creation and later Apply/Pop. |
 | Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard), both reusing the `P8-01` constructor unchanged (`P10-WC-03`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
@@ -640,7 +640,7 @@ executable name, an argument list, or a shell string.
 | `add_ignore_rule` | Appends one rule to the repository-root `.gitignore` (`P10-WC-02`). |
 | `preview_ignore_rule` | Read-only: the exact rule text and whether it is already present. |
 | `export_patch` | Writes the patch for one file/side to a user-chosen destination (`P10-WC-03`). |
-| `stash_file` | File-scoped stash (`P10-WC-05`). |
+| `create_stash { scope: Paths }` | Exact file-scoped stash (`P10-STASH-02`; one file is the N=1 case). |
 | `DestructiveAction::DeleteFile` | Delete through the existing preflight/token executor (`P10-WC-04`). |
 
 **Opening files.** `IdeLauncher` gains an explicit file-and-position shape rather
@@ -1690,7 +1690,7 @@ repository-root file is the one a reviewer will actually see in the diff.
   resolution and process launches are one call each, the ignore write is one
   bounded read-modify-append, and patch export reuses a diff the view has
   usually already computed for the current generation.
-- `stash_file` and `DeleteFile` are ordinary write-lock mutations that advance
+- `create_stash` and `DeleteFile` are ordinary write-lock mutations that advance
   only `working_tree` (and `stash` for the former); neither forces a full
   repository refetch.
 

@@ -621,6 +621,24 @@
     "pushSuccess": "Отправлено",
     "pushFailure": "Ошибка: {{error}}"
   },
+  "stash": {
+    "create": {
+      "title": "Сохранить изменения в stash",
+      "name": "Название",
+      "scope": "Область",
+      "all": "Все изменённые файлы",
+      "selected": "Выбранные файлы ({{count}})",
+      "selectedFiles": "Выбранные файлы",
+      "includeUntracked": "Включить untracked-файлы",
+      "untrackedExcluded": "Исключено untracked-файлов: {{count}} ({{paths}})",
+      "emptyEffectiveScope": "Не осталось выбранных tracked-файлов. Включите untracked-файлы, чтобы продолжить.",
+      "unsupportedGit": "Для scoped stash требуется Git 2.23 или новее.",
+      "defaultAll": "Fjord: stash изменений",
+      "defaultPaths": "Fjord: stash файлов — {{count}}",
+      "andMore": "и ещё {{count}}",
+      "confirm": "Сохранить в stash"
+    }
+  },
   "workingFile": {
     "stage": "Индексировать",
     "unstage": "Убрать из индекса",
@@ -643,7 +661,7 @@
       "message": "Сообщение",
       "defaultMessage": "Fjord: stash {{path}}",
       "stagedNotPreserved": "Состояние индекса не сохраняется: при восстановлении этого stash изменения вернутся неподготовленными.",
-      "unsupportedGit": "Для сохранения одного файла в stash требуется Git 2.13 или новее.",
+      "unsupportedGit": "Для scoped stash требуется Git 2.23 или новее.",
       "confirm": "Сохранить файл в stash"
     },
     "disabled": {

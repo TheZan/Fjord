@@ -519,13 +519,6 @@ mod tests {
         async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
             Ok(vec![])
         }
-        async fn stash_push(
-            &self,
-            _repo: &RepoPath,
-            _message: Option<&str>,
-        ) -> Result<(), GitError> {
-            Ok(())
-        }
         async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
             Ok(())
         }

@@ -613,6 +613,24 @@
     "pushSuccess": "Envoyé",
     "pushFailure": "Échec : {{error}}"
   },
+  "stash": {
+    "create": {
+      "title": "Remiser les modifications",
+      "name": "Nom",
+      "scope": "Portée",
+      "all": "Tous les fichiers modifiés",
+      "selected": "Fichiers sélectionnés ({{count}})",
+      "selectedFiles": "Fichiers sélectionnés",
+      "includeUntracked": "Inclure les fichiers non suivis",
+      "untrackedExcluded": "{{count}} fichier(s) non suivi(s) exclu(s) : {{paths}}",
+      "emptyEffectiveScope": "Aucun fichier suivi sélectionné ne reste. Incluez les fichiers non suivis pour continuer.",
+      "unsupportedGit": "La remise à portée limitée nécessite Git 2.23 ou plus récent.",
+      "defaultAll": "Fjord : remiser les modifications",
+      "defaultPaths": "Fjord : remiser {{count}} fichiers",
+      "andMore": "et {{count}} de plus",
+      "confirm": "Remiser"
+    }
+  },
   "workingFile": {
     "stage": "Indexer",
     "unstage": "Désindexer",
@@ -635,7 +653,7 @@
       "message": "Message",
       "defaultMessage": "Fjord : remisage de {{path}}",
       "stagedNotPreserved": "L'état indexé n'est pas conservé : la restauration de cette remise ramène les modifications comme non indexées.",
-      "unsupportedGit": "Remiser un seul fichier nécessite Git 2.13 ou plus récent.",
+      "unsupportedGit": "La remise à portée limitée nécessite Git 2.23 ou plus récent.",
       "confirm": "Remiser le fichier"
     },
     "disabled": {

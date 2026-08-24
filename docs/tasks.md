@@ -321,7 +321,7 @@ renumbering anything.
 2. P10-WC-01…06      Working Changes file context actions            ✅ done
 3. P10-WC-MULTI-01   Working Changes multi-selection model
 4. P10-STASH-01      Stable stash identity + the reads built on it
-5. P10-STASH-02      Exact-scope stash creation  ⚠ proof gate before shipping
+5. P10-STASH-02      Exact-scope stash creation                         ✅ done
 6. P10-WC-MULTI-02   Batch Stage/Unstage + Stash N files… entry point
 7. P10-STASH-03…06   Stash tree, inspector, graph markers, actions
 8. P10-WC-MULTI-03   Batch Discard + multi-file patch export
@@ -465,7 +465,7 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   §Testing strategy — identity stability across insertion and removal, base-commit
   correctness across later commits and branch switches, the empty-untracked-parent
   case, and stale-identity fail-closed on every action.
-- [ ] **P10-STASH-02** — Unified stash creation for all / one / many paths with a
+- [x] **P10-STASH-02** — Unified stash creation for all / one / many paths with a
   user-authored name, and an **exact** scope contract. One typed contract
   `CreateStashRequest { scope: All | Paths { paths }, message, include_untracked }`;
   an empty `paths` is `stash_scope_empty`, **not** a spelling of `All` (the
@@ -497,17 +497,16 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   (`P10-WC-MULTI-02`) does not ship — a smaller safe product beats a
   `Stash 4 files` that restores five. A selection whose state the construction
   cannot represent exactly fails closed with `stash_scope_unrepresentable` and
-  creates nothing. One engine and one module either way: `stash_file.rs` becomes
-  `stash.rs`, `git2::stash_save2` is retired, `stash_push`/`stash_file` collapse
+  creates nothing. One engine and one module: `stash.rs` owns the private-index /
+  `write-tree` / `commit-tree` / `git stash store` construction;
+  `git2::stash_save2` is retired, `stash_push`/`stash_file` collapse
   into `create_stash`, and **`Stash file…` is migrated onto the new engine** so
   one-file and *n*-file stashes cannot end up with different apply semantics
   (spec §2.9) — there must ultimately be one implementation of interactive scoped
   stash. Everything runs through the resolved `GitCommandFactory` with
-  individually passed arguments, under the repository write lock. Git ≥ 2.13 gates
+  individually passed arguments, under the repository write lock. Git ≥ 2.23 gates
   `Paths` only (not `All`), read by parsing `git --version` through the resolved
-  factory — which is what `stash_file.rs` actually does today — and exposed as
-  `stash_paths_supported`; the chosen construction may raise that floor, and if it
-  does, the gate checks the raised floor. `include_untracked` is scope-specific
+  factory and exposed as `stash_paths_supported`. `include_untracked` is scope-specific
   (spec §2.4.1): for `Paths` it means *selected* untracked paths may be included
   and never sweeps in unrelated untracked files; with it off, selected untracked
   paths are excluded from the **effective** set the dialog counts, confirms, and

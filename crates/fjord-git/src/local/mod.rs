@@ -17,19 +17,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitId, CommitPage, CommitSummary, DestructiveAction, DiffHunk, DiffLine,
-    DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff,
-    FileDiffDetail, FileDiffWindow, HunkSelection, IgnoreRuleKind, IgnoreRuleOutcome,
-    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
-    MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RepoStatus,
-    StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    BranchInfo, CommitId, CommitPage, CommitSummary, CreateStashRequest, CreateStashResult,
+    DestructiveAction, DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, DiffWhitespaceMode,
+    DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, HunkSelection,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
+    MergePreflight, MergeResult, MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage,
+    RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
     GitExecutableResolution, PushTarget, RepoPath,
 };
 use git2::build::CheckoutBuilder;
-use git2::{ErrorCode, IndexAddOption, StashFlags};
+use git2::{ErrorCode, IndexAddOption};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, HunkHeader};
 use gix::diff::blob::UnifiedDiff;
@@ -58,7 +58,6 @@ mod remotes;
 mod repository;
 mod runtime;
 mod stash;
-mod stash_file;
 mod status;
 mod working_tree;
 
@@ -566,20 +565,21 @@ impl GitBackend for LocalGitBackend {
         stash::stashes(repo).await
     }
 
-    async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError> {
-        mutations::stash_push(repo, message).await?;
+    async fn create_stash(
+        &self,
+        repo: &RepoPath,
+        request: &CreateStashRequest,
+    ) -> Result<CreateStashResult, GitError> {
+        let entry = stash::create(&self.commands, repo, request).await?;
         runtime::bump_mutation(repo, MutationKind::StashPush);
-        Ok(())
+        Ok(CreateStashResult {
+            entry,
+            generations: runtime::generations(repo)?,
+        })
     }
 
-    async fn stash_file(&self, repo: &RepoPath, path: &str, message: &str) -> Result<(), GitError> {
-        stash_file::stash(&self.commands, repo, path, message).await?;
-        runtime::bump_mutation(repo, MutationKind::StashPush);
-        Ok(())
-    }
-
-    async fn stash_file_supported(&self) -> Result<bool, GitError> {
-        stash_file::supported(&self.commands).await
+    async fn stash_paths_supported(&self) -> Result<bool, GitError> {
+        stash::paths_supported(&self.commands).await
     }
 
     async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {

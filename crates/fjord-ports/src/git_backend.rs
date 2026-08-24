@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
-    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
-    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
-    MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
-    RepoOperationState, RepoStatus, SquashMergeResult, StashEntry, TagInfo, WorkingChanges,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, CreateStashRequest,
+    CreateStashResult, DestructiveAction, DiffWhitespaceMode, FileDiff, FileDiffDetail,
+    FileDiffWindow, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
+    PatchSource, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
+    SquashMergeResult, StashEntry, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -281,6 +282,10 @@ pub enum GitError {
     StashFileUnsupportedGit,
     #[error("{path} has unresolved conflicts")]
     StashFileConflicted { path: String },
+    #[error("the scoped stash path set is empty")]
+    StashScopeEmpty,
+    #[error("the selected state cannot be represented exactly: {path}")]
+    StashScopeUnrepresentable { path: String },
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -604,27 +609,19 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("reset"))
     }
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError>;
-    async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError>;
-    /// Applies and drops `stash@{0}`, the most recent entry.
-    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
-    /// File-scoped `git stash push -- <path>` (`P10-WC-05`). Every unrelated
-    /// staged, unstaged, and untracked change is preserved byte-for-byte —
-    /// this is Git's own pathspec-scoped stash, never a hide/stash/restore
-    /// sequence. Requires Git >= 2.13, checked by the caller through
-    /// [`GitBackend::stash_file_supported`] before this is reachable from the
-    /// UI; the backend still refuses a genuinely unsupported Git.
-    async fn stash_file(
+    async fn create_stash(
         &self,
         _repo: &RepoPath,
-        _path: &str,
-        _message: &str,
-    ) -> Result<(), GitError> {
-        Err(GitError::NotImplemented("stash_file"))
+        _request: &CreateStashRequest,
+    ) -> Result<CreateStashResult, GitError> {
+        Err(GitError::NotImplemented("create_stash"))
     }
-    /// Whether the resolved Git executable supports pathspec-limited
-    /// `stash push -- <path>` (Git >= 2.13).
-    async fn stash_file_supported(&self) -> Result<bool, GitError> {
-        Err(GitError::NotImplemented("stash_file_supported"))
+    /// Applies and drops `stash@{0}`, the most recent entry.
+    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
+    /// Whether the resolved Git executable supports exact scoped stash
+    /// construction (currently Git >= 2.23).
+    async fn stash_paths_supported(&self) -> Result<bool, GitError> {
+        Err(GitError::NotImplemented("stash_paths_supported"))
     }
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     /// Stages a verified line selection against the exact repository

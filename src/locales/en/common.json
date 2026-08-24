@@ -78,7 +78,9 @@
     "stash_not_found": "That stash no longer exists. Refresh and try again.",
     "stash_ambiguous": "More than one stash entry points at the same commit; Fjord will not guess which one you meant.",
     "stash_file_conflicted": "This file has unresolved conflicts. Resolve them first.",
-    "stash_file_unsupported_git": "Stashing a single file needs Git 2.13 or newer.",
+    "stash_file_unsupported_git": "Scoped stash creation needs Git 2.23 or newer.",
+    "stash_scope_empty": "Select at least one file to stash.",
+    "stash_scope_unrepresentable": "The selected file state cannot be represented exactly, so no stash was created.",
     "unexpected": "Something went wrong. Try again or restart Fjord if the problem continues.",
     "workspace_not_found": "The workspace could not be found. Refresh the app and try again.",
     "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually."

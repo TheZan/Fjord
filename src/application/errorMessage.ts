@@ -59,6 +59,8 @@ const USER_ERROR_CODES = new Set([
   "stash_ambiguous",
   "stash_file_conflicted",
   "stash_file_unsupported_git",
+  "stash_scope_empty",
+  "stash_scope_unrepresentable",
   "workspace_not_found",
 ]);
 

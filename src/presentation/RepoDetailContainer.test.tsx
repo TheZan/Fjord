@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, checkoutBranch, createBranchAt, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, checkoutBranch, createBranchAt, createStash, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -72,8 +72,8 @@ vi.mock("@/application/useWorkingChanges", () => ({
 vi.mock("@/application/useDiffToolAvailability", () => ({
   useDiffToolAvailability: () => true,
 }));
-vi.mock("@/application/useStashFileSupported", () => ({
-  useStashFileSupported: () => true,
+vi.mock("@/application/useStashPathsSupported", () => ({
+  useStashPathsSupported: () => true,
 }));
 vi.mock("@/application/invalidateRepoData", () => ({
   invalidateRepoData: vi.fn(async () => undefined),
@@ -91,6 +91,22 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   previewIgnoreRule: vi.fn(async () => ({ rule: "*.log", alreadyPresent: false })),
   addIgnoreRule: vi.fn(async () => "added" as const),
   createBranchAt: vi.fn(async () => undefined),
+  createStash: vi.fn(async () => ({
+    entry: {
+      id: "stash-id",
+      index: 0,
+      refName: "stash@{0}",
+      message: "On main: test",
+      title: "test",
+      base: "base-id",
+      branch: "main",
+      createdAt: "2026-08-24T00:00:00Z",
+      filesChanged: 1,
+      hasIndexState: false,
+      hasUntracked: false,
+    },
+    generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
+  })),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
   runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
   runPushBranchToRemotes: vi.fn(() => ({
@@ -212,7 +228,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     pendingDraftMessage,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
-    onAction: (action: "push" | "stash-pop") => void;
+    onAction: (action: "push" | "stash" | "stash-pop") => void;
     onCheckout: (branch: string) => void;
     onConfirmAction: () => void;
     onApplyHunk: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
@@ -247,6 +263,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
+      <button type="button" onClick={() => onAction("stash")}>stash all</button>
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
@@ -256,6 +273,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
       <button type="button" onClick={() => onWorkingFileAction("createPatch", { path: "file.txt", source: "worktree" })}>create patch</button>
+      <button type="button" onClick={() => onWorkingFileAction("stashFile", { path: "file.txt", source: "worktree" })}>stash file</button>
       <button type="button" onClick={onOpenRecoveryCenter}>open recovery</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "worktree", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>stage hunk</button>
       <button type="button" onClick={() => void onApplyHunk({ path: "file.txt", source: "index", baseDigest: "digest", hunks: [] }, { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 })}>unstage lines</button>
@@ -331,6 +349,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(addIgnoreRule).mockReset();
     vi.mocked(addIgnoreRule).mockResolvedValue("added");
     vi.mocked(createBranchAt).mockClear();
+    vi.mocked(createStash).mockClear();
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runPublishBranch).mockReset();
     vi.mocked(runPublishBranch).mockReturnValue({
@@ -388,6 +407,38 @@ describe("RepoDetailContainer checkout confirmation", () => {
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
+  });
+
+  it("routes toolbar stash through the shared named All request", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "stash all" }));
+    fireEvent.change(screen.getByLabelText("stash.create.name"), { target: { value: "Toolbar WIP" } });
+    fireEvent.click(screen.getByRole("button", { name: "stash.create.confirm" }));
+
+    await waitFor(() => expect(createStash).toHaveBeenCalledWith("repo-1", {
+      scope: { kind: "all" },
+      message: "Toolbar WIP",
+      includeUntracked: true,
+    }));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock,
+      "repo-1",
+      "workspace-1",
+      ["status", "working", "stashes"],
+    );
+  });
+
+  it("routes Stash file through the same dialog as a one-path request", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "stash file" }));
+    fireEvent.change(screen.getByLabelText("stash.create.name"), { target: { value: "One file" } });
+    fireEvent.click(screen.getByRole("button", { name: "stash.create.confirm" }));
+
+    await waitFor(() => expect(createStash).toHaveBeenCalledWith("repo-1", {
+      scope: { kind: "paths", paths: ["file.txt"] },
+      message: "One file",
+      includeUntracked: true,
+    }));
   });
 
   it("requires confirmation before checking out an origin branch", async () => {

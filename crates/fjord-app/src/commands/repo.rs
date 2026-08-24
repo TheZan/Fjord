@@ -1,11 +1,11 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
-    DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
-    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
-    PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState,
-    RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, CreateStashRequest,
+    CreateStashResult, DestructiveAction, DestructivePreflight, FileDiff, FileDiffWindow,
+    GenerationSet, GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
+    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
+    MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
+    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
+    SquashMergeResult, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -572,12 +572,12 @@ pub async fn get_stashes(
 }
 
 #[tauri::command]
-pub async fn stash_push(
+pub async fn create_stash(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-    message: Option<String>,
-) -> Result<(), AppError> {
-    Ok(state.repos.stash_push(repo_id, message.as_deref()).await?)
+    request: CreateStashRequest,
+) -> Result<CreateStashResult, AppError> {
+    Ok(state.repos.create_stash(repo_id, request).await?)
 }
 
 #[tauri::command]
@@ -1066,18 +1066,8 @@ pub async fn open_external_diff(
 }
 
 #[tauri::command]
-pub async fn stash_file_supported(state: State<'_, AppState>) -> Result<bool, AppError> {
-    Ok(state.repos.stash_file_supported().await?)
-}
-
-#[tauri::command]
-pub async fn stash_file(
-    state: State<'_, AppState>,
-    repo_id: RepositoryId,
-    path: String,
-    message: String,
-) -> Result<(), AppError> {
-    Ok(state.repos.stash_file(repo_id, &path, &message).await?)
+pub async fn stash_paths_supported(state: State<'_, AppState>) -> Result<bool, AppError> {
+    Ok(state.repos.stash_paths_supported().await?)
 }
 
 #[tauri::command]

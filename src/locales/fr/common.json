@@ -78,7 +78,9 @@
     "stash_not_found": "Ce stash n’existe plus. Actualisez la vue et réessayez.",
     "stash_ambiguous": "Plusieurs entrées de stash pointent vers le même commit ; Fjord refuse d’en choisir une arbitrairement.",
     "stash_file_conflicted": "Ce fichier a des conflits non résolus. Résolvez-les d'abord.",
-    "stash_file_unsupported_git": "Remiser un seul fichier nécessite Git 2.13 ou plus récent.",
+    "stash_file_unsupported_git": "La remise à portée limitée nécessite Git 2.23 ou plus récent.",
+    "stash_scope_empty": "Sélectionnez au moins un fichier à remiser.",
+    "stash_scope_unrepresentable": "L’état du fichier sélectionné ne peut pas être représenté exactement ; aucune remise n’a été créée.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
     "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez.",
     "log_folder_unavailable": "Impossible d'ouvrir le dossier des journaux. Ouvrez manuellement le dossier de données de l'application."

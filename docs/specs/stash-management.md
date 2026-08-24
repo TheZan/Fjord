@@ -66,9 +66,9 @@ The one sentence the rest of the document exists to make true:
 |---|---|
 | Stash list | ✅ `get_stashes` returns the rich repository-derived `StashEntry` of §1, in exact Git stack order and cached against the `stash` generation. |
 | Stash identity | ✅ `StashId` is the stash commit OID. The backend resolver maps it to the current position and fails closed when it is missing or ambiguous; mutation adoption remains owned by `P10-STASH-06`. |
-| Create stash (all) | ⚠️ `stash_push` via `git2::stash_save2` with `INCLUDE_UNTRACKED`. The message is optional and no UI collects one; the toolbar button stashes unnamed. |
-| Create stash (one path) | ⚠️ `stash_file` (`P10-WC-05`), system Git `stash push -u -m … -- <path>`. It ships **file-scoped worktree removal**: unrelated current changes are preserved, proven by five fixtures — invariant **A** of §2.3. It does **not** prove invariant **B**: the entry it creates records whole trees, so a later `apply` can restore unrelated staged content (§4.3). No fixture applies the entry. `P10-STASH-02` upgrades this into an exact reusable scoped stash and migrates `Stash file…` onto it (§2.9). |
-| Create stash (many paths) | 🚧 Absent — and blocked on the §2.3 proof gate, not merely on plumbing. |
+| Create stash (all) | ✅ `create_stash { scope: All }` runs ordinary system Git `stash push [-u] -m …`; the toolbar uses the shared required-name dialog. |
+| Create stash (one path) | ✅ `Stash file…` is `create_stash { scope: Paths { paths: [p] } }`, using the same exact object construction as any larger set. Both §2.3 invariants are covered by real-Git creation and apply/pop fixtures. |
+| Create stash (many paths) | ✅ The backend/IPC accepts `Paths { paths }` for N paths and constructs a normal exact-scope stash. The Working Changes multi-selection entry point remains `P10-WC-MULTI-02`. |
 | Apply | 🚧 Absent. There is no apply-without-consuming anywhere in the product. |
 | Pop | ⚠️ Already on the confirmed destructive path — there is no `stash_pop` IPC command, and `execute_destructive_action`'s `StashPop { index }` arm already builds `stash pop stash@{index}` for an **arbitrary** index. The limitation is entirely in the frontend, which hard-codes `index: 0` at both dispatch sites in `RepoDetailContainer.tsx`, and in the action's index-keyed identity. Separately, `GitBackend::stash_pop` / `mutations::stash_pop` (`git2`, always index 0) is **dead production code** reached only by tests. |
 | Drop | 🚧 Absent. |
@@ -378,10 +378,9 @@ invariants that make the promise true.
 
 #### 2.2 The engine
 
-One implementation, one module. `crates/fjord-git/src/local/stash_file.rs` is
-generalized from one path to a scoped set and renamed to `stash.rs`; no second
-implementation appears beside it, and `Stash file…` is migrated onto it rather
-than left on its own path (§2.9).
+One implementation, one module: `crates/fjord-git/src/local/stash.rs` owns reads
+and both creation scopes. The former `stash_file.rs` module and the production
+`stash_push`/`stash_file` paths are gone; `Stash file…` is the N=1 case (§2.9).
 
 `All` is settled, and is not the hard part:
 
@@ -395,7 +394,7 @@ git stash push [-u] -m <message>
   `resolve_repository_file_path` authority `P10-WC-01` established, before any
   of them reaches Git's argument parser.
 - Runs under the repository write lock.
-- `git2`'s `stash_save2` stops being used. `stash_push` was its only caller and
+- `git2`'s `stash_save2` is no longer used. `stash_push` was its only caller and
   the only place in the stash feature not already on system Git —
   `stash_and_checkout` and merge's `StashFirst` both run `git stash push` today.
   Consolidating on system Git gives one engine, and honors the user's `stash.*`
@@ -418,19 +417,20 @@ trees, so unrelated staged content is stored in the entry and is reapplied by a
 later `git stash apply` (§4.3). That breaks the `Paths` contract of §2.1, which
 is about the entry's reusable contents and not only about the current worktree.
 
-`P10-STASH-02` therefore owns a **construction** problem: produce a stash entry
-whose semantic content is exactly the selected path state. Acceptable directions,
-to be evaluated and one of them chosen with evidence:
-
-- a temporary/private index (`GIT_INDEX_FILE` pointed at a scratch index) used to
-  compose the index and worktree trees for the selected paths only;
-- plumbing (`write-tree` / `commit-tree` / `update-ref refs/stash` /
-  `git stash store`) to build the base → index → worktree parent structure
-  explicitly;
-- constructing the required stash commit/tree structure directly and storing it
-  through Git's own `git stash store`, so the reflog entry is written by Git;
-- any other system-Git mechanism that yields a normal `refs/stash` entry while
-  excluding unrelated paths.
+The implemented construction uses private temporary indexes. Starting from
+`HEAD`, it overlays only selected real-index entries to write the index tree,
+then stages only selected tracked worktree state to write the stash tree. A
+separate empty private index writes only selected eligible untracked paths.
+`commit-tree` creates Git's ordinary base → index → worktree topology (plus the
+optional third untracked parent), and `git stash store` publishes the completed
+object through Git's own `refs/stash` reflog. Every unrelated path equals `HEAD`
+in all constructed trees, so it is absent from the stash's semantic diff.
+The objects are complete before selected-path cleanup begins. Publication is
+last; a cleanup/publication failure applies the already-built exact object back
+with `--index` before returning, and generations advance only after success.
+RAII cleanup removes both private index files and any sibling `.lock` files on
+every exit path; a failure before publication leaves no stash ref or reflog
+entry.
 
 Whatever is chosen, the result must be an **ordinary Git stash**:
 
@@ -460,15 +460,10 @@ untouched at every intermediate point, not merely at the end.
 
 ##### Capability gate
 
-Scoped creation is gated on the Git the user actually has. Pathspec-limited
-`stash push` needs Git ≥ 2.13, which is the floor regardless of mechanism; the
-chosen construction may raise it, and if it does, the raised floor is what the
-gate checks. `All` is not gated. The gate is surfaced as `stash_paths_supported`
-— the generalization of today's `stash_file_supported`, with the same global
-(non-repo-scoped) query shape, since it depends only on the resolved executable —
-and is re-checked fail-closed inside the mutation. The version is read the way
-`stash_file.rs` actually reads it today: parsing `git --version` through the
-resolved `GitCommandFactory`, not through `GitEnvironmentProvider`.
+Scoped creation is gated on Git ≥ 2.23 because selected-path cleanup uses
+`git restore --source=HEAD --staged --worktree`. `All` is not gated. The global
+`stash_paths_supported` query and the mutation itself both parse `git --version`
+through the resolved `GitCommandFactory`.
 
 #### 2.3 The two invariants
 
@@ -616,7 +611,7 @@ more. There is no Fjord-side name store, no rename action, and no metadata file.
 #### 2.8 The dialog
 
 One reusable dialog for all three scopes, built on the shared `TextActionDialog`
-primitive `StashFileDialog.tsx` already uses:
+primitive in `CreateStashDialog.tsx`:
 
 ```text
 ┌─ Stash changes ─────────────────────────────────┐

@@ -184,6 +184,16 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 tool: None,
             };
         }
+        GitError::StashScopeUnrepresentable { path } => {
+            return AppError {
+                code: "stash_scope_unrepresentable".to_string(),
+                message: "the selected stash scope cannot be represented exactly".to_string(),
+                diagnostics: None,
+                paths: boxed(vec![path]),
+                stash_ref: None,
+                tool: None,
+            };
+        }
         GitError::MergeFailed(diagnostics) => {
             return AppError {
                 code: "merge_failed".to_string(),
@@ -266,6 +276,8 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::DiffToolNameInvalid => "diff_tool_name_invalid",
         GitError::StashFileUnsupportedGit => "stash_file_unsupported_git",
         GitError::StashFileConflicted { .. } => "stash_file_conflicted",
+        GitError::StashScopeEmpty => "stash_scope_empty",
+        GitError::StashScopeUnrepresentable { .. } => unreachable!("handled above"),
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())
@@ -477,6 +489,18 @@ mod tests {
         assert_eq!(
             git_error_to_app_error(GitError::StashAmbiguous).code,
             "stash_ambiguous"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::StashScopeEmpty).code,
+            "stash_scope_empty"
+        );
+        let unrepresentable = git_error_to_app_error(GitError::StashScopeUnrepresentable {
+            path: "file.txt".into(),
+        });
+        assert_eq!(unrepresentable.code, "stash_scope_unrepresentable");
+        assert_eq!(
+            unrepresentable.paths.as_deref(),
+            Some(&vec!["file.txt".to_string()])
         );
     }
 
