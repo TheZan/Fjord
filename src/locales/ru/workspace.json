@@ -695,6 +695,12 @@
     "commit_few": "Закоммитить {{count}} файла",
     "commit_many": "Закоммитить {{count}} файлов"
   },
+  "workingChanges": {
+    "selectionAnnouncement_one": "Выбран {{count}} файл из {{total}}",
+    "selectionAnnouncement_few": "Выбрано {{count}} файла из {{total}}",
+    "selectionAnnouncement_many": "Выбрано {{count}} файлов из {{total}}",
+    "selectionAnnouncement_other": "Выбрано {{count}} файлов из {{total}}"
+  },
   "workspaces": {
     "label": "Рабочие пространства",
     "loading": "Загрузка",

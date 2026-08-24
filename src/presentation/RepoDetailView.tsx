@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
 import { mergeSourceForBranch } from "@/application/mergeBranchAction";
 import type { WorkingFileAction } from "@/application/useWorkingFileActions";
+import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -14,7 +15,7 @@ import { RemoteSection } from "@/presentation/RemoteSection";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
 import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
-import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
+import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
 import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
@@ -191,7 +192,13 @@ export function RepoDetailView({
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
-  const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
+  const workingSelection = useWorkingFileSelection(repo.id, changes);
+  const selectedWorkingFile = workingSelection.active
+    ? {
+        path: workingSelection.active.path,
+        staged: workingSelection.active.source === "index",
+      }
+    : null;
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
   const [workingFileMenu, setWorkingFileMenu] = useState<WorkingFileMenuState | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
@@ -206,6 +213,10 @@ export function RepoDetailView({
   }, [selectedCommit?.id]);
 
   useEffect(() => {
+    if (!workingSelected) workingSelection.clear();
+  }, [workingSelected, workingSelection.clear]);
+
+  useEffect(() => {
     if (!workingFileMenu) return;
     const section = workingFileMenu.target.source === "index" ? changes.staged : changes.unstaged;
     if (!section.some((file) => file.path === workingFileMenu.target.path)) {
@@ -216,16 +227,8 @@ export function RepoDetailView({
   useEffect(() => {
     if (!branchScrollRequest) return;
     setSelectedCommitFile(null);
-    setSelectedWorkingFile(null);
-  }, [branchScrollRequest]);
-
-  // A file that just got staged moves to the other list; keeping the old
-  // selection would show a diff that no longer exists on that side.
-  useEffect(() => {
-    if (!selectedWorkingFile) return;
-    const list = selectedWorkingFile.staged ? changes.staged : changes.unstaged;
-    if (!list.some((file) => file.path === selectedWorkingFile.path)) setSelectedWorkingFile(null);
-  }, [changes, selectedWorkingFile]);
+    workingSelection.clear();
+  }, [branchScrollRequest, workingSelection.clear]);
 
   useEffect(() => {
     const completedAction = previousPendingAction.current;
@@ -267,8 +270,7 @@ export function RepoDetailView({
       error={changesError}
       busy={actionPending !== null}
       validated={actionsValidated}
-      selectedFile={selectedWorkingFile}
-      onSelectFile={setSelectedWorkingFile}
+      selection={workingSelection}
       onStage={onStage}
       onUnstage={onUnstage}
       onFileContextMenu={(file, target, position) => {
@@ -397,7 +399,7 @@ export function RepoDetailView({
                   : undefined
               }
               onBack={() =>
-                workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
+                workingSelected ? workingSelection.clear() : setSelectedCommitFile(null)
               }
               onWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
             />

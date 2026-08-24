@@ -731,6 +731,10 @@
     "commit_one": "Commit {{count}} file",
     "commit_other": "Commit {{count}} files"
   },
+  "workingChanges": {
+    "selectionAnnouncement_one": "{{count}} of {{total}} file selected",
+    "selectionAnnouncement_other": "{{count}} of {{total}} files selected"
+  },
   "workspaces": {
     "label": "Workspaces",
     "loading": "Loading",

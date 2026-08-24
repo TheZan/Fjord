@@ -1,11 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { buildFileTree, splitPath, type FileTreeNode } from "@/presentation/fileTree";
 
 export type FileViewMode = "path" | "tree";
 export interface FileContextMenuAnchor { x: number; y: number }
+export interface FileSelectionIntent {
+  toggle: boolean;
+  range: boolean;
+  /** Keyboard toggle keeps the stable Shift-range origin. */
+  preserveAnchor?: boolean;
+}
 
 /**
  * Which directory rows are folded. Owned by the panel rather than by the list
@@ -150,13 +156,19 @@ interface FileEntryListProps<T extends { path: string }> {
   files: T[];
   mode: FileViewMode;
   collapse: FileTreeCollapse;
-  selectedPath: string | null;
-  onSelect: (file: T) => void;
+  selectedPaths: ReadonlySet<string>;
+  activePath: string | null;
+  onSelect: (file: T, intent: FileSelectionIntent, visibleFiles: readonly T[]) => void;
+  onActivate?: (file: T) => void;
+  onSelectAll?: (visibleFiles: readonly T[], focusedFile: T) => void;
+  onVisibleFilesChange?: (visibleFiles: readonly T[]) => void;
   /** The single-letter A/M/D/R change mark. */
   renderMark: (file: T) => ReactNode;
   /** Right-aligned extra, e.g. `+3 -1` or a stage button. */
   renderTrailing?: (file: T) => ReactNode;
   onFileContextMenu?: (file: T, anchor: FileContextMenuAnchor) => void;
+  ariaLabel?: string;
+  multiselectable?: boolean;
   /** Occupy the parent's remaining height instead of using a capped list. */
   fill?: boolean;
 }
@@ -174,11 +186,17 @@ export function FileEntryList<T extends { path: string }>({
   files,
   mode,
   collapse,
-  selectedPath,
+  selectedPaths,
+  activePath,
   onSelect,
+  onActivate,
+  onSelectAll,
+  onVisibleFilesChange,
   renderMark,
   renderTrailing,
   onFileContextMenu,
+  ariaLabel,
+  multiselectable = false,
   fill = false,
 }: FileEntryListProps<T>) {
   const tree = useMemo(() => (mode === "tree" ? buildFileTree(files) : []), [files, mode]);
@@ -192,6 +210,21 @@ export function FileEntryList<T extends { path: string }>({
         : flattenVisibleTree(tree, collapse.collapsed),
     [collapse.collapsed, files, mode, tree],
   );
+  const visibleFiles = useMemo(
+    () => entries.flatMap((entry) => entry.kind === "file" ? [entry.file] : []),
+    [entries],
+  );
+  const visiblePathSet = useMemo(
+    () => new Set(visibleFiles.map((file) => file.path)),
+    [visibleFiles],
+  );
+  const focusablePath = activePath !== null && visiblePathSet.has(activePath)
+    ? activePath
+    : visibleFiles[0]?.path ?? null;
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingFocusPath = useRef<string | null>(null);
+  const onVisibleFilesChangeRef = useRef(onVisibleFilesChange);
+  onVisibleFilesChangeRef.current = onVisibleFilesChange;
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: entries.length,
@@ -200,13 +233,50 @@ export function FileEntryList<T extends { path: string }>({
     overscan: 8,
   });
 
+  useEffect(() => {
+    onVisibleFilesChangeRef.current?.(visibleFiles);
+  }, [visibleFiles]);
+
+  useEffect(() => {
+    if (!activePath || pendingFocusPath.current !== activePath) return;
+    const row = rowRefs.current.get(activePath);
+    if (row) {
+      row.focus();
+      pendingFocusPath.current = null;
+    }
+  }, [activePath, entries]);
+
+  function selectAndFocus(file: T, intent: FileSelectionIntent) {
+    const index = entries.findIndex(
+      (entry) => entry.kind === "file" && entry.file.path === file.path,
+    );
+    if (index >= 0) rowVirtualizer.scrollToIndex?.(index);
+    pendingFocusPath.current = file.path;
+    onSelect(file, intent, visibleFiles);
+  }
+
   return (
     <div
       ref={scrollRef}
       className={`min-h-0 min-w-0 overflow-x-hidden overflow-y-auto ${fill ? "h-full" : ""}`}
       style={fill ? undefined : { height: Math.min(entries.length * FILE_ROW_HEIGHT, MAX_CAPPED_LIST_HEIGHT) }}
+      onKeyDown={(event) => {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "a") {
+          return;
+        }
+        const focused = visibleFiles.find((file) => file.path === activePath) ?? visibleFiles[0];
+        if (!focused || !onSelectAll) return;
+        event.preventDefault();
+        onSelectAll(visibleFiles, focused);
+      }}
     >
-      <ul className="relative min-w-0 w-full overflow-hidden" style={{ height: rowVirtualizer.getTotalSize() }}>
+      <ul
+        role="listbox"
+        aria-label={ariaLabel}
+        aria-multiselectable={multiselectable || undefined}
+        className="relative min-w-0 w-full overflow-hidden"
+        style={{ height: rowVirtualizer.getTotalSize() }}
+      >
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const entry = entries[virtualRow.index];
           const rowStyle: CSSProperties = {
@@ -224,8 +294,25 @@ export function FileEntryList<T extends { path: string }>({
               label={entry.label}
               prefix={entry.prefix}
               depth={entry.depth}
-              selected={entry.file.path === selectedPath}
-              onSelect={onSelect}
+              selected={selectedPaths.has(entry.file.path)}
+              active={entry.file.path === activePath}
+              focusable={entry.file.path === focusablePath}
+              registerRef={(element) => {
+                if (element) {
+                  rowRefs.current.set(entry.file.path, element);
+                  if (pendingFocusPath.current === entry.file.path) {
+                    element.focus();
+                    pendingFocusPath.current = null;
+                  }
+                } else rowRefs.current.delete(entry.file.path);
+              }}
+              onActivate={onActivate}
+              onSelect={(file, intent) => onSelect(file, intent, visibleFiles)}
+              onMove={(file, direction, range) => {
+                const currentIndex = visibleFiles.findIndex((candidate) => candidate.path === file.path);
+                const next = visibleFiles[currentIndex + direction];
+                if (next) selectAndFocus(next, { toggle: false, range });
+              }}
               renderMark={renderMark}
               renderTrailing={renderTrailing}
               onFileContextMenu={onFileContextMenu}
@@ -281,7 +368,12 @@ function FileRow<T extends { path: string }>({
   prefix,
   depth,
   selected,
+  active,
+  focusable,
+  registerRef,
+  onActivate,
   onSelect,
+  onMove,
   renderMark,
   renderTrailing,
   onFileContextMenu,
@@ -292,29 +384,54 @@ function FileRow<T extends { path: string }>({
   prefix?: string;
   depth: number;
   selected: boolean;
-  onSelect: (file: T) => void;
+  active: boolean;
+  focusable: boolean;
+  registerRef: (element: HTMLButtonElement | null) => void;
+  onActivate?: (file: T) => void;
+  onSelect: (file: T, intent: FileSelectionIntent) => void;
+  onMove: (file: T, direction: -1 | 1, range: boolean) => void;
   renderMark: (file: T) => ReactNode;
   renderTrailing?: (file: T) => ReactNode;
   onFileContextMenu?: (file: T, anchor: FileContextMenuAnchor) => void;
   style: CSSProperties;
 }) {
   return (
-    <li className="group min-w-0 overflow-hidden" style={style}>
+    <li role="presentation" className="group min-w-0 overflow-hidden" style={style}>
       <button
+        ref={registerRef}
         type="button"
-        onClick={() => onSelect(file)}
+        role="option"
+        aria-selected={selected}
+        tabIndex={focusable ? 0 : -1}
+        onFocus={() => {
+          if (!active) onActivate?.(file);
+        }}
+        onClick={(event) => onSelect(file, selectionIntent(event))}
         onContextMenu={(event) => {
           if (!onFileContextMenu) return;
           event.preventDefault();
           event.currentTarget.focus();
-          onSelect(file);
           onFileContextMenu(file, { x: event.clientX, y: event.clientY });
         }}
         onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            onMove(file, event.key === "ArrowDown" ? 1 : -1, event.shiftKey);
+            return;
+          }
+          if ((event.ctrlKey || event.metaKey) && event.key === " ") {
+            event.preventDefault();
+            onSelect(file, { toggle: true, range: false, preserveAnchor: true });
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onSelect(file, { toggle: false, range: false });
+            return;
+          }
           if (!onFileContextMenu) return;
           if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
           event.preventDefault();
-          onSelect(file);
           const bounds = event.currentTarget.getBoundingClientRect();
           onFileContextMenu(file, { x: bounds.left + 12, y: bounds.bottom + 2 });
         }}
@@ -346,6 +463,12 @@ function FileRow<T extends { path: string }>({
       </button>
     </li>
   );
+}
+
+function selectionIntent(
+  event: Pick<MouseEvent<HTMLButtonElement> | KeyboardEvent<HTMLButtonElement>, "ctrlKey" | "metaKey" | "shiftKey">,
+): FileSelectionIntent {
+  return { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey };
 }
 
 type FlatFileEntry<T extends { path: string }> =

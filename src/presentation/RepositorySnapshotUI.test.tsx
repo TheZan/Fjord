@@ -36,13 +36,25 @@ describe("repository snapshot UI", () => {
   });
 
   it("does not make commit available while working changes are unvalidated", () => {
-    const props = {
+    const props: Omit<React.ComponentProps<typeof WorkingChangesPanel>, "validated"> = {
       changes,
       loading: false,
       error: null,
       busy: false,
-      selectedFile: null,
-      onSelectFile: vi.fn(),
+      selection: {
+        targets: new Set<import("@/domain/git").WorkingFileTarget>(),
+        source: null,
+        active: null,
+        anchor: null,
+        isSelected: vi.fn(() => false),
+        selectedPaths: vi.fn(() => new Set<string>()),
+        select: vi.fn(),
+        selectAll: vi.fn(),
+        activate: vi.fn(),
+        prepareContextMenu: vi.fn(),
+        registerVisibleTargets: vi.fn(),
+        clear: vi.fn(),
+      },
       onStage: vi.fn(),
       onUnstage: vi.fn(),
       onPrepareAmend: vi.fn(async () => null),
