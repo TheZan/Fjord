@@ -12,6 +12,8 @@ const USER_ERROR_CODES = new Set([
   "create_repository_registration_failed",
   "create_repository_request_invalid",
   "database_error",
+  "diff_tool_name_invalid",
+  "diff_tool_not_configured",
   "git_error",
   "git_auth_failed",
   "git_auth_required",
@@ -53,6 +55,8 @@ const USER_ERROR_CODES = new Set([
   "remote_name_exists",
   "remote_request_invalid",
   "stash_empty",
+  "stash_file_conflicted",
+  "stash_file_unsupported_git",
   "workspace_not_found",
 ]);
 
@@ -62,7 +66,7 @@ export function errorTranslationKey(error: unknown): string {
 }
 
 export function userErrorMessage(error: unknown): string {
-  return i18n.t(errorTranslationKey(error), { ns: "common" });
+  return i18n.t(errorTranslationKey(error), { ns: "common", tool: readErrorTool(error) });
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -71,6 +75,13 @@ function readErrorCode(error: unknown): string | null {
   }
   if (error instanceof DOMException && error.name === "AbortError") {
     return "operation_cancelled";
+  }
+  return null;
+}
+
+function readErrorTool(error: unknown): string | null {
+  if (error && typeof error === "object" && "tool" in error && typeof error.tool === "string") {
+    return error.tool;
   }
   return null;
 }

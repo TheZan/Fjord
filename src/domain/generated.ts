@@ -55,6 +55,35 @@ export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId,
 
 export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, ahead: number, behind: number, targetCommitId: CommitId, };
 
+export type MergeSourceKind = "localBranch" | "remoteTracking";
+
+export type MergeSource = { refName: string, kind: MergeSourceKind, };
+
+export type MergeMode = "default" | "fastForwardOnly";
+
+export type MergeDirtyPolicy = "refuse" | "stashFirst";
+
+export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, };
+
+export type MergeDirtyState = { staged: number, modified: number, untracked: number, wouldOverwrite: Array<string>, };
+
+export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
+
+export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };
+
+export type MergeResult = { outcome: MergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, stashRef: string | null, generations: GenerationSet, };
+
+export type SquashMergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "staged", message: string, } | { "kind": "conflicted", paths: Array<string>, };
+
+export type SquashMergeResult = { outcome: SquashMergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, 
+/**
+ * `HEAD` before the squash ran — unmoved by any outcome. Lets the
+ * caller offer a plain Reset (Hard) to this commit as the discard path,
+ * reusing the existing destructive-preflight `Reset` action rather than
+ * inventing a second abort mechanism.
+ */
+targetCommit: CommitId, stashRef: string | null, generations: GenerationSet, };
+
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };
@@ -81,7 +110,11 @@ export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
 
 export type FileDiff = { path: string, changeType: FileChangeType, additions: number, deletions: number, };
 
-export type WorkingFile = { path: string, changeType: FileChangeType, 
+export type WorkingFile = { path: string, changeType: FileChangeType,
+/**
+ * `true` when the path already has an index entry.
+ */
+tracked: boolean,
 /**
  * `true` when the entry is an unresolved merge conflict.
  */
@@ -90,6 +123,18 @@ conflicted: boolean, };
 export type WorkingChanges = { staged: Array<WorkingFile>, unstaged: Array<WorkingFile>, };
 
 export type PatchSource = "worktree" | "index";
+
+export type WorkingFileTarget = { path: string, source: PatchSource, };
+
+export type RepositoryFilePath = { relative: string, absolute: string, };
+
+export type OpenTarget = { "kind": "configuredEditor", line: number | null, } | { "kind": "defaultApplication" };
+
+export type IgnoreRuleKind = "file" | "extension" | "directory";
+
+export type IgnoreRulePreview = { rule: string, alreadyPresent: boolean, };
+
+export type IgnoreRuleOutcome = "added" | "alreadyPresent";
 
 export type HunkSelection = { oldStart: number, oldLines: number, newStart: number, newLines: number,
 /**
@@ -112,13 +157,13 @@ export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hu
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", index: number, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, };
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", index: number, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
 
 export type ForceWithLeaseDetails = { remote: string, refName: string, expectedOid: CommitId, };
 
-export type Recoverability = "reflog" | "stash" | "notRecoverable";
+export type Recoverability = "reflog" | "stash" | "notRecoverable" | "committed";
 
-export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, };
+export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, };
 
 export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, forceWithLease: ForceWithLeaseDetails | null, confirmationToken: string | null, };
 
@@ -200,7 +245,14 @@ export type Settings = {
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, 
+/**
+ * A Git difftool **name** only — never a path, shell command, or command
+ * line. `None` means "let Git resolve `diff.tool` /
+ * `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+ * --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+ */
+diffTool: string | null, };
 
 export type UiDiffMode = "unified" | "split";
 

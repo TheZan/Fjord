@@ -32,8 +32,12 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: { language: "en" },
-    t: (key: string, values?: Record<string, number>) =>
-      values && "count" in values ? `${key}:${values.count}` : key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      key === "context.mergeInto"
+        ? `Merge ${values?.source} into ${values?.target}…`
+        : key === "context.squashMergeInto"
+          ? `Squash merge ${values?.source} into ${values?.target}…`
+          : values && "count" in values ? `${key}:${values.count}` : key,
   }),
 }));
 
@@ -305,6 +309,92 @@ describe("CommitGraph", () => {
     });
     expect(screen.queryByText("feature/x")).not.toBeInTheDocument();
   });
+
+  it("merges the exact ref selected from a multi-ref commit", () => {
+    const onMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Shared tip")];
+    graphState.branches = [
+      branch("develop", true),
+      branch("feature/first", false),
+      branch("feature/second", false),
+    ];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+2").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature/second"));
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Merge feature/second into develop…",
+    }));
+    expect(onMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/heads/feature/second",
+      kind: "localBranch",
+    });
+  });
+
+  it("offers an enabled merge entry for a remote-tracking branch label", () => {
+    const onMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Remote tip")];
+    graphState.branches = [branch("develop", true), branch("origin/feature", false, true)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature"));
+    const mergeItem = screen.getByRole("menuitem", {
+      name: "Merge feature into develop…",
+    });
+    expect(mergeItem).toBeEnabled();
+    fireEvent.click(mergeItem);
+    expect(onMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/remotes/origin/feature",
+      kind: "remoteTracking",
+    });
+  });
+
+  it("offers a separate squash-merge entry dispatching onSquashMergeBranch, not onMergeBranch", () => {
+    const onMergeBranch = vi.fn();
+    const onSquashMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Shared tip")];
+    graphState.branches = [branch("develop", true), branch("feature/x", false)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+        onSquashMergeBranch={onSquashMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature/x"));
+    expect(screen.getByRole("menuitem", { name: "Merge feature/x into develop…" })).toBeInTheDocument();
+    const squashItem = screen.getByRole("menuitem", {
+      name: "Squash merge feature/x into develop…",
+    });
+    fireEvent.click(squashItem);
+    expect(onSquashMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/heads/feature/x",
+      kind: "localBranch",
+    });
+    expect(onMergeBranch).not.toHaveBeenCalled();
+  });
 });
 
 function commit(id: string, message: string): CommitSummary {
@@ -316,5 +406,17 @@ function commit(id: string, message: string): CommitSummary {
     authorEmail: "fjord@example.com",
     authoredAt: "2026-08-06T10:00:00Z",
     refs: [],
+  };
+}
+
+function branch(name: string, isCurrent: boolean, isRemote = false): BranchInfo {
+  return {
+    name,
+    isCurrent,
+    isRemote,
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    targetCommitId: "commit-1",
   };
 }

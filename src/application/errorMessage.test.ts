@@ -45,6 +45,19 @@ describe("errorTranslationKey", () => {
     );
   });
 
+  it("interpolates the difftool name for an unresolvable diff tool", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "diff_tool_not_configured",
+      message: "Git could not resolve the difftool meld",
+      tool: "meld",
+    });
+
+    expect(message).toBe("Git could not resolve the difftool meld.");
+  });
+
   it("explains an ownership refusal without exposing the backend path", async () => {
     await initI18n("en");
     await setLocale("en");

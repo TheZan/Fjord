@@ -10,9 +10,17 @@ pub struct AppError {
     pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub diagnostics: Option<String>,
+    pub diagnostics: Option<Box<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub paths: Option<Vec<String>>,
+    pub paths: Option<Box<Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stash_ref: Option<Box<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Box<String>>,
+}
+
+fn boxed<T>(value: T) -> Option<Box<T>> {
+    Some(Box::new(value))
 }
 
 impl AppError {
@@ -22,6 +30,8 @@ impl AppError {
             message,
             diagnostics: None,
             paths: None,
+            stash_ref: None,
+            tool: None,
         }
     }
 
@@ -39,6 +49,10 @@ impl AppError {
     pub fn log_folder(message: String) -> Self {
         Self::new("log_folder_unavailable", message)
     }
+
+    pub fn patch_export_failed(message: String) -> Self {
+        Self::new("patch_export_failed", message)
+    }
 }
 
 impl From<StoreError> for AppError {
@@ -48,6 +62,7 @@ impl From<StoreError> for AppError {
             StoreError::RepositoryNotFound(_) => "repository_not_found",
             StoreError::RepositoryAlreadyExists(_) => "repository_already_added",
             StoreError::Database(_) => "database_error",
+            StoreError::InvalidSetting(code) => *code,
         };
         Self::new(code, err.to_string())
     }
@@ -115,6 +130,10 @@ impl From<RepoError> for AppError {
             error @ RepoError::CreateRepositoryRegistrationFailed(_) => {
                 Self::new("create_repository_registration_failed", error.to_string())
             }
+            error @ RepoError::PathOutsideRepository(_) => {
+                Self::new("path_outside_repository", error.to_string())
+            }
+            error @ RepoError::PathNotFound(_) => Self::new("path_not_found", error.to_string()),
         }
     }
 }
@@ -139,8 +158,10 @@ fn git_error_to_app_error(err: GitError) -> AppError {
             return AppError {
                 code: "operation_step_failed".to_string(),
                 message: "repository operation step failed".to_string(),
-                diagnostics: Some(diagnostics),
+                diagnostics: boxed(diagnostics),
                 paths: None,
+                stash_ref: None,
+                tool: None,
             };
         }
         GitError::CheckoutWouldOverwrite { paths } => {
@@ -148,7 +169,44 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 code: "checkout_would_overwrite".to_string(),
                 message: "checkout would overwrite local changes".to_string(),
                 diagnostics: None,
-                paths: Some(paths),
+                paths: boxed(paths),
+                stash_ref: None,
+                tool: None,
+            };
+        }
+        GitError::MergeWouldOverwrite { paths } => {
+            return AppError {
+                code: "merge_would_overwrite".to_string(),
+                message: "merge would overwrite local changes".to_string(),
+                diagnostics: None,
+                paths: boxed(paths),
+                stash_ref: None,
+                tool: None,
+            };
+        }
+        GitError::MergeFailed(diagnostics) => {
+            return AppError {
+                code: "merge_failed".to_string(),
+                message: "merge failed".to_string(),
+                diagnostics: boxed(diagnostics),
+                paths: None,
+                stash_ref: None,
+                tool: None,
+            };
+        }
+        GitError::MergeStashRetained(source) => {
+            let mut error = git_error_to_app_error(*source);
+            error.stash_ref = boxed("stash@{0}".to_string());
+            return error;
+        }
+        GitError::DiffToolNotConfigured { tool } => {
+            return AppError {
+                code: "diff_tool_not_configured".to_string(),
+                message: format!("Git could not resolve the difftool {tool}"),
+                diagnostics: None,
+                paths: None,
+                stash_ref: None,
+                tool: boxed(tool),
             };
         }
         other => other,
@@ -174,6 +232,17 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashEmpty => "stash_empty",
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::MergeSourceNotFound => "merge_source_not_found",
+        GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",
+        GitError::MergeSourceUnsupported => "merge_source_unsupported",
+        GitError::MergeNotFastForward => "merge_not_fast_forward",
+        GitError::MergeWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::MergeIndexHasStagedChanges => "merge_index_has_staged_changes",
+        GitError::MergeDetachedHead => "merge_detached_head",
+        GitError::MergeUnbornHead => "merge_unborn_head",
+        GitError::OperationAlreadyInProgress => "operation_already_in_progress",
+        GitError::MergeFailed(_) => unreachable!("handled above"),
+        GitError::MergeStashRetained(_) => unreachable!("handled above"),
         GitError::MergeToolFailed(_) => "merge_tool_failed",
         GitError::Cancelled => "operation_cancelled",
         GitError::OperationNotInProgress => "operation_not_in_progress",
@@ -183,6 +252,18 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::PreflightStale => "preflight_stale",
         GitError::PatchApplyFailed(_) => "patch_apply_failed",
         GitError::PatchUnsupported(_) => "patch_unsupported",
+        GitError::IgnoreRuleUnsupportedForTrackedFile(_) => {
+            "ignore_rule_unsupported_for_tracked_file"
+        }
+        GitError::IgnoreFileEncodingUnsupported => "ignore_file_encoding_unsupported",
+        GitError::IgnoreWriteFailed(_) => "ignore_write_failed",
+        GitError::DeleteTargetNotAFile => "delete_target_not_a_file",
+        GitError::DeleteFilePartiallyStaged { .. } => "delete_file_partially_staged",
+        GitError::DeleteFileConflicted { .. } => "delete_file_conflicted",
+        GitError::DiffToolNotConfigured { .. } => unreachable!("handled above"),
+        GitError::DiffToolNameInvalid => "diff_tool_name_invalid",
+        GitError::StashFileUnsupportedGit => "stash_file_unsupported_git",
+        GitError::StashFileConflicted { .. } => "stash_file_conflicted",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())
@@ -192,14 +273,17 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
     AppError {
         code: err.code().to_string(),
         message: err.to_string(),
-        diagnostics: err.diagnostics().map(ToString::to_string),
+        diagnostics: err.diagnostics().map(ToString::to_string).map(Box::new),
         paths: None,
+        stash_ref: None,
+        tool: None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
 
     #[test]
@@ -217,7 +301,10 @@ mod tests {
             stderr_tail: "fatal: Authentication failed for https://[REDACTED]@example.test".into(),
         });
         assert_eq!(error.code, "git_auth_failed");
-        assert!(error.diagnostics.unwrap().contains("[REDACTED]"));
+        assert!(error
+            .diagnostics
+            .as_deref()
+            .is_some_and(|diagnostics| diagnostics.contains("[REDACTED]")));
     }
 
     #[test]
@@ -301,6 +388,33 @@ mod tests {
     }
 
     #[test]
+    fn ignore_failures_have_distinct_stable_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreRuleUnsupportedForTrackedFile(
+                "tracked.txt".into(),
+            ))
+            .code,
+            "ignore_rule_unsupported_for_tracked_file",
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreFileEncodingUnsupported).code,
+            "ignore_file_encoding_unsupported",
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::IgnoreWriteFailed("locked".into())).code,
+            "ignore_write_failed",
+        );
+    }
+
+    #[test]
+    fn invalid_diff_tool_name_has_the_settings_error_code() {
+        assert_eq!(
+            git_error_to_app_error(GitError::DiffToolNameInvalid).code,
+            "diff_tool_name_invalid"
+        );
+    }
+
+    #[test]
     fn checkout_overwrite_error_exposes_paths() {
         let error = git_error_to_app_error(GitError::CheckoutWouldOverwrite {
             paths: vec!["src/main.rs".into(), "README.md".into()],
@@ -308,8 +422,8 @@ mod tests {
 
         assert_eq!(error.code, "checkout_would_overwrite");
         assert_eq!(
-            error.paths,
-            Some(vec!["src/main.rs".into(), "README.md".into()])
+            error.paths.as_deref(),
+            Some(&vec!["src/main.rs".into(), "README.md".into()])
         );
     }
 
@@ -330,9 +444,83 @@ mod tests {
             git_error_to_app_error(GitError::OperationStepFailed("failed".into())).code,
             "operation_step_failed"
         );
+        let error = git_error_to_app_error(GitError::OperationStepFailed("sanitized".into()));
         assert_eq!(
-            git_error_to_app_error(GitError::OperationStepFailed("sanitized".into())).diagnostics,
-            Some("sanitized".into())
+            error
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| diagnostics.as_str()),
+            Some("sanitized")
         );
+    }
+
+    #[test]
+    fn repository_file_failures_have_stable_codes() {
+        assert_eq!(
+            AppError::from(RepoError::PathOutsideRepository("../secret".into())).code,
+            "path_outside_repository"
+        );
+        assert_eq!(
+            AppError::from(RepoError::PathNotFound("missing.txt".into())).code,
+            "path_not_found"
+        );
+    }
+
+    #[test]
+    fn merge_errors_report_a_retained_stash_without_changing_the_stable_code() {
+        let error = git_error_to_app_error(GitError::MergeStashRetained(Box::new(
+            GitError::MergeNotFastForward,
+        )));
+
+        assert_eq!(error.code, "merge_not_fast_forward");
+        assert_eq!(
+            error.stash_ref.as_deref().map(|stash| stash.as_str()),
+            Some("stash@{0}")
+        );
+    }
+
+    #[test]
+    fn serialization_omits_absent_optional_payloads() {
+        let value =
+            serde_json::to_value(AppError::new("test_code", "fallback".to_string())).unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "code": "test_code",
+                "message": "fallback"
+            })
+        );
+    }
+
+    #[test]
+    fn serialization_keeps_optional_payloads_at_the_top_level() {
+        let value = serde_json::to_value(AppError {
+            code: "test_code".to_string(),
+            message: "fallback".to_string(),
+            diagnostics: boxed("sanitized diagnostics".to_string()),
+            paths: boxed(vec!["src/main.rs".to_string(), "README.md".to_string()]),
+            stash_ref: boxed("stash@{0}".to_string()),
+            tool: boxed("meld".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "code": "test_code",
+                "message": "fallback",
+                "diagnostics": "sanitized diagnostics",
+                "paths": ["src/main.rs", "README.md"],
+                "stash_ref": "stash@{0}",
+                "tool": "meld"
+            })
+        );
+    }
+
+    #[test]
+    fn app_error_stays_below_the_project_size_ceiling() {
+        let size = std::mem::size_of::<AppError>();
+        assert!(size <= 96, "AppError grew to {size} bytes");
     }
 }

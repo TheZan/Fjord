@@ -122,25 +122,32 @@ Release.]
 
 export function validateReleaseNotes(content, version) {
   const problems = [];
+  // Most of docs/ is checked in with CRLF line endings (not `eol=lf`-pinned
+  // in .gitattributes), so a heading-presence check keyed on a literal `\n`
+  // never matches on a normal Windows checkout — same class of bug as
+  // `CARGO_LOCK_MEMBER_RE` in release-lib.mjs. Normalize once up front
+  // rather than threading `\r?\n` through every substring/indexOf check
+  // below.
+  const normalized = content.replace(/\r\n/g, "\n");
   const required = [titleHeading(version), ...REQUIRED_HEADINGS];
 
-  const missing = required.filter((heading) => !content.includes(`${heading}\n`));
+  const missing = required.filter((heading) => !normalized.includes(`${heading}\n`));
   for (const heading of missing) problems.push(`missing required section: ${heading}`);
 
-  if (/\b(?:TODO|TBC|TBD)\b|<[^>]+(?:here|url|text|date)[^>]*>|\[[^\]]*(?:fill in|describe|restate|list|confirm)[^\]]*\]/i.test(content)) {
+  if (/\b(?:TODO|TBC|TBD)\b|<[^>]+(?:here|url|text|date)[^>]*>|\[[^\]]*(?:fill in|describe|restate|list|confirm)[^\]]*\]/i.test(normalized)) {
     problems.push("release notes contain an unfinished placeholder");
   }
 
   for (const heading of REQUIRED_HEADINGS) {
     if (missing.includes(heading)) continue;
-    const start = content.indexOf(`${heading}\n`) + heading.length + 1;
-    const next = content.indexOf("\n## ", start);
-    const body = content.slice(start, next === -1 ? content.length : next).trim();
+    const start = normalized.indexOf(`${heading}\n`) + heading.length + 1;
+    const next = normalized.indexOf("\n## ", start);
+    const body = normalized.slice(start, next === -1 ? normalized.length : next).trim();
     if (body.length < 40) problems.push(`${heading} is not populated`);
   }
 
   for (const phrase of REQUIRED_PHRASES) {
-    if (!content.includes(phrase)) problems.push(`release notes are missing required phrase: ${phrase}`);
+    if (!normalized.includes(phrase)) problems.push(`release notes are missing required phrase: ${phrase}`);
   }
 
   return { ok: problems.length === 0, problems };

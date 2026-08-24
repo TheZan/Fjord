@@ -7,8 +7,14 @@ import type { BranchInfo, TagInfo } from "@/domain/git";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
-    t: (key: string, values?: Record<string, number>) =>
-      key === "tree.filterCount" ? `${values?.matched}/${values?.total}` : key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      key === "tree.filterCount"
+        ? `${values?.matched}/${values?.total}`
+        : key === "context.mergeInto"
+          ? `Merge ${values?.source} into ${values?.target}…`
+          : key === "context.squashMergeInto"
+            ? `Squash merge ${values?.source} into ${values?.target}…`
+            : key,
   }),
 }));
 
@@ -139,6 +145,59 @@ describe("RepoTree", () => {
       branches[1],
       ["origin/release"],
     );
+  });
+
+  it("names both merge refs, dispatches the exact branch, and restores keyboard focus", async () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+    const feature = screen.getByRole("button", { name: "feature/ui" });
+    feature.focus();
+    fireEvent.keyDown(feature, { key: "F10", shiftKey: true });
+    const merge = screen.getByRole("menuitem", { name: "Merge feature/ui into main…" });
+    expect(merge).toBeEnabled();
+    fireEvent.click(merge);
+    expect(onBranchContextAction).toHaveBeenCalledWith("merge", branches[1], ["origin/release"]);
+
+    feature.focus();
+    fireEvent.keyDown(feature, { key: "ContextMenu" });
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    expect(feature).toHaveFocus();
+  });
+
+  it("keeps the current-branch merge entry visible with a stated disabled reason", () => {
+    render(<RepoTree repoId="repo-1" />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
+    const current = screen.getByRole("menuitem", { name: "Merge main into main…" });
+    expect(current).toBeDisabled();
+    expect(current).toHaveAttribute("title", "merge.blocked.sourceIsCurrentBranch");
+  });
+
+  it("offers an enabled merge entry for a remote-tracking branch and dispatches its remote-tracking source", () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+    fireEvent.click(screen.getByRole("button", { name: /tree.remote/ }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "release" }));
+    const remote = screen.getByRole("menuitem", { name: "Merge origin/release into main…" });
+    expect(remote).toBeEnabled();
+    fireEvent.click(remote);
+    expect(onBranchContextAction).toHaveBeenCalledWith("merge", branches[2], ["origin/release"]);
+  });
+
+  it("offers a squash-merge entry alongside merge, disabled/enabled by the same rules", () => {
+    const onBranchContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
+    const current = screen.getByRole("menuitem", { name: "Squash merge main into main…" });
+    expect(current).toBeDisabled();
+    expect(current).toHaveAttribute("title", "merge.blocked.sourceIsCurrentBranch");
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "feature/ui" }));
+    const squashMerge = screen.getByRole("menuitem", { name: "Squash merge feature/ui into main…" });
+    expect(squashMerge).toBeEnabled();
+    fireEvent.click(squashMerge);
+    expect(onBranchContextAction).toHaveBeenCalledWith("squashMerge", branches[1], ["origin/release"]);
   });
 
   it("blocks checkout gestures and explains the disabled context action", () => {

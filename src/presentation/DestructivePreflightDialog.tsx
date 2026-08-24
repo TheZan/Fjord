@@ -135,7 +135,12 @@ export function DestructivePreflightDialog({
                 <p className="font-medium">{t("preflight.blocked")}</p>
                 <ul className="mt-1 list-disc pl-5">
                   {preflight.blockers.map((blocker) => (
-                    <li key={blocker}>{t(`preflight.blockers.${blocker}`)}</li>
+                    <li key={blocker}>
+                      {t(
+                        `preflight.blockers.${blocker}`,
+                        action.kind === "deleteFile" ? { path: action.path } : undefined,
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -200,6 +205,13 @@ function ConsequenceItem({ consequence }: { consequence: Consequence }) {
       return <li>{t("preflight.consequences.stashEntryConsumed", consequence)}</li>;
     case "remoteRefUpdated":
       return <li>{t("preflight.consequences.remoteRefUpdated", consequence)}</li>;
+    case "fileRemoved":
+      return <li>{t(
+        consequence.tracked
+          ? "preflight.consequences.fileRemovedTracked"
+          : "preflight.consequences.fileRemovedUntracked",
+        consequence,
+      )}</li>;
   }
 }
 

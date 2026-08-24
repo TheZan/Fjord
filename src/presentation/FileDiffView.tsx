@@ -75,6 +75,7 @@ export function FileDiffView({
   onApplyFile,
   onApplyHunk,
   onDiscardPatch,
+  onWhitespaceModeChange,
 }: {
   repoId: string;
   path: string;
@@ -89,9 +90,18 @@ export function FileDiffView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
+  /** Reports the active whitespace mode for the open working-file diff, so a
+   * context menu elsewhere can disable patch export while it hides real
+   * content — never called for a commit diff. */
+  onWhitespaceModeChange?: (target: { path: string; source: DiffSource } | null, mode: DiffWhitespaceMode) => void;
 }) {
   const { t } = useTranslation("workspace");
   const [whitespace, setWhitespace] = useState<DiffWhitespaceMode>("show");
+
+  useEffect(() => {
+    onWhitespaceModeChange?.(source.kind === "working" ? { path, source } : null, whitespace);
+    return () => onWhitespaceModeChange?.(null, "show");
+  }, [path, source, whitespace, onWhitespaceModeChange]);
   const [wordDiff, setWordDiff] = useState(true);
   const [loadAnyway, setLoadAnyway] = useState(false);
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations, snapshotInvalid } = useFileDiff(

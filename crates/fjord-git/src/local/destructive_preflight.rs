@@ -21,7 +21,9 @@ pub(super) async fn facts(
     let sample_limit = sample_limit.min(5) as usize;
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::with_runtime_git2(&repo, |git| assemble_facts(git, &action, sample_limit))
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            assemble_facts(git, &repo, &action, sample_limit)
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -29,6 +31,7 @@ pub(super) async fn facts(
 
 fn assemble_facts(
     git: &git2::Repository,
+    repo: &RepoPath,
     action: &DestructiveAction,
     sample_limit: usize,
 ) -> Result<DestructiveActionFacts, GitError> {
@@ -49,6 +52,7 @@ fn assemble_facts(
             checkout_discard_facts(git, branch, sample_limit)
         }
         DestructiveAction::AbortOperation => abort_facts(git, sample_limit),
+        DestructiveAction::DeleteFile { path } => super::delete_file::facts(git, repo, path),
         DestructiveAction::Discard { .. } | DestructiveAction::ForceWithLease => {
             Ok(blocked(BLOCKER_ACTION_UNSUPPORTED))
         }

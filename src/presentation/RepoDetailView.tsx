@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
+import { mergeSourceForBranch } from "@/application/mergeBranchAction";
+import type { WorkingFileAction } from "@/application/useWorkingFileActions";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -13,16 +15,20 @@ import type { BranchContextAction, TagContextAction } from "@/presentation/RepoT
 import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
+import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
   AmendInfo,
   DestructiveAction,
+  DiffWhitespaceMode,
   GenerationSet,
+  MergeSource,
   PatchSelection,
   RepoStatus,
   WorkingChanges,
+  WorkingFileTarget,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -76,6 +82,8 @@ export function RepoDetailView({
   onCreateBranch,
   onCreateBranchAt,
   onRenameBranch,
+  onMergeBranch,
+  onSquashMergeBranch,
   onPreflightAction,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
@@ -93,7 +101,14 @@ export function RepoDetailView({
   onPrepareAmend,
   onApplyHunk,
   onDiscardPatch,
+  onWorkingFileAction,
   onCommit,
+  pendingDraftMessage,
+  onPendingDraftMessageConsumed,
+  openWorkingDiffWhitespace,
+  onWorkingDiffWhitespaceModeChange,
+  diffToolDisabledReason,
+  stashFileDisabledReason,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -136,6 +151,8 @@ export function RepoDetailView({
   onCreateBranch: (name: string) => void;
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
+  onMergeBranch: (source: MergeSource) => void;
+  onSquashMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
@@ -158,12 +175,25 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
+  onWorkingFileAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
+  pendingDraftMessage: string | null;
+  onPendingDraftMessageConsumed: () => void;
+  openWorkingDiffWhitespace: { path: string; staged: boolean; mode: DiffWhitespaceMode } | null;
+  onWorkingDiffWhitespaceModeChange: (
+    target: { path: string; source: DiffSource } | null,
+    mode: DiffWhitespaceMode,
+  ) => void;
+  /** Set when no external diff tool currently resolves. */
+  diffToolDisabledReason?: string;
+  /** Set when the resolved Git cannot run a pathspec-scoped `stash push`. */
+  stashFileDisabledReason?: string;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
+  const [workingFileMenu, setWorkingFileMenu] = useState<WorkingFileMenuState | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error"; retainedStash: boolean } | null>(null);
@@ -174,6 +204,14 @@ export function RepoDetailView({
   useEffect(() => {
     setSelectedCommitFile(null);
   }, [selectedCommit?.id]);
+
+  useEffect(() => {
+    if (!workingFileMenu) return;
+    const section = workingFileMenu.target.source === "index" ? changes.staged : changes.unstaged;
+    if (!section.some((file) => file.path === workingFileMenu.target.path)) {
+      setWorkingFileMenu(null);
+    }
+  }, [changes, workingFileMenu]);
 
   useEffect(() => {
     if (!branchScrollRequest) return;
@@ -200,7 +238,7 @@ export function RepoDetailView({
         id: Date.now(),
         message: actionError ?? actionSuccess ?? t("notifications.operationCompleted"),
         tone: actionError ? "error" : "success",
-        retainedStash: Boolean(actionSuccess),
+        retainedStash: actionSuccess?.includes("stash@{") ?? false,
       });
     }
     previousPendingAction.current = actionPending;
@@ -233,8 +271,13 @@ export function RepoDetailView({
       onSelectFile={setSelectedWorkingFile}
       onStage={onStage}
       onUnstage={onUnstage}
+      onFileContextMenu={(file, target, position) => {
+        setWorkingFileMenu({ file, target, position });
+      }}
       onPrepareAmend={onPrepareAmend}
       onCommit={onCommit}
+      pendingDraftMessage={pendingDraftMessage}
+      onPendingDraftMessageConsumed={onPendingDraftMessageConsumed}
     />
   ) : selectedCommit ? (
     <CommitInspector
@@ -356,6 +399,7 @@ export function RepoDetailView({
               onBack={() =>
                 workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
               }
+              onWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
             />
           )}
           {/* Kept mounted (just hidden) rather than unmounted while a diff is
@@ -372,6 +416,8 @@ export function RepoDetailView({
                 onSelectCommit={handleSelectCommit}
                 onRevealCommit={handleRevealCommit}
                 onCheckout={operationInProgress ? undefined : onCheckout}
+                onMergeBranch={onMergeBranch}
+                onSquashMergeBranch={onSquashMergeBranch}
                 onCommitContextAction={handleCommitContextAction}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
@@ -480,6 +526,30 @@ export function RepoDetailView({
           } : undefined}
         />
       ) : null}
+      {workingFileMenu ? (
+        <WorkingFileContextMenu
+          state={workingFileMenu}
+          busy={!actionsValidated || actionPending !== null}
+          patchExportDisabledReason={
+            openWorkingDiffWhitespace
+              && openWorkingDiffWhitespace.mode !== "show"
+              && openWorkingDiffWhitespace.path === workingFileMenu.target.path
+              && openWorkingDiffWhitespace.staged === (workingFileMenu.target.source === "index")
+              ? t("workingFile.disabled.whitespaceMode")
+              : undefined
+          }
+          deleteDisabledReason={
+            workingFileMenu.target.source === "worktree"
+              && changes.staged.some((file) => file.path === workingFileMenu.target.path)
+              ? t("workingFile.disabled.deleteAlsoStaged")
+              : undefined
+          }
+          diffToolDisabledReason={diffToolDisabledReason}
+          stashFileDisabledReason={stashFileDisabledReason}
+          onClose={() => setWorkingFileMenu(null)}
+          onAction={onWorkingFileAction}
+        />
+      ) : null}
     </ScreenSurface>
   );
 
@@ -490,6 +560,8 @@ export function RepoDetailView({
   ) {
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
+      case "merge": onMergeBranch(mergeSourceForBranch(branch)); break;
+      case "squashMerge": onSquashMergeBranch(mergeSourceForBranch(branch)); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
       case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
       case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;

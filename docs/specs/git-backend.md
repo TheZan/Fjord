@@ -1,6 +1,8 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04, P9R-06.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04,
+P9R-06; extended by P10-MERGE-01, P10-WC-01–P10-WC-06, and
+P10-STASH-01–P10-STASH-06.
 
 ## Purpose
 
@@ -89,6 +91,51 @@ at 200 entries per response.
 | `pull` network phase | system Git | Fetch through `GitRemoteBackend`, then local fast-forward/merge through `git2`; never delegated to configurable `git pull`. |
 | `push` / remote branch deletion | system Git | Same user Git environment; no libgit2 credential callbacks in the final path. |
 | `open_merge_tool` | system `git mergetool` | Explicit escape hatch for P1-08 conflict flow; launches the user's configured external merge tool and is not used in hot-path status/log/diff operations. |
+
+Phase 10 routing. These rows record the engine choice and its reasoning per task;
+`P10-MERGE-01` and `P10-WC-01`–`P10-WC-06` are now **implemented**, and the
+rationale is kept because it is the reason the code looks the way it does:
+
+| Method | Engine | Why | Task |
+|---|---|---|---|
+| `merge_preflight` | `gix` refs + `git2` status/index | Read-only: merge-base, bounded ahead/behind counts, index-vs-`HEAD` comparison, and the same bounded overwrite intersection `checkout_overwrite_paths` already computes. No subprocess, no network. | `P10-MERGE-01` |
+| `merge_branch` | system Git (`merge --no-edit [--ff-only]`) | Symmetry with `continue_operation` / `abort_operation`: the process that starts a merge must speak the same on-disk protocol as the one that finishes it, so a conflicted merge is the same state whether Fjord, the CLI, or another client began it. It also honors the user's `merge.*` configuration, hooks, and commit signing, which a libgit2 merge would bypass. `integrate_upstream` keeps its existing `git2` analysis for `pull` unchanged — the divergence is deliberate and recorded in [`branch-merge.md`](branch-merge.md) §7. | `P10-MERGE-01` |
+| `resolve_repository_file_path` | `fjord-fs` path normalization | Canonicalizes the repository root and the target's **parent**, asserts containment, and returns both forms. Not a Git operation; it is the single authority for absolute paths crossing IPC. | `P10-WC-01` |
+| `add_ignore_rule` / `preview_ignore_rule` | plain filesystem + `git2` tracked-state check | The tracked check must be authoritative (a `.gitignore` rule cannot untrack a file); the write is a bounded read-modify-append on one working-tree file. Decoding is UTF-8 only, BOM tolerated and preserved; invalid UTF-8 fails closed with `ignore_file_encoding_unsupported` and no charset-detection dependency is introduced. | `P10-WC-02` |
+| `export_patch` | `git2` diff + the `P8-01` patch constructor | Reuses the shipped deterministic constructor and digest verification rather than adding a second patch implementation; the resulting bytes are the same ones `git apply` accepts. | `P10-WC-03` |
+| `delete_file` (via `execute_confirmed_destructive_action`) | `git2` status/index + filesystem unlink | Status classifies the path's tracked, worktree-modified, and **staged** state for the preflight; a path with independent staged content is a blocker, not a consequence, and is re-checked under the repository write lock before execution. The removal itself unlinks one path (never a directory, never a symlink's target). | `P10-WC-04` |
+| `stash_file` | system Git (`stash push [-u] -m … -- <path>`) | Git's own pathspec-scoped stash preserves unrelated index and worktree state by construction; a hide-and-restore reimplementation has no atomic boundary. Requires Git ≥ 2.13, checked by parsing `git --version` through the resolved `GitCommandFactory` — not through `GitEnvironmentProvider`, which an earlier draft of this row claimed; the check needs nothing else the provider exposes. | `P10-WC-05` |
+| `open_external_diff` | system `git difftool --no-prompt` (plus `--cached` for a staged row, plus `--tool=<name>` when `Settings.diff_tool` holds one) | Git resolves the tool from `diff.tool` / `difftool.<name>.cmd`, so Fjord stores a tool **name** at most and never a command line — the same reason `open_merge_tool` stores no merge-tool command. The merge tool is *not* assumed to be the diff tool. | `P10-WC-06` |
+
+Stash routing (`P10-STASH-01`–`P10-STASH-06`,
+[`stash-management.md`](stash-management.md)):
+
+| Method | Engine | Why | Task |
+|---|---|---|---|
+| `stashes` | `git2` refs + reflog + commit/tree reads | The whole model is repository-derived: `refs/stash`'s reflog gives the stack and its order, the stash commit's first parent gives the base, and comparing its parents' trees gives the staged/untracked structure and the file count. No subprocess, no parsing of `git stash list` output, and nothing persisted — Git owns stash state. | `P10-STASH-01` |
+| `stash_files` / `stash_file_diff` | `gix`/`git2` tree diff + the existing bounded diff pipeline | Read-only tree-to-tree diffs between the exact parent pairs each group names, fed through the shipped `FileDiffWindow` construction so ceilings, whitespace modes, digests, and generation envelopes are the ones already proven. No second diff implementation. | `P10-STASH-04` |
+| `create_stash` | system Git | Replaces `git2::stash_save2` and folds in `stash_file`, so the whole feature runs on system Git — which honors the user's `stash.*` configuration and hooks, and is what `stash_and_checkout` and merge's `StashFirst` already use. `All` is `stash push [-u] -m …`. **`Paths` is a construction problem, not a flag**: the entry must contain only the selected paths on apply as well as on creation, which pathspec `stash push` alone does not give, so the exact mechanism is chosen and proven in `P10-STASH-02` and is owned normatively by [`stash-management.md`](stash-management.md) §2.2–§2.3, not restated here. Whatever it is, it must produce an ordinary `refs/stash` entry that plain `git stash list`/`show`/`apply`/`pop` handle. | `P10-STASH-02` |
+| `apply_stash` | system Git (`stash apply [--index] stash@{n}`) | Symmetry with creation, and `--index` restoration is Git's own semantics rather than something to reimplement over the index. The `stash@{n}` is constructed from a fresh identity re-resolution under the write lock, never accepted from the caller. A conflict is classified by a live index read, not by the exit code. | `P10-STASH-06` |
+| `stash pop` / `stash drop` (via `execute_confirmed_destructive_action`) | system Git | Already the executor's path; `P10-STASH-06` only retypes the action on the stash commit OID and re-resolves the position under the write lock after the token is consumed. The dead `git2`-backed `GitBackend::stash_pop` (index 0, test-only) is deleted so one pop implementation remains. | `P10-STASH-06` |
+| `create_branch_from_stash` | `git2` branch create + checkout, then system Git apply | Composes two shipped mutations rather than delegating to `git stash branch`, which drops the entry on success — a destructive side effect Fjord will not put inside a constructive action. | `P10-STASH-06` |
+
+Every stash mutation re-resolves the caller's `StashId` to a current
+`stash@{n}` **inside** the write-locked section and fails closed
+(`stash_not_found` / `stash_ambiguous`) rather than acting on a stale position.
+Stash reads take the repository read lock and write nothing.
+
+`merge_branch` is a mutation on the operation pipeline: it holds the repository
+write lock across blocker re-evaluation, ref resolution, the subprocess,
+generation invalidation, and the final operation-state redetection. It does not
+take Git's `index.lock` itself — the `git merge` subprocess acquires and releases
+Git's own locks, which is the same cross-process boundary the patch mutations
+rely on. Once Git has been launched, `working_tree`, `refs`, and `history`
+advance even on failure or cancellation, matching `P9-03`.
+
+Every planned method above takes arguments individually through the shared
+resolved executable. None constructs a shell string, and none accepts a
+caller-supplied ref, command, or absolute path as authority: refs are re-resolved
+against the repository and paths are re-derived from the canonicalized root.
 
 For patch mutations, Git-native locking is the cross-process transaction
 boundary. Fjord's per-repository write lock serializes operations within the

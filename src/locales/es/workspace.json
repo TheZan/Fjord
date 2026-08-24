@@ -32,7 +32,8 @@
     "activeRepositoryGroup": "Repositorio activo",
     "workspaceGroup": "Espacio de trabajo",
     "globalGroup": "Global",
-    "viewDetail": "Cambiar vista"
+    "viewDetail": "Cambiar vista",
+    "mergeBranch": "Fusionar rama…"
   },
   "repositorySwitcher": {
     "placeholder": "Cambiar de repositorio o espacio de trabajo",
@@ -106,7 +107,26 @@
     "updatingGraph": "Actualizando el gráfico de commits…",
     "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },
+  "merge": {
+    "title": "Fusionar {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Fusionando…", "dismiss": "Cerrar",
+    "mode": { "label": "Modo", "default": "Fusión predeterminada", "fastForwardOnly": "Solo fast-forward" }, "confirm": "Fusionar", "cancel": "Cancelar",
+    "prediction": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que fusionar.", "fastForward_one": "{{source}} está {{count}} commit por delante de {{target}}. Se hará fast-forward.", "fastForward_other": "{{source}} está {{count}} commits por delante de {{target}}. Se hará fast-forward.", "mergeCommit": "{{source}} está {{ahead}} commits por delante y {{behind}} por detrás de {{target}}. Se creará un commit de fusión." },
+    "dirty": { "title": "Hay cambios locales.", "stashAndMerge": "Guardar cambios en stash y fusionar", "stashRetained": "Tus cambios están en {{stash}}." },
+    "remote": { "knownCommit": "Commit conocido: {{sha}}", "explanation": "Esta es la rama de seguimiento remoto tal como Fjord la vio por última vez.", "fetchFirst": "Hacer fetch de {{remote}} antes de fusionar" },
+    "outcome": { "alreadyUpToDate": "{{target}} ya estaba actualizada.", "fastForwarded": "{{target}} avanzó por fast-forward hasta {{source}}.", "merged": "Se fusionó {{source}} en {{target}}.", "conflicted": "{{source}} entra en conflicto con {{target}}. Resuelve los conflictos y continúa o cancela la fusión." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} ya es la rama actual.", "sourceNotFound": "{{source}} ya no existe.", "remoteSourceNotSupported": "La fusión de una rama remota aún no está disponible. Haz checkout o fetch y fusiona la rama local.", "sourceKindUnsupported": "Solo se pueden fusionar ramas.", "operationInProgress": "Ya hay otra operación Git en curso.", "detachedHead": "HEAD está separado. Haz checkout de una rama antes de fusionar.", "unbornHead": "{{target}} aún no tiene commits.", "stagedChanges_one": "Hay que confirmar o guardar en stash {{count}} cambio preparado antes de fusionar.", "stagedChanges_other": "Hay que confirmar o guardar en stash {{count}} cambios preparados antes de fusionar.", "wouldOverwrite_one": "La fusión sobrescribiría {{count}} archivo con cambios locales.", "wouldOverwrite_other": "La fusión sobrescribiría {{count}} archivos con cambios locales." },
+    "error": { "notFastForward": "{{source}} no puede avanzar por fast-forward en {{target}}. Usa una fusión predeterminada o rebase primero.", "failed": "No se pudo completar la fusión. El repositorio no cambió más allá de lo indicado por Git." }
+  },
+  "squashMerge": {
+    "title": "Fusión squash de {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Realizando fusión squash…", "dismiss": "Cerrar", "confirm": "Fusión squash", "cancel": "Cancelar",
+    "explanation": "Esto dejará preparados en el índice los cambios combinados de {{source}} sin crear un commit. Revísalos y confírmalos desde Cambios en curso.",
+    "dirty": { "stashAndSquashMerge": "Guardar cambios en stash y hacer fusión squash" },
+    "outcome": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que aplastar.", "staged": "Se fusionó {{source}} en {{target}} con squash: cambios preparados para confirmar.", "conflicted_one": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivo en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual.", "conflicted_other": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivos en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual." },
+    "error": { "failed": "No se pudo completar la fusión squash. El repositorio no cambió más allá de lo indicado por Git." }
+  },
   "context": {
+    "mergeInto": "Fusionar {{source}} en {{target}}…",
+    "squashMergeInto": "Fusión squash de {{source}} en {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",
@@ -475,10 +495,15 @@
       "title": "¿Restaurar HEAD a este estado?",
       "confirm": "Restaurar HEAD"
     },
+    "deleteFile": {
+      "title": "¿Eliminar este archivo?",
+      "confirm": "Eliminar archivo"
+    },
     "recoverability": {
       "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
       "stash": "Tus cambios se guardarán en el stash.",
-      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración."
+      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración.",
+      "committed": "La versión confirmada permanece en HEAD y puede restaurarse desde allí."
     },
     "blockers": {
       "binary_changes_unsupported": "Los cambios binarios no se pueden descartar con esta granularidad.",
@@ -487,7 +512,10 @@
       "current_branch_cannot_be_deleted": "No se puede eliminar la rama actualmente activa.",
       "operation_not_in_progress": "No hay ninguna operación de Git que abortar.",
       "ref_not_found": "La referencia de destino ya no existe.",
-      "stash_not_found": "La entrada de stash seleccionada ya no existe."
+      "stash_not_found": "La entrada de stash seleccionada ya no existe.",
+      "delete_target_not_a_file": "Desde este menú solo se pueden eliminar archivos.",
+      "delete_file_partially_staged": "{{path}} también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
+      "delete_file_conflicted": "{{path}} tiene conflictos sin resolver. Resuélvelos primero."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
@@ -503,7 +531,9 @@
       "branchDeletedUnmerged": "Eliminar la rama {{name}}, que no está fusionada en {{unmergedInto}}.",
       "tagDeleted": "Eliminar la etiqueta {{name}}.",
       "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos."
+      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos.",
+      "fileRemovedTracked": "Quitar {{path}} del árbol de trabajo; aparecerá como una eliminación de Git.",
+      "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo."
     }
   },
   "repoActions": {
@@ -582,6 +612,54 @@
     "pushResults": "Resultados del envío",
     "pushSuccess": "Enviado",
     "pushFailure": "Error: {{error}}"
+  },
+  "workingFile": {
+    "stage": "Preparar",
+    "unstage": "Quitar de preparados",
+    "discard": "Descartar cambios de trabajo…",
+    "discardIncomplete": "Abre el diff del archivo para descartar cambios en un archivo tan grande.",
+    "openInConfiguredEditor": "Abrir en el editor configurado",
+    "openWithDefault": "Abrir con la aplicación predeterminada",
+    "showInFolder": "Mostrar en carpeta",
+    "openMergeTool": "Abrir herramienta de fusión",
+    "openExternalDiff": "Abrir en la herramienta de diff externa",
+    "copyPath": { "label": "Copiar ruta", "relative": "Ruta relativa", "absolute": "Ruta absoluta" },
+    "createPatch": "Crear parche a partir de los cambios…",
+    "createPatchStaged": "Crear parche a partir de los cambios preparados…",
+    "copyPatch": "Copiar parche al portapapeles",
+    "patchSaved": "Parche guardado en {{path}}.",
+    "delete": "Eliminar archivo…",
+    "stashFile": {
+      "label": "Guardar archivo en stash…",
+      "title": "Guardar en stash los cambios de {{path}}",
+      "message": "Mensaje",
+      "defaultMessage": "Fjord: stash de {{path}}",
+      "stagedNotPreserved": "El estado preparado no se conserva: al restaurar este stash, los cambios vuelven como no preparados.",
+      "unsupportedGit": "Guardar un solo archivo en el stash requiere Git 2.13 o posterior.",
+      "confirm": "Guardar archivo en stash"
+    },
+    "disabled": {
+      "whitespaceMode": "El diff mostrado no coincide con el parche que aplicaría Git.",
+      "deleteAlsoStaged": "Este archivo también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
+      "noDiffTool": "No hay ninguna herramienta de diff externa configurada. Configure diff.tool en Git o elija una en Configuración → Herramientas."
+    },
+    "ignore": {
+      "label": "Ignorar",
+      "file": "Ignorar este archivo",
+      "extension": "Ignorar todos los archivos .{{extension}}",
+      "directory": "Ignorar esta carpeta ({{directory}})",
+      "title": "Añadir regla a .gitignore",
+      "description": "Revise la regla exacta para {{path}} antes de escribirla.",
+      "loading": "Comprobando .gitignore…",
+      "rulePreview": "Regla que se añadirá",
+      "confirm": "Añadir regla",
+      "adding": "Añadiendo…",
+      "close": "Cerrar",
+      "added": "Regla añadida a .gitignore.",
+      "alreadyPresent": "Esta regla exacta ya existe en .gitignore.",
+      "trackedFile": "Los archivos rastreados no se pueden ignorar. Git debe dejar de rastrearlos primero.",
+      "encodingUnsupported": ".gitignore debe estar en UTF-8, con o sin BOM. El archivo no se modificó."
+    }
   },
   "working": {
     "title": "Cambios sin commit",

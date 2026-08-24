@@ -44,7 +44,7 @@ Design language: minimalist, premium, in the spirit of Linear / Raycast / Arc Br
 ## 3. Non-goals (for v1)
 
 - Hosting/forge features (issues, PRs as a first-class object model) — Fjord reads PR status where cheap to fetch, but is not a forge client.
-- Built-in merge/diff editor competing with dedicated tools — Fjord shells out to the user's configured merge tool for conflict resolution in v1.
+- Built-in merge/diff *editor* competing with dedicated tools — Fjord shells out to the user's configured merge tool for conflict resolution in v1. This is about editing conflict *content*: performing a merge, and modelling and finishing its state, are in scope ([`specs/branch-merge.md`](specs/branch-merge.md), [`specs/repository-safety.md`](specs/repository-safety.md)).
 - Mobile clients.
 
 ## 4. High-level architecture
@@ -112,7 +112,14 @@ This is the same hybrid GitButler (the closest prior art: also Rust + Tauri) has
 Target design: `GitBackend` expresses local operations, `GitRemoteBackend`
 expresses clone and remote operations, and `GitEnvironmentProvider` expresses discovery and
 read-only diagnostics. **gix serves hot reads**, **git2 serves local mutations and
-merge/fast-forward**, and **system Git serves fetch/push/remote inspection**.
+`pull`'s own fast-forward/merge integration**, and **system Git serves
+fetch/push/remote inspection plus every sequencer operation** (cherry-pick,
+revert, continue/skip/abort, and — planned — merge and rebase initiation).
+Sequencer work uses system Git so the process that *starts* an operation speaks
+the same on-disk protocol as the one that *finishes* it, including operations
+Fjord did not start ([`specs/branch-merge.md`](specs/branch-merge.md) §7).
+`integrate_upstream`'s existing `git2` path for `pull` is deliberately left
+unchanged; the divergence is recorded rather than accidental.
 `pull` remains system fetch followed by local integration, preserving Fjord's
 existing semantics regardless of user `pull.rebase` configuration. Details and
 security constraints are in
@@ -226,7 +233,7 @@ Earlier drafts listed `remote_url` and `ide_hint` columns on `repositories`; the
 
 ## 8. Cross-cutting concerns
 
-- ✅ **Errors**: `thiserror` typed errors per crate (`GitError`, `StoreError`, service-level enums), mapped at the `commands` boundary to a small serializable `AppError { code, message }` — the frontend switches on `code` (stable, localizable) and never parses Rust `Display` strings. Error *messages* shown to the user go through the i18n catalog.
+- ✅ **Errors**: `thiserror` typed errors per crate (`GitError`, `StoreError`, service-level enums), mapped at the `commands` boundary to a small serializable `AppError { code, message, diagnostics?, paths?, stash_ref? }` — the frontend switches on stable fields and never parses Rust `Display` strings. Error *messages* shown to the user go through the i18n catalog.
 - ✅ **Async runtime**: Tokio throughout the backend; blocking local git work is wrapped in `spawn_blocking`, while system-Git transport uses `tokio::process`. Long-running Git operations (`fetch`/`pull`/`push`) and workspace bulk operations emit `fjord-operation-progress` Tauri events, take caller-generated operation IDs, and can be cancelled through `cancel_operation`; cancellation terminates the process tree. See [`specs/operation-events.md`](specs/operation-events.md).
 - ✅ **Logging/tracing**: `tracing` + a daily-rotating file appender in the app data dir so bug reports can include real diagnostics (`P4-14`). See §10.
 - **Testing** (current state; gaps tracked in `P4-09`):
@@ -300,7 +307,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
 | Phase 8 — Daily-driver essentials | ✅ done (`P8-00`–`P8-15`, `P8-FIX-07`; [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
 | Phase 9 — Safety & recovery | ✅ done (`P9-01`–`P9-10`; [`specs/repository-safety.md`](specs/repository-safety.md)) |
-| Phase 10 — Advanced workflows & workspace | 🚧 designed ([`specs/workspace-workflows.md`](specs/workspace-workflows.md)) |
+| Phase 10 — Daily-driver integration, advanced workflows & workspace | 🚧 in progress: branch merge is complete (`P10-MERGE-01`–`P10-MERGE-03`: local, remote-tracking, and squash), and the Working Changes file context actions are complete (`P10-WC-01`–`P10-WC-06`). Stash Management (`P10-STASH-01`–`P10-STASH-06`) and Working Changes multi-selection (`P10-WC-MULTI-01`–`P10-WC-MULTI-03`, [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §7) are designed and interleave as the next work; later workspace work remains designed in [`specs/workspace-workflows.md`](specs/workspace-workflows.md). See [`tasks.md`](tasks.md) §"Phase 10 execution order". |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
 
 Between `P4-18` and `P5-01`, and again after `P5-19`, a substantial amount of UI
@@ -332,12 +339,14 @@ Known divergences between this document and the code are marked ⚠️/🚧 inli
 ## 14. Documentation map
 
 - [`SDD.md`](SDD.md) (this document) — architecture, decisions, current state, roadmap phases (§15).
-- [`tasks.md`](tasks.md) — task board with statuses. **Replaces `plan.md`** (removed in v0.3; task IDs referenced from code and commits are unchanged).
-- [`specs/`](specs/) — per-subsystem contracts:
+- [`tasks.md`](tasks.md) — task board with statuses. **Replaces `plan.md`** (removed in v0.3; task IDs referenced from code and commits are unchanged). Descriptive IDs (`P10-MERGE-*`, `P10-WC-*`) are used where a task is inserted into an existing phase, so no stable ID is ever renumbered to express priority; ordering is expressed as dependency notes instead.
+- [`specs/`](specs/) — per-subsystem contracts. One spec owns each contract; other documents cross-reference it rather than restating it:
   - Implemented: [`git-backend.md`](specs/git-backend.md), [`system-git-transport.md`](specs/system-git-transport.md), [`data-model.md`](specs/data-model.md), [`ipc-commands.md`](specs/ipc-commands.md), [`operation-events.md`](specs/operation-events.md), [`i18n.md`](specs/i18n.md), [`theming.md`](specs/theming.md).
   - Implemented: [`ui-shell.md`](specs/ui-shell.md) (Phase 7).
   - Implemented except for the explicit `P6-20` gate-promotion task: [`performance.md`](specs/performance.md) (Phase 6).
-  - Implemented: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) (`P8-00`–`P8-15`, `P8-FIX-07`) and [`repository-safety.md`](specs/repository-safety.md) (`P9-01`–`P9-10`: operation handling, confirmation-bound destructive execution, safe checkout recovery, bounded reflog reads, Recovery Center, and the cross-platform safety regression suite). [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10) and [`release-hardening.md`](specs/release-hardening.md) (Phase 11) remain designed.
+  - Implemented: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) §1–§5 (`P8-00`–`P8-15`, `P8-FIX-07`) and [`repository-safety.md`](specs/repository-safety.md) (`P9-01`–`P9-10`: operation handling, confirmation-bound destructive execution, safe checkout recovery, bounded reflog reads, Recovery Center, and the cross-platform safety regression suite).
+  - Implemented: [`branch-merge.md`](specs/branch-merge.md) (`P10-MERGE-01`–`P10-MERGE-03`: local, remote-tracking, and squash merge); its integration preflight is the owner rebase reuses. Implemented: [`working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6 (`P10-WC-01`–`P10-WC-06`) — the single owner of the Working Changes file context menu; its §7 (`P10-WC-MULTI-01`–`P10-WC-MULTI-03`, designed) is the single owner of the Working Changes **selection model and batch actions**, which four non-stash actions and one stash action all read from.
+  - Designed: [`stash-management.md`](specs/stash-management.md) (Phase 10, `P10-STASH-01`–`P10-STASH-06`) — the single owner of stash product, domain, and action semantics; `working-tree-and-diff.md` §6, `ui-shell.md`, `ipc-commands.md`, and `repository-safety.md` §3 reference it rather than restating it. Designed: [`workspace-workflows.md`](specs/workspace-workflows.md) (Phase 10) and [`release-hardening.md`](specs/release-hardening.md) (Phase 11).
 - [`benchmarks/`](benchmarks/) — recorded benchmark checkpoints (`p1-09.md`, `p2-07.md`, `p4-18-release.md`).
 - [`manual-git-compatibility.md`](manual-git-compatibility.md), [`release.md`](release.md) — release gates that cannot be automated.
 
@@ -354,7 +363,7 @@ position. Tasks live in [`tasks.md`](tasks.md).
 | 8 — Daily-driver essentials | Starts with `P8-00`, the safety foundation required by Phase 8 destructive actions; then ordinary Git work gains hunk/line staging, amend, safe force push, and a comparable diff. | [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md), [`specs/repository-safety.md`](specs/repository-safety.md) §3 | 6 (diff windowing), 7 (diff mode persistence, overflow menu) |
 | 9 — Safety & recovery | Extends the already-available preflight foundation with operation states, continue/skip/abort, safe checkout, remaining destructive actions, and reflog recovery. | [`specs/repository-safety.md`](specs/repository-safety.md) | 8 (uses Phase 8 patch/discard semantics; no Phase 8 task depends on Phase 9) |
 | 9.5 — Repository onboarding & v0.1 readiness | Make Fjord independently usable from first launch through opening, scanning, cloning, creating, connecting, and publishing repositories; then gate the first public `v0.1.0 Early Preview` and repository-readiness work. | [`tasks.md`](tasks.md) (`P9R-01`–`P9R-13`), reusing the existing transport, operation, UI-shell, safety, and release contracts | 9 (real-repository onboarding inherits the completed safety/recovery contract); deliberately precedes Phase 10's advanced workspace scope |
-| 10 — Advanced workflows & workspace | Turn the workspace into the competitive advantage: worktrees, rebase, remotes, workspace health, expected branch, filters. | [`specs/workspace-workflows.md`](specs/workspace-workflows.md) | 9 (rebase and worktree removal depend on operation state and preflights); 9.5 (extends its minimal add/connect-remote slice into full CRUD without blocking v0.1) |
+| 10 — Daily-driver integration, advanced workflows & workspace | Merge initiation and Working Changes file actions are complete; next close the remaining daily-driver gaps — **stash management as a first-class workflow** and **multi-file selection in Working Changes** — then turn the workspace into the competitive advantage: worktrees, rebase, remotes, workspace health, expected branch, filters. | [`specs/branch-merge.md`](specs/branch-merge.md), [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6, [`specs/stash-management.md`](specs/stash-management.md), [`specs/workspace-workflows.md`](specs/workspace-workflows.md) | 9 (merge, rebase, and worktree removal depend on operation state and preflights; the file menu depends on Phase 8 patch/discard semantics; stash pop/drop depend on the destructive preflight contract); 9.5 (extends its minimal add/connect-remote slice into full CRUD without blocking v0.1) |
 | 11 — Extreme performance & release hardening | Prove the performance architecture in the *shipped artifact*, and make release quality a gate rather than a checklist. | [`specs/release-hardening.md`](specs/release-hardening.md) | 6–10 |
 
 **Admission rule for any new roadmap item.** A feature is added only if it

@@ -1,9 +1,10 @@
 # Spec: application shell, navigation, and keyboard model
 
-Referenced by: P7-01–P7-16, P9R-01, SDD §6, §15.
+Referenced by: P7-01–P7-16, P9R-01, P10-STASH-03, P10-STASH-05,
+P10-WC-MULTI-01, SDD §6, §15.
 Related: [`performance.md`](performance.md), [`theming.md`](theming.md),
 [`i18n.md`](i18n.md), [`data-model.md`](data-model.md),
-[`ipc-commands.md`](ipc-commands.md).
+[`ipc-commands.md`](ipc-commands.md), [`stash-management.md`](stash-management.md).
 
 ## Problem
 
@@ -79,7 +80,7 @@ color-vision-deficient users and in high-contrast environments.
 |---|---|
 | Sidebar | ✅ Resizable navigation/workspace tree with no working-shell branding or Settings entry; width, expansion, and selection persist through the versioned UI-state store. |
 | Global utilities | ✅ Reusable `ShellUtilities` owns exactly Search and Settings and is composed into the active screen header. The shortcut/palette and Settings dialog owners are unchanged. There is no dedicated utility row. |
-| Settings dialog | ✅ Compact modal with a narrow sidebar and five product sections in order: General, Git, Tools, Appearance, About. General owns language; Git groups executable, authentication/environment, repository trust, and connection diagnostics; Tools owns performance traces plus built-in/custom editor selection; Appearance owns the three theme choices; About contains only app/version and log-folder diagnostics. There is no Sync section or background auto-fetch control. |
+| Settings dialog | ✅ Compact modal with a narrow sidebar and five product sections in order: General, Git, Tools, Appearance, About. General owns language; Git groups executable, authentication/environment, repository trust, and connection diagnostics; Tools owns performance traces plus built-in/custom editor selection; Appearance owns the three theme choices; About contains only app/version and log-folder diagnostics. There is no Sync section or background auto-fetch control. 🚧 `P10-WC-06` adds one control to the existing Tools section — the optional external diff-tool **name** — without adding a section ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4). |
 | RepoToolbar | ✅ Identity/state left; Fetch/Pull/Push/Branch center; IDE and overflow next; one separated `ShellUtilities` slot last. Stash/Pop/Terminal/Merge tool/compact Inspector live in overflow. No duplicate Search. |
 | Overview header | ✅ Four workspace actions (Fetch all, Pull all, Add repository, overflow), followed by the separated two-control utility slot; one compact filterable summary line replaces metric cards. |
 | All repositories header | ✅ Title/count, text filter, then the same two-control utility slot. |
@@ -122,6 +123,48 @@ grows with workspaces; anchoring utilities to it makes their position depend on
 content length. The trailing header slot stays visible on every main screen and
 preserves content-over-chrome.
 
+#### 1.1 Repository navigation sections
+
+Inside the Repository screen, the left column is the repository tree
+(`RepoTree.tsx`): collapsible sections with one shared filter box, each body
+virtualized and capped in height. Its section order is fixed, and this spec owns
+that order:
+
+```text
+Branches → Local, Remote
+Tags
+Stashes          (P10-STASH-03)
+Worktrees        (P10-03, workspace-workflows.md §1)
+Remotes          (P10-07, workspace-workflows.md §3)
+```
+
+**Stashes sit after Tags and before Worktrees, in their own section — never
+merged into the ref sections.** A branch or tag is a ref the user can check out,
+push, or merge; a stash is none of those, and listing it among refs would invite
+gestures that cannot work. The section is collapsed by default like Remote and
+Tags, shows an exact count, renders an empty state rather than hiding itself at
+zero, and inherits the shared filter, roving tabindex, arrow navigation, fixed
+row height, and `Shift+F10` / Context-Menu-key parity every other section already
+has. Row content, ordering, and actions are
+[`stash-management.md`](stash-management.md) §3 and §6 — this spec owns only
+where the section lives and that it behaves like its siblings.
+
+Within the Working Changes panel, a selection of two or more file rows adds a
+compact strip to that section's existing header — `4 selected` plus two or three
+high-frequency actions, an overflow, and Clear. It reuses the header idiom
+already in place rather than introducing a floating overlay or a new visual
+language, and it exists so that batch actions are not discoverable only by
+right-click. Its contents and the actions' availability are
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §7.14 and §7.9.
+
+In the commit graph, a stash appears as a **marker in the base commit's ref-badge
+row**, alongside branch and tag badges but visually distinct from them by glyph
+and treatment plus a text label — never colour alone (§7). It is not a lane, adds
+no edges, and changes no row height or column assignment, so graph virtualization
+is unaffected. Git's internal stash commits are never rendered as history. The
+selection, overflow-flyout, and not-yet-loaded-base behavior are
+[`stash-management.md`](stash-management.md) §5.
+
 ### 2. RepoToolbar hierarchy
 
 ```text
@@ -139,6 +182,17 @@ preserves content-over-chrome.
 
 The overflow menu holds: Stash, Stash pop, Open terminal, Open merge tool,
 Inspector toggle (compact layouts), and later additions from Phases 8–10.
+`P10-STASH-02` replaces the unnamed **Stash** entry with **Stash changes…**,
+which opens the shared naming dialog; `P10-STASH-06` retires the whole-stack
+**Stash pop** entry, because popping now names an exact entry and is reached
+from the Stashes section, the graph marker, or the Stash Inspector rather than
+from a toolbar button that can only ever mean `stash@{0}`. The stash **count
+badge** stays, for the reason the badge rule below already gives: it answers a
+question at a glance instead of requiring a click.
+Branch integration actions (Merge, Rebase) are **not** toolbar or overflow
+entries: they are per-ref actions and belong to the branch context menus and the
+actions palette ([`branch-merge.md`](branch-merge.md) §8), because a toolbar
+button cannot name which branch it would merge.
 Conflict-state actions are the exception: when the repository is in a conflicted
 or in-progress operation state, the relevant action is promoted out of overflow
 into a state banner (see [`repository-safety.md`](repository-safety.md)) — a
@@ -260,7 +314,7 @@ Two distinct surfaces:
 
 | Surface | Question it answers | Default binding | Contents |
 |---|---|---|---|
-| Command palette | "do something" | `Ctrl/Cmd+K` | Actions only: repository actions, bulk actions, settings, view switches. Grouped by scope with the active repository's actions first. |
+| Command palette | "do something" | `Ctrl/Cmd+K` | Actions only: repository actions, bulk actions, settings, view switches. Grouped by scope with the active repository's actions first. 🚧 **Merge branch…** joins this list (`P10-MERGE-01`); it ranks the active repository's local branches and dispatches the same application action as the two context menus, adding no branch logic of its own. |
 | Repository switcher | "go somewhere" | `Ctrl/Cmd+P` | Repositories and workspaces only, ranked by recency then fuzzy score. |
 
 Additional bindings:
@@ -275,6 +329,44 @@ Additional bindings:
 | `Ctrl/Cmd+1..9` | Switch to the *n*-th workspace |
 | `?` | Shortcut help |
 | `Esc` | Close the topmost overlay |
+| `Shift+F10` / **Context Menu** key | Open the context menu for the focused row |
+| `Ctrl/Cmd+A` | 🚧 Select all file rows in the focused Working Changes section (`P10-WC-MULTI-01`) |
+| `Shift`+Arrow | 🚧 Extend the Working Changes selection from its anchor |
+| `Ctrl/Cmd+Space` | 🚧 Toggle the focused Working Changes row without moving focus |
+
+`Ctrl/Cmd+A`, `Shift`+Arrow, and `Ctrl/Cmd+Space` are **list-scoped**, not global:
+they apply only while a Working Changes list holds focus, and `Ctrl/Cmd+A` there
+must not fall through to the document's select-all. Their exact semantics — which
+rows are eligible, what "visible" means in Tree view, and how focus stays
+separate from selection — are
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §7.4 and §7.6; this table
+records only that the shell reserves the bindings and that they are registered
+through the same shortcut registry as everything else in it.
+
+**Context menus are part of the keyboard model, not a mouse affordance.** Every
+surface that offers a right-click menu must open the same menu, with the same
+payload, from `Shift+F10` and from the platform Context Menu key on the focused
+row. This applies to the shipped branch and tag menus and to the menus added by
+[`working-tree-and-diff.md`](working-tree-and-diff.md) §6 (Working Changes file
+rows) and [`branch-merge.md`](branch-merge.md) §8 (commit-graph branch labels).
+Where a list supports multi-selection, the keyboard path obeys the same
+preserve-or-replace rule as the mouse: opening the menu on a focused row that is
+already in the selection keeps the selection, and on one outside it replaces the
+selection first (§7.7 of the working-tree spec).
+Contract:
+
+- Opening the menu first focuses/selects the target row, so the visible selection
+  and the menu's target can never disagree.
+- The menu owns the **logical identity** of its target (repository, ref, or
+  `{ path, source }` file identity) — never a DOM node and never a virtual-row
+  index. Every list carrying a context menu is virtualized; a menu anchored to a
+  recycled node would silently retarget, and a menu whose target disappears
+  closes instead of acting.
+- Arrow/Home/End navigation, item shortcuts, Escape, and focus restoration to the
+  invoking row follow the existing shared `ContextMenu` behavior. New menus reuse
+  that primitive rather than adding a second popover implementation; submenus are
+  an addition to it, not a replacement for it.
+- Unavailable entries are disabled with a stated reason, per §2's rule.
 
 Implementation contract:
 
@@ -300,6 +392,9 @@ Implementation contract:
   and restores it on close.
 - All icon-only controls keep `aria-label` and a tooltip; the overflow menu is a
   real menu with arrow-key navigation.
+- No action is reachable only by right-click. Every context menu opens from the
+  keyboard per §6, traps its own navigation, closes on Escape, and returns focus
+  to the row it was opened from.
 
 ## Alternatives considered
 
@@ -379,7 +474,9 @@ owner.
 4. The repository toolbar center zone contains at most five actions, all of which
    are Fetch, Pull, Push, Branch, or a documented successor; Stash, Stash pop,
    Terminal, and Merge tool are reachable only from the overflow menu, except when
-   an operation-state banner promotes one.
+   an operation-state banner promotes one. (`P10-STASH-06` removes Stash pop from
+   the overflow entirely, per §2; the criterion is that it is never a center-zone
+   action, which stays true.)
 5. The Overview header contains at most four workspace controls, one of which is
    an overflow menu, plus the two globally-owned utility controls after a visual
    separator.
@@ -400,3 +497,6 @@ owner.
     grayscale rendering of the Overview and repository screens.
 12. `npm run check-i18n` passes for all five shipped locales with no missing or
     orphaned keys.
+13. Every context menu in the app opens from `Shift+F10` and the Context Menu key
+    on the focused row with the same payload as right-click, keeps its target's
+    logical identity across virtualized scrolling, and restores focus on Escape.

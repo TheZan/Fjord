@@ -32,7 +32,8 @@
     "activeRepositoryGroup": "Dépôt actif",
     "workspaceGroup": "Espace de travail",
     "globalGroup": "Global",
-    "viewDetail": "Changer de vue"
+    "viewDetail": "Changer de vue",
+    "mergeBranch": "Fusionner une branche…"
   },
   "repositorySwitcher": {
     "placeholder": "Changer de dépôt ou d’espace de travail",
@@ -106,7 +107,26 @@
     "updatingGraph": "Mise à jour du graphe des commits…",
     "rowLabel": "{{message}}, par {{author}}, commit {{sha}}"
   },
+  "merge": {
+    "title": "Fusionner {{source}} dans {{target}}", "loading": "Vérification du dépôt…", "running": "Fusion en cours…", "dismiss": "Fermer",
+    "mode": { "label": "Mode", "default": "Fusion par défaut", "fastForwardOnly": "Fast-forward uniquement" }, "confirm": "Fusionner", "cancel": "Annuler",
+    "prediction": { "alreadyUpToDate": "{{target}} contient déjà {{source}}. Rien à fusionner.", "fastForward_one": "{{source}} a {{count}} commit d’avance sur {{target}}. Un fast-forward sera effectué.", "fastForward_other": "{{source}} a {{count}} commits d’avance sur {{target}}. Un fast-forward sera effectué.", "mergeCommit": "{{source}} a {{ahead}} commits d’avance et {{behind}} de retard sur {{target}}. Un commit de fusion sera créé." },
+    "dirty": { "title": "Vous avez des modifications locales.", "stashAndMerge": "Remiser les modifications et fusionner", "stashRetained": "Votre travail se trouve dans {{stash}}." },
+    "remote": { "knownCommit": "Commit connu : {{sha}}", "explanation": "Il s’agit de la branche de suivi distante telle que Fjord l’a vue pour la dernière fois.", "fetchFirst": "Récupérer {{remote}} avant la fusion" },
+    "outcome": { "alreadyUpToDate": "{{target}} était déjà à jour.", "fastForwarded": "{{target}} a avancé en fast-forward jusqu’à {{source}}.", "merged": "{{source}} a été fusionnée dans {{target}}.", "conflicted": "{{source}} est en conflit avec {{target}}. Résolvez les conflits, puis poursuivez ou annulez la fusion." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} est déjà la branche actuelle.", "sourceNotFound": "{{source}} n’existe plus.", "remoteSourceNotSupported": "La fusion d’une branche distante n’est pas encore disponible. Extrayez-la, ou effectuez un fetch puis fusionnez la branche locale.", "sourceKindUnsupported": "Seules les branches peuvent être fusionnées.", "operationInProgress": "Une autre opération Git est déjà en cours.", "detachedHead": "HEAD est détachée. Extrayez une branche avant la fusion.", "unbornHead": "{{target}} ne contient encore aucun commit.", "stagedChanges_one": "{{count}} modification indexée doit être validée ou remisée avant la fusion.", "stagedChanges_other": "{{count}} modifications indexées doivent être validées ou remisées avant la fusion.", "wouldOverwrite_one": "{{count}} fichier avec des modifications locales serait écrasé.", "wouldOverwrite_other": "{{count}} fichiers avec des modifications locales seraient écrasés." },
+    "error": { "notFastForward": "{{source}} ne peut pas avancer en fast-forward dans {{target}}. Utilisez une fusion par défaut ou rebasez d’abord.", "failed": "La fusion n’a pas pu aboutir. Le dépôt n’a pas été modifié au-delà de ce que Git a signalé." }
+  },
+  "squashMerge": {
+    "title": "Fusion squash de {{source}} dans {{target}}", "loading": "Vérification du dépôt…", "running": "Fusion squash en cours…", "dismiss": "Fermer", "confirm": "Fusion squash", "cancel": "Annuler",
+    "explanation": "Les modifications combinées de {{source}} seront indexées sans créer de commit. Vérifiez-les et validez-les depuis Modifications en cours.",
+    "dirty": { "stashAndSquashMerge": "Remiser les modifications et fusionner en squash" },
+    "outcome": { "alreadyUpToDate": "{{target}} contient déjà {{source}}. Rien à squasher.", "staged": "{{source}} a été fusionnée en squash dans {{target}} : modifications indexées pour validation.", "conflicted_one": "{{source}} est en conflit avec {{target}} : {{count}} fichier doit être résolu dans Modifications en cours, puis validé. Pour annuler le squash, utilisez Reset (Hard) vers le commit actuel.", "conflicted_other": "{{source}} est en conflit avec {{target}} : {{count}} fichiers doivent être résolus dans Modifications en cours, puis validés. Pour annuler le squash, utilisez Reset (Hard) vers le commit actuel." },
+    "error": { "failed": "La fusion squash n’a pas pu aboutir. Le dépôt n’a pas été modifié au-delà de ce que Git a signalé." }
+  },
   "context": {
+    "mergeInto": "Fusionner {{source}} dans {{target}}…",
+    "squashMergeInto": "Fusion squash de {{source}} dans {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",
@@ -475,10 +495,15 @@
       "title": "Restaurer HEAD à cet état ?",
       "confirm": "Restaurer HEAD"
     },
+    "deleteFile": {
+      "title": "Supprimer ce fichier ?",
+      "confirm": "Supprimer le fichier"
+    },
     "recoverability": {
       "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
       "stash": "Vos modifications seront enregistrées dans le stash.",
-      "notRecoverable": "Git ne conserve aucune copie de récupération garantie de ces changements. Fjord ne peut pas promettre leur restauration."
+      "notRecoverable": "Git ne conserve aucune copie de récupération garantie de ces changements. Fjord ne peut pas promettre leur restauration.",
+      "committed": "La version validée reste dans HEAD et peut y être restaurée."
     },
     "blockers": {
       "binary_changes_unsupported": "Les modifications binaires ne peuvent pas être abandonnées à cette granularité.",
@@ -487,7 +512,10 @@
       "current_branch_cannot_be_deleted": "La branche actuellement extraite ne peut pas être supprimée.",
       "operation_not_in_progress": "Aucune opération Git n’est en cours d’abandon.",
       "ref_not_found": "La référence cible n’existe plus.",
-      "stash_not_found": "L’entrée de stash sélectionnée n’existe plus."
+      "stash_not_found": "L’entrée de stash sélectionnée n’existe plus.",
+      "delete_target_not_a_file": "Seuls des fichiers peuvent être supprimés depuis ce menu.",
+      "delete_file_partially_staged": "{{path}} a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
+      "delete_file_conflicted": "{{path}} a des conflits non résolus. Résolvez-les d’abord."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Abandonner les modifications dans {{count}} fichier modifié : {{sample}}.",
@@ -503,7 +531,9 @@
       "branchDeletedUnmerged": "Supprimer la branche {{name}}, qui n’est pas fusionnée dans {{unmergedInto}}.",
       "tagDeleted": "Supprimer le tag {{name}}.",
       "stashEntryConsumed": "Appliquer et consommer le stash {{index}} : {{message}}.",
-      "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants."
+      "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants.",
+      "fileRemovedTracked": "Retirer {{path}} de l’arbre de travail ; il apparaîtra comme une suppression Git.",
+      "fileRemovedUntracked": "Supprimer {{path}}. Git n’a aucune copie de ce fichier."
     }
   },
   "repoActions": {
@@ -582,6 +612,54 @@
     "pushResults": "Résultats de l’envoi",
     "pushSuccess": "Envoyé",
     "pushFailure": "Échec : {{error}}"
+  },
+  "workingFile": {
+    "stage": "Indexer",
+    "unstage": "Désindexer",
+    "discard": "Abandonner les modifications…",
+    "discardIncomplete": "Ouvrez le diff du fichier pour abandonner les modifications d’un fichier aussi volumineux.",
+    "openInConfiguredEditor": "Ouvrir dans l’éditeur configuré",
+    "openWithDefault": "Ouvrir avec l’application par défaut",
+    "showInFolder": "Afficher dans le dossier",
+    "openMergeTool": "Ouvrir l’outil de fusion",
+    "openExternalDiff": "Ouvrir dans l’outil de diff externe",
+    "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" },
+    "createPatch": "Créer un patch à partir des modifications…",
+    "createPatchStaged": "Créer un patch à partir des modifications indexées…",
+    "copyPatch": "Copier le patch dans le presse-papiers",
+    "patchSaved": "Patch enregistré dans {{path}}.",
+    "delete": "Supprimer le fichier…",
+    "stashFile": {
+      "label": "Remiser le fichier…",
+      "title": "Remiser les modifications de {{path}}",
+      "message": "Message",
+      "defaultMessage": "Fjord : remisage de {{path}}",
+      "stagedNotPreserved": "L'état indexé n'est pas conservé : la restauration de cette remise ramène les modifications comme non indexées.",
+      "unsupportedGit": "Remiser un seul fichier nécessite Git 2.13 ou plus récent.",
+      "confirm": "Remiser le fichier"
+    },
+    "disabled": {
+      "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait.",
+      "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
+      "noDiffTool": "Aucun outil de diff externe n'est configuré. Définissez diff.tool dans Git, ou choisissez-en un dans Paramètres → Outils."
+    },
+    "ignore": {
+      "label": "Ignorer",
+      "file": "Ignorer ce fichier",
+      "extension": "Ignorer tous les fichiers .{{extension}}",
+      "directory": "Ignorer ce dossier ({{directory}})",
+      "title": "Ajouter une règle à .gitignore",
+      "description": "Vérifiez la règle exacte pour {{path}} avant de l'écrire.",
+      "loading": "Vérification de .gitignore…",
+      "rulePreview": "Règle à ajouter",
+      "confirm": "Ajouter la règle",
+      "adding": "Ajout…",
+      "close": "Fermer",
+      "added": "Règle ajoutée à .gitignore.",
+      "alreadyPresent": "Cette règle exacte existe déjà dans .gitignore.",
+      "trackedFile": "Les fichiers suivis ne peuvent pas être ignorés. Git doit d'abord cesser de les suivre.",
+      "encodingUnsupported": ".gitignore doit être en UTF-8, avec ou sans BOM. Le fichier n'a pas été modifié."
+    }
   },
   "working": {
     "title": "Changements non commités",

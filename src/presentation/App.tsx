@@ -2,11 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { createAppShortcutBindings } from "@/application/appShortcuts";
+import { commandPaletteMergeBranches, mergeSourceForBranch } from "@/application/mergeBranchAction";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useStartup } from "@/application/StartupProvider";
 import { updateCoordinator } from "@/application/update/UpdateCoordinator";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
+import { useBranches } from "@/application/useBranches";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
 import { resolveRestoredSelection } from "@/application/uiSelection";
@@ -130,6 +132,7 @@ export function App() {
   );
   useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
+  const { branches: selectedRepoBranches } = useBranches(selectedRepoId);
   const shortcutBindings = createAppShortcutBindings({
     workspaceCount: workspaces.length,
     actions: {
@@ -367,6 +370,22 @@ export function App() {
   }
 
   const paletteItems: PaletteItem[] = [
+    ...(selectedRepo
+      ? commandPaletteMergeBranches(selectedRepoBranches)
+          .map((branch) => ({
+            id: `merge:${branch.name}`,
+            label: `${tw("commandPalette.mergeBranch")} ${branch.name}`,
+            detail: tw("context.mergeInto", {
+              source: branch.name,
+              target: selectedRepoBranches.find((candidate) => candidate.isCurrent)?.name ?? "HEAD",
+            }),
+            group: tw("commandPalette.activeRepositoryGroup"),
+            run: () => sendRepoDetailCommand({
+              kind: "merge",
+              source: mergeSourceForBranch(branch),
+            }),
+          }))
+      : []),
     ...(selectedRepo
       ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
           id: `action:${action}`,

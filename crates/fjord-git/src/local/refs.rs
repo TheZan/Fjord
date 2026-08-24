@@ -63,7 +63,7 @@ impl LocalGitBackend {
         Ok(local)
     }
 
-    fn checkout_overwrite_paths_inner(
+    pub(super) fn checkout_overwrite_paths_inner(
         git: &git2::Repository,
         branch: &str,
     ) -> Result<Vec<String>, GitError> {

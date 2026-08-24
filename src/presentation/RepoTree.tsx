@@ -59,6 +59,7 @@ export function RepoTree({
   const matches = (name: string) => !normalizedFilter || name.toLocaleLowerCase().includes(normalizedFilter);
 
   const visibleLocalBranches = branches.filter((branch) => !branch.isRemote);
+  const currentBranch = visibleLocalBranches.find((branch) => branch.isCurrent)?.name ?? null;
   const local = visibleLocalBranches.filter((branch) => matches(branch.name));
   const visibleRemoteBranches = branches.filter(
     (branch) => branch.isRemote && remoteBranchDisplayName(branch.name) !== null,
@@ -145,7 +146,7 @@ export function RepoTree({
                   onCheckout={onCheckout}
                   checkoutDisabledReason={checkoutDisabledReason}
                   onPublishBranch={onPublishBranch}
-                  onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                  onContextMenu={(position) => setMenu({ kind: "branch", branch, ...position })}
                 />
               );
             }}
@@ -174,7 +175,7 @@ export function RepoTree({
                     onCheckout={onCheckout}
                     checkoutDisabledReason={checkoutDisabledReason}
                     onPublishBranch={onPublishBranch}
-                    onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                    onContextMenu={(position) => setMenu({ kind: "branch", branch, ...position })}
                   />
                 );
               }}
@@ -203,7 +204,7 @@ export function RepoTree({
       {menu && (
         <ContextMenu
           position={menu}
-          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason) : tagMenuItems(menu.tag, t)}
+          items={menu.kind === "branch" ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason) : tagMenuItems(menu.tag, t)}
           onClose={() => setMenu(null)}
           onSelect={(action) => {
             const selection = menu;
@@ -303,7 +304,7 @@ function BranchRow({
   onCheckout?: (branch: string) => void;
   checkoutDisabledReason?: string;
   onPublishBranch?: (branch: string) => void;
-  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
+  onContextMenu: (position: { x: number; y: number }) => void;
 }) {
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
   if (displayName === null) return null;
@@ -320,6 +321,12 @@ function BranchRow({
           if (!branch.isCurrent && !checkoutDisabledReason) onCheckout?.(branch.name);
         }}
         onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onContextMenu({ x: bounds.left + 12, y: bounds.top + 12 });
+            return;
+          }
           if (event.key !== "Enter") return;
           event.preventDefault();
           onSelectBranch?.(branch.name);
@@ -327,7 +334,7 @@ function BranchRow({
         }}
         onContextMenu={(event) => {
           event.preventDefault();
-          onContextMenu(event);
+          onContextMenu({ x: event.clientX, y: event.clientY });
         }}
         data-selected={branch.isCurrent}
         data-focused={focused}
@@ -424,12 +431,13 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "delete" | "copy";
 
 function branchMenuItems(
   branch: BranchInfo,
-  t: (key: string) => string,
+  currentBranch: string | null,
+  t: (key: string, values?: Record<string, unknown>) => string,
   hasRemoteBranches: boolean,
   checkoutDisabledReason?: string,
 ): ContextMenuItem[] {
@@ -443,10 +451,38 @@ function branchMenuItems(
       disabledReason: checkoutDisabledReason,
     },
     {
+      id: "merge",
+      label: t("context.mergeInto", {
+        source: branch.name,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
+      separatorBefore: true,
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent
+        ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
+    },
+    {
+      id: "squashMerge",
+      label: t("context.squashMergeInto", {
+        source: branch.name,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent
+        ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
+    },
+    {
       id: "createBranch",
       label: t("context.createBranchHere"),
       icon: "branch",
-      separatorBefore: true,
       disabled: Boolean(checkoutDisabledReason),
       disabledReason: checkoutDisabledReason,
     },

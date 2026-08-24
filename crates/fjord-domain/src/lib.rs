@@ -324,6 +324,148 @@ pub struct BranchInfo {
     pub target_commit_id: CommitId,
 }
 
+/// The only reference kinds accepted by the branch-integration contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeSourceKind {
+    LocalBranch,
+    RemoteTracking,
+}
+
+/// A merge source is always a canonical, fully-qualified Git ref name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeSource {
+    pub ref_name: String,
+    pub kind: MergeSourceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeMode {
+    Default,
+    FastForwardOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeDirtyPolicy {
+    Refuse,
+    StashFirst,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergePrediction {
+    AlreadyUpToDate,
+    FastForward { commits: u32 },
+    MergeCommit { ahead: u32, behind: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeDirtyState {
+    pub staged: u32,
+    pub modified: u32,
+    pub untracked: u32,
+    pub would_overwrite: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergePreflight {
+    pub source: MergeSource,
+    pub source_label: String,
+    pub source_commit: CommitId,
+    pub target_branch: String,
+    pub target_commit: CommitId,
+    pub prediction: MergePrediction,
+    pub dirty: MergeDirtyState,
+    pub blockers: Vec<String>,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergeOutcome {
+    AlreadyUpToDate,
+    FastForwarded { head: CommitId },
+    Merged { commit: CommitId },
+    Conflicted { state: RepoOperationState },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub outcome: MergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
+/// `git merge --squash`: stages the combined diff (or leaves it conflicted)
+/// without creating a merge commit or moving any ref. See P10-MERGE-03.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SquashMergeOutcome {
+    AlreadyUpToDate,
+    Staged { message: String },
+    Conflicted { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SquashMergeResult {
+    pub outcome: SquashMergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    /// `HEAD` before the squash ran — unmoved by any outcome. Lets the
+    /// caller offer a plain Reset (Hard) to this commit as the discard path,
+    /// reusing the existing destructive-preflight `Reset` action rather than
+    /// inventing a second abort mechanism.
+    pub target_commit: CommitId,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
 /// A reference advertised by a remote repository. `symbolic_target` is set
 /// for entries such as `HEAD` returned by `git ls-remote --symref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -464,8 +606,15 @@ pub struct FileDiff {
 pub struct WorkingFile {
     pub path: String,
     pub change_type: FileChangeType,
+    /// `true` when the path already has an index entry.
+    #[serde(default = "tracked_by_default")]
+    pub tracked: bool,
     /// `true` when the entry is an unresolved merge conflict.
     pub conflicted: bool,
+}
+
+const fn tracked_by_default() -> bool {
+    true
 }
 
 /// Split of the working directory into what a commit would include (`staged`)
@@ -487,6 +636,66 @@ pub enum PatchSource {
     Worktree,
     /// HEAD-to-index diff, used for unstaging.
     Index,
+}
+
+/// Logical identity of one Working Changes row. The source is part of the
+/// identity because a partially staged path appears in both sections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct WorkingFileTarget {
+    pub path: String,
+    pub source: PatchSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepositoryFilePath {
+    pub relative: String,
+    #[ts(type = "string")]
+    pub absolute: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum OpenTarget {
+    ConfiguredEditor { line: Option<u32> },
+    DefaultApplication,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleKind {
+    File,
+    Extension,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct IgnoreRulePreview {
+    pub rule: String,
+    pub already_present: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleOutcome {
+    Added,
+    AlreadyPresent,
 }
 
 /// Coordinates for one selected hunk in the complete rendered diff.
@@ -592,6 +801,7 @@ pub enum DestructiveAction {
     CheckoutDiscard { branch: String },
     AbortOperation,
     RecoveryRestore { commit_id: String },
+    DeleteFile { path: String },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only
@@ -612,6 +822,10 @@ pub enum Recoverability {
     Reflog,
     Stash,
     NotRecoverable,
+    /// The content is still in `HEAD` and can be restored from there. Used
+    /// only where an action's *complete* consequence set leaves nothing else
+    /// uncommitted lost — see `DestructiveAction::DeleteFile`.
+    Committed,
 }
 
 /// A concrete, bounded consequence. Every sample is capped by the service at
@@ -663,6 +877,10 @@ pub enum Consequence {
         remote: String,
         ref_name: String,
         dropped_commits: u32,
+    },
+    FileRemoved {
+        path: String,
+        tracked: bool,
     },
 }
 
@@ -942,6 +1160,22 @@ pub struct Settings {
     pub performance_diagnostics: bool,
     #[ts(type = "string | null")]
     pub git_executable_path: Option<PathBuf>,
+    /// A Git difftool **name** only — never a path, shell command, or command
+    /// line. `None` means "let Git resolve `diff.tool` /
+    /// `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+    /// --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+    pub diff_tool: Option<String>,
+}
+
+/// Whether `name` is a Git difftool name rather than a path or command line.
+///
+/// This is shared by the settings and Git backend boundaries so values that
+/// bypass persisted settings are held to the same contract before Git is run.
+pub fn is_valid_diff_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
 }
 
 impl Default for Settings {
@@ -953,6 +1187,7 @@ impl Default for Settings {
             auto_fetch: false,
             performance_diagnostics: false,
             git_executable_path: None,
+            diff_tool: None,
         }
     }
 }
@@ -1181,6 +1416,16 @@ mod tests {
         let value = serde_json::to_value(summary).unwrap();
 
         assert_eq!(value["lastSyncedAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn legacy_working_files_default_to_tracked_for_safe_ignore_behavior() {
+        let file: WorkingFile = serde_json::from_str(
+            r#"{"path":"README.md","changeType":"modified","conflicted":false}"#,
+        )
+        .unwrap();
+
+        assert!(file.tracked);
     }
 
     #[test]

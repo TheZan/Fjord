@@ -6,10 +6,12 @@ use fjord_domain::{
     CommitSummary, Consequence, CreateRepositoryRequest, CreateRepositoryResult, DestructiveAction,
     DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
-    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, LogCursor, PatchSelection,
-    Recoverability, ReflogPage, RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus,
-    RepositoryEntry, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
-    StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, OpenTarget, PatchSelection, PatchSource, Recoverability, ReflogPage,
+    RemoteInfo, RemotePushResult, RepoOperationState, RepoStatus, RepositoryEntry,
+    RepositoryFilePath, RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation,
+    SquashMergeResult, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -79,6 +81,64 @@ pub enum RepoError {
     CreateRepositoryDestinationNotEmpty,
     #[error("repository was initialized but registration failed: {0}")]
     CreateRepositoryRegistrationFailed(String),
+    #[error("path is outside the repository: {0}")]
+    PathOutsideRepository(String),
+    #[error("repository path was not found: {0}")]
+    PathNotFound(String),
+}
+
+fn resolve_repository_file(root: &Path, path: &str) -> Result<RepositoryFilePath, RepoError> {
+    use std::path::Component;
+
+    let requested = Path::new(path);
+    if path.is_empty() || requested.is_absolute() {
+        return Err(RepoError::PathOutsideRepository(path.to_string()));
+    }
+    let mut segments = Vec::new();
+    for component in requested.components() {
+        let Component::Normal(segment) = component else {
+            return Err(RepoError::PathOutsideRepository(path.to_string()));
+        };
+        let segment_text = segment.to_string_lossy();
+        if segment_text.eq_ignore_ascii_case(".git") {
+            return Err(RepoError::PathOutsideRepository(path.to_string()));
+        }
+        segments.push(segment.to_owned());
+    }
+    if segments.is_empty() {
+        return Err(RepoError::PathOutsideRepository(path.to_string()));
+    }
+
+    let canonical_root =
+        std::fs::canonicalize(root).map_err(|_| RepoError::PathNotFound(path.to_string()))?;
+    let relative = segments.iter().collect::<PathBuf>();
+    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+    let canonical_parent = std::fs::canonicalize(canonical_root.join(parent))
+        .map_err(|_| RepoError::PathNotFound(path.to_string()))?;
+    if !canonical_parent.starts_with(&canonical_root) {
+        return Err(RepoError::PathOutsideRepository(path.to_string()));
+    }
+    let file_name = relative
+        .file_name()
+        .ok_or_else(|| RepoError::PathOutsideRepository(path.to_string()))?;
+    let portable_relative = segments
+        .iter()
+        .map(|segment| segment.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(RepositoryFilePath {
+        relative: portable_relative,
+        absolute: canonical_parent.join(file_name),
+    })
+}
+
+fn require_launchable_file(path: &Path) -> Result<(), RepoError> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| RepoError::PathNotFound(path.display().to_string()))?;
+    if metadata.is_dir() {
+        return Err(RepoError::PathNotFound(path.display().to_string()));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -683,6 +743,53 @@ impl RepoService {
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn get_merge_preflight(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+    ) -> Result<MergePreflight, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .merge_preflight(&RepoPath::new(repo.path), source)
+            .await?)
+    }
+
+    pub async fn merge_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+        mode: MergeMode,
+        dirty_policy: MergeDirtyPolicy,
+        context: GitOperationContext,
+    ) -> Result<MergeResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .merge_branch(
+                &RepoPath::new(repo.path),
+                source,
+                mode,
+                dirty_policy,
+                context,
+            )
+            .await?)
+    }
+
+    pub async fn squash_merge_branch_with_context(
+        &self,
+        repo_id: RepositoryId,
+        source: &MergeSource,
+        dirty_policy: MergeDirtyPolicy,
+        context: GitOperationContext,
+    ) -> Result<SquashMergeResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .squash_merge_branch(&RepoPath::new(repo.path), source, dirty_policy, context)
+            .await?)
+    }
+
     pub async fn get_tags(&self, repo_id: RepositoryId) -> Result<Vec<TagInfo>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.tags(&RepoPath::new(repo.path)).await?)
@@ -1189,7 +1296,8 @@ impl RepoService {
                 | DestructiveAction::StashPop { .. }
                 | DestructiveAction::CheckoutDiscard { .. }
                 | DestructiveAction::AbortOperation
-                | DestructiveAction::RecoveryRestore { .. } => {
+                | DestructiveAction::RecoveryRestore { .. }
+                | DestructiveAction::DeleteFile { .. } => {
                     let facts = self
                         .git
                         .destructive_action_facts(&path, &action, PREFLIGHT_SAMPLE_LIMIT as u32)
@@ -1421,6 +1529,70 @@ impl RepoService {
         Ok(self.ide.open_terminal(&repo.path).await?)
     }
 
+    pub async fn resolve_repository_file_path(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+    ) -> Result<RepositoryFilePath, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        resolve_repository_file(&repo.path, path)
+    }
+
+    pub async fn open_repository_path(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        target: OpenTarget,
+    ) -> Result<(), RepoError> {
+        let resolved = self.resolve_repository_file_path(repo_id, path).await?;
+        require_launchable_file(&resolved.absolute)?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .ide
+            .open_path(&resolved.absolute, target, settings.default_ide.as_deref())
+            .await?)
+    }
+
+    pub async fn reveal_repository_path(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+    ) -> Result<(), RepoError> {
+        let resolved = self.resolve_repository_file_path(repo_id, path).await?;
+        require_launchable_file(&resolved.absolute)?;
+        Ok(self.ide.reveal_path(&resolved.absolute).await?)
+    }
+
+    pub async fn preview_ignore_rule(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRulePreview, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        require_launchable_file(&resolved.absolute)?;
+        Ok(self
+            .git
+            .preview_ignore_rule(&RepoPath::new(repo.path), &resolved.relative, kind)
+            .await?)
+    }
+
+    pub async fn add_ignore_rule(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRuleOutcome, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        require_launchable_file(&resolved.absolute)?;
+        Ok(self
+            .git
+            .add_ignore_rule(&RepoPath::new(repo.path), &resolved.relative, kind)
+            .await?)
+    }
+
     pub async fn stage_files(
         &self,
         repo_id: RepositoryId,
@@ -1483,6 +1655,18 @@ impl RepoService {
                 expected_generations,
                 confirmation_token,
             )
+            .await?)
+    }
+
+    pub async fn export_patch(
+        &self,
+        repo_id: RepositoryId,
+        selection: &PatchSelection,
+    ) -> Result<Vec<u8>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .export_patch(&RepoPath::new(repo.path), selection)
             .await?)
     }
 
@@ -1736,6 +1920,53 @@ impl RepoService {
     pub async fn open_merge_tool(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self.git.open_merge_tool(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn diff_tool_availability(&self, repo_id: RepositoryId) -> Result<bool, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .git
+            .diff_tool_availability(&RepoPath::new(repo.path), settings.diff_tool.as_deref())
+            .await?)
+    }
+
+    pub async fn open_external_diff(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        source: PatchSource,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        let settings = self.settings.get_settings().await?;
+        Ok(self
+            .git
+            .open_external_diff(
+                &RepoPath::new(repo.path),
+                &resolved.relative,
+                source,
+                settings.diff_tool.as_deref(),
+            )
+            .await?)
+    }
+
+    pub async fn stash_file_supported(&self) -> Result<bool, RepoError> {
+        Ok(self.git.stash_file_supported().await?)
+    }
+
+    pub async fn stash_file(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        message: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let resolved = resolve_repository_file(&repo.path, path)?;
+        Ok(self
+            .git
+            .stash_file(&RepoPath::new(repo.path), &resolved.relative, message)
+            .await?)
     }
 
     pub async fn open_in_ide(
@@ -2646,6 +2877,7 @@ mod tests {
                 unstaged: vec![WorkingFile {
                     path: "src/main.rs".into(),
                     change_type: FileChangeType::Modified,
+                    tracked: true,
                     conflicted: false,
                 }],
             })
@@ -4230,6 +4462,110 @@ mod tests {
             *ide.opened.lock().unwrap(),
             Some((repo.path, Some("cursor".to_string())))
         );
+    }
+
+    #[tokio::test]
+    async fn repository_file_paths_are_canonical_and_escape_attempts_never_reach_the_launcher() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("repo");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join("src/app.rs"), "fn main() {}\n").unwrap();
+        let mut repo = repo_entry();
+        repo.path = root.clone();
+        let ide = Arc::new(FakeIdeLauncher {
+            opened: Mutex::new(None),
+            terminal_opened: Mutex::new(None),
+        });
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings {
+                    default_ide: Some("code".into()),
+                    ..Settings::default()
+                },
+            }),
+            Arc::new(FakeGit::default()),
+            Arc::new(FakeRemoteGit::default()),
+            Arc::new(FakeEnvironment),
+            ide.clone(),
+        );
+
+        let resolved = service
+            .resolve_repository_file_path(repo.id, "src/app.rs")
+            .await
+            .unwrap();
+        assert_eq!(resolved.relative, "src/app.rs");
+        assert_eq!(
+            resolved.absolute,
+            std::fs::canonicalize(root.join("src"))
+                .unwrap()
+                .join("app.rs")
+        );
+        service
+            .open_repository_path(
+                repo.id,
+                "src/app.rs",
+                OpenTarget::ConfiguredEditor { line: None },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            *ide.opened.lock().unwrap(),
+            Some((resolved.absolute.clone(), Some("code".into())))
+        );
+
+        *ide.opened.lock().unwrap() = None;
+        let absolute = resolved.absolute.to_string_lossy().into_owned();
+        for invalid in ["../outside.rs", ".git/config", "src/../app.rs", &absolute] {
+            assert!(matches!(
+                service.resolve_repository_file_path(repo.id, invalid).await,
+                Err(RepoError::PathOutsideRepository(_))
+            ));
+        }
+        let outside = directory.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("linked-outside")).unwrap();
+            assert!(matches!(
+                service
+                    .resolve_repository_file_path(repo.id, "linked-outside/secret.txt")
+                    .await,
+                Err(RepoError::PathOutsideRepository(_))
+            ));
+        }
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&outside, root.join("linked-outside")).is_ok() {
+            assert!(matches!(
+                service
+                    .resolve_repository_file_path(repo.id, "linked-outside/secret.txt")
+                    .await,
+                Err(RepoError::PathOutsideRepository(_))
+            ));
+        }
+        assert!(matches!(
+            service
+                .open_repository_path(
+                    repo.id,
+                    "../outside.rs",
+                    OpenTarget::ConfiguredEditor { line: None },
+                )
+                .await,
+            Err(RepoError::PathOutsideRepository(_))
+        ));
+        assert!(matches!(
+            service.reveal_repository_path(repo.id, ".git/config").await,
+            Err(RepoError::PathOutsideRepository(_))
+        ));
+        assert!(matches!(
+            service
+                .open_repository_path(repo.id, "src/missing.rs", OpenTarget::DefaultApplication,)
+                .await,
+            Err(RepoError::PathNotFound(_))
+        ));
+        assert_eq!(*ide.opened.lock().unwrap(), None);
     }
 
     #[tokio::test]

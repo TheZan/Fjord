@@ -1,6 +1,7 @@
 # Spec: long-running operation events
 
-Referenced by: `P4-17`, `P9R-02`, `P9R-03`, SDD §8, [`ipc-commands.md`](ipc-commands.md).
+Referenced by: `P4-17`, `P9R-02`, `P9R-03`, `P10-STASH-06`, SDD §8,
+[`ipc-commands.md`](ipc-commands.md).
 
 ## Purpose
 
@@ -16,6 +17,7 @@ Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operat
 | `push_repo` | `{ repo_id, operation_id? }` | — | Emits operation events when `operation_id` is supplied. |
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | Uses one operation id for both phases. A push failure after commit is a partial result and terminal `failed` event, not a rollback. |
 | `continue_operation` / `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Runs the local system-Git sequencer command and returns the newly detected state. Abort is destructive and therefore runs through `execute_destructive_action` with its operation id. |
+| `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Runs the local branch merge with message-only progress; conflict is a successful typed result. |
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
@@ -23,6 +25,19 @@ Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operat
 | `cancel_git_auth_prompt` | `{ operation_id, prompt_id }` | `boolean` | Cancels the prompt and its registered Git operation. |
 
 The TypeScript IPC wrapper generates `operationId` before invoking a cancellable command, so the UI can subscribe and cancel immediately.
+
+**Stash mutations are deliberately not on this pipeline.** `create_stash`,
+`apply_stash`, stash pop, stash drop, and `create_branch_from_stash`
+([`stash-management.md`](stash-management.md)) are short local mutations that
+report no countable units and no meaningful message stream, so none of them takes
+an `operation_id`, none emits `fjord-operation-progress`, and none is cancellable
+mid-flight — they complete or fail under the repository write lock. Registering
+them here would buy a cancel button that could only ever fire after the work was
+already done, while adding a second way for a stash mutation to be interrupted.
+A conflicting stash apply or pop is likewise **not** an operation state: it
+writes no `MERGE_HEAD`, so `RepoOperationState` stays `Normal`, the operation
+banner is not shown, and the conflict is returned as a typed result and read live
+from the index — the same shape squash merge (`P10-MERGE-03`) already uses.
 
 ## Event
 
@@ -33,7 +48,9 @@ Payload shape:
 ```ts
 type OperationProgressEvent = {
   operationId: string;
-  kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation";
+  kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation" | "merge"
+      // 🚧 planned: "rebase" (P10-04)
+      ;
   scope:
     | { type: "repo"; repoId: string }
     | { type: "workspace"; workspaceId: string };
@@ -69,6 +86,14 @@ runner.
 - Continue, skip, and abort use the same process-tree termination; cancellation
   can leave Git's sequencer state in progress, and the next operation-state read
   remains authoritative.
+- `merge` (`P10-MERGE-01`, [`branch-merge.md`](branch-merge.md)) follows the
+  same rule: it is a local mutation with message-only progress (`total = 0`,
+  because `git merge` reports no countable units), cancellation terminates the
+  process tree, and a cancelled merge may leave a detectable in-progress merge
+  that the operation banner then offers to abort. Cancellation is never silently
+  equivalent to abort. A **conflicted** merge is a `succeeded` terminal event —
+  Git did what it was asked — carrying the typed `Conflicted` result; only a
+  genuine failure emits `failed`.
 - Reader tasks drain/finish, the runner returns `Cancelled`, and only then is the
   final `cancelled` event emitted and the registry entry removed.
 - Bulk operations stop scheduling queued repositories and cancel already-started

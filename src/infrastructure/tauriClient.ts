@@ -12,10 +12,21 @@ import type {
   DiffWhitespaceMode,
   GenerationSet,
   GitAuthPrompt,
+  IgnoreRuleKind,
+  IgnoreRuleOutcome,
+  IgnoreRulePreview,
   InteractionTrace,
+  MergeDirtyPolicy,
+  MergeMode,
+  MergePreflight,
+  MergeResult,
+  MergeSource,
+  OpenTarget,
   PatchSelection,
+  PatchSource,
   RepoOperationState,
   SnapshotRevalidation,
+  SquashMergeResult,
   StoredRepositorySnapshot,
   UiState,
   UiStatePatch,
@@ -44,6 +55,7 @@ import type {
   GlobalSearchResult,
   ReflogPage,
   RepoStatus,
+  RepositoryFilePath,
   StashEntry,
   TagInfo,
   WorkingChanges,
@@ -93,7 +105,9 @@ export type OperationKind =
   | "skip-operation"
   | "abort-operation"
   | "destructive-action"
-  | "stash-checkout";
+  | "stash-checkout"
+  | "merge"
+  | "squash-merge";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -357,6 +371,38 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeVersioned("get_branches", { repoId }, repoId, "refs", signal);
+}
+
+export function invokeErrorStashRef(error: unknown): string | null {
+  if (error && typeof error === "object" && "stash_ref" in error && typeof error.stash_ref === "string") {
+    return error.stash_ref;
+  }
+  return null;
+}
+
+export function getMergePreflight(
+  repoId: string,
+  source: MergeSource,
+  signal?: AbortSignal,
+): Promise<MergePreflight> {
+  return invokeVersioned("get_merge_preflight", { repoId, source }, repoId, "merge", signal);
+}
+
+export function runMergeBranch(
+  repoId: string,
+  source: MergeSource,
+  mode: MergeMode,
+  dirtyPolicy: MergeDirtyPolicy,
+): OperationTask<MergeResult> {
+  return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
+}
+
+export function runSquashMergeBranch(
+  repoId: string,
+  source: MergeSource,
+  dirtyPolicy: MergeDirtyPolicy,
+): OperationTask<SquashMergeResult> {
+  return invokeOperation("squash-merge", "squash_merge_branch", { repoId, source, dirtyPolicy });
 }
 
 export function listenGitAuthPrompts(
@@ -703,6 +749,14 @@ export function stashPush(repoId: string, message: string | null = null): Promis
   return invoke("stash_push", { repoId, message });
 }
 
+export function stashFile(repoId: string, path: string, message: string): Promise<void> {
+  return invoke("stash_file", { repoId, path, message });
+}
+
+export function stashFileSupported(): Promise<boolean> {
+  return invoke("stash_file_supported");
+}
+
 export function openTerminal(repoId: string): Promise<void> {
   return invoke("open_terminal", { repoId });
 }
@@ -760,6 +814,22 @@ export function discardPatch(
       return generations;
     },
   );
+}
+
+/** Writes the patch for one working-file selection to a chosen destination.
+ * Patch bytes never cross IPC for this path — the backend writes them. */
+export function exportPatch(
+  repoId: string,
+  selection: PatchSelection,
+  destination: string,
+): Promise<void> {
+  return invoke("export_patch", { repoId, selection, destination });
+}
+
+/** The same patch bytes as `exportPatch`, returned as text for the
+ * clipboard follow-up — the only path where patch content crosses IPC. */
+export function getPatchText(repoId: string, selection: PatchSelection): Promise<string> {
+  return invoke("get_patch_text", { repoId, selection });
 }
 
 export function getAmendInfo(repoId: string): Promise<AmendInfo> {
@@ -828,8 +898,55 @@ export function openMergeTool(repoId: string): Promise<void> {
   return invoke("open_merge_tool", { repoId });
 }
 
+export function diffToolAvailability(repoId: string): Promise<boolean> {
+  return invoke("diff_tool_availability", { repoId });
+}
+
+export function openExternalDiff(
+  repoId: string,
+  path: string,
+  source: PatchSource,
+): Promise<void> {
+  return invoke("open_external_diff", { repoId, path, source });
+}
+
 export function openInIde(repoId: string, ide: string | null = null): Promise<void> {
   return invoke("open_in_ide", { repoId, ide });
+}
+
+export function resolveRepositoryFilePath(
+  repoId: string,
+  path: string,
+): Promise<RepositoryFilePath> {
+  return invoke("resolve_repository_file_path", { repoId, path });
+}
+
+export function openRepositoryPath(
+  repoId: string,
+  path: string,
+  target: OpenTarget,
+): Promise<void> {
+  return invoke("open_repository_path", { repoId, path, target });
+}
+
+export function revealRepositoryPath(repoId: string, path: string): Promise<void> {
+  return invoke("reveal_repository_path", { repoId, path });
+}
+
+export function previewIgnoreRule(
+  repoId: string,
+  path: string,
+  ruleKind: IgnoreRuleKind,
+): Promise<IgnoreRulePreview> {
+  return invoke("preview_ignore_rule", { repoId, path, ruleKind });
+}
+
+export function addIgnoreRule(
+  repoId: string,
+  path: string,
+  ruleKind: IgnoreRuleKind,
+): Promise<IgnoreRuleOutcome> {
+  return invoke("add_ignore_rule", { repoId, path, ruleKind });
 }
 
 export function bulkFetch(

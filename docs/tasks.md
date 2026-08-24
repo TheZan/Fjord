@@ -2,9 +2,18 @@
 
 This is the actionable breakdown of [`SDD.md`](SDD.md) **with per-task status**. It replaces the former `plan.md` — the task IDs (`P0-01`, ...) are stable and unchanged, so references from commits, code comments, and specs keep working.
 
-Legend: `[x]` done · `[ ]` open. A task is done when it's merged **and** covered by the testing approach described in SDD §8 for its layer — "works on my machine" doesn't close a task.
+Legend: `[x]` done · `[ ]` open.
 
-Last status review: 2026-08 (roadmap audit; Phases 6–11 were added from its findings, together with the residual Phase 5.x items).
+A task is marked `[x]` when its implementation is complete and covered by
+the testing approach described in SDD §8 for its layer. The implementation
+may still be awaiting integration into `develop` on its feature branch —
+"works on my machine" does not close a task.
+
+Task boxes are normally updated in the same feature commit that completes
+the implementation and its required tests; merging that branch into
+`develop` is the subsequent integration step.
+
+Last status review: 2026-08 (roadmap audit; Phases 6–11 were added from its findings, together with the residual Phase 5.x items). Amended 2026-08-20 with the two missing daily-driver capabilities — `P10-MERGE-01`–`P10-MERGE-03` (starting a branch merge) and `P10-WC-01`–`P10-WC-06` (Working Changes file context actions) — and with an explicit Phase 10 execution order. Amended 2026-08-23 with `P10-STASH-01`–`P10-STASH-06` (Stash Management), placed after the completed Working Changes context actions and before Workspace Intelligence, and owned by the new [`specs/stash-management.md`](specs/stash-management.md), and with `P10-WC-MULTI-01`–`P10-WC-MULTI-03` (Working Changes multi-selection and batch actions), owned by [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §7. A seventh stash task was drafted and **withdrawn before implementation**; its scope moved to `P10-WC-MULTI-*`, and it is not an active roadmap item — see the note under Stash Management. No existing task ID was renamed or renumbered.
 
 Phase goals and the dependency order between phases are in [`SDD.md`](SDD.md) §15. Every task below names the spec it implements; a task without a spec section to point at is not ready to be picked up.
 
@@ -296,15 +305,386 @@ Goal: make Fjord independently usable from first launch through normal daily Git
 
 **Phase 9.5 scope boundary.** The first public Early Preview does not require GitHub/GitLab account integration, OAuth login, provider-API repository creation, pull-request management, issues, complete remote CRUD, interactive rebase, worktrees, a plugin system, cloud sync, team collaboration, or feature parity with established Git GUIs. Complete remote CRUD, interactive rebase, and worktrees remain in Phase 10. Phase 9.5 stays focused on repository onboarding and the first public usable release.
 
-## Phase 10 — Advanced workflows & workspace
+## Phase 10 — Daily-driver integration, advanced workflows & workspace
 
-Goal: turn the workspace-first architecture into the competitive advantage — worktrees, rebase, remote management, and a health model that answers "which repositories need me, and why" across dozens of repositories. Spec: [`specs/workspace-workflows.md`](specs/workspace-workflows.md).
+Goal: close the remaining daily-driver gaps — starting a branch merge, acting on a file in Working Changes, and managing stashes as first-class objects — and then turn the workspace-first architecture into the competitive advantage: worktrees, rebase, remote management, and a health model that answers "which repositories need me, and why" across dozens of repositories. Specs: [`specs/branch-merge.md`](specs/branch-merge.md), [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6, [`specs/stash-management.md`](specs/stash-management.md), [`specs/workspace-workflows.md`](specs/workspace-workflows.md).
+
+### Phase 10 execution order
+
+The existing stable IDs (`P10-01`–`P10-11`) are **unchanged**; they were assigned
+in spec order, not in priority order. The order below is the dependency and
+priority order the phase is actually worked in, expressed as notes rather than by
+renumbering anything.
+
+```text
+1. P10-MERGE-01…03   Merge a branch into the current branch          ✅ done
+2. P10-WC-01…06      Working Changes file context actions            ✅ done
+3. P10-WC-MULTI-01   Working Changes multi-selection model
+4. P10-STASH-01      Stable stash identity + the reads built on it
+5. P10-STASH-02      Exact-scope stash creation  ⚠ proof gate before shipping
+6. P10-WC-MULTI-02   Batch Stage/Unstage + Stash N files… entry point
+7. P10-STASH-03…06   Stash tree, inspector, graph markers, actions
+8. P10-WC-MULTI-03   Batch Discard + multi-file patch export
+9. P10-08/09/10      Workspace health, expected branch, filter chips
+10. P10-06/07        Remote CRUD completion
+11. P10-04/05        Basic rebase
+12. P10-01/02/03     Worktrees
+13. P10-11           Interactive rebase
+```
+
+The Stash and multi-selection blocks interleave rather than queue, because they
+share exactly one edge in each direction and nothing else: `Stash N files…`
+(`P10-WC-MULTI-02`) needs the exact-scope backend from `P10-STASH-02`, and
+`P10-STASH-02` needs nothing from the selection work — a one-path `Paths` scope
+is the same contract `Stash file…` migrates onto. `P10-WC-MULTI-01` leads the
+whole sequence because it is pure frontend, blocks nothing, and is what every
+later batch action reads from.
+
+**`P10-STASH-02` carries a proof gate**, and the order above depends on it.
+`Paths` promises an exact subset — "Stash 4 files" means those four files, on
+apply as well as on creation — and pathspec `git stash push` alone does not
+deliver that ([`specs/stash-management.md`](specs/stash-management.md) §2.2–§2.3).
+If the exact-scope construction cannot be proven safe and Git-compatible,
+`P10-STASH-02` stays open, `Stash file…` keeps its shipped behavior, and step 6
+ships **without** its `Stash N files…` entry point; nothing downstream is
+blocked, because `P10-STASH-03…06` depend on `01`'s identity model rather than on
+`02`.
+
+Why merge is first, explicitly:
+
+- **Merge is more fundamental daily-driver functionality than interactive
+  rebase.** Fjord can already *finish* a merge — detect the state, list conflicts,
+  hand off to the merge tool, continue, abort — but cannot *start* one. Merging a
+  branch into the branch you are on is a routine several-times-a-week action;
+  interactive rebase is a specialist tool used occasionally. A user who has to
+  open a terminal to run `git merge` will finish the whole task there.
+- Merge is also the cheapest of the three integration workflows to make safe: it
+  reuses the Phase 9 operation state, banner, and abort path unchanged, and it
+  defines the shared integration preflight that `P10-05` (rebase) then reuses
+  instead of inventing.
+- **Working-file context actions are workflow polish, but they materially affect
+  everyday usability.** Nothing in them is a new Git capability the app lacks
+  conceptually; they remove a dozen small reasons per session to leave the window
+  (open this file, reveal it, ignore this generated artifact, copy this path,
+  export this patch, delete this file). They are second because they are
+  independent of every other Phase 10 task and can ship incrementally.
+- **Stash Management is third because it is the last daily-driver gap, and it is
+  built entirely from parts that now exist.** After `P10-WC-05` the app can stash
+  one file with a proven unrelated-current-changes invariant, and after
+  `P10-MERGE-01`–`03`
+  it can stash before an integration — but it still cannot *see* a stash, act on
+  anything but `stash@{0}`, or get stashed work back onto a branch of its own.
+  Every piece it needs is shipped: the pathspec stash engine, the destructive
+  preflight/token path, the RepoTree section pattern, the commit-graph ref-badge
+  row, the Commit Inspector composition, the bounded diff pipeline, and the
+  generation model. It comes before Workspace Intelligence because it removes a
+  reason to open a terminal on a single repository, which is the higher-frequency
+  need. Spec: [`specs/stash-management.md`](specs/stash-management.md).
+- **Multi-selection is scheduled with Stash rather than after it**, because it is
+  the shared infrastructure five batch actions read from — Stage, Unstage,
+  Discard, patch export, and stash — and only the last of those belongs to the
+  stash feature. Building it inside Stash Management would have made four
+  unrelated batch actions depend on the stash spec. It is therefore its own
+  block, and the previously drafted `P10-STASH-07` is withdrawn in its favour so
+  that no two tasks claim the same implementation.
+- Rebase depends on the merge task's preflight contract; worktrees and interactive
+  rebase stay last for the reasons already recorded in
+  [`specs/workspace-workflows.md`](specs/workspace-workflows.md).
+
+### Branch merge
+
+- [x] **P10-MERGE-01** — Merge a local branch into the currently checked-out branch, end to end. Typed `MergeSource` / `MergeMode` / `MergeDirtyPolicy` / `MergePreflight` / `MergeResult` domain model; `get_merge_preflight` and `merge_branch` IPC over new `GitBackend` methods; system-Git `merge --no-edit [--ff-only]` through the shared resolved executable with a non-interactive editor, under the repository write lock and the cancellable operation pipeline (kind `merge`). `AlreadyUpToDate` / `FastForwarded` / `Merged` / `Conflicted { RepoOperationState }` are typed outcomes, never error strings; a conflicted merge feeds the existing Phase 9 banner and is abortable through the existing safe operation-abort path. The backend re-resolves and validates the source ref itself and refuses the current branch, a missing ref, detached/unborn `HEAD`, another operation in progress, staged changes, and a non-empty bounded overwrite set; the dirty-tree choice is Cancel or an explicit Fjord-named stash-and-merge that never auto-pops and always reports `stash@{0}`. No autostash, no checkout, no branch creation, no network. Entry points — left branch-tree context menu, commit-graph branch-label context menu (acting on the exact selected ref, never the commit SHA), and `Ctrl/Cmd+K` → **Merge branch…** — dispatch one shared application action. Labels always name both refs (`Merge {{source}} into {{target}}…`). Remote-tracking sources are refused with a stated reason until `P10-MERGE-02`. Verification: the thirteen backend/integration cases and seven component cases enumerated in [`specs/branch-merge.md`](specs/branch-merge.md) §Testing strategy, plus five-locale parity. Spec: [`specs/branch-merge.md`](specs/branch-merge.md).
+- [x] **P10-MERGE-02** — Merge a locally known remote-tracking ref (`origin/feature/payments`) into the current branch, per [`specs/branch-merge.md`](specs/branch-merge.md) §2. `preflight_locked` (`crates/fjord-git/src/local/merge.rs`) no longer shunts `MergeSourceKind::RemoteTracking` into the stubbed unsupported path — it runs the same real preflight (ahead/behind prediction, dirty-state and bounded overwrite computation, blocker derivation) already used for local branches, since `refs/remotes/...` resolution, `checkout_target_refname`, and `checkout_overwrite_paths_inner` already handled remote-tracking refs correctly. `merge_source_unsupported` remains reachable only for a genuine kind mismatch. The display label now strips either `refs/heads/` or `refs/remotes/` (`strip_ref_prefix`). No backend orchestration was added for the fetch step: **Fetch {{remote}} before merging** is a dialog checkbox that reuses the existing cancellable `fetch_repo` operation client-side — `RepoDetailContainer.executeMerge` runs it first when checked, invalidates the live `mergePreflight` query (which the dialog is already subscribed to, so the shown commit id updates in place) before calling `merge_branch`, and never calls `merge_branch` at all if the fetch fails or is cancelled. Freshness is named, not measured: the dialog shows `merge.remote.knownCommit` from the live preflight's `sourceCommit` and states plainly that it is the branch as Fjord last saw it; no fetch timestamp is persisted or claimed. The branch-tree and commit-graph merge entries no longer disable remote-tracking rows. Verification: two new `fjord-git` integration cases (stale remote-tracking ref merges with no mutation; a simulated fetch moving the tracking ref is picked up by preflight and merged, with no local branch created and the remote-tracking ref itself left untouched by the merge), updated `MergeDialog`/`RepoTree`/`CommitGraph`/`RepoDetailContainer` component tests covering the checkbox, the known-commit display, enabled remote-tracking menu entries, and both the fetch-success-then-merge and fetch-failure-cancels-merge flows. The commit-graph badge label for a remote-tracking ref already displayed only its short branch name (stripping the remote qualifier, per the existing `displayRefName`); that pre-existing display behavior is unchanged, the dispatched `MergeSource.refName` is always the exact canonical ref regardless of the shown label. i18n: `merge.remote.knownCommit`/`explanation`/`fetchFirst` added to all five locales; `npm run check-i18n` green.
+- [x] **P10-MERGE-03** — Squash merge (`merge --squash`). No detailed design existed beyond spec §9's one-paragraph note ("needs its own commit-message flow and its own conflict semantics"); the concrete design is now recorded in [`specs/branch-merge.md`](specs/branch-merge.md) §9 and summarized here. New `SquashMergeOutcome`/`SquashMergeResult` domain types and a `squash_merge_branch` IPC command reuse `get_merge_preflight` unchanged (same blockers, `MergePrediction`, and stash-first dirty policy as an ordinary merge — no second preflight, no `MergeMode` since squash never fast-forwards). The backend (`crates/fjord-git/src/local/merge.rs::run_squash`) runs `git merge --squash` through the same engine/locking/stash machinery as `merge_branch`, but the new `MutationKind::SquashMerge` bumps only `working_tree` (+`stash` when stashed) — never `refs`/`history`, since no ref moves and no commit is created. **Own conflict semantics**: squash never writes `MERGE_HEAD`, so a conflict is read live from the index (`conflict_paths`/`fresh_index`, the same primitive `operation_state::detect` uses internally) and returned as a typed `Conflicted { paths }` result rather than a `RepoOperationState` — proven by an integration test asserting `operation_state` stays `Normal` through a real conflicted squash. The conflicted files need no new UI: Working Changes has always read conflict state live, independent of operation state. **Own message flow**: a bounded read of Git's own `.git/SQUASH_MSG` on success becomes the commit draft via a new `pendingDraftMessage` prop on `WorkingChangesPanel`, following the existing amend "prepare" pattern — the user reviews/commits through the existing commit panel, not a new one. **Discarding is a plain Reset (Hard)**, deliberately not a second abort mechanism: `SquashMergeResult.targetCommit` is the pre-squash `HEAD` (never moved by any outcome), and the existing preflighted `DestructiveAction::Reset` to that commit is exactly correct; no `AbortSquashMerge` action exists. Entry points are the branch-tree and commit-graph context menus only (`Squash merge {{source}} into {{target}}…`), sharing one `MergeSource` dispatch with `Merge`; the command palette and the P10-MERGE-02 "fetch before merging" flow are deliberately out of scope for v1. Verification: five Rust integration tests (already-up-to-date, staged with no commit/moved ref, conflict-without-`MERGE_HEAD`-plus-Reset-Hard-discard, dirty stash policy, current-branch refusal) plus `generation.rs`'s mutation-mask table test; frontend component tests for `SquashMergeDialog` (title/explanation, no mode selector, dirty/blocker states, a11y), the branch-tree and commit-graph menu entries, `WorkingChangesPanel`'s prefill-and-consume-once contract, and `RepoDetailContainer`'s staged/conflicted outcome handling and invalidation scopes. i18n: `squashMerge.*` and `context.squashMergeInto` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
+
+### Working Changes file context actions
+
+Spec: [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6. `P10-WC-01` is the foundation; `P10-WC-02`–`P10-WC-06` each add one backend capability on top of it and can be scheduled, deferred, or dropped independently without leaving a half-built menu.
+
+- [x] **P10-WC-01** — The context-menu seam plus every action that reuses shipped backend behavior. `FileEntryList` gains exactly one Git-unaware `onFileContextMenu(file, anchor)` callback and stays a presentation primitive; a separate menu component builds the adaptive item list for one `WorkingFileTarget { path, source }` and a separate hook owns dispatch, so `WorkingChangesPanel.tsx` and `FileEntryList.tsx` gain no Git semantics and the seam is reusable by the Commit Inspector, File History, the Recovery Center, and the Conflict Resolver. The menu reuses the existing shared `ContextMenu` primitive (extended with submenus) rather than a second popover. Adaptive menus per §6.2 for unstaged, staged, and conflicted rows, in both Path and Tree view; a directory row exposes no actions. Stage/Unstage route through the existing `stage_files`/`unstage_files` with the identical payload and invalidation as the inline controls; **Discard working changes…** opens the existing shared destructive preflight with a whole-file `PatchSource::Worktree` selection and executes only through the existing token-bound `discard_patch` — no `git checkout -- <path>` and no unchecked service path. New backend: `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path`, plus an `IdeLauncher` `open_path`/`reveal_path` shape carrying an optional line so later "open at line N" is a use of the contract rather than a redesign; every path is repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments and no shell string. Verification: the ten component cases and path-validation backend cases in §Testing strategy, including `Shift+F10`/Context Menu key parity, focus restoration, and virtualized-row identity.
+- [x] **P10-WC-02** — **Ignore** submenu for untracked files only, writing to the repository-root `.gitignore`: exact-path, extension, and directory rules, each showing the exact rule text before it is written. Never touches global excludes, `.git/info/exclude`, `core.excludesFile`, or system Git configuration. **Supported encoding is exactly UTF-8, with or without a BOM** — no charset detection, no Windows-1251/1252/UTF-16 guessing. An existing file keeps its BOM presence, its dominant CRLF/LF terminator, and every unrelated byte; a missing final newline is added before the rule; a missing `.gitignore` is created as UTF-8 without BOM with LF. A file whose bytes are not valid UTF-8 **fails closed** with `ignore_file_encoding_unsupported` and is left byte-for-byte untouched rather than rewritten. Duplicates report `AlreadyPresent` instead of appending. Ignore is unavailable — disabled with a stated reason — for tracked files, because `.gitignore` cannot untrack them; a separate explicit "Stop tracking" workflow is not created here. Verification: exact-filename, extension, and directory rules; duplicate no-op; the encoding/terminator matrix (UTF-8 LF, UTF-8 CRLF, UTF-8 BOM preserved, missing final newline, file creation); invalid UTF-8 refused without modifying the file; tracked-file refusal.
+- [x] **P10-WC-03** — **Create patch from changes…** (unstaged, `INDEX -> WORKTREE`) and **Create patch from staged changes…** (staged, `HEAD -> INDEX`), plus the **Copy patch to clipboard** follow-up. Both reuse the shipped `PatchSelection` and the `P8-01` deterministic patch constructor unchanged — no second diff or patch implementation. A new read-only `export_patch` (`crates/fjord-git/src/local/working_tree.rs`) takes the repository *read* lock, builds a `FileDiffDetail` the same way the mutating patch commands do, and calls the existing `build_unified_patch`; it never touches the write lock, `git apply`, or any generation. Two IPC commands: `export_patch` writes the bytes to a native-save-dialog destination and returns nothing (patch content never crosses IPC for the file-save path — only `get_patch_text`, added for the clipboard follow-up, returns it as a string). Native save dialog via `@tauri-apps/plugin-dialog`'s `save()` (already a dependency; only a thin `pickSaveDestination` wrapper was new), default filename `<file-name>.patch`. Frontend selection-building was factored out of the existing Discard-file flow into a shared `buildWholeFilePatchSelection` helper (`src/application/wholeFilePatchSelection.ts`), removing duplication rather than adding a second copy. Disabled with `workingFile.disabled.whitespaceMode` while a whitespace-ignoring mode is active **for the specific row currently open in the diff view** — `FileDiffView` reports its live `{path, source, mode}` up through a new `onWhitespaceModeChange` prop; other rows have no open diff to disagree with, so nothing to gate. Binary/mode-only files are not hidden from the menu (the lightweight `WorkingFile` row summary carries no binary flag); a click on one fails closed with the existing `patch_unsupported` code instead — recorded as a deliberate scope limit in [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6. Verification: two Rust integration tests build a patch, reset only the base side (worktree file or index entry) under test, and assert `git apply --check` / `git apply --cached --check` succeed and reproduce the modified content/index state exactly; component tests cover the menu's per-row adaptivity (both sources, deleted rows, whitespace-disabled state), the hook's save/cancel/clipboard flows, and the container's destination-picked export plus the `workingFile.patchSaved` notice. i18n: `workingFile.createPatch`/`createPatchStaged`/`copyPatch`/`patchSaved`/`disabled.whitespaceMode` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
+- [x] **P10-WC-04** — **Delete file…** as `DestructiveAction::DeleteFile { path }` on the existing preflight/token/`execute_destructive_action` path — no private command, so file deletion cannot become the first destructive action that bypasses preflight enforcement. New backend module `crates/fjord-git/src/local/delete_file.rs` owns path containment (repository-root canonicalization, `..`/absolute/`.git` rejection), Git-state classification, and the actual removal; `destructive_preflight.rs`/`destructive_execution.rs` route `DeleteFile` into it exactly like every other action in the shared enum, and `repo_service.rs` needed only one line added to its existing preflight match arm. Distinct computed consequences and honest labels via the new `Consequence::FileRemoved { path, tracked }` and `Recoverability::Committed` domain variants: an untracked file is `NotRecoverable`; a tracked file that is unmodified in the worktree with nothing staged is `Committed` ("the committed version stays in `HEAD`"); a tracked file with worktree-only modifications degrades to `NotRecoverable` by additionally reusing the existing `ModifiedFilesDiscarded` consequence rather than inventing a third message. **A path that also appears in the staged list is blocked, not labelled** (`delete_file_partially_staged`): removing the worktree file while the index holds independent staged content has no single honest consequence, so the menu entry is disabled with a stated reason *and* the backend refuses — computed in preflight so no token is issued, and re-checked under the write lock at execution (new `GitError::DeleteFilePartiallyStaged`/`DeleteFileConflicted`/`DeleteTargetNotAFile` variants carry the same stable codes both ways), because frontend disabling is never the guarantee. Discard on that same unstaged row stays enabled, because it reverses only `INDEX -> WORKTREE` and preserves the staged side. A conflicted file is refused (`delete_file_conflicted`). Never recursive — offered only on file rows, and the backend refuses a directory (`delete_target_not_a_file`); a symlink is unlinked via a Windows/Unix-correct `remove_file`/`remove_dir` split, never followed. `MutationKind::DeleteFile` advances only `working_tree`. Frontend: `WorkingFileContextMenu` renders **Delete file…** last, danger-styled, with an ellipsis, on the unstaged row only, disabled with `workingFile.disabled.deleteAlsoStaged` when the row's path is also present in the staged section (computed in `RepoDetailView` from the live `WorkingChanges`, not cached); `useWorkingFileActions` routes it through a new `onDelete` callback into the existing generic `destructiveAction`/`DestructivePreflightDialog` state `RepoDetailContainer` already uses for every other enum-driven action — no new dialog. `DestructivePreflightDialog` gained one `ConsequenceItem` case and passes `{ path }` as blocker interpolation context when the action is `deleteFile`. Verification: seven `fjord-git` integration tests (untracked/atomic, tracked-unmodified/`Committed`/`HEAD`-retrievable/appears-as-unstaged-deletion, tracked-modified degrades to `NotRecoverable`, the paired partially-staged-blocks-while-discard-still-works case, conflicted refusal, directory refusal, path-traversal refusal) plus a Unix-only symlink-unlink test and the `generation.rs` mutation-mask table entry; component tests for `workingFileMenuItems`' placement/danger-styling/disabled states and the shared `ContextMenu`'s refusal to dispatch a disabled entry, plus a `useWorkingFileActions` dispatch test. i18n: `workingFile.delete`, `workingFile.disabled.deleteAlsoStaged`, `preflight.deleteFile.*`, `preflight.recoverability.committed`, `preflight.blockers.delete_target_not_a_file`/`delete_file_partially_staged`/`delete_file_conflicted`, `preflight.consequences.fileRemovedTracked`/`fileRemovedUntracked` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
+- [x] **P10-WC-05** — **Stash file…**: file-scoped worktree removal via Git's pathspec stash, whose invariant is that unrelated staged, unstaged, and untracked changes in the working tree are preserved exactly. Implemented with Git's own pathspec-scoped `stash push -u -m … -- <path>` (`crates/fjord-git/src/local/stash_file.rs`), never by hiding other changes, stashing, and restoring them — that sequence has no atomic boundary. `-u` is passed unconditionally rather than branched per file state, since the trailing pathspec is what bounds the operation to the one path; verified directly against real Git (unstaged, staged, both-sided, and untracked fixtures each leave a second unrelated staged entry, a second unrelated unstaged file, and an unrelated untracked file byte-for-byte unchanged, asserted before and after the stash). Requires Git >= 2.13 (pathspec-limited `stash push`), checked by parsing `git --version` directly rather than through `GitEnvironmentProvider` — a deliberate simplification, since the check needs only the already-resolved `GitCommandFactory` and nothing else the provider exposes; exposed as a new `stash_file_supported` IPC command polled by `useStashFileSupported` (a global, non-repo-scoped query, since it depends only on the resolved Git executable) and re-checked fail-closed inside `stash()` itself before every mutation. A conflicted path is refused (`GitError::StashFileConflicted`) via a live `git2` status read, since squash-style operations have no `MERGE_HEAD` to key off. Frontend: `WorkingFileContextMenu` renders **Stash file…** grouped with **Ignore** (unstaged rows only, withheld from conflicted and staged rows per §6.2), disabled with the stated reason on an unsupported Git; `useWorkingFileActions` routes it through a new `onStashFile` callback into a new `StashFileDialog` (built on the shared `TextActionDialog` primitive — title naming the path, a prefilled `Fjord: stash <path>` message field, and the staged-not-preserved sentence as its description) that `RepoDetailContainer` renders and wires to the new `stash_file` IPC command, invalidating `status`/`working`/`stashes` on success. `MutationKind::StashPush` (already `WORKING_STASH`-masked) is reused rather than adding a new mutation kind, since a file stash advances exactly the same two generations a whole-repository stash does. Verification: five `fjord-git` integration tests proving the unrelated-file invariant for each of the five file states (unstaged, staged, both, untracked, conflicted-refused) plus a version-gate test against the resolved Git, and unit tests for the `git --version` parser's accept/reject boundary at 2.13. i18n: `workingFile.stashFile.*` (`label`/`title`/`message`/`defaultMessage`/`stagedNotPreserved`/`unsupportedGit`/`confirm`) and `errors.stash_file_conflicted`/`stash_file_unsupported_git` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green. **Scope of what this proved, stated exactly:** the five fixtures assert the working tree immediately after creation — this is *file-scoped worktree removal preserving unrelated current changes*, invariant **A** of [`specs/stash-management.md`](specs/stash-management.md) §2.3. None of them applies the resulting entry, and a pathspec stash records whole trees, so **this task makes no claim about what a later Apply/Pop restores** (invariant **B**). `P10-STASH-02` adds that invariant, and migrates this action onto its engine (spec §2.9); until then `Stash file…` keeps exactly the behavior described here.
+- [x] **P10-WC-06** — **Open in external diff tool** for the selected file and side. The merge tool and the diff tool stay separate concepts: `open_merge_tool` remains `git mergetool` driven by `merge.tool` for conflicts; a new `open_external_diff` (`crates/fjord-git/src/local/diff_tool.rs`) drives `git difftool`. Fjord stores exactly one thing — an optional **Git difftool name** in `Settings.diff_tool` (forward-only `0007_diff_tool.sql`, [`specs/data-model.md`](specs/data-model.md)) with two documented states: `null` means "let Git resolve `diff.tool` / `difftool.<name>.cmd`", and `"meld"` means invoke `git difftool --tool=meld`. **Never an executable path, a shell command, or a command line** — `SettingsService::update_settings` rejects a value containing anything but ASCII alphanumerics/`-`/`_`/`.` with the stable code `diff_tool_name_invalid` (new `StoreError::InvalidSetting(&'static str)` variant) before it ever reaches the store. Invocation is `difftool --no-prompt -- <path>` for an unstaged row and `difftool --no-prompt --cached -- <path>` for a staged row, plus `--tool=<name>` when one is stored (pure `build_args` unit-tested per row/preference combination). Resolution: preference `null` checks `diff.tool` via a `git2` config read (no subprocess); a named preference is checked against `git difftool --tool-help`'s parsed tool list (`parse_tool_help`), which recognizes both currently-available and merely-valid tools — and a custom `difftool.<name>.cmd` entry, whose listing strips the `.cmd` suffix Git's own output appends to user-defined tool names. All four resolution outcomes are wired: preference `null` with `diff.tool` configured works; preference `null` with no `diff.tool` **disables** the entry (`workingFile.disabled.noDiffTool`, computed by a new `diff_tool_availability` IPC command polled through `useDiffToolAvailability`) rather than letting `--no-prompt` hit Git's interactive tool chooser; a stored name Git can resolve wins over `diff.tool`; a stored name Git cannot resolve fails closed with `diff_tool_not_configured` naming the tool (`AppError.tool`, interpolated into the localized message) even if the menu entry was bypassed. Frontend: `WorkingFileContextMenu` renders **Open in external diff tool** on every non-conflicted row (including deleted rows, since `git difftool` diffs a missing worktree file against `/dev/null` without Fjord needing the file to exist), disabled with the live reason; `useWorkingFileActions` dispatches it straight through the new `openExternalDiff` IPC call, no dialog. Settings gained a **Tools → External diff tool** text field (`SettingsDialog.tsx`) alongside the existing IDE fields. Verification: `build_args` unit tests for all four row/preference combinations; `fjord-git` integration tests for `diff_tool_availability` (`Auto` reflecting `git config diff.tool`, a named tool resolving via a `difftool.<name>.cmd` fixture) and for `open_external_diff` failing closed on both the unconfigured-`Auto` and unresolvable-name outcomes; `fjord-services` tests asserting `diff_tool_name_invalid` for paths, commands, shell metacharacters, and empty strings, and that a plain name round-trips; `fjord-db` round-trip test for the new column. i18n: `workingFile.openExternalDiff`, `workingFile.disabled.noDiffTool`, `settings.diffTool.*`, `errors.diff_tool_name_invalid`/`diff_tool_not_configured` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
+
+### Stash Management
+
+Spec: [`specs/stash-management.md`](specs/stash-management.md) — the single owner
+of stash product, domain, and action semantics. The bare `spec §n` references in
+this group are sections of that file.
+[`working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6 keeps ownership of
+the Working Changes entry points and selection only;
+[`ui-shell.md`](specs/ui-shell.md) keeps RepoTree/graph placement;
+[`ipc-commands.md`](specs/ipc-commands.md) records the command contracts; and
+[`repository-safety.md`](specs/repository-safety.md) §3 owns the Pop/Drop
+destructive facts. Nothing normative is duplicated across them.
+
+This is not a second stash subsystem. It generalizes what `P10-WC-05` shipped and
+retires the parts of the old whole-repository stash that cannot be made safe —
+above all the use of `stash@{n}` as identity. It also **strengthens** what
+`P10-WC-05` shipped: that task delivered file-scoped worktree removal preserving
+unrelated current changes; `P10-STASH-02` upgrades it into a first-class reusable
+scoped stash whose stored and apply semantics are exact, and `Stash file…`
+migrates onto that one engine so no two scoped-stash behaviors coexist.
+
+Dependency order — `P10-STASH-01` → `02` → `03` → `04` → `05` → `06`. The real
+edges are narrower than the chain: `02`–`06` each depend only on `01`'s identity
+and model, `05` also needs `04`'s inspector as its selection target, and `06` is
+scheduled after `03`/`04`/`05` so its one shared menu ships once into three
+existing entry points instead of being written, then rewired twice. One edge
+points outward: `P10-WC-MULTI-02`'s `Stash N files…` entry point needs `02`'s
+multi-path backend **and its passed proof gate** — if `02` stays open, that one
+entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existing
+`P10-*` id is renamed or renumbered.
+
+- [ ] **P10-STASH-01** — Rich stash model with immutable identity, and the reads
+  built on it. New `StashId(String)` newtype carrying the **stash commit OID** —
+  distinct from `CommitId` so a stash commit is never offered where a checkoutable
+  commit is expected. `StashEntry` grows from `{ index, message }` to
+  `{ id, index, ref_name, message, title, base, branch, created_at, files_changed,
+  has_index_state, has_untracked }`, replacing the old shape rather than shadowing
+  it (its only consumers are `get_stashes`, `useStashes`, and the toolbar badge).
+  Every field is derived from the repository on every read — `refs/stash` and its
+  reflog for the stack, the stash commit's parents for structure — and **nothing
+  is persisted**: no SQLite table, no settings key, no Fjord-owned name store, so
+  a stash created in a terminal is indistinguishable from one Fjord created
+  (spec §1.2–§1.4, [`specs/data-model.md`](specs/data-model.md)). `has_untracked`
+  requires the third parent to exist **and** its tree to be non-empty — a
+  pathspec stash with `-u` whose pathspec excludes every untracked file records an
+  empty third parent, verified against real Git. `title`/`branch` are parsed
+  conservatively from Git's two message shapes (`On <b>: `, `WIP on <b>: `,
+  `(no branch)` → `None`); the parse is display-only and no action consumes it,
+  which is why `Create branch from stash` uses the `base` OID instead (spec §1.5).
+  Backend `resolve_stash(StashId) -> ResolvedStash { index, ref_name }`
+  re-enumerates the stack **inside** the write-locked section immediately before
+  any mutation and fails closed with `stash_not_found` / `stash_ambiguous` rather
+  than acting on whatever now occupies an old index (spec §1.6). `get_stashes`
+  returns the new shape in Git's exact stack order, read-locked and
+  generation-enveloped. Verification: backend cases 1, 2, 3, 12, 15, 23 of spec
+  §Testing strategy — identity stability across insertion and removal, base-commit
+  correctness across later commits and branch switches, the empty-untracked-parent
+  case, and stale-identity fail-closed on every action.
+- [ ] **P10-STASH-02** — Unified stash creation for all / one / many paths with a
+  user-authored name, and an **exact** scope contract. One typed contract
+  `CreateStashRequest { scope: All | Paths { paths }, message, include_untracked }`;
+  an empty `paths` is `stash_scope_empty`, **not** a spelling of `All` (the
+  `stage_files` "empty means all" convention is deliberately not extended to a
+  command that removes work from the working tree — spec §2.1). The two scopes are
+  **two different contracts** (spec §2.1): `All` keeps conventional
+  whole-repository semantics, while `Paths` is an exact semantic subset — it
+  defines the entry's reusable contents, not merely which files leave the current
+  working tree. **This task must prove two invariants, not one** (spec §2.3):
+  **(A)** creating the stash leaves every unrelated staged, unstaged, and
+  untracked change byte-for-byte unchanged — `P10-WC-05`'s invariant, restated for
+  *n* paths; and **(B)** a later Apply / Pop of that entry touches **only** the
+  selected paths, i.e. `set(touched) == set(requested)`. `P10-WC-05` proves (A)
+  only: verified against real Git, a pathspec-scoped `git stash push` records
+  whole trees, so unrelated staged content lands in the entry and is reapplied
+  (spec §4.3). **Direct pathspec `git stash push -- <paths>` is therefore no longer
+  committed to as the final mechanism** — it is the starting point and the shipped
+  prototype, and it is acceptable only if tests prove the finished entry applies
+  selected paths alone. `Paths` is a **construction** problem (spec §2.2):
+  evaluate a temporary/private index, plumbing (`write-tree`/`commit-tree`/
+  `git stash store`), or another system-Git mechanism, and pick one with evidence.
+  The result must stay an ordinary Git stash — `git stash list`/`show`/`apply`/`pop`
+  must work on it from a terminal. Explicitly forbidden: a Fjord stash database, a
+  patch file posing as a stash, temporary mutation of unrelated working files, and
+  any "hide → stash → restore" sequence with no atomic boundary. **Proof gate:
+  this task does not ship until the apply-side fixtures pass.** If exact-scope
+  creation cannot be done safely and Git-compatibly, `P10-STASH-02` stays **open**,
+  `Stash file…` keeps its current behavior, and `Stash N files…`
+  (`P10-WC-MULTI-02`) does not ship — a smaller safe product beats a
+  `Stash 4 files` that restores five. A selection whose state the construction
+  cannot represent exactly fails closed with `stash_scope_unrepresentable` and
+  creates nothing. One engine and one module either way: `stash_file.rs` becomes
+  `stash.rs`, `git2::stash_save2` is retired, `stash_push`/`stash_file` collapse
+  into `create_stash`, and **`Stash file…` is migrated onto the new engine** so
+  one-file and *n*-file stashes cannot end up with different apply semantics
+  (spec §2.9) — there must ultimately be one implementation of interactive scoped
+  stash. Everything runs through the resolved `GitCommandFactory` with
+  individually passed arguments, under the repository write lock. Git ≥ 2.13 gates
+  `Paths` only (not `All`), read by parsing `git --version` through the resolved
+  factory — which is what `stash_file.rs` actually does today — and exposed as
+  `stash_paths_supported`; the chosen construction may raise that floor, and if it
+  does, the gate checks the raised floor. `include_untracked` is scope-specific
+  (spec §2.4.1): for `Paths` it means *selected* untracked paths may be included
+  and never sweeps in unrelated untracked files; with it off, selected untracked
+  paths are excluded from the **effective** set the dialog counts, confirms, and
+  dispatches, and are named in one sentence, so the *N* in `Stash N files` is
+  always what actually gets stashed. Conflicts fail closed for both scopes with
+  the shipped `stash_file_conflicted { path }` (reused rather than renamed, so
+  five locales stay unchanged). A creation that matches nothing must not report
+  success: it is confirmed by re-reading `refs/stash` and reported as
+  `nothing_to_stash` otherwise (spec §2.5). Per-state behavior — unstaged, staged,
+  both, untracked, ignored, deleted, renamed, mixed, conflicted — is tabulated in
+  spec §2.4. Automation stashes keep their generated messages and are distinguished
+  only by that text; no hidden marker is added. One reusable dialog on the shared
+  `TextActionDialog` serves all three scopes, prefilled and editable, with a
+  bounded effective-file list (spec §2.8). Verification: backend cases 4–11 of spec
+  §Testing strategy (invariant A, the effective-set untracked rule, and the
+  empty-scope refusal) **plus the new invariant-B cases 28–31** — entry contents
+  exactly the selected scope, Apply and Pop leaving unrelated staged/unstaged/
+  untracked paths untouched, and the `set(touched) == set(requested)` assertion —
+  which are the important regression and are not satisfied by asserting unrelated
+  files survive creation; frontend cases 11–15. A `02A`/`02B` research/production
+  split was considered and rejected: the board has no suffix-task precedent, so
+  the gate is expressed as this task staying open until the proof lands.
+- [ ] **P10-STASH-03** — **Stashes** section in `RepoTree`, after Tags, never
+  merged into branches or tags — a stash cannot be checked out, pushed, or merged,
+  and listing it among refs would invite exactly those gestures (spec §3).
+  `SectionKey` gains `"stashes"`; the section consumes `useStashes` beside
+  `useBranches`/`useTags`, shows the exact count, is collapsed by default like
+  Remote and Tags, and renders an empty state rather than hiding itself at zero.
+  Order is Git's stack order, never re-sorted. Rows show `title` over
+  `branch` (or the short `base` id when the branch did not parse) · `ref_name`,
+  with relative time dropped first when the row is too narrow. The existing filter
+  box, matched/total counts, roving tabindex, arrow-key navigation, fixed row
+  height, and virtualized body are inherited unchanged. Selecting a row opens the
+  Stash Inspector; right-click, `Shift+F10`, and the Context Menu key open the
+  shared stash menu with focus restoration, matching branch/tag parity.
+  Verification: frontend cases 1–4 of spec §Testing strategy.
+- [ ] **P10-STASH-04** — **Stash Inspector** plus a bounded stash diff. Same slot
+  and composition as `CommitInspector.tsx`, reusing `FileEntryList`,
+  `FileViewTabs`, `FileTreeControls`, and `useFileTreeCollapse` — no second file
+  list. Header: title, `ref_name`, source branch (or an honest detached note),
+  base commit, time, file count, and one sentence stating that a plain Apply
+  restores everything as *unstaged*. Files are grouped by Git's own recorded
+  structure, derived from the stash commit's parent trees and **not** from one
+  flattened `git stash show`: Staged = `base.tree`→`index.tree`, Working =
+  `index.tree`→`stash.tree`, Untracked = ∅→`untracked.tree` (spec §4.2). The split
+  is fully reconstructible, so v1 ships it; empty groups are omitted, not rendered
+  as empty headings. **The file list is always the entry's true contents — the
+  base-to-stash diff — and is never a remembered selection or a
+  presentation-time filter** (spec §4.3). For a Fjord-created `Paths` stash that
+  list *is* exactly the selected scope, because `P10-STASH-02` made the entry
+  exact; the inspector is correct without filtering anything. For a stash created
+  **outside** Fjord it shows whatever Git actually recorded, including unrelated
+  staged content a terminal pathspec stash swept in — verified against real Git,
+  such an entry lists that content and `apply` reapplies it, so a filtered list
+  would be a promise Apply does not keep. Fjord never tries to recover an external
+  stash's original pathspec: Git does not persist one.
+  New read `get_stash_file_diff { stash_id, group, path, offset, limit,
+  whitespace, load_anyway }` returns the existing `FileDiffWindow` through the
+  existing renderer, ceilings, override, generation envelope, and highlighting —
+  no second diff path. Reads take the repository **read** lock and write nothing;
+  partial staging is deliberately not offered on a stash diff (there is no
+  `PatchSource` for "inside a stash" and inventing one is out of scope).
+  Verification: backend cases 13, 14, 16 of spec §Testing strategy — group
+  correctness, the both-sided path appearing in two groups with the correct halves,
+  and the whole-trees fixture that exists specifically to stop a future "fix" that
+  filters the list.
+- [ ] **P10-STASH-05** — Stash markers in the commit graph. A stash is rendered as
+  a **marker attached to its base commit** in the existing ref-badge row — never as
+  a lane, never as history. Git's internal stash commits are an implementation
+  detail: exposing their two- or three-parent topology would put uncheckoutable,
+  merge-shaped commits into a list whose entire contract is that its entries are
+  checkoutable (spec §5.1). The marker is visually distinct from branch and tag
+  badges by glyph and treatment plus a text label, never colour alone
+  ([`specs/ui-shell.md`](specs/ui-shell.md) §7), and adds no edges, no column, and
+  no row-height change, so the virtualizer's measurements are untouched. The
+  overlay is a `Map<CommitId, StashEntry[]>` joining the already-loaded
+  `useStashes` result with already-loaded commit pages — it **never** forces the
+  graph to load more history. Markers are keyed by `StashId`, so virtualized
+  recycling cannot hand a menu the wrong entry. Several stashes on one base render
+  several individually selectable markers, collapsing into the existing ref-badge
+  flyout past the overflow threshold with each entry still individually
+  right-clickable — never one generic "3 stashes" action. When a base commit is
+  not loaded, the graph does not distort, insert a placeholder, or drop the stash:
+  the tree row offers **Reveal in graph**, reusing the shipped
+  `useCommitLog.loadUntilCommit` seek, and reports plainly when the commit is not
+  in this history (spec §5.2). Verification: frontend cases 5, 8, 9, 10 of spec
+  §Testing strategy.
+- [ ] **P10-STASH-06** — Apply / Pop / Drop / Create branch from stash / Copy,
+  from one shared item builder and one shared dispatch hook used by all three entry
+  points (tree row, graph marker, inspector), the way `P10-WC-01` and
+  `P10-MERGE-01` already do. Every entry carries a `StashId`; none carries an
+  index. **Apply** (`apply_stash { stash_id, restore_index }`) applies any entry to
+  the *current* branch, keeps it, is non-destructive and needs no preflight,
+  re-resolves the id under the write lock, and offers **Restore staged state**
+  (`--index`) only where `has_index_state` is true — a Git refusal of `--index` is
+  `stash_apply_index_refused` and is never silently retried without the flag. A
+  dirty tree that Git would overwrite yields `stash_apply_would_overwrite` with the
+  bounded path list and **Cancel only**: no autostash, no discard, no implicit
+  movement of current work (spec §6.2). **Pop** is apply-then-remove-only-on-
+  success, works on any entry, and routes through the shared destructive contract
+  as `DestructiveAction::StashPop { id, restore_index }`, **replacing** the
+  index-keyed variant rather than sitting beside it;
+  `Consequence::StashEntryConsumed` becomes `{ id, ref_name, title, files_changed,
+  base }`, and the preflight states that the entry is removed only if the apply
+  succeeds. A conflicted pop keeps the entry — Git's own verified behavior, which
+  Fjord reports rather than "finishing". **Drop** is a new
+  `DestructiveAction::StashDrop { id }` on the existing enum, executor, token path,
+  and dialog — no private command, for the same reason `P10-WC-04` gave — labeled
+  **`NotRecoverable`** unconditionally: the reflog entry is removed and `git gc`
+  may collect the dangling objects at any time, and recoverability labels are
+  contractual ([`specs/repository-safety.md`](specs/repository-safety.md) §3).
+  Apply/pop conflicts are a typed `StashApplyOutcome::Conflicted { paths }` read
+  live from the index, **not** a `RepoOperationState` — verified: a stash conflict
+  writes no `MERGE_HEAD`, only `AUTO_MERGE`, which the detector does not key on, so
+  the state stays `Normal`; this is the exact shape `P10-MERGE-03` established for
+  squash conflicts and it is reused, not reinvented (spec §6.5). **Create branch
+  from stash** creates a branch at the stash's original `base` commit, checks it
+  out, applies, and **keeps** the stash — deliberately unlike `git stash branch`,
+  which drops on success; dropping afterwards is a separate explicit preflighted
+  action. It reuses the shipped branch-name validation and the shipped
+  `checkout_branch` safety, and never silently stashes current work to make room
+  (spec §6.6). **Copy** provides stash reference, stash SHA, and base commit SHA.
+  Pop needs no command change: it has never had an IPC command and already runs
+  through `execute_destructive_action`, which already accepts an arbitrary index —
+  the shipped limitation is the frontend's literal `index: 0` at both dispatch
+  sites in `RepoDetailContainer.tsx`. The dead, test-only
+  `GitBackend::stash_pop` / `mutations::stash_pop` pair (`git2`, index 0) is
+  deleted, leaving one pop implementation. New masks: apply bumps `working_tree`
+  only, drop bumps `stash` only (spec §8). Verification: backend cases 17–27 of spec §Testing
+  strategy, including the four-fact conflicted-pop assertion, stale-identity
+  fail-closed, drop-by-identity after an intervening push, branch-at-base, the
+  generation-mask table rows, and cross-action token binding; frontend cases 6, 7.
+
+> **`P10-STASH-07` (Working Changes multi-select) was withdrawn**, not completed
+> and not renumbered. Multi-selection serves five batch actions, only one of
+> which is stash, so it moved to its own block below and to
+> [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §7. The
+> `Stash N files…` entry point is `P10-WC-MULTI-02`; the multi-path stash
+> contract it calls remains `P10-STASH-02`.
+
+### Working Changes multi-selection and batch actions
+
+Spec: [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §7 — the
+single owner of the Working Changes selection model and of every batch action
+built on it. Multi-file **stash** semantics stay in
+[`specs/stash-management.md`](specs/stash-management.md) §2; this block owns only
+the selection and the entry point that passes it.
+
+Why this is its own block rather than part of Stash Management: the same
+selection feeds Stage, Unstage, Discard, patch export, and stash. Four of those
+five have nothing to do with stash, so putting the model in the stash spec would
+have made them all depend on it. **The previously drafted `P10-STASH-07` is
+withdrawn** and replaced by `P10-WC-MULTI-01`–`03`; no other stash task changes,
+and no ID is renumbered.
+
+Dependency order — `P10-WC-MULTI-01` → `02` → `03`, with one cross-edge:
+`P10-WC-MULTI-02`'s `Stash N files…` entry point additionally requires
+`P10-STASH-02`'s exact-scope backend and its passed proof gate, so the
+recommended interleaving is
+`WC-MULTI-01` → `STASH-01` → `STASH-02` → `WC-MULTI-02` → `STASH-03…06` →
+`WC-MULTI-03`. `P10-WC-MULTI-01` is deliberately first in the whole sequence: it
+is pure frontend, unblocks nothing else, and is the piece every later batch
+action reads from.
+
+- [ ] **P10-WC-MULTI-01** — The selection model and desktop selection semantics, frontend only (spec §7.3–§7.9). `FileEntryList`'s `selectedPath: string | null` becomes `selectedPaths: ReadonlySet<string>` + `activePath`, scoped to the one section it renders, and its `onSelect` grows `{ toggle, range }` modifier flags; it gains **no** Git semantics, no source awareness, and no action knowledge — the panel maps its section's paths onto the shipped `WorkingFileTarget { path, source }` and the application layer owns the rest, holding the `P10-WC-01` boundary one level further out. Selection state is `{ targets: Set<WorkingFileTarget>, active, anchor }`, keyed by **path + source** and never by row index, virtual item, positional React key, or `HTMLElement` — `FileEntryList` virtualizes and recycles rows, so any of those silently becomes a different file on scroll. Gestures: click selects one; `Ctrl`/`Cmd`+Click toggles; `Shift`+Click ranges inclusively from a stable anchor **in current display order**; `Ctrl`/`Cmd`+`Shift`+Click adds a range; arrows move `active` and collapse, `Shift`+arrows extend, `Ctrl`/`Cmd`+`Space` toggles in place, `Escape` collapses. In Tree view the range spans **visible** rows, skips directory rows, and never reaches into a collapsed directory — selecting what is not on screen is how a batch discard removes work the user never saw. Directory rows are never selectable. `Ctrl`/`Cmd`+`A` selects every visible file row in the **focused section only**. **Cross-section selection is impossible by construction** (§7.5): touching a row in the other section clears and restarts, because Stage applies to worktree rows, Unstage to index rows, Discard only to `INDEX -> WORKTREE`, and a patch has exactly one side — every mixed case would resolve to a disabled action whose honest reason is "this cannot apply to what you selected". **Right-click is a behavioral fix to shipped code**: `FileRow` today calls `onSelect(file)` unconditionally in both its `onContextMenu` and its `Shift+F10`/Context-Menu-key handler, so a user who `Ctrl`-clicks four files loses three of them the instant they right-click to act — it becomes preserve-if-inside, replace-if-outside, on both input paths. Accessibility: each section's list becomes `role="listbox"` + `aria-multiselectable`, rows `role="option"` + `aria-selected` (today they are `<button>`s with only a `data-selected` attribute), one roving `tabindex` follows `active`, focus stays separate from selection, and the `N selected` count is announced through the existing polite live region. Selection is frontend-only: toggling runs no query and no IPC, toggle is O(1), and deriving a dispatch payload is O(selected). Verification: spec §7 frontend cases 1–6, 10–16.
+- [ ] **P10-WC-MULTI-02** — Batch **Stage** / **Unstage**, the selection-aware **Stash** entry point, and the selection toolbar (spec §7.10–§7.11, §7.14). Stage and Unstage need **no backend change at all**: `stage_files`/`unstage_files` already take a path vector, and `stage` already writes the index once via a single `add_all` over one fresh index, so batch staging is already atomic at the index level — what was missing was only a UI able to produce more than one path. Exactly **one** IPC call per action; never a loop of N mutations, which would produce N generation bumps, N invalidations, N partial-failure states, and a visibly stuttering list. Two hazards found in shipped code must be closed by this task, both recorded in spec §7.2. **(a) `stage_files([])` stages the entire repository** — `stage` branches on an empty list and calls `add_all(["*"])`, which is correct for the *Stage all* control and catastrophic for a batch action whose input is a user selection that a filter, a race, or an off-by-one just emptied; a batch action must therefore never dispatch an empty target set, and the guard is the only thing between an empty selection and a whole-repository stage. **(b) `add_all` matches pathspecs, not literal paths** — a repository path containing `*`, `?`, or a `[…]` class can match files the user did not select; the task must **verify this against libgit2 with a `report[1].txt` / `report1.txt` fixture** and, if the glob is confirmed, pass `:(literal)<path>` or switch to per-path `add_path`/`remove_path` inside the one index transaction. Neither hazard is invented here; both are pre-existing and only become reachable through batch selection. After a successful source-changing batch the selection **follows the work** — staged targets for the same paths, and the mirror image for unstage — with paths that did not appear on the other side dropped rather than kept as ghosts; if that mapping proves unreliable, clearing is an acceptable fallback but must then be documented in **both** directions. `Stash N files…` opens the **shared** stash dialog with `StashScope::Paths { paths }` prefilled and adds no stash API, no second dialog, and no stash semantics ([`specs/stash-management.md`](specs/stash-management.md) §2) — this is the one cross-edge that requires `P10-STASH-02` first, **including its proof gate**: the label promises that stashing four files touches four files on a later apply too, so this entry point ships only once that is proven, and the rest of this task ships without it if it is not. The count the dialog confirms is the *effective* set of spec §2.4.1 — selected untracked paths are excluded from it while **Include untracked files** is unticked and named in one sentence — so the *N* in the label and the *N* stashed are the same number. A compact `4 selected [Stage] [Stash] [⋯] [Clear]` strip in the existing section-header idiom keeps batch actions from being discoverable only by right-click; the context menu is the **required** surface and the strip may become a follow-up if its layout work threatens scope, but the menu never ships as the only permanent surface. Verification: spec §7 frontend cases 7–9, 17–19 and backend cases 20–23.
+- [ ] **P10-WC-MULTI-03** — Batch **Discard** and multi-file **patch export** (spec §7.12–§7.13). Batch discard gets a batch *contract*, never a loop: three confirmed single-file discards in sequence produce exactly the partial-success state the safety model exists to prevent — one confirmed sentence, one to three files changed depending on where it failed. `PatchSelection` stays per-file (it is the right granularity and every shipped validator depends on it); the batch is an ordered vector of them plus one new `DestructiveAction::DiscardFiles { paths }` on the **existing** enum, executed by a new `discard_patches { selections: Vec<PatchSelection>, … }` — whole-file only, since hunk and line discard have no multi-file UI that could produce them and no sentence that could describe them honestly. Atomicity is **Git's own**, not something Fjord layers on: the batch runs `discard_patch`'s existing sequence *once* — one write lock, one `index.lock`, one token, one rebuild, one `git apply --reverse --check` over the concatenated patch, one re-verification, one apply, one `MutationKind::Discard` bump — and `git apply` validates every hunk of every file before touching the worktree. One preflight dialog bound to the whole set, aggregating the shipped per-file consequence computation into a single `ModifiedFilesDiscarded { count, sample }` plus a summed line count, so **no new consequence variant is needed**; the token binds repository, action, every selection in order, every `base_digest`, and the `GenerationSet`. **Staleness is all-or-nothing**: if any selected file changed after preflight the whole batch fails `patch_stale`/`preflight_stale` and nothing is discarded — the remaining files are not "still fine", because a subset is not what the user confirmed. A partially staged path's unstaged row discards `INDEX -> WORKTREE` only and leaves its staged side byte-identical, exactly as single-file discard already does, which is why the selection carries `source` rather than a bare path. Nothing is ever silently skipped: a conflicted member refuses the batch, a binary/mode-only member disables the batch patch entry with the offending path named. Patch export becomes multi-file by widening the shipped commands rather than adding a second pair: `export_patch` and `get_patch_text` take `selections: Vec<PatchSelection>`, a single file being a vector of length one. Output is **one** valid `git apply`-able unified patch — unstaged selection → combined `INDEX -> WORKTREE`, staged → combined `HEAD -> INDEX` with `--cached`; a mixed-source patch is not refused so much as unconstructible, since §7.5 prevents the selection. Each file's section comes from the shipped `P8-01` `build_unified_patch` unchanged, digest-verified before its bytes are emitted, then concatenated in **byte-lexicographic repository-path order** — Git's own diff ordering — so two exports of one selection are byte-identical and click order never leaks into the file. Both commands stay read-only: read lock, no index lock, no generation bump. Default filename `<repository-name>-<n>-files.patch`; `Copy patch for N files` is the same bytes through the clipboard from the identical builder. Verification: spec §7 backend cases 24–32, including the stale-one-refuse-all case, the partially-staged index preservation, cross-set token binding, both apply round-trips, the no-unselected-path assertion, and ordering determinism.
+
+### Advanced workflows & workspace
+
+Spec: [`specs/workspace-workflows.md`](specs/workspace-workflows.md) — the bare `spec §n` references in this group are sections of that file. IDs are unchanged; see the execution order above for when each is actually worked.
 
 - [ ] **P10-01** — Worktree model and `list_worktrees`, cached in the repository runtime against the `refs` generation, plus discovery hardening so a `.git` *file* is recognized and worktrees are never imported as separate repositories (spec §1). Verification: output matches `git worktree list --porcelain`; import test on a folder containing a repository and its worktrees.
 - [ ] **P10-02** — `create_worktree` / `remove_worktree` with `WorktreeBranch::{Existing,New}`, path validation (canonicalized, empty or non-existent, not inside another working tree), locked-worktree handling, and prune for missing paths (spec §1). Verification: integration tests for creation with a new branch, refusal on an invalid path, and removal refusal with uncommitted changes.
 - [ ] **P10-03** — Worktrees section in the repository tree with open-in-IDE, open-terminal, remove, and prune; removal routed through the P9 preflight and `force` labeled *not recoverable*; watcher tiering so the shared `.git` is watched once per repository (spec §1). Verification: component tests; a runtime assertion that N worktrees do not create N `.git` watches.
 - [ ] **P10-04** — `start_rebase(onto)` through system Git with a non-interactive editor, returning the resulting `RepoOperationState` so a conflicted rebase hands straight to the P9 banner (spec §2). Verification: integration tests for clean and conflicted rebases asserting the returned state.
-- [ ] **P10-05** — Rebase preflight and entry points: refuse when an operation is in progress, offer cancel or stash-and-rebase on a dirty tree (never autostash), state the published-commit count when a force-with-lease push would follow, and expose the action from branch context and the palette (spec §2). Verification: component tests per preflight variant; E2E rebase-with-conflict resolved through the UI.
+- [ ] **P10-05** — Rebase preflight and entry points, **reusing the shared integration preflight** `P10-MERGE-01` establishes ([`specs/branch-merge.md`](specs/branch-merge.md) §4) rather than defining a second one: the same blockers (operation in progress, detached/unborn `HEAD`, staged changes, bounded overwrite set), the same cancel-or-explicit-named-stash dirty policy with no autostash, and the same branch-context/palette entry-point layout. Adds the rebase-specific published-commit count when a force-with-lease push would follow (spec §2). Verification: component tests per preflight variant; E2E rebase-with-conflict resolved through the UI.
 - [ ] **P10-06** — Remote CRUD: `remotes`, `add_remote`, `set_remote_url`, `rename_remote`, `remove_remote`, all configuration-only, with removal routed through a preflight naming orphaned upstreams (spec §3). Verification: integration tests asserting `git config` reflects each operation.
 - [ ] **P10-07** — Remotes UI section and a remote picker reused by publish, fetch, and set-upstream, with URL userinfo redacted for display and logging (spec §3). The section and redaction are shipped, and it now supports an explicit multi-selection that pushes the current branch to several configured remotes with per-destination results without changing upstream. The shared single-remote picker plus edit/rename/remove UI remain pending, so this task is not closed. Verification: component test asserting a credential-bearing URL is never rendered verbatim.
 - [ ] **P10-08** — `RepoHealth` computed in the backend from the status cache, expected branch, and operation state, with the documented severity order and a `needs_attention` rule that no longer counts a merely dirty repository (spec §4). This changes existing dashboard behavior deliberately. Verification: a test changing one repository's state and asserting the dashboard, sidebar badge, and filters all agree; a test pinning the new `needs_attention` rule.

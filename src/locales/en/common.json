@@ -32,6 +32,8 @@
     "create_repository_registration_failed": "The repository was created on disk but could not be added to the workspace. Your files were kept.",
     "create_repository_request_invalid": "Check the repository folder name and initial branch.",
     "database_error": "Fjord could not save its data. Try again or restart the app if the problem continues.",
+    "diff_tool_name_invalid": "Enter a Git difftool name, such as meld — not a path or a command.",
+    "diff_tool_not_configured": "Git could not resolve the difftool {{tool}}.",
     "git_error": "Git could not complete the operation. Check the repository state and try again.",
     "git_auth_failed": "Git authentication failed. Check your credential helper, token, or SSH key.",
     "git_auth_required": "Git needs authentication. Complete the credential prompt and try again.",
@@ -73,6 +75,8 @@
     "remote_name_exists": "A remote with this name already exists.",
     "remote_request_invalid": "Check the remote name and repository URL.",
     "stash_empty": "There are no saved stashes to apply.",
+    "stash_file_conflicted": "This file has unresolved conflicts. Resolve them first.",
+    "stash_file_unsupported_git": "Stashing a single file needs Git 2.13 or newer.",
     "unexpected": "Something went wrong. Try again or restart Fjord if the problem continues.",
     "workspace_not_found": "The workspace could not be found. Refresh the app and try again.",
     "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually."
@@ -163,6 +167,11 @@
       "customPlaceholder": "editor-command",
       "customValue": "Saved as custom:<command>.",
       "saveCustom": "Save"
+    },
+    "diffTool": {
+      "label": "External diff tool",
+      "auto": "Use the tool configured in Git",
+      "invalidName": "Enter a Git difftool name, such as meld — not a path or a command."
     },
     "about": {
       "version": "Version {{version}}",

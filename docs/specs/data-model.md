@@ -19,6 +19,7 @@ CREATE TABLE settings (
     auto_fetch      INTEGER NOT NULL DEFAULT 0,
     performance_diagnostics INTEGER NOT NULL DEFAULT 0,
     git_executable_path TEXT,
+    diff_tool       TEXT,                          -- Git difftool NAME only; see below
     updated_at      TEXT NOT NULL
 );
 
@@ -76,7 +77,22 @@ does not enable background network activity in the current product.
 
 Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
 `0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
-`0005_repo_snapshot.sql`, and `0006_ui_state.sql`.
+`0005_repo_snapshot.sql`, `0006_ui_state.sql`, and `0007_diff_tool.sql`.
+
+`0007_diff_tool.sql` (`P10-WC-06`) adds `settings.diff_tool`, holding a Git
+difftool **name** and nothing else:
+
+```sql
+-- NULL   -> let Git resolve diff.tool / difftool.<name>.cmd
+-- 'meld' -> invoke `git difftool --tool=meld`
+ALTER TABLE settings ADD COLUMN diff_tool TEXT;
+```
+
+Never an executable path, a shell command, or a command line: values
+containing path separators, whitespace, quotes, or shell metacharacters are
+rejected at the settings boundary (`diff_tool_name_invalid`), so this column
+can never become a launch vector. The tool's actual command line stays in the
+user's own Git configuration. See [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4.
 
 ## Planned additions
 
@@ -87,6 +103,23 @@ Designed but not migrated yet. Each is forward-only and owned by a spec.
 -- See specs/workspace-workflows.md §5.
 ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
 ```
+
+Neither the merge workflow ([`branch-merge.md`](branch-merge.md)) nor the Working
+Changes file context menu ([`working-tree-and-diff.md`](working-tree-and-diff.md)
+§6) adds any other persisted state: merge state lives in Git's own directory and
+is read live, and the context menu is transient UI state, not a preference.
+
+**Stash management ([`stash-management.md`](stash-management.md)) adds no
+persisted state either, and the omission is a design decision rather than an
+oversight.** Git owns stash state: the stack is `refs/stash` and its reflog, a
+stash's name is the entry's own message, and its structure is readable from the
+stash commit's parents. A Fjord-side stash table would be a second source of
+truth that a terminal `git stash drop` falsifies immediately, would orphan rows
+forever, and would make Fjord-created stashes behave differently from everyone
+else's. Stash identity is the stash commit OID — an immutable Git object id, not
+a Fjord-assigned key — so there is nothing to store. Working Changes
+multi-selection (`P10-WC-MULTI-01`–`P10-WC-MULTI-03`) is likewise transient view
+state.
 
 A snapshot row is revalidated on first use after a restart, because generations
 ([`performance.md`](performance.md) §5) are in-memory and reset to zero — a

@@ -56,7 +56,7 @@ function snapshot(branch: string, message: string): RepositorySnapshot {
     },
     workingChanges: {
       staged: [],
-      unstaged: [{ path: `${message}.txt`, changeType: "modified", conflicted: false }],
+      unstaged: [{ path: `${message}.txt`, changeType: "modified", tracked: true, conflicted: false }],
     },
     generations: { workingTree: 1, refs: 1, history: 1, stash: 0, config: 0 },
   };

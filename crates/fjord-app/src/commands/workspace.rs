@@ -170,7 +170,8 @@ pub async fn clone_repository(
             None,
             error
                 .diagnostics
-                .clone()
+                .as_deref()
+                .cloned()
                 .or_else(|| Some(error.message.clone())),
         ),
     };

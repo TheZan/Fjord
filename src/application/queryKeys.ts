@@ -10,6 +10,8 @@ export const queryKeys = {
     all: ["repos"] as const,
     detail: (repoId: string) => [...queryKeys.repos.all, repoId] as const,
     branches: (repoId: string) => [...queryKeys.repos.detail(repoId), "branches"] as const,
+    mergePreflight: (repoId: string, refName: string) =>
+      [...queryKeys.repos.detail(repoId), "mergePreflight", refName] as const,
     tags: (repoId: string) => [...queryKeys.repos.detail(repoId), "tags"] as const,
     remotes: (repoId: string) => [...queryKeys.repos.detail(repoId), "remotes"] as const,
     status: (repoId: string) => [...queryKeys.repos.detail(repoId), "status"] as const,
@@ -39,5 +41,10 @@ export const queryKeys = {
       [...queryKeys.repos.fileDiffAuthorities(repoId), sourceKey, path] as const,
     workingChanges: (repoId: string) => [...queryKeys.repos.detail(repoId), "workingChanges"] as const,
     stashes: (repoId: string) => [...queryKeys.repos.detail(repoId), "stashes"] as const,
+    diffToolAvailability: (repoId: string) =>
+      [...queryKeys.repos.detail(repoId), "diffToolAvailability"] as const,
+  },
+  git: {
+    stashFileSupported: ["git", "stashFileSupported"] as const,
   },
 };

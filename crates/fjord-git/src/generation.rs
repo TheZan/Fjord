@@ -135,8 +135,12 @@ pub(crate) enum MutationKind {
     Stage,
     Unstage,
     Discard,
+    Ignore,
+    DeleteFile,
     Commit,
     IntegrateUpstream,
+    Merge { stash: bool },
+    SquashMerge { stash: bool },
     Fetch,
     Push,
     PublishBranch,
@@ -160,7 +164,13 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::CherryPick
         | MutationKind::Revert
         | MutationKind::Commit
-        | MutationKind::IntegrateUpstream => GenerationMask::WORKING_REFS_HISTORY,
+        | MutationKind::IntegrateUpstream
+        | MutationKind::Merge { stash: false } => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::Merge { stash: true } => GenerationMask::new(true, true, true, true, false),
+        MutationKind::SquashMerge { stash: false } => GenerationMask::WORKING_TREE,
+        MutationKind::SquashMerge { stash: true } => {
+            GenerationMask::new(true, false, false, true, false)
+        }
         MutationKind::Reset {
             touches_working_tree: false,
         } => GenerationMask::REFS_HISTORY,
@@ -168,9 +178,11 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             touches_working_tree: true,
         } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::StashPush | MutationKind::StashPop => GenerationMask::WORKING_STASH,
-        MutationKind::Stage | MutationKind::Unstage | MutationKind::Discard => {
-            GenerationMask::WORKING_TREE
-        }
+        MutationKind::Stage
+        | MutationKind::Unstage
+        | MutationKind::Discard
+        | MutationKind::Ignore
+        | MutationKind::DeleteFile => GenerationMask::WORKING_TREE,
         MutationKind::Fetch | MutationKind::Push | MutationKind::DeleteRemoteBranch => {
             GenerationMask::REFS_HISTORY
         }
@@ -231,10 +243,28 @@ mod tests {
             (MutationKind::Stage, GenerationMask::WORKING_TREE),
             (MutationKind::Unstage, GenerationMask::WORKING_TREE),
             (MutationKind::Discard, GenerationMask::WORKING_TREE),
+            (MutationKind::Ignore, GenerationMask::WORKING_TREE),
+            (MutationKind::DeleteFile, GenerationMask::WORKING_TREE),
             (MutationKind::Commit, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::IntegrateUpstream,
                 GenerationMask::WORKING_REFS_HISTORY,
+            ),
+            (
+                MutationKind::Merge { stash: false },
+                GenerationMask::WORKING_REFS_HISTORY,
+            ),
+            (
+                MutationKind::Merge { stash: true },
+                GenerationMask::new(true, true, true, true, false),
+            ),
+            (
+                MutationKind::SquashMerge { stash: false },
+                GenerationMask::WORKING_TREE,
+            ),
+            (
+                MutationKind::SquashMerge { stash: true },
+                GenerationMask::new(true, false, false, true, false),
             ),
             (MutationKind::Fetch, GenerationMask::REFS_HISTORY),
             (MutationKind::Push, GenerationMask::REFS_HISTORY),

@@ -32,7 +32,8 @@
     "activeRepositoryGroup": "Активный репозиторий",
     "workspaceGroup": "Рабочее пространство",
     "globalGroup": "Общие",
-    "viewDetail": "Переключить представление"
+    "viewDetail": "Переключить представление",
+    "mergeBranch": "Слияние ветки…"
   },
   "repositorySwitcher": {
     "placeholder": "Перейти к репозиторию или рабочему пространству",
@@ -106,7 +107,26 @@
     "updatingGraph": "Обновляем граф коммитов…",
     "rowLabel": "{{message}}, автор {{author}}, коммит {{sha}}"
   },
+  "merge": {
+    "title": "Слить {{source}} в {{target}}", "loading": "Проверяем репозиторий…", "running": "Выполняется слияние…", "dismiss": "Закрыть",
+    "mode": { "label": "Режим", "default": "Обычное слияние", "fastForwardOnly": "Только fast-forward" }, "confirm": "Слить", "cancel": "Отмена",
+    "prediction": { "alreadyUpToDate": "Ветка {{target}} уже содержит {{source}}. Сливать нечего.", "fastForward_one": "Ветка {{source}} опережает {{target}} на {{count}} коммит. Будет выполнен fast-forward.", "fastForward_other": "Ветка {{source}} опережает {{target}} на {{count}} коммитов. Будет выполнен fast-forward.", "mergeCommit": "Ветка {{source}} опережает {{target}} на {{ahead}} коммитов и отстаёт на {{behind}}. Будет создан коммит слияния." },
+    "dirty": { "title": "Есть локальные изменения.", "stashAndMerge": "Сохранить изменения в stash и слить", "stashRetained": "Ваши изменения находятся в {{stash}}." },
+    "remote": { "knownCommit": "Известный коммит: {{sha}}", "explanation": "Это удалённая отслеживаемая ветка в том виде, в котором Fjord видел её в последний раз.", "fetchFirst": "Выполнить fetch {{remote}} перед слиянием" },
+    "outcome": { "alreadyUpToDate": "Ветка {{target}} уже была актуальна.", "fastForwarded": "Ветка {{target}} перемещена fast-forward к {{source}}.", "merged": "Ветка {{source}} слита в {{target}}.", "conflicted": "Ветки {{source}} и {{target}} конфликтуют. Разрешите конфликты, затем продолжите или отмените слияние." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} уже является текущей веткой.", "sourceNotFound": "Ветка {{source}} больше не существует.", "remoteSourceNotSupported": "Слияние удалённой ветки пока недоступно. Переключитесь на неё или выполните fetch и слейте локальную ветку.", "sourceKindUnsupported": "Сливать можно только ветки.", "operationInProgress": "Уже выполняется другая операция Git.", "detachedHead": "HEAD отсоединён. Перед слиянием переключитесь на ветку.", "unbornHead": "В ветке {{target}} ещё нет коммитов.", "stagedChanges_one": "Перед слиянием нужно закоммитить или сохранить в stash {{count}} подготовленное изменение.", "stagedChanges_other": "Перед слиянием нужно закоммитить или сохранить в stash {{count}} подготовленных изменений.", "wouldOverwrite_one": "Слияние перезапишет {{count}} файл с локальными изменениями.", "wouldOverwrite_other": "Слияние перезапишет {{count}} файлов с локальными изменениями." },
+    "error": { "notFastForward": "Нельзя выполнить fast-forward из {{source}} в {{target}}. Используйте обычное слияние или сначала rebase.", "failed": "Не удалось завершить слияние. Репозиторий не изменён сверх того, что сообщил Git." }
+  },
+  "squashMerge": {
+    "title": "Слияние с сжатием {{source}} в {{target}}", "loading": "Проверяем репозиторий…", "running": "Выполняется слияние с сжатием…", "dismiss": "Закрыть", "confirm": "Слить со сжатием", "cancel": "Отмена",
+    "explanation": "Объединённые изменения из {{source}} будут подготовлены в индексе без создания коммита. Просмотрите и закоммитьте их в разделе «Изменения».",
+    "dirty": { "stashAndSquashMerge": "Сохранить изменения в stash и слить со сжатием" },
+    "outcome": { "alreadyUpToDate": "Ветка {{target}} уже содержит {{source}}. Сжимать нечего.", "staged": "Слияние {{source}} в {{target}} со сжатием подготовлено в индексе для коммита.", "conflicted_one": "Ветки {{source}} и {{target}} конфликтуют: {{count}} файл нужно разрешить в разделе «Изменения», затем закоммитить. Чтобы отменить слияние, используйте Reset (Hard) к текущему коммиту.", "conflicted_other": "Ветки {{source}} и {{target}} конфликтуют: {{count}} файлов нужно разрешить в разделе «Изменения», затем закоммитить. Чтобы отменить слияние, используйте Reset (Hard) к текущему коммиту." },
+    "error": { "failed": "Не удалось завершить слияние со сжатием. Репозиторий не изменён сверх того, что сообщил Git." }
+  },
   "context": {
+    "mergeInto": "Слить {{source}} в {{target}}…",
+    "squashMergeInto": "Слить со сжатием {{source}} в {{target}}…",
     "checkout": "Переключиться на ветку",
     "createBranchHere": "Создать ветку здесь",
     "createTagHere": "Создать тег здесь",
@@ -475,10 +495,15 @@
       "title": "Восстановить HEAD до этого состояния?",
       "confirm": "Восстановить HEAD"
     },
+    "deleteFile": {
+      "title": "Удалить этот файл?",
+      "confirm": "Удалить файл"
+    },
     "recoverability": {
       "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
       "stash": "Изменения будут сохранены в stash.",
-      "notRecoverable": "Git не гарантирует сохранение резервной копии этих изменений. Fjord не может обещать их восстановление."
+      "notRecoverable": "Git не гарантирует сохранение резервной копии этих изменений. Fjord не может обещать их восстановление.",
+      "committed": "Закоммиченная версия останется в HEAD, и её можно будет восстановить оттуда."
     },
     "blockers": {
       "binary_changes_unsupported": "Двоичные изменения нельзя отменить с такой детализацией.",
@@ -487,7 +512,10 @@
       "current_branch_cannot_be_deleted": "Нельзя удалить ветку, на которую сейчас переключён репозиторий.",
       "operation_not_in_progress": "Нет операции Git, которую можно прервать.",
       "ref_not_found": "Целевая ссылка больше не существует.",
-      "stash_not_found": "Выбранная запись stash больше не существует."
+      "stash_not_found": "Выбранная запись stash больше не существует.",
+      "delete_target_not_a_file": "Из этого меню можно удалять только файлы.",
+      "delete_file_partially_staged": "У файла {{path}} есть и подготовленные изменения. Уберите их из индекса перед удалением файла.",
+      "delete_file_conflicted": "У файла {{path}} есть неразрешённые конфликты. Сначала разрешите их."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Отменить изменения в {{count}} изменённом файле: {{sample}}.",
@@ -511,7 +539,9 @@
       "branchDeletedUnmerged": "Удалить ветку {{name}}, не слитую с {{unmergedInto}}.",
       "tagDeleted": "Удалить тег {{name}}.",
       "stashEntryConsumed": "Применить и удалить stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}."
+      "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}.",
+      "fileRemovedTracked": "Удалить {{path}} из рабочей директории; это будет выглядеть как удаление в Git.",
+      "fileRemovedUntracked": "Удалить {{path}}. У Git нет копии этого файла."
     }
   },
   "repoActions": {
@@ -590,6 +620,54 @@
     "pushResults": "Результаты отправки",
     "pushSuccess": "Отправлено",
     "pushFailure": "Ошибка: {{error}}"
+  },
+  "workingFile": {
+    "stage": "Индексировать",
+    "unstage": "Убрать из индекса",
+    "discard": "Отменить рабочие изменения…",
+    "discardIncomplete": "Откройте diff файла, чтобы отменить изменения в таком большом файле.",
+    "openInConfiguredEditor": "Открыть в настроенном редакторе",
+    "openWithDefault": "Открыть приложением по умолчанию",
+    "showInFolder": "Показать в папке",
+    "openMergeTool": "Открыть инструмент слияния",
+    "openExternalDiff": "Открыть во внешнем инструменте сравнения",
+    "copyPath": { "label": "Копировать путь", "relative": "Относительный путь", "absolute": "Абсолютный путь" },
+    "createPatch": "Создать патч из изменений…",
+    "createPatchStaged": "Создать патч из подготовленных изменений…",
+    "copyPatch": "Копировать патч в буфер обмена",
+    "patchSaved": "Патч сохранён в {{path}}.",
+    "delete": "Удалить файл…",
+    "stashFile": {
+      "label": "Сохранить файл в stash…",
+      "title": "Сохранить изменения {{path}} в stash",
+      "message": "Сообщение",
+      "defaultMessage": "Fjord: stash {{path}}",
+      "stagedNotPreserved": "Состояние индекса не сохраняется: при восстановлении этого stash изменения вернутся неподготовленными.",
+      "unsupportedGit": "Для сохранения одного файла в stash требуется Git 2.13 или новее.",
+      "confirm": "Сохранить файл в stash"
+    },
+    "disabled": {
+      "whitespaceMode": "Отображаемый diff не совпадает с патчем, который применит Git.",
+      "deleteAlsoStaged": "У этого файла есть и подготовленные изменения. Уберите их из индекса перед удалением файла.",
+      "noDiffTool": "Внешний инструмент сравнения не настроен. Задайте diff.tool в Git или выберите его в Настройки → Инструменты."
+    },
+    "ignore": {
+      "label": "Игнорировать",
+      "file": "Игнорировать этот файл",
+      "extension": "Игнорировать все файлы .{{extension}}",
+      "directory": "Игнорировать эту папку ({{directory}})",
+      "title": "Добавить правило в .gitignore",
+      "description": "Проверьте точное правило для {{path}} перед записью.",
+      "loading": "Проверка .gitignore…",
+      "rulePreview": "Добавляемое правило",
+      "confirm": "Добавить правило",
+      "adding": "Добавление…",
+      "close": "Закрыть",
+      "added": "Правило добавлено в .gitignore.",
+      "alreadyPresent": "Такое правило уже есть в .gitignore.",
+      "trackedFile": "Отслеживаемый файл нельзя игнорировать. Сначала Git должен перестать его отслеживать.",
+      "encodingUnsupported": ".gitignore должен быть в UTF-8 с BOM или без него. Файл не изменён."
+    }
   },
   "working": {
     "title": "Незакоммиченные изменения",

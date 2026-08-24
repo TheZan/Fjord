@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoFetch: false,
   performanceDiagnostics: false,
   gitExecutablePath: null,
+  diffTool: null,
 };
 
 const IDE_CHOICES: Array<{ value: string | null; key: string }> = [
@@ -84,6 +85,7 @@ export function SettingsDialog({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [customIde, setCustomIde] = useState("");
+  const [diffToolInput, setDiffToolInput] = useState("");
   const [gitEnvironment, setGitEnvironment] = useState<GitEnvironmentInfo | null>(null);
   const [gitPending, setGitPending] = useState(false);
   const [gitError, setGitError] = useState<string | null>(null);
@@ -107,6 +109,7 @@ export function SettingsDialog({
         if (!mounted) return;
         setSettings(loaded);
         setCustomIde(customIdeCommand(loaded.defaultIde));
+        setDiffToolInput(loaded.diffTool ?? "");
       })
       .catch((reason) => {
         if (!mounted) return;
@@ -166,6 +169,13 @@ export function SettingsDialog({
   function commitCustomIde() {
     const trimmed = customIde.trim();
     void saveSettings({ defaultIde: trimmed ? `${CUSTOM_IDE_PREFIX}${trimmed}` : null }, "customIde");
+  }
+
+  function commitDiffTool() {
+    const trimmed = diffToolInput.trim();
+    setDiffToolInput(trimmed);
+    if (trimmed === (currentSettings.diffTool ?? "")) return;
+    void saveSettings({ diffTool: trimmed ? trimmed : null }, "diffTool");
   }
 
   async function refreshGitEnvironment() {
@@ -580,6 +590,23 @@ export function SettingsDialog({
                       </Button>
                     </div>
                     <Muted className="text-[11px]">{t("settings.defaultIde.customValue")}</Muted>
+                  </SettingsPanel>
+                </SettingsGroup>
+
+                <SettingsGroup title={t("settings.diffTool.label")}>
+                  <SettingsPanel className="flex flex-col gap-2">
+                    <Input
+                      value={diffToolInput}
+                      onChange={(event) => setDiffToolInput(event.target.value)}
+                      onBlur={commitDiffTool}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      placeholder={t("settings.diffTool.auto")}
+                      disabled={pendingKey === "diffTool"}
+                      className="min-w-0 flex-1"
+                    />
+                    <Muted className="text-[11px]">{t("settings.diffTool.invalidName")}</Muted>
                   </SettingsPanel>
                 </SettingsGroup>
 

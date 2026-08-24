@@ -18,6 +18,8 @@ pub enum StoreError {
     RepositoryAlreadyExists(std::path::PathBuf),
     #[error("database error: {0}")]
     Database(String),
+    #[error("invalid setting: {0}")]
+    InvalidSetting(&'static str),
 }
 
 #[async_trait]
