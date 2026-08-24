@@ -685,6 +685,10 @@
     "commit_one": "{{count}} Datei committen",
     "commit_other": "{{count}} Dateien committen"
   },
+  "workingChanges": {
+    "selectionAnnouncement_one": "{{count}} von {{total}} Datei ausgewählt",
+    "selectionAnnouncement_other": "{{count}} von {{total}} Dateien ausgewählt"
+  },
   "workspaces": {
     "label": "Workspaces",
     "loading": "Lädt",

@@ -49,6 +49,10 @@ export function CommitInspector({
     [files, viewMode],
   );
   const collapse = useFileTreeCollapse(directoryPaths);
+  const selectedPaths = useMemo(
+    () => new Set(selectedFilePath ? [selectedFilePath] : []),
+    [selectedFilePath],
+  );
 
   const authoredAt = formatAuthoredAt(commit.authoredAt, i18n.language);
 
@@ -110,7 +114,8 @@ export function CommitInspector({
             files={files}
             mode={viewMode}
             collapse={collapse}
-            selectedPath={selectedFilePath}
+            selectedPaths={selectedPaths}
+            activePath={selectedFilePath}
             onSelect={(file) => onSelectFile(file.path)}
             renderMark={(file) => (
               <span

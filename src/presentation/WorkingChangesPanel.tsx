@@ -14,11 +14,7 @@ import {
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
 import type { AmendInfo, WorkingChanges, WorkingFile, WorkingFileTarget } from "@/domain/git";
-
-export interface SelectedWorkingFile {
-  path: string;
-  staged: boolean;
-}
+import type { WorkingFileSelectionController } from "@/application/useWorkingFileSelection";
 
 /**
  * The commit panel: what's staged, what isn't, and the message that will turn
@@ -31,8 +27,7 @@ export function WorkingChangesPanel({
   error,
   busy,
   validated,
-  selectedFile,
-  onSelectFile,
+  selection,
   onStage,
   onUnstage,
   onFileContextMenu,
@@ -46,8 +41,7 @@ export function WorkingChangesPanel({
   error: string | null;
   busy: boolean;
   validated: boolean;
-  selectedFile: SelectedWorkingFile | null;
-  onSelectFile: (file: SelectedWorkingFile) => void;
+  selection: WorkingFileSelectionController;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onFileContextMenu?: (
@@ -84,6 +78,12 @@ export function WorkingChangesPanel({
   }, []);
 
   const total = changes.staged.length + changes.unstaged.length;
+  const selectedSource = selection.targets.values().next().value?.source ?? selection.active?.source;
+  const selectionTotal = selectedSource === "index"
+    ? changes.staged.length
+    : selectedSource === "worktree"
+      ? changes.unstaged.length
+      : total;
   const canCommit = validated
     && (amend || changes.staged.length > 0)
     && summary.trim().length > 0
@@ -153,6 +153,12 @@ export function WorkingChangesPanel({
 
   return (
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {t("workingChanges.selectionAnnouncement", {
+          count: selection.targets.size,
+          total: selectionTotal,
+        })}
+      </p>
       <div
         className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2"
         style={{ borderColor: "var(--hairline)" }}
@@ -195,8 +201,7 @@ export function WorkingChangesPanel({
           actionLabel={t("working.stage")}
           bulkLabel={t("working.stageAll")}
           busy={busy || !validated}
-          selectedFile={selectedFile}
-          onSelectFile={onSelectFile}
+          selection={selection}
           onAct={onStage}
           onFileContextMenu={onFileContextMenu}
         />
@@ -209,8 +214,7 @@ export function WorkingChangesPanel({
           actionLabel={t("working.unstage")}
           bulkLabel={t("working.unstageAll")}
           busy={busy || !validated}
-          selectedFile={selectedFile}
-          onSelectFile={onSelectFile}
+          selection={selection}
           onAct={onUnstage}
           onFileContextMenu={onFileContextMenu}
         />
@@ -291,8 +295,7 @@ function FileSection({
   actionLabel,
   bulkLabel,
   busy,
-  selectedFile,
-  onSelectFile,
+  selection,
   onAct,
   onFileContextMenu,
 }: {
@@ -304,8 +307,7 @@ function FileSection({
   actionLabel: string;
   bulkLabel: string;
   busy: boolean;
-  selectedFile: SelectedWorkingFile | null;
-  onSelectFile: (file: SelectedWorkingFile) => void;
+  selection: WorkingFileSelectionController;
   onAct: (paths: string[]) => void;
   onFileContextMenu?: (
     file: WorkingFile,
@@ -316,8 +318,14 @@ function FileSection({
   const { t } = useTranslation("workspace");
   if (files.length === 0) return null;
 
-  const selectedPath =
-    selectedFile && selectedFile.staged === staged ? selectedFile.path : null;
+  const source = staged ? "index" as const : "worktree" as const;
+  const selectedPaths = new Set(
+    [...selection.targets]
+      .filter((target) => target.source === source)
+      .map((target) => target.path),
+  );
+  const activePath = selection.active?.source === source ? selection.active.path : null;
+  const targetFor = (path: string): WorkingFileTarget => ({ path, source });
 
   return (
     <div className="p-2">
@@ -340,14 +348,35 @@ function FileSection({
         files={files}
         mode={viewMode}
         collapse={collapse}
-        selectedPath={selectedPath}
-        onSelect={(file) => onSelectFile({ path: file.path, staged })}
+        selectedPaths={selectedPaths}
+        activePath={activePath}
+        multiselectable
+        ariaLabel={label}
+        onSelect={(file, intent, visibleFiles) => {
+          selection.select(
+            targetFor(file.path),
+            intent.range
+              ? visibleFiles.map((visibleFile) => targetFor(visibleFile.path))
+              : [],
+            intent,
+          );
+        }}
+        onActivate={(file) => selection.activate(targetFor(file.path))}
+        onSelectAll={(visibleFiles, focusedFile) => selection.selectAll(
+          source,
+          visibleFiles.map((visibleFile) => targetFor(visibleFile.path)),
+          targetFor(focusedFile.path),
+        )}
+        onVisibleFilesChange={(visibleFiles) => selection.registerVisibleTargets(
+          source,
+          visibleFiles.map((visibleFile) => targetFor(visibleFile.path)),
+        )}
         onFileContextMenu={onFileContextMenu
-          ? (file, anchor) => onFileContextMenu(
-              file,
-              { path: file.path, source: staged ? "index" : "worktree" },
-              anchor,
-            )
+          ? (file, anchor) => {
+              const target = targetFor(file.path);
+              selection.prepareContextMenu(target);
+              onFileContextMenu(file, target, anchor);
+            }
           : undefined}
         renderMark={(file) => (
           <span
