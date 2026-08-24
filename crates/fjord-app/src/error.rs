@@ -10,13 +10,17 @@ pub struct AppError {
     pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub diagnostics: Option<String>,
+    pub diagnostics: Option<Box<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub paths: Option<Vec<String>>,
+    pub paths: Option<Box<Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stash_ref: Option<String>,
+    pub stash_ref: Option<Box<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool: Option<String>,
+    pub tool: Option<Box<String>>,
+}
+
+fn boxed<T>(value: T) -> Option<Box<T>> {
+    Some(Box::new(value))
 }
 
 impl AppError {
@@ -154,7 +158,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
             return AppError {
                 code: "operation_step_failed".to_string(),
                 message: "repository operation step failed".to_string(),
-                diagnostics: Some(diagnostics),
+                diagnostics: boxed(diagnostics),
                 paths: None,
                 stash_ref: None,
                 tool: None,
@@ -165,7 +169,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 code: "checkout_would_overwrite".to_string(),
                 message: "checkout would overwrite local changes".to_string(),
                 diagnostics: None,
-                paths: Some(paths),
+                paths: boxed(paths),
                 stash_ref: None,
                 tool: None,
             };
@@ -175,7 +179,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 code: "merge_would_overwrite".to_string(),
                 message: "merge would overwrite local changes".to_string(),
                 diagnostics: None,
-                paths: Some(paths),
+                paths: boxed(paths),
                 stash_ref: None,
                 tool: None,
             };
@@ -184,7 +188,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
             return AppError {
                 code: "merge_failed".to_string(),
                 message: "merge failed".to_string(),
-                diagnostics: Some(diagnostics),
+                diagnostics: boxed(diagnostics),
                 paths: None,
                 stash_ref: None,
                 tool: None,
@@ -192,7 +196,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         }
         GitError::MergeStashRetained(source) => {
             let mut error = git_error_to_app_error(*source);
-            error.stash_ref = Some("stash@{0}".to_string());
+            error.stash_ref = boxed("stash@{0}".to_string());
             return error;
         }
         GitError::DiffToolNotConfigured { tool } => {
@@ -202,7 +206,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 diagnostics: None,
                 paths: None,
                 stash_ref: None,
-                tool: Some(tool),
+                tool: boxed(tool),
             };
         }
         other => other,
@@ -269,7 +273,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
     AppError {
         code: err.code().to_string(),
         message: err.to_string(),
-        diagnostics: err.diagnostics().map(ToString::to_string),
+        diagnostics: err.diagnostics().map(ToString::to_string).map(Box::new),
         paths: None,
         stash_ref: None,
         tool: None,
@@ -279,6 +283,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::path::PathBuf;
 
     #[test]
@@ -296,7 +301,10 @@ mod tests {
             stderr_tail: "fatal: Authentication failed for https://[REDACTED]@example.test".into(),
         });
         assert_eq!(error.code, "git_auth_failed");
-        assert!(error.diagnostics.unwrap().contains("[REDACTED]"));
+        assert!(error
+            .diagnostics
+            .as_deref()
+            .is_some_and(|diagnostics| diagnostics.contains("[REDACTED]")));
     }
 
     #[test]
@@ -414,8 +422,8 @@ mod tests {
 
         assert_eq!(error.code, "checkout_would_overwrite");
         assert_eq!(
-            error.paths,
-            Some(vec!["src/main.rs".into(), "README.md".into()])
+            error.paths.as_deref(),
+            Some(&vec!["src/main.rs".into(), "README.md".into()])
         );
     }
 
@@ -436,9 +444,13 @@ mod tests {
             git_error_to_app_error(GitError::OperationStepFailed("failed".into())).code,
             "operation_step_failed"
         );
+        let error = git_error_to_app_error(GitError::OperationStepFailed("sanitized".into()));
         assert_eq!(
-            git_error_to_app_error(GitError::OperationStepFailed("sanitized".into())).diagnostics,
-            Some("sanitized".into())
+            error
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| diagnostics.as_str()),
+            Some("sanitized")
         );
     }
 
@@ -461,6 +473,54 @@ mod tests {
         )));
 
         assert_eq!(error.code, "merge_not_fast_forward");
-        assert_eq!(error.stash_ref.as_deref(), Some("stash@{0}"));
+        assert_eq!(
+            error.stash_ref.as_deref().map(|stash| stash.as_str()),
+            Some("stash@{0}")
+        );
+    }
+
+    #[test]
+    fn serialization_omits_absent_optional_payloads() {
+        let value =
+            serde_json::to_value(AppError::new("test_code", "fallback".to_string())).unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "code": "test_code",
+                "message": "fallback"
+            })
+        );
+    }
+
+    #[test]
+    fn serialization_keeps_optional_payloads_at_the_top_level() {
+        let value = serde_json::to_value(AppError {
+            code: "test_code".to_string(),
+            message: "fallback".to_string(),
+            diagnostics: boxed("sanitized diagnostics".to_string()),
+            paths: boxed(vec!["src/main.rs".to_string(), "README.md".to_string()]),
+            stash_ref: boxed("stash@{0}".to_string()),
+            tool: boxed("meld".to_string()),
+        })
+        .unwrap();
+
+        assert_eq!(
+            value,
+            json!({
+                "code": "test_code",
+                "message": "fallback",
+                "diagnostics": "sanitized diagnostics",
+                "paths": ["src/main.rs", "README.md"],
+                "stash_ref": "stash@{0}",
+                "tool": "meld"
+            })
+        );
+    }
+
+    #[test]
+    fn app_error_stays_below_the_project_size_ceiling() {
+        let size = std::mem::size_of::<AppError>();
+        assert!(size <= 96, "AppError grew to {size} bytes");
     }
 }

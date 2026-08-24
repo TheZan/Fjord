@@ -68,9 +68,6 @@ pub async fn reset_git_executable(state: TracedState<'_>) -> Result<GitEnvironme
     Ok(with_askpass_availability(state.askpass_available(), info))
 }
 
-// Tauri serializes the stable AppError IPC payload by value; boxing it would
-// change the generated command contract for a user-triggered settings action.
-#[allow(clippy::result_large_err)]
 #[tauri::command]
 pub fn reveal_log_folder(app: tauri::AppHandle) -> Result<(), AppError> {
     let directory = app

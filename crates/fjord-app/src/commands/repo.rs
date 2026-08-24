@@ -852,7 +852,8 @@ async fn run_commit_and_push_operation(
                     message: Some("commit-failed".to_string()),
                     error: error
                         .diagnostics
-                        .clone()
+                        .as_deref()
+                        .cloned()
                         .or_else(|| Some(error.message.clone())),
                 },
             );
@@ -889,7 +890,8 @@ async fn run_commit_and_push_operation(
                     error: push_error.as_ref().and_then(|error| {
                         error
                             .diagnostics
-                            .clone()
+                            .as_deref()
+                            .cloned()
                             .or_else(|| Some(error.message.clone()))
                     }),
                 },
@@ -1231,7 +1233,8 @@ where
             0,
             error
                 .diagnostics
-                .clone()
+                .as_deref()
+                .cloned()
                 .or_else(|| Some(error.message.clone())),
         ),
     };
