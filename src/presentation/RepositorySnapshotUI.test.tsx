@@ -43,9 +43,11 @@ describe("repository snapshot UI", () => {
       busy: false,
       selection: {
         targets: new Set<import("@/domain/git").WorkingFileTarget>(),
+        source: null,
         active: null,
         anchor: null,
         isSelected: vi.fn(() => false),
+        selectedPaths: vi.fn(() => new Set<string>()),
         select: vi.fn(),
         selectAll: vi.fn(),
         activate: vi.fn(),

@@ -7,6 +7,7 @@ import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 
 const loadUiState = vi.fn();
 const saveRepoModes = vi.fn();
+let virtualWindow: number[] | null = null;
 
 vi.mock("@/infrastructure/uiState", () => ({
   loadUiState: (...args: unknown[]) => loadUiState(...args),
@@ -29,7 +30,10 @@ vi.mock("react-i18next", () => ({
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 29,
-    getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
+    scrollToIndex: vi.fn(),
+    getVirtualItems: () => (virtualWindow ?? Array.from({ length: count }, (_, index) => index))
+      .filter((index) => index < count)
+      .map((index) => ({
       index,
       key: index,
       size: 29,
@@ -67,9 +71,11 @@ function selectionController(
 ): WorkingFileSelectionController {
   return {
     targets: new Set(),
+    source: null,
     active: null,
     anchor: null,
     isSelected: vi.fn(() => false),
+    selectedPaths: vi.fn(() => new Set<string>()),
     select: vi.fn(),
     selectAll: vi.fn(),
     activate: vi.fn(),
@@ -82,6 +88,7 @@ function selectionController(
 
 describe("WorkingChangesPanel", () => {
   beforeEach(() => {
+    virtualWindow = null;
     loadUiState.mockResolvedValue({
       version: 1,
       sidebar: { width: null, collapsedWorkspaces: [] },
@@ -356,6 +363,43 @@ describe("WorkingChangesPanel", () => {
     expect(screen.getByTitle("src/app.ts")).toHaveAttribute("aria-selected", "true");
   });
 
+  it("preserves selection and anchor across real virtualizer unmount/remount", () => {
+    const largeChanges: WorkingChanges = {
+      unstaged: Array.from({ length: 80 }, (_, index) => ({
+        path: `src/file-${index.toString().padStart(3, "0")}.ts`,
+        changeType: "modified" as const,
+        tracked: true,
+        conflicted: false,
+      })),
+      staged: [],
+    };
+    virtualWindow = [0, 1, 2];
+    const view = render(
+      <SelectionHarness currentChanges={largeChanges} virtualRevision={0} />,
+    );
+    const anchorPath = "src/file-000.ts";
+    const endPath = "src/file-002.ts";
+
+    fireEvent.click(screen.getByTitle(anchorPath));
+    fireEvent.click(screen.getByTitle(endPath), { shiftKey: true });
+    expect(screen.getByTitle(anchorPath)).toHaveAttribute("aria-selected", "true");
+
+    virtualWindow = [50, 51, 52];
+    view.rerender(<SelectionHarness currentChanges={largeChanges} virtualRevision={1} />);
+    expect(screen.queryByTitle(anchorPath)).not.toBeInTheDocument();
+    expect(screen.getByTitle("src/file-050.ts")).toBeInTheDocument();
+
+    virtualWindow = [0, 1, 2];
+    view.rerender(<SelectionHarness currentChanges={largeChanges} virtualRevision={2} />);
+    expect(screen.getByTitle(anchorPath)).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(screen.getByTitle("src/file-001.ts"), { shiftKey: true });
+    expect(screen.getByTitle(anchorPath)).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTitle("src/file-001.ts")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTitle(endPath)).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("status")).toHaveTextContent("2 of 80 selected");
+  });
+
   it("drops disappeared targets and clears the selection when the repository changes", async () => {
     const view = render(<SelectionHarness />);
     fireEvent.click(screen.getByTitle("src/app.ts"));
@@ -368,6 +412,32 @@ describe("WorkingChangesPanel", () => {
     view.rerender(<SelectionHarness repositoryId="repo-2" />);
     await waitFor(() => expect(screen.getByTitle("src/app.ts")).toHaveAttribute("aria-selected", "false"));
   });
+
+  it("uses the captured old order for active fallback after refresh", async () => {
+    const orderedChanges: WorkingChanges = {
+      unstaged: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"].map((path) => ({
+        path,
+        changeType: "modified" as const,
+        tracked: true,
+        conflicted: false,
+      })),
+      staged: [],
+    };
+    const view = render(<SelectionHarness currentChanges={orderedChanges} />);
+    fireEvent.click(screen.getByTitle("a.ts"));
+    fireEvent.click(screen.getByTitle("d.ts"), { ctrlKey: true });
+    fireEvent.click(screen.getByTitle("c.ts"), { ctrlKey: true });
+
+    const withoutActive: WorkingChanges = {
+      ...orderedChanges,
+      unstaged: orderedChanges.unstaged.filter((file) => file.path !== "c.ts"),
+    };
+    view.rerender(<SelectionHarness currentChanges={withoutActive} />);
+
+    await waitFor(() => expect(screen.getByTitle("d.ts")).toHaveAttribute("tabindex", "0"));
+    expect(screen.getByTitle("a.ts")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTitle("d.ts")).toHaveAttribute("aria-selected", "true");
+  });
 });
 
 function SelectionHarness({
@@ -376,13 +446,16 @@ function SelectionHarness({
   onFileContextMenu = vi.fn(),
   onStage = vi.fn(),
   onUnstage = vi.fn(),
+  virtualRevision = 0,
 }: {
   currentChanges?: WorkingChanges;
   repositoryId?: string;
   onFileContextMenu?: React.ComponentProps<typeof WorkingChangesPanel>["onFileContextMenu"];
   onStage?: React.ComponentProps<typeof WorkingChangesPanel>["onStage"];
   onUnstage?: React.ComponentProps<typeof WorkingChangesPanel>["onUnstage"];
+  virtualRevision?: number;
 }) {
+  void virtualRevision;
   const selection = useWorkingFileSelection(repositoryId, currentChanges);
   return (
     <WorkingChangesPanel

@@ -78,7 +78,7 @@ export function WorkingChangesPanel({
   }, []);
 
   const total = changes.staged.length + changes.unstaged.length;
-  const selectedSource = selection.targets.values().next().value?.source ?? selection.active?.source;
+  const selectedSource = selection.source ?? selection.active?.source;
   const selectionTotal = selectedSource === "index"
     ? changes.staged.length
     : selectedSource === "worktree"
@@ -319,11 +319,7 @@ function FileSection({
   if (files.length === 0) return null;
 
   const source = staged ? "index" as const : "worktree" as const;
-  const selectedPaths = new Set(
-    [...selection.targets]
-      .filter((target) => target.source === source)
-      .map((target) => target.path),
-  );
+  const selectedPaths = selection.selectedPaths(source);
   const activePath = selection.active?.source === source ? selection.active.path : null;
   const targetFor = (path: string): WorkingFileTarget => ({ path, source });
 

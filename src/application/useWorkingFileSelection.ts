@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { PatchSource, WorkingChanges, WorkingFileTarget } from "@/domain/git";
 
 interface FileSelectionIntent {
@@ -8,22 +8,16 @@ interface FileSelectionIntent {
 }
 
 export interface WorkingSelection {
-  /** Canonical targets for future batch actions. Identity is source + path. */
+  /** Read-only live view. Canonical identity is source + path. */
   targets: ReadonlySet<WorkingFileTarget>;
   active: WorkingFileTarget | null;
   anchor: WorkingFileTarget | null;
 }
 
-export interface WorkingSelectionState {
-  repositoryId: string;
-  targetKeys: ReadonlySet<string>;
-  source: PatchSource | null;
-  active: WorkingFileTarget | null;
-  anchor: WorkingFileTarget | null;
-}
-
 export interface WorkingFileSelectionController extends WorkingSelection {
+  source: PatchSource | null;
   isSelected: (target: WorkingFileTarget) => boolean;
+  selectedPaths: (source: PatchSource) => ReadonlySet<string>;
   select: (
     target: WorkingFileTarget,
     visibleTargets: readonly WorkingFileTarget[],
@@ -49,6 +43,10 @@ export function workingTargetKey(target: WorkingFileTarget): string {
   return `${target.source}${TARGET_KEY_SEPARATOR}${target.path}`;
 }
 
+function pathFromTargetKey(key: string): string {
+  return key.slice(key.indexOf(TARGET_KEY_SEPARATOR) + 1);
+}
+
 function sameTarget(left: WorkingFileTarget | null, right: WorkingFileTarget | null) {
   return left === right
     || (left !== null
@@ -57,141 +55,348 @@ function sameTarget(left: WorkingFileTarget | null, right: WorkingFileTarget | n
       && left.source === right.source);
 }
 
-function emptySelection(repositoryId: string): WorkingSelectionState {
-  return { repositoryId, targetKeys: new Set(), source: null, active: null, anchor: null };
+/**
+ * Canonical DOM-free selection storage. Single-target toggle mutates only one
+ * hash-set entry; React receives a separate revision notification.
+ */
+export class WorkingSelectionModel {
+  readonly #targetKeys = new Set<string>();
+
+  repositoryId: string;
+  source: PatchSource | null = null;
+  active: WorkingFileTarget | null = null;
+  anchor: WorkingFileTarget | null = null;
+
+  constructor(repositoryId: string) {
+    this.repositoryId = repositoryId;
+  }
+
+  get size() {
+    return this.#targetKeys.size;
+  }
+
+  has(target: WorkingFileTarget) {
+    return this.#targetKeys.has(workingTargetKey(target));
+  }
+
+  selectedKeys(): IterableIterator<string> {
+    return this.#targetKeys.values();
+  }
+
+  select(
+    repositoryId: string,
+    target: WorkingFileTarget,
+    visibleTargets: readonly WorkingFileTarget[],
+    intent: FileSelectionIntent,
+  ) {
+    this.ensureRepository(repositoryId);
+    const targetKey = workingTargetKey(target);
+    const crossesSection = this.source !== null && this.source !== target.source;
+
+    if (crossesSection || (!intent.toggle && !intent.range)) {
+      this.replaceWith(target);
+      return true;
+    }
+
+    if (!intent.range) {
+      // Expected O(1): no clone and no iteration over the selected targets.
+      if (this.#targetKeys.has(targetKey)) this.#targetKeys.delete(targetKey);
+      else this.#targetKeys.add(targetKey);
+      this.source = this.#targetKeys.size > 0 ? target.source : null;
+      this.active = target;
+      this.anchor = intent.preserveAnchor ? this.anchor ?? target : target;
+      return true;
+    }
+
+    const anchorIndex = this.anchor?.source === target.source
+      ? visibleTargets.findIndex((candidate) => sameTarget(candidate, this.anchor))
+      : -1;
+    const targetIndex = visibleTargets.findIndex((candidate) => sameTarget(candidate, target));
+    if (anchorIndex < 0 || targetIndex < 0) {
+      this.replaceWith(target);
+      return true;
+    }
+
+    const start = Math.min(anchorIndex, targetIndex);
+    const end = Math.max(anchorIndex, targetIndex);
+    if (!intent.toggle) this.#targetKeys.clear();
+    for (let index = start; index <= end; index += 1) {
+      this.#targetKeys.add(workingTargetKey(visibleTargets[index]));
+    }
+    this.source = target.source;
+    this.active = target;
+    return true;
+  }
+
+  prepareContextMenu(repositoryId: string, target: WorkingFileTarget) {
+    this.ensureRepository(repositoryId);
+    if (this.has(target)) {
+      if (sameTarget(this.active, target)) return false;
+      this.active = target;
+      return true;
+    }
+    this.replaceWith(target);
+    return true;
+  }
+
+  selectAll(
+    repositoryId: string,
+    source: PatchSource,
+    visibleTargets: readonly WorkingFileTarget[],
+    focusedTarget: WorkingFileTarget,
+  ) {
+    this.ensureRepository(repositoryId);
+    const sourceTargets = visibleTargets.filter((target) => target.source === source);
+    if (sourceTargets.length === 0) return false;
+
+    const anchor = this.anchor?.source === source
+      && sourceTargets.some((target) => sameTarget(target, this.anchor))
+      ? this.anchor
+      : focusedTarget;
+    this.#targetKeys.clear();
+    for (const target of sourceTargets) this.#targetKeys.add(workingTargetKey(target));
+    this.source = source;
+    this.active = focusedTarget;
+    this.anchor = anchor;
+    return true;
+  }
+
+  activate(repositoryId: string, target: WorkingFileTarget) {
+    const repositoryChanged = this.ensureRepository(repositoryId);
+    if (!repositoryChanged && sameTarget(this.active, target)) return false;
+    this.active = target;
+    return true;
+  }
+
+  registerVisibleTargets(
+    repositoryId: string,
+    source: PatchSource,
+    visibleTargets: readonly WorkingFileTarget[],
+  ) {
+    const repositoryChanged = this.ensureRepository(repositoryId);
+    if (!this.anchor || this.anchor.source !== source) return repositoryChanged;
+    if (visibleTargets.some((target) => sameTarget(target, this.anchor))) {
+      return repositoryChanged;
+    }
+    this.anchor = null;
+    return true;
+  }
+
+  reconcile(
+    repositoryId: string,
+    availableTargets: readonly WorkingFileTarget[],
+    previousOrder: readonly string[],
+  ) {
+    if (this.repositoryId !== repositoryId) {
+      this.reset(repositoryId);
+      return true;
+    }
+
+    const available = new Map(availableTargets.map((target) => [workingTargetKey(target), target]));
+    let changed = false;
+    for (const key of this.#targetKeys) {
+      if (!available.has(key)) {
+        this.#targetKeys.delete(key);
+        changed = true;
+      }
+    }
+
+    let active = this.active ? available.get(workingTargetKey(this.active)) ?? null : null;
+    let anchor = this.anchor ? available.get(workingTargetKey(this.anchor)) ?? null : null;
+    if (!active && this.#targetKeys.size > 0) {
+      active = nearestSurvivingTarget(
+        this.#targetKeys,
+        available,
+        this.active ? workingTargetKey(this.active) : null,
+        previousOrder,
+        availableTargets,
+      );
+    }
+    if (this.#targetKeys.size === 0) {
+      this.source = null;
+      if (!active) anchor = null;
+    }
+
+    if (!sameTarget(active, this.active)) changed = true;
+    if (!sameTarget(anchor, this.anchor)) changed = true;
+    this.active = active;
+    this.anchor = anchor;
+    return changed;
+  }
+
+  clear(repositoryId: string) {
+    if (
+      this.repositoryId === repositoryId
+      && this.#targetKeys.size === 0
+      && this.source === null
+      && this.active === null
+      && this.anchor === null
+    ) {
+      return false;
+    }
+    this.reset(repositoryId);
+    return true;
+  }
+
+  targetsView(
+    repositoryId: string,
+    availableByKey: ReadonlyMap<string, WorkingFileTarget>,
+  ): ReadonlySet<WorkingFileTarget> {
+    const model = this;
+    return Object.freeze(new ReadonlySetView(
+      () => model.repositoryId === repositoryId ? model.size : 0,
+      (target) => model.repositoryId === repositoryId && model.has(target),
+      function* values(): SetIterator<WorkingFileTarget> {
+        if (model.repositoryId !== repositoryId) return undefined;
+        for (const key of model.selectedKeys()) {
+          const target = availableByKey.get(key);
+          if (target) yield target;
+        }
+      },
+    ));
+  }
+
+  selectedPathsView(repositoryId: string, source: PatchSource): ReadonlySet<string> {
+    const model = this;
+    return Object.freeze(new ReadonlySetView(
+      () => model.repositoryId === repositoryId && model.source === source ? model.size : 0,
+      (path) => model.repositoryId === repositoryId
+        && model.source === source
+        && model.has({ path, source }),
+      function* values(): SetIterator<string> {
+        if (model.repositoryId !== repositoryId || model.source !== source) return undefined;
+        for (const key of model.selectedKeys()) yield pathFromTargetKey(key);
+      },
+    ));
+  }
+
+  #clearSelection() {
+    this.#targetKeys.clear();
+    this.source = null;
+    this.active = null;
+    this.anchor = null;
+  }
+
+  private ensureRepository(repositoryId: string) {
+    if (this.repositoryId === repositoryId) return false;
+    this.reset(repositoryId);
+    return true;
+  }
+
+  private replaceWith(target: WorkingFileTarget) {
+    this.#targetKeys.clear();
+    this.#targetKeys.add(workingTargetKey(target));
+    this.source = target.source;
+    this.active = target;
+    this.anchor = target;
+  }
+
+  private reset(repositoryId: string) {
+    this.#clearSelection();
+    this.repositoryId = repositoryId;
+  }
 }
 
-function withRepository(
-  state: WorkingSelectionState,
-  repositoryId: string,
-): WorkingSelectionState {
-  return state.repositoryId === repositoryId ? state : emptySelection(repositoryId);
+function nearestSurvivingTarget(
+  selectedKeys: Iterable<string>,
+  available: ReadonlyMap<string, WorkingFileTarget>,
+  oldActiveKey: string | null,
+  previousOrder: readonly string[],
+  currentOrder: readonly WorkingFileTarget[],
+) {
+  const previousPositions = new Map(previousOrder.map((key, index) => [key, index]));
+  const currentPositions = new Map(
+    currentOrder.map((target, index) => [workingTargetKey(target), index]),
+  );
+  const oldActiveIndex = oldActiveKey === null ? undefined : previousPositions.get(oldActiveKey);
+  let nearestKey: string | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  let nearestCurrentIndex = Number.POSITIVE_INFINITY;
+
+  for (const key of selectedKeys) {
+    const previousIndex = previousPositions.get(key);
+    const distance = oldActiveIndex !== undefined && previousIndex !== undefined
+      ? Math.abs(previousIndex - oldActiveIndex)
+      : Number.POSITIVE_INFINITY;
+    const currentIndex = currentPositions.get(key) ?? Number.POSITIVE_INFINITY;
+    if (
+      distance < nearestDistance
+      || (distance === nearestDistance && currentIndex < nearestCurrentIndex)
+    ) {
+      nearestKey = key;
+      nearestDistance = distance;
+      nearestCurrentIndex = currentIndex;
+    }
+  }
+  return nearestKey ? available.get(nearestKey) ?? null : null;
+}
+
+class ReadonlySetView<T> implements ReadonlySet<T> {
+  readonly [Symbol.toStringTag] = "Set";
+
+  constructor(
+    private readonly getSize: () => number,
+    private readonly contains: (value: T) => boolean,
+    private readonly iterate: () => SetIterator<T>,
+  ) {}
+
+  get size() {
+    return this.getSize();
+  }
+
+  has(value: T) {
+    return this.contains(value);
+  }
+
+  values() {
+    return this.iterate();
+  }
+
+  keys() {
+    return this.values();
+  }
+
+  *entries(): SetIterator<[T, T]> {
+    for (const value of this.values()) yield [value, value];
+  }
+
+  forEach(
+    callbackfn: (value: T, value2: T, set: ReadonlySet<T>) => void,
+    thisArg?: unknown,
+  ) {
+    for (const value of this.values()) callbackfn.call(thisArg, value, value, this);
+  }
+
+  [Symbol.iterator]() {
+    return this.values();
+  }
 }
 
 export function applyWorkingSelectionIntent(
-  state: WorkingSelectionState,
+  model: WorkingSelectionModel,
   repositoryId: string,
   target: WorkingFileTarget,
   visibleTargets: readonly WorkingFileTarget[],
   intent: FileSelectionIntent,
-): WorkingSelectionState {
-  const current = withRepository(state, repositoryId);
-  const targetKey = workingTargetKey(target);
-  const crossesSection = current.source !== null && current.source !== target.source;
-
-  if (crossesSection || (!intent.toggle && !intent.range)) {
-    return {
-      repositoryId,
-      targetKeys: new Set([targetKey]),
-      source: target.source,
-      active: target,
-      anchor: target,
-    };
-  }
-
-  if (!intent.range) {
-    const nextKeys = new Set(current.targetKeys);
-    if (nextKeys.has(targetKey)) nextKeys.delete(targetKey);
-    else nextKeys.add(targetKey);
-    return {
-      repositoryId,
-      targetKeys: nextKeys,
-      source: nextKeys.size > 0 ? target.source : null,
-      active: target,
-      anchor: intent.preserveAnchor ? current.anchor ?? target : target,
-    };
-  }
-
-  const anchor = current.anchor;
-  const anchorIndex = anchor?.source === target.source
-    ? visibleTargets.findIndex((candidate) => sameTarget(candidate, anchor))
-    : -1;
-  const targetIndex = visibleTargets.findIndex((candidate) => sameTarget(candidate, target));
-  if (anchorIndex < 0 || targetIndex < 0) {
-    return {
-      repositoryId,
-      targetKeys: new Set([targetKey]),
-      source: target.source,
-      active: target,
-      anchor: target,
-    };
-  }
-
-  const start = Math.min(anchorIndex, targetIndex);
-  const end = Math.max(anchorIndex, targetIndex);
-  const nextKeys = intent.toggle ? new Set(current.targetKeys) : new Set<string>();
-  for (let index = start; index <= end; index += 1) {
-    nextKeys.add(workingTargetKey(visibleTargets[index]));
-  }
-  return {
-    repositoryId,
-    targetKeys: nextKeys,
-    source: target.source,
-    active: target,
-    anchor,
-  };
+) {
+  return model.select(repositoryId, target, visibleTargets, intent);
 }
 
 export function prepareWorkingContextSelection(
-  state: WorkingSelectionState,
+  model: WorkingSelectionModel,
   repositoryId: string,
   target: WorkingFileTarget,
-): WorkingSelectionState {
-  const current = withRepository(state, repositoryId);
-  const key = workingTargetKey(target);
-  if (current.targetKeys.has(key)) {
-    return { ...current, active: target };
-  }
-  return {
-    repositoryId,
-    targetKeys: new Set([key]),
-    source: target.source,
-    active: target,
-    anchor: target,
-  };
+) {
+  return model.prepareContextMenu(repositoryId, target);
 }
 
 export function reconcileWorkingSelection(
-  state: WorkingSelectionState,
+  model: WorkingSelectionModel,
   repositoryId: string,
   availableTargets: readonly WorkingFileTarget[],
   previousOrder: readonly string[],
-): WorkingSelectionState {
-  const current = withRepository(state, repositoryId);
-  if (current !== state) return current;
-
-  const available = new Map(availableTargets.map((target) => [workingTargetKey(target), target]));
-  const targetKeys = new Set([...current.targetKeys].filter((key) => available.has(key)));
-  let active = current.active ? available.get(workingTargetKey(current.active)) ?? null : null;
-  let anchor = current.anchor ? available.get(workingTargetKey(current.anchor)) ?? null : null;
-
-  if (!active && targetKeys.size > 0) {
-    const oldActiveIndex = current.active
-      ? previousOrder.indexOf(workingTargetKey(current.active))
-      : -1;
-    const candidates = [...targetKeys];
-    candidates.sort((left, right) => {
-      if (oldActiveIndex < 0) {
-        return availableTargets.findIndex((target) => workingTargetKey(target) === left)
-          - availableTargets.findIndex((target) => workingTargetKey(target) === right);
-      }
-      const leftIndex = previousOrder.indexOf(left);
-      const rightIndex = previousOrder.indexOf(right);
-      return Math.abs(leftIndex - oldActiveIndex) - Math.abs(rightIndex - oldActiveIndex);
-    });
-    active = available.get(candidates[0]) ?? null;
-  }
-  if (targetKeys.size === 0) {
-    active = active && available.has(workingTargetKey(active)) ? active : null;
-    anchor = anchor && available.has(workingTargetKey(anchor)) ? anchor : null;
-  }
-
-  const unchanged = targetKeys.size === current.targetKeys.size
-    && [...targetKeys].every((key) => current.targetKeys.has(key))
-    && sameTarget(active, current.active)
-    && sameTarget(anchor, current.anchor);
-  const source = targetKeys.size > 0 ? current.source : null;
-  return unchanged ? state : { repositoryId, targetKeys, source, active, anchor };
+) {
+  return model.reconcile(repositoryId, availableTargets, previousOrder);
 }
 
 function targetsForChanges(changes: WorkingChanges): WorkingFileTarget[] {
@@ -211,104 +416,86 @@ export function useWorkingFileSelection(
     [availableTargets],
   );
   const previousOrder = useRef<string[]>(availableTargets.map(workingTargetKey));
-  const [state, setState] = useState<WorkingSelectionState>(() => emptySelection(repositoryId));
+  const modelRef = useRef<WorkingSelectionModel | null>(null);
+  if (!modelRef.current) modelRef.current = new WorkingSelectionModel(repositoryId);
+  const model = modelRef.current;
+  const [selectionRevision, bumpSelectionRevision] = useReducer((revision) => revision + 1, 0);
 
-  useEffect(() => {
-    setState((current) => reconcileWorkingSelection(
-      current,
-      repositoryId,
-      availableTargets,
-      previousOrder.current,
-    ));
-    previousOrder.current = availableTargets.map(workingTargetKey);
-  }, [availableTargets, repositoryId]);
+  useLayoutEffect(() => {
+    const previous = previousOrder.current.slice();
+    const next = availableTargets.map(workingTargetKey);
+    previousOrder.current = next;
+    if (reconcileWorkingSelection(model, repositoryId, availableTargets, previous)) {
+      bumpSelectionRevision();
+    }
+  }, [availableTargets, model, repositoryId]);
 
+  const notifyIfChanged = useCallback((changed: boolean) => {
+    if (changed) bumpSelectionRevision();
+  }, []);
   const select = useCallback((
     target: WorkingFileTarget,
     visibleTargets: readonly WorkingFileTarget[],
     intent: FileSelectionIntent,
   ) => {
-    setState((current) => applyWorkingSelectionIntent(
-      current,
+    notifyIfChanged(applyWorkingSelectionIntent(
+      model,
       repositoryId,
       target,
       visibleTargets,
       intent,
     ));
-  }, [repositoryId]);
-
+  }, [model, notifyIfChanged, repositoryId]);
   const selectAll = useCallback((
     source: PatchSource,
     visibleTargets: readonly WorkingFileTarget[],
     focusedTarget: WorkingFileTarget,
   ) => {
-    setState((stateBeforeUpdate) => {
-      const current = withRepository(stateBeforeUpdate, repositoryId);
-      const sourceTargets = visibleTargets.filter((target) => target.source === source);
-      if (sourceTargets.length === 0) return current;
-      const anchor = current.anchor?.source === source
-        && sourceTargets.some((target) => sameTarget(target, current.anchor))
-        ? current.anchor
-        : focusedTarget;
-      return {
-        repositoryId,
-        targetKeys: new Set(sourceTargets.map(workingTargetKey)),
-        source,
-        active: focusedTarget,
-        anchor,
-      };
-    });
-  }, [repositoryId]);
-
+    notifyIfChanged(model.selectAll(repositoryId, source, visibleTargets, focusedTarget));
+  }, [model, notifyIfChanged, repositoryId]);
   const activate = useCallback((target: WorkingFileTarget) => {
-    setState((stateBeforeUpdate) => {
-      const current = withRepository(stateBeforeUpdate, repositoryId);
-      return sameTarget(current.active, target) ? current : { ...current, active: target };
-    });
-  }, [repositoryId]);
-
+    notifyIfChanged(model.activate(repositoryId, target));
+  }, [model, notifyIfChanged, repositoryId]);
   const prepareContextMenu = useCallback((target: WorkingFileTarget) => {
-    setState((current) => prepareWorkingContextSelection(current, repositoryId, target));
-  }, [repositoryId]);
-
+    notifyIfChanged(prepareWorkingContextSelection(model, repositoryId, target));
+  }, [model, notifyIfChanged, repositoryId]);
   const registerVisibleTargets = useCallback((
     source: PatchSource,
     visibleTargets: readonly WorkingFileTarget[],
   ) => {
-    setState((stateBeforeUpdate) => {
-      const current = withRepository(stateBeforeUpdate, repositoryId);
-      if (!current.anchor || current.anchor.source !== source) return current;
-      if (visibleTargets.some((target) => sameTarget(target, current.anchor))) return current;
-      return { ...current, anchor: null };
-    });
-  }, [repositoryId]);
-
-  const clear = useCallback(() => setState(emptySelection(repositoryId)), [repositoryId]);
-  const stateMatchesRepository = state.repositoryId === repositoryId;
-  const effectiveTargetKeys = stateMatchesRepository ? state.targetKeys : new Set<string>();
-  const active = stateMatchesRepository && state.active
-    ? availableByKey.get(workingTargetKey(state.active)) ?? null
-    : null;
-  const anchor = stateMatchesRepository && state.anchor
-    ? availableByKey.get(workingTargetKey(state.anchor)) ?? null
-    : null;
+    notifyIfChanged(model.registerVisibleTargets(repositoryId, source, visibleTargets));
+  }, [model, notifyIfChanged, repositoryId]);
+  const clear = useCallback(() => {
+    notifyIfChanged(model.clear(repositoryId));
+  }, [model, notifyIfChanged, repositoryId]);
   const isSelected = useCallback(
-    (target: WorkingFileTarget) => effectiveTargetKeys.has(workingTargetKey(target)),
-    [effectiveTargetKeys],
+    (target: WorkingFileTarget) => model.repositoryId === repositoryId && model.has(target),
+    [model, repositoryId],
   );
-  const targets = useMemo<ReadonlySet<WorkingFileTarget>>(
-    () => new Set([...effectiveTargetKeys].flatMap((key) => {
-      const target = availableByKey.get(key);
-      return target ? [target] : [];
-    })),
-    [availableByKey, effectiveTargetKeys],
+  const selectedPaths = useCallback(
+    (source: PatchSource) => model.selectedPathsView(repositoryId, source),
+    [model, repositoryId, selectionRevision],
+  );
+
+  const stateMatchesRepository = model.repositoryId === repositoryId;
+  const active = stateMatchesRepository && model.active
+    ? availableByKey.get(workingTargetKey(model.active)) ?? null
+    : null;
+  const anchor = stateMatchesRepository && model.anchor
+    ? availableByKey.get(workingTargetKey(model.anchor)) ?? null
+    : null;
+  const targets = useMemo(
+    () => model.targetsView(repositoryId, availableByKey),
+    [availableByKey, model, repositoryId, selectionRevision],
   );
 
   return {
     targets,
+    source: stateMatchesRepository ? model.source : null,
     active,
     anchor,
     isSelected,
+    selectedPaths,
     select,
     selectAll,
     activate,

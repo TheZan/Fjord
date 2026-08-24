@@ -214,7 +214,11 @@ export function FileEntryList<T extends { path: string }>({
     () => entries.flatMap((entry) => entry.kind === "file" ? [entry.file] : []),
     [entries],
   );
-  const focusablePath = visibleFiles.some((file) => file.path === activePath)
+  const visiblePathSet = useMemo(
+    () => new Set(visibleFiles.map((file) => file.path)),
+    [visibleFiles],
+  );
+  const focusablePath = activePath !== null && visiblePathSet.has(activePath)
     ? activePath
     : visibleFiles[0]?.path ?? null;
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
