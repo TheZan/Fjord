@@ -15,6 +15,9 @@ pub async fn activate_after_first_paint(state: State<'_, AppState>) -> Result<()
 /// Drains completed backend spans. This command is intentionally not wrapped
 /// in an interaction guard: recording the drain itself would leave a new trace
 /// in the buffer immediately after it was emptied.
+// Tauri serializes the stable AppError IPC payload by value; boxing it would
+// change the generated command contract for a non-hot diagnostic boundary.
+#[allow(clippy::result_large_err)]
 #[tauri::command]
 pub fn get_interaction_traces(
     state: State<'_, AppState>,

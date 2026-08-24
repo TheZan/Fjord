@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fjord_domain::Settings;
+use fjord_domain::{is_valid_diff_tool_name, Settings};
 use fjord_ports::{SettingsStore, StoreError};
 
 /// The only use-case Phase 0 needs: read and update app settings. Everything
@@ -34,11 +34,7 @@ impl SettingsService {
 /// resolution would accept can ever be persisted here.
 fn validate_diff_tool(name: Option<&str>) -> Result<(), StoreError> {
     let Some(name) = name else { return Ok(()) };
-    let valid = !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    if valid {
+    if is_valid_diff_tool_name(name) {
         Ok(())
     } else {
         Err(StoreError::InvalidSetting("diff_tool_name_invalid"))
@@ -137,6 +133,9 @@ mod tests {
             "meld$(whoami)",
             "\"meld\"",
             "'meld'",
+            "meld\nother",
+            "meld\rother",
+            "meld\tother",
             "",
         ] {
             let result = service

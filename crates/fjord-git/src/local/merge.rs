@@ -378,7 +378,9 @@ fn squash_result_from_preflight(
 
 fn conflicted_paths_now(repo: &RepoPath) -> Result<Vec<String>, GitError> {
     LocalGitBackend::with_runtime_git2(repo, |git| {
-        Ok(LocalGitBackend::conflict_paths(&LocalGitBackend::fresh_index(git)?))
+        Ok(LocalGitBackend::conflict_paths(
+            &LocalGitBackend::fresh_index(git)?,
+        ))
     })
 }
 

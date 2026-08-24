@@ -257,6 +257,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::DeleteFilePartiallyStaged { .. } => "delete_file_partially_staged",
         GitError::DeleteFileConflicted { .. } => "delete_file_conflicted",
         GitError::DiffToolNotConfigured { .. } => unreachable!("handled above"),
+        GitError::DiffToolNameInvalid => "diff_tool_name_invalid",
         GitError::StashFileUnsupportedGit => "stash_file_unsupported_git",
         GitError::StashFileConflicted { .. } => "stash_file_conflicted",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
@@ -394,6 +395,14 @@ mod tests {
         assert_eq!(
             git_error_to_app_error(GitError::IgnoreWriteFailed("locked".into())).code,
             "ignore_write_failed",
+        );
+    }
+
+    #[test]
+    fn invalid_diff_tool_name_has_the_settings_error_code() {
+        assert_eq!(
+            git_error_to_app_error(GitError::DiffToolNameInvalid).code,
+            "diff_tool_name_invalid"
         );
     }
 

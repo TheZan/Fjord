@@ -451,8 +451,15 @@ async fn repo_with_changed_head() -> (TempDir, RepoPath, String) {
 #[tokio::test]
 async fn status_reports_a_branch_name() {
     let backend = LocalGitBackend::new();
-    let status = backend.status(&this_repo_path()).await.unwrap();
-    assert!(status.branch.is_some());
+    let (_dir, repo_path) = empty_repo();
+    commit_fixture(&backend, &repo_path, &[("README.md", b"fixture\n")]).await;
+    backend
+        .create_branch(&repo_path, "feature-test", true)
+        .await
+        .unwrap();
+
+    let status = backend.status(&repo_path).await.unwrap();
+    assert_eq!(status.branch.as_deref(), Some("feature-test"));
 }
 
 #[tokio::test]
@@ -736,8 +743,17 @@ async fn push_target_follows_the_configured_upstream() {
 #[tokio::test]
 async fn branches_includes_the_current_branch() {
     let backend = LocalGitBackend::new();
-    let branches = backend.branches(&this_repo_path()).await.unwrap();
-    assert!(branches.iter().any(|b| b.is_current));
+    let (_dir, repo_path) = empty_repo();
+    commit_fixture(&backend, &repo_path, &[("README.md", b"fixture\n")]).await;
+    backend
+        .create_branch(&repo_path, "feature-test", true)
+        .await
+        .unwrap();
+
+    let branches = backend.branches(&repo_path).await.unwrap();
+    assert!(branches
+        .iter()
+        .any(|branch| branch.name == "feature-test" && branch.is_current));
     assert!(branches.iter().all(|b| !b.target_commit_id.0.is_empty()));
 }
 
@@ -2973,7 +2989,10 @@ async fn export_patch_unstaged_applies_cleanly_and_reproduces_the_change() {
 
     // Read-only: nothing in the repository moved.
     assert_eq!(backend.generations(&repo_path).unwrap(), before);
-    assert_eq!(std::fs::read(repo_path.0.join("file.txt")).unwrap(), modified);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("file.txt")).unwrap(),
+        modified
+    );
     assert_eq!(
         index_blob(&repo_path, "file.txt").unwrap(),
         b"one\ntwo\nthree\n"
@@ -2987,7 +3006,10 @@ async fn export_patch_unstaged_applies_cleanly_and_reproduces_the_change() {
     std::fs::write(&patch_path, &patch).unwrap();
     assert!(run_git_status(&backend, &repo_path, &["apply", "--check", "export.patch"]).success());
     assert!(run_git_status(&backend, &repo_path, &["apply", "export.patch"]).success());
-    assert_eq!(std::fs::read(repo_path.0.join("file.txt")).unwrap(), modified);
+    assert_eq!(
+        std::fs::read(repo_path.0.join("file.txt")).unwrap(),
+        modified
+    );
 }
 
 #[tokio::test]
@@ -6602,10 +6624,7 @@ async fn merge_remote_tracking_source_merges_exact_ref_without_creating_local_br
         )
         .await
         .unwrap();
-    assert!(matches!(
-        stale_merge.outcome,
-        MergeOutcome::AlreadyUpToDate
-    ));
+    assert!(matches!(stale_merge.outcome, MergeOutcome::AlreadyUpToDate));
     assert_eq!(backend.generations(&repo).unwrap(), before);
 
     let mut local_names_before: Vec<String> = backend
@@ -6694,7 +6713,10 @@ async fn squash_merge_already_up_to_date_advances_no_generation() {
         )
         .await
         .unwrap();
-    assert!(matches!(result.outcome, SquashMergeOutcome::AlreadyUpToDate));
+    assert!(matches!(
+        result.outcome,
+        SquashMergeOutcome::AlreadyUpToDate
+    ));
     assert_eq!(backend.generations(&repo).unwrap(), before);
     drop(directory);
 }
@@ -6840,10 +6862,7 @@ async fn squash_merge_dirty_policy_matches_merge_refuse_or_named_stash() {
             GitOperationContext::default(),
         )
         .await;
-    assert!(matches!(
-        refused,
-        Err(GitError::MergeIndexHasStagedChanges)
-    ));
+    assert!(matches!(refused, Err(GitError::MergeIndexHasStagedChanges)));
 
     let stashed = backend
         .squash_merge_branch(
@@ -6875,10 +6894,7 @@ async fn squash_merge_refuses_the_current_branch_before_launching_git() {
             GitOperationContext::default(),
         )
         .await;
-    assert!(matches!(
-        result,
-        Err(GitError::MergeSourceIsCurrentBranch)
-    ));
+    assert!(matches!(result, Err(GitError::MergeSourceIsCurrentBranch)));
     assert_eq!(backend.generations(&repo).unwrap(), before);
     drop(directory);
 }
@@ -7564,4 +7580,28 @@ async fn open_external_diff_fails_closed_for_an_unresolvable_named_tool() {
         result,
         Err(GitError::DiffToolNotConfigured { tool }) if tool == "doesnotexist"
     ));
+}
+
+#[tokio::test]
+async fn open_external_diff_rejects_control_or_path_like_tool_names() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    backend.set_git_executable(GitExecutableResolution::Unavailable);
+
+    for invalid in [
+        "meld/tool",
+        "meld\\tool",
+        "meld other",
+        "meld\nother",
+        "meld\rother",
+        "meld\tother",
+    ] {
+        let result = backend
+            .open_external_diff(&repo, "file.txt", PatchSource::Worktree, Some(invalid))
+            .await;
+        assert!(
+            matches!(result, Err(GitError::DiffToolNameInvalid)),
+            "expected {invalid:?} to fail validation before Git execution, got {result:?}"
+        );
+    }
 }

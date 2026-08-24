@@ -271,6 +271,8 @@ pub enum GitError {
     DeleteFileConflicted { path: String },
     #[error("Git could not resolve the difftool {tool}")]
     DiffToolNotConfigured { tool: String },
+    #[error("the diff tool name is invalid")]
+    DiffToolNameInvalid,
     #[error("stashing a single file needs Git 2.13 or newer")]
     StashFileUnsupportedGit,
     #[error("{path} has unresolved conflicts")]

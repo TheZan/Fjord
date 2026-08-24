@@ -18,9 +18,8 @@ use fjord_domain::{
     RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, ResetMode,
     SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult, StashEntry,
-    StoredRepositorySnapshot, TagInfo,
-    Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
-    WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
+    StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
+    UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 

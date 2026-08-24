@@ -1167,6 +1167,17 @@ pub struct Settings {
     pub diff_tool: Option<String>,
 }
 
+/// Whether `name` is a Git difftool name rather than a path or command line.
+///
+/// This is shared by the settings and Git backend boundaries so values that
+/// bypass persisted settings are held to the same contract before Git is run.
+pub fn is_valid_diff_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {

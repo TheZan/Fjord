@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use fjord_domain::PatchSource;
+use fjord_domain::{is_valid_diff_tool_name, PatchSource};
 use fjord_ports::{GitError, RepoPath};
 
 use crate::executable::GitCommandFactory;
@@ -21,7 +21,7 @@ fn parse_tool_help(output: &str) -> HashSet<String> {
     output
         .lines()
         .filter(|line| line.starts_with("\t\t"))
-        .filter_map(|line| line.trim().split_whitespace().next())
+        .filter_map(|line| line.split_whitespace().next())
         .map(|token| token.strip_suffix(".cmd").unwrap_or(token).to_string())
         .collect()
 }
@@ -55,7 +55,12 @@ fn resolves(
 ) -> Result<bool, GitError> {
     match preference {
         None => configured_diff_tool(repo),
-        Some(name) => Ok(resolvable_tools_blocking(commands, repo)?.contains(name)),
+        Some(name) => {
+            if !is_valid_diff_tool_name(name) {
+                return Err(GitError::DiffToolNameInvalid);
+            }
+            Ok(resolvable_tools_blocking(commands, repo)?.contains(name))
+        }
     }
 }
 
@@ -152,6 +157,25 @@ environment. If run in a terminal-only session, they will fail.\n";
     #[test]
     fn empty_output_resolves_nothing() {
         assert!(parse_tool_help("").is_empty());
+    }
+
+    #[test]
+    fn explicit_tool_name_validation_matches_the_settings_contract() {
+        assert!(is_valid_diff_tool_name("meld"));
+        assert!(is_valid_diff_tool_name("my-tool_v2.1"));
+
+        for invalid in [
+            "meld/tool",
+            "meld\\tool",
+            "meld other",
+            "meld\nother",
+            "meld\rother",
+            "meld\tother",
+            "meld;other",
+            "",
+        ] {
+            assert!(!is_valid_diff_tool_name(invalid), "accepted {invalid:?}");
+        }
     }
 
     #[test]

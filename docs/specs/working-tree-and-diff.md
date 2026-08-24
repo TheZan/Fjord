@@ -704,9 +704,12 @@ two-state semantics above are the contract, and a validation rule keeps them
 honest. Fjord **never** stores an executable path, a shell command, or an
 arbitrary command line in this field — a value containing a path separator,
 whitespace, a quote, or a shell metacharacter is rejected at the settings
-boundary with `diff_tool_name_invalid`. The tool's actual command line lives in
-the user's own Git configuration, where `git difftool` already resolves it. This
-is the same reason `open_merge_tool` never stores a merge-tool command line.
+boundary with `diff_tool_name_invalid`. The Git backend applies the same
+validation to every explicit preference before tool resolution or execution, so
+bypassing persisted settings cannot turn the field into a launch vector. The
+tool's actual command line lives in the user's own Git configuration, where
+`git difftool` already resolves it. This is the same reason `open_merge_tool`
+never stores a merge-tool command line.
 
 *Invocation.* `open_external_diff { repo_id, path, source }` runs system Git
 through the shared resolved executable, arguments passed individually:
@@ -2052,4 +2055,3 @@ constructor themselves.
 33. Selection survives virtualized unmount/remount, view switching, and query
     refresh; it never retains a target that no longer exists; and it is exposed
     accessibly as a multi-selectable listbox.
-
