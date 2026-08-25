@@ -79,6 +79,78 @@ impl LocalGitBackend {
             .collect())
     }
 
+    /// Streams tree changes until `limit` file entries have been collected and
+    /// one additional file proves that the result is truncated. Unlike
+    /// `tree_changes`, this keeps the stash inspector's intermediate memory
+    /// bounded as well as its response.
+    pub(super) fn tree_changes_bounded(
+        git: &gix::Repository,
+        old_tree: Option<&gix::Tree<'_>>,
+        new_tree: &gix::Tree<'_>,
+        limit: usize,
+    ) -> Result<(Vec<ChangeDetached>, bool), GitError> {
+        let empty_tree = git.empty_tree();
+        let old_tree = old_tree.unwrap_or(&empty_tree);
+        let mut changes = Vec::with_capacity(limit.min(256));
+        let mut truncated = false;
+        let mut platform = old_tree
+            .changes()
+            .map_err(|error| GitError::Gix(error.to_string()))?;
+        platform.options(|options| {
+            options.track_rewrites(None);
+        });
+        let traversal = platform.for_each_to_obtain_tree(new_tree, |change| {
+            if !change.entry_mode().is_blob_or_symlink() {
+                return Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Continue(()));
+            }
+            if changes.len() == limit {
+                truncated = true;
+                return Ok(std::ops::ControlFlow::Break(()));
+            }
+            changes.push(change.detach());
+            Ok(std::ops::ControlFlow::Continue(()))
+        });
+        if let Err(error) = traversal {
+            // gix reports an intentional `ControlFlow::Break` as its
+            // cancellation error. It is success only when our callback set
+            // `truncated`; every other traversal failure still propagates.
+            if !truncated {
+                return Err(GitError::Gix(error.to_string()));
+            }
+        }
+        Ok((changes, truncated))
+    }
+
+    fn tree_change_for_path(
+        git: &gix::Repository,
+        old_tree: Option<&gix::Tree<'_>>,
+        new_tree: &gix::Tree<'_>,
+        path: &str,
+    ) -> Result<ChangeDetached, GitError> {
+        let empty_tree = git.empty_tree();
+        let old_tree = old_tree.unwrap_or(&empty_tree);
+        let mut found = None;
+        let mut platform = old_tree
+            .changes()
+            .map_err(|error| GitError::Gix(error.to_string()))?;
+        platform.options(|options| {
+            options.track_rewrites(None);
+        });
+        let traversal = platform.for_each_to_obtain_tree(new_tree, |change| {
+            if change.entry_mode().is_blob_or_symlink() && change.location() == path {
+                found = Some(change.detach());
+                return Ok::<_, std::convert::Infallible>(std::ops::ControlFlow::Break(()));
+            }
+            Ok(std::ops::ControlFlow::Continue(()))
+        });
+        if let Err(error) = traversal {
+            if found.is_none() {
+                return Err(GitError::Gix(error.to_string()));
+            }
+        }
+        found.ok_or_else(|| GitError::Gix(format!("no change found for path '{path}'")))
+    }
+
     /// Collects every file's line counts in one Git process. The previous
     /// implementation prepared and diffed each blob separately, making the
     /// inspector latency proportional to N independent diff setups.
@@ -131,6 +203,61 @@ impl LocalGitBackend {
             )));
         }
 
+        Ok(Self::parse_numstat(&output.stdout))
+    }
+
+    pub(super) fn tree_line_stats_for_paths(
+        commands: &GitCommandFactory,
+        repo: &RepoPath,
+        commit_id: &str,
+        old_tree: Option<&gix::Tree<'_>>,
+        new_tree: &gix::Tree<'_>,
+        paths: &[String],
+    ) -> Result<HashMap<String, (u32, u32)>, GitError> {
+        if paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut command = commands.command()?;
+        command.current_dir(&repo.0).stdin(Stdio::null());
+        if let Some(old_tree) = old_tree {
+            command
+                .args([
+                    "diff",
+                    "--numstat",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-z",
+                ])
+                .arg(old_tree.id.to_string())
+                .arg(new_tree.id.to_string());
+        } else {
+            command
+                .args([
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "--numstat",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "-r",
+                    "-z",
+                ])
+                .arg(commit_id);
+        }
+        command.arg("--");
+        command.args(paths.iter().map(|path| format!(":(literal){path}")));
+        let output = command
+            .output()
+            .map_err(|error| GitError::Git2(format!("failed to read tree statistics: {error}")))?;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr);
+            return Err(GitError::Git2(format!(
+                "failed to read tree statistics: {}",
+                message.trim()
+            )));
+        }
         Ok(Self::parse_numstat(&output.stdout))
     }
 
@@ -451,105 +578,129 @@ pub(super) async fn file_diff_window(
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
         let git = LocalGitBackend::open(&repo)?;
-        let changes = LocalGitBackend::commit_changes(&git, &commit_id)?;
-        let change = changes
-            .iter()
-            .find(|change| change.attach(&git, &git).location() == path)
-            .ok_or_else(|| {
-                GitError::Gix(format!(
-                    "no change found for path '{path}' in commit {commit_id}"
-                ))
-            })?;
-        let attached = change.attach(&git, &git);
-        let change_type = LocalGitBackend::classify_change(&attached);
-        let mut resource_cache = git
-            .diff_resource_cache_for_tree_diff()
-            .map_err(|e| GitError::Gix(e.to_string()))?;
-        let platform = attached
-            .diff(&mut resource_cache)
-            .map_err(|e| GitError::Gix(e.to_string()))?;
-        platform
-            .resource_cache
-            .options
-            .skip_internal_diff_if_external_is_configured = false;
-        let prep = platform
-            .resource_cache
-            .prepare_diff()
-            .map_err(|e| GitError::Gix(e.to_string()))?;
-        let file_bytes = resource_size(prep.old.data).max(resource_size(prep.new.data));
+        let (old_tree, new_tree) = LocalGitBackend::commit_trees(&git, &commit_id)?;
+        tree_file_diff_window(
+            &git,
+            old_tree.as_ref(),
+            &new_tree,
+            &path,
+            offset,
+            limit,
+            max_file_bytes,
+        )
+    })
+    .await
+    .map_err(|e| GitError::Gix(e.to_string()))?
+}
 
-        if file_bytes > max_file_bytes {
-            return Ok(FileDiffWindow {
-                path,
+pub(super) fn tree_by_id<'r>(
+    git: &'r gix::Repository,
+    tree_id: &str,
+) -> Result<gix::Tree<'r>, GitError> {
+    let oid = gix::ObjectId::from_hex(tree_id.as_bytes())
+        .map_err(|error| GitError::Gix(error.to_string()))?;
+    git.find_object(oid)
+        .map_err(|error| GitError::Gix(error.to_string()))?
+        .try_into_tree()
+        .map_err(|error| GitError::Gix(error.to_string()))
+}
+
+pub(super) fn tree_file_diff_window(
+    git: &gix::Repository,
+    old_tree: Option<&gix::Tree<'_>>,
+    new_tree: &gix::Tree<'_>,
+    path: &str,
+    offset: u32,
+    limit: u32,
+    max_file_bytes: u64,
+) -> Result<FileDiffWindow, GitError> {
+    let change = LocalGitBackend::tree_change_for_path(git, old_tree, new_tree, path)?;
+    let attached = change.attach(git, git);
+    let change_type = LocalGitBackend::classify_change(&attached);
+    let mut resource_cache = git
+        .diff_resource_cache_for_tree_diff()
+        .map_err(|error| GitError::Gix(error.to_string()))?;
+    let platform = attached
+        .diff(&mut resource_cache)
+        .map_err(|error| GitError::Gix(error.to_string()))?;
+    platform
+        .resource_cache
+        .options
+        .skip_internal_diff_if_external_is_configured = false;
+    let prep = platform
+        .resource_cache
+        .prepare_diff()
+        .map_err(|error| GitError::Gix(error.to_string()))?;
+    let file_bytes = resource_size(prep.old.data).max(resource_size(prep.new.data));
+
+    if file_bytes > max_file_bytes {
+        return Ok(FileDiffWindow {
+            path: path.to_string(),
+            change_type,
+            old_mode: None,
+            new_mode: None,
+            is_binary: matches!(prep.operation, Operation::SourceOrDestinationIsBinary),
+            too_large: true,
+            file_bytes,
+            hunks: Vec::new(),
+            total_hunks: 0,
+            total_lines: resource_line_count(prep.old.data).max(resource_line_count(prep.new.data)),
+            offset: 0,
+            truncated: false,
+            next_offset: None,
+            base_digest: None,
+        });
+    }
+
+    match prep.operation {
+        Operation::InternalDiff { algorithm } => {
+            let input = prep.interned_input();
+            let blob_diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &input);
+            let collected = UnifiedDiff::new(
+                &blob_diff,
+                &input,
+                WindowedHunkCollector::new(offset, limit),
+                ContextSize::symmetrical(3),
+            )
+            .consume()
+            .map_err(|error| GitError::Gix(error.to_string()))?;
+            let truncated = collected.end < collected.total_lines;
+            Ok(FileDiffWindow {
+                path: path.to_string(),
                 change_type,
                 old_mode: None,
                 new_mode: None,
-                is_binary: matches!(prep.operation, Operation::SourceOrDestinationIsBinary),
-                too_large: true,
+                is_binary: false,
+                too_large: false,
+                file_bytes,
+                hunks: collected.hunks,
+                total_hunks: collected.total_hunks,
+                total_lines: collected.total_lines,
+                offset: offset.min(collected.total_lines),
+                truncated,
+                next_offset: truncated.then_some(collected.end),
+                base_digest: None,
+            })
+        }
+        Operation::ExternalCommand { .. } | Operation::SourceOrDestinationIsBinary => {
+            Ok(FileDiffWindow {
+                path: path.to_string(),
+                change_type,
+                old_mode: None,
+                new_mode: None,
+                is_binary: true,
+                too_large: false,
                 file_bytes,
                 hunks: Vec::new(),
                 total_hunks: 0,
-                total_lines: resource_line_count(prep.old.data)
-                    .max(resource_line_count(prep.new.data)),
+                total_lines: 0,
                 offset: 0,
                 truncated: false,
                 next_offset: None,
                 base_digest: None,
-            });
+            })
         }
-
-        match prep.operation {
-            Operation::InternalDiff { algorithm } => {
-                let input = prep.interned_input();
-                let diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &input);
-                let collected = UnifiedDiff::new(
-                    &diff,
-                    &input,
-                    WindowedHunkCollector::new(offset, limit),
-                    ContextSize::symmetrical(3),
-                )
-                .consume()
-                .map_err(|e| GitError::Gix(e.to_string()))?;
-                let truncated = collected.end < collected.total_lines;
-                Ok(FileDiffWindow {
-                    path,
-                    change_type,
-                    old_mode: None,
-                    new_mode: None,
-                    is_binary: false,
-                    too_large: false,
-                    file_bytes,
-                    hunks: collected.hunks,
-                    total_hunks: collected.total_hunks,
-                    total_lines: collected.total_lines,
-                    offset: offset.min(collected.total_lines),
-                    truncated,
-                    next_offset: truncated.then_some(collected.end),
-                    base_digest: None,
-                })
-            }
-            Operation::ExternalCommand { .. } | Operation::SourceOrDestinationIsBinary => {
-                Ok(FileDiffWindow {
-                    path,
-                    change_type,
-                    old_mode: None,
-                    new_mode: None,
-                    is_binary: true,
-                    too_large: false,
-                    file_bytes,
-                    hunks: Vec::new(),
-                    total_hunks: 0,
-                    total_lines: 0,
-                    offset: 0,
-                    truncated: false,
-                    next_offset: None,
-                    base_digest: None,
-                })
-            }
-        }
-    })
-    .await
-    .map_err(|e| GitError::Gix(e.to_string()))?
+    }
 }
 
 async fn file_diff_window_with_whitespace(
@@ -583,55 +734,75 @@ async fn file_diff_window_with_whitespace(
             } else {
                 None
             };
-            let mut options = git2::DiffOptions::new();
-            options.pathspec(&path).disable_pathspec_match(true);
-            super::working_tree::apply_whitespace_mode(&mut options, whitespace);
-            let diff = git
-                .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options))
-                .map_err(LocalGitBackend::map_git2_error)?;
-            let delta = diff.deltas().next();
-            let change_type = delta
-                .as_ref()
-                .map(|delta| LocalGitBackend::classify_delta(delta.status()))
-                .unwrap_or(FileChangeType::Modified);
-            let file_bytes = delta
-                .as_ref()
-                .map(|delta| delta.old_file().size().max(delta.new_file().size()))
-                .unwrap_or(0);
-            if file_bytes > max_file_bytes {
-                return Ok(FileDiffWindow {
-                    path,
-                    change_type,
-                    old_mode: None,
-                    new_mode: None,
-                    is_binary: false,
-                    too_large: true,
-                    file_bytes,
-                    hunks: Vec::new(),
-                    total_hunks: 0,
-                    total_lines: 0,
-                    offset: 0,
-                    truncated: false,
-                    next_offset: None,
-                    base_digest: None,
-                });
-            }
-            let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
-            let mut window = FileDiffDetail {
-                path,
-                change_type,
-                old_mode: None,
-                new_mode: None,
-                is_binary,
-                hunks,
-            }
-            .into_window(offset, limit);
-            window.file_bytes = file_bytes;
-            Ok(window)
+            git2_tree_file_diff_window(
+                git,
+                old_tree.as_ref(),
+                &new_tree,
+                &path,
+                offset,
+                limit,
+                max_file_bytes,
+                whitespace,
+            )
         })
     })
     .await
     .map_err(|e| GitError::Git2(e.to_string()))?
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn git2_tree_file_diff_window(
+    git: &git2::Repository,
+    old_tree: Option<&git2::Tree<'_>>,
+    new_tree: &git2::Tree<'_>,
+    path: &str,
+    offset: u32,
+    limit: u32,
+    max_file_bytes: u64,
+    whitespace: DiffWhitespaceMode,
+) -> Result<FileDiffWindow, GitError> {
+    let mut options = git2::DiffOptions::new();
+    options.pathspec(path).disable_pathspec_match(true);
+    super::working_tree::apply_whitespace_mode(&mut options, whitespace);
+    let diff = git
+        .diff_tree_to_tree(old_tree, Some(new_tree), Some(&mut options))
+        .map_err(LocalGitBackend::map_git2_error)?;
+    let delta = diff
+        .deltas()
+        .next()
+        .ok_or_else(|| GitError::Git2(format!("no change found for path '{path}'")))?;
+    let change_type = LocalGitBackend::classify_delta(delta.status());
+    let file_bytes = delta.old_file().size().max(delta.new_file().size());
+    if file_bytes > max_file_bytes {
+        return Ok(FileDiffWindow {
+            path: path.to_string(),
+            change_type,
+            old_mode: None,
+            new_mode: None,
+            is_binary: false,
+            too_large: true,
+            file_bytes,
+            hunks: Vec::new(),
+            total_hunks: 0,
+            total_lines: 0,
+            offset: 0,
+            truncated: false,
+            next_offset: None,
+            base_digest: None,
+        });
+    }
+    let (is_binary, hunks) = LocalGitBackend::collect_git2_diff(&diff)?;
+    let mut window = FileDiffDetail {
+        path: path.to_string(),
+        change_type,
+        old_mode: None,
+        new_mode: None,
+        is_binary,
+        hunks,
+    }
+    .into_window(offset, limit);
+    window.file_bytes = file_bytes;
+    Ok(window)
 }
 
 fn resource_size(data: gix::diff::blob::platform::resource::Data<'_>) -> u64 {

@@ -9,6 +9,7 @@ import {
   cloneRepository,
   getBranches,
   getFileDiffPage,
+  getStashFileDiffPage,
   getWorkingFileDiffPage,
   revealLogFolder,
   setRepositoryActivity,
@@ -113,6 +114,32 @@ describe("abortable Tauri queries", () => {
       offset: 0,
       limit: 1_000,
       whitespace: "show",
+      loadAnyway: true,
+    });
+  });
+
+  it("keys stash diff requests by stable stash id and file group", async () => {
+    tauri.invoke.mockResolvedValue({ data: {}, generations: zeroGenerations() });
+
+    await getStashFileDiffPage(
+      "repo-1",
+      "stash-oid",
+      "worktree",
+      "both.txt",
+      1_000,
+      2_000,
+      "ignoreTrailing",
+      true,
+    );
+
+    expect(tauri.invoke).toHaveBeenCalledWith("get_stash_file_diff", {
+      repoId: "repo-1",
+      stashId: "stash-oid",
+      group: "worktree",
+      path: "both.txt",
+      offset: 1_000,
+      limit: 2_000,
+      whitespace: "ignoreTrailing",
       loadAnyway: true,
     });
   });

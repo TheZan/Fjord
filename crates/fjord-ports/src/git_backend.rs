@@ -12,7 +12,7 @@ use fjord_domain::{
     FileDiffWindow, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
     PatchSource, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
-    SquashMergeResult, StashEntry, TagInfo, WorkingChanges,
+    SquashMergeResult, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -613,6 +613,24 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("reset"))
     }
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError>;
+    async fn stash_files(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _limit: u32,
+    ) -> Result<StashFiles, GitError> {
+        Err(GitError::NotImplemented("stash_files"))
+    }
+    async fn stash_file_diff_window(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _group: StashFileGroup,
+        _path: &str,
+        _options: DiffWindowOptions,
+    ) -> Result<FileDiffWindow, GitError> {
+        Err(GitError::NotImplemented("stash_file_diff_window"))
+    }
     async fn create_stash(
         &self,
         _repo: &RepoPath,

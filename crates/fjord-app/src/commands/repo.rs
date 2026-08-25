@@ -5,7 +5,8 @@ use fjord_domain::{
     IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
     MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
     RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
-    SquashMergeResult, StashEntry, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    SquashMergeResult, StashEntry, StashFileGroup, StashFiles, StashId, StoredRepositorySnapshot,
+    TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -568,6 +569,47 @@ pub async fn get_stashes(
     repo_id: RepositoryId,
 ) -> Result<GenerationEnvelope<Vec<StashEntry>>, AppError> {
     let data = state.repos.get_stashes(repo_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_stash_files(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+) -> Result<GenerationEnvelope<StashFiles>, AppError> {
+    let data = state.repos.get_stash_files(repo_id, &stash_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn get_stash_file_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    group: StashFileGroup,
+    path: String,
+    offset: u32,
+    limit: u32,
+    whitespace: fjord_domain::DiffWhitespaceMode,
+    load_anyway: bool,
+) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
+    let data = state
+        .repos
+        .get_stash_file_diff(
+            repo_id,
+            &stash_id,
+            group,
+            &path,
+            fjord_services::DiffRequestOptions {
+                offset,
+                limit,
+                whitespace,
+                load_anyway,
+            },
+        )
+        .await?;
     versioned(&state, repo_id, data).await
 }
 

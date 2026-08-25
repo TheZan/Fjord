@@ -22,7 +22,8 @@ use fjord_domain::{
     DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, HunkSelection,
     IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
     MergePreflight, MergeResult, MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage,
-    RemoteInfo, RepoStatus, StashEntry, TagInfo, WorkingChanges, WorkingFile,
+    RemoteInfo, RepoStatus, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo,
+    WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -563,6 +564,36 @@ impl GitBackend for LocalGitBackend {
 
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
         stash::stashes(repo).await
+    }
+
+    async fn stash_files(
+        &self,
+        repo: &RepoPath,
+        stash_id: &StashId,
+        limit: u32,
+    ) -> Result<StashFiles, GitError> {
+        stash::files(&self.commands, repo, stash_id, limit).await
+    }
+
+    async fn stash_file_diff_window(
+        &self,
+        repo: &RepoPath,
+        stash_id: &StashId,
+        group: StashFileGroup,
+        path: &str,
+        options: DiffWindowOptions,
+    ) -> Result<FileDiffWindow, GitError> {
+        stash::file_diff_window(
+            repo,
+            stash_id,
+            group,
+            path,
+            options.offset,
+            options.limit,
+            options.max_file_bytes,
+            options.whitespace,
+        )
+        .await
     }
 
     async fn create_stash(

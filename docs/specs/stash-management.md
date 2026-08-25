@@ -75,7 +75,7 @@ The one sentence the rest of the document exists to make true:
 | Create branch from stash | 🚧 Absent. |
 | Stash in the repository tree | ✅ `RepoTree.tsx` renders Stashes after Tags in backend stack order, including the zero-entry state; filtering, virtualization, keyboard navigation, selection, and context-menu invocation all retain `StashId` as logical identity. The typed selection/menu seams are ready for `P10-STASH-04`/`06` without pulling their inspector or actions forward. |
 | Stash in the commit graph | 🚧 Absent. |
-| Stash inspector / diff | 🚧 Absent. RepoTree now carries the selected `StashId` into repository-detail state, but the inspector content and bounded stash diff remain owned by `P10-STASH-04`. |
+| Stash inspector / diff | ✅ `StashInspector.tsx` occupies the repository-detail slot and reuses the shared file list/tree and `FileDiffView`. `get_stash_files` reconstructs base→index, index→stash, and empty→untracked groups by stable `StashId`; `get_stash_file_diff` serves the selected tree pair through the existing bounded diff window and stash-scoped query hierarchy. Both reads take the repository read lock and never mutate or bump generations. |
 | Destructive coverage | ⚠️ `DestructiveAction::StashPop { index }` exists with `StashEntryConsumed { index, message }` facts and `NotRecoverable`, keyed on the unstable index. There is no `StashDrop`. |
 | Generations | ✅ `MutationKind::StashPush` / `StashPop` both map to `WORKING_STASH`, and the watcher's `stashes` change set maps to `stash` ([`performance.md`](performance.md) §5). |
 

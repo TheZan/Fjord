@@ -10,14 +10,23 @@ import {
 } from "@/application/diffSnapshotAuthority";
 import {
   getFileDiffPage,
+  getStashFileDiffPage,
   getWorkingFileDiffPage,
   observeDiffPage,
   type VersionedFileDiffWindow,
 } from "@/infrastructure/tauriClient";
-import type { DiffHunk, DiffWhitespaceMode, FileDiffWindow, GenerationSet } from "@/domain/git";
+import type {
+  DiffHunk,
+  DiffWhitespaceMode,
+  FileDiffWindow,
+  GenerationSet,
+  StashFileGroup,
+  StashId,
+} from "@/domain/git";
 
 export type DiffSource =
   | { kind: "commit"; commitId: string }
+  | { kind: "stash"; stashId: StashId; group: StashFileGroup }
   | { kind: "working"; staged: boolean };
 
 export interface UseFileDiffResult {
@@ -59,18 +68,25 @@ export function useFileDiff(
   const sourceKey = source
     ? source.kind === "commit"
       ? `commit:${source.commitId}`
-      : workingDiffSourceKey(source.staged ? "index" : "worktree")
+      : source.kind === "stash"
+        ? `stash:${source.stashId}:${source.group}`
+        : workingDiffSourceKey(source.staged ? "index" : "worktree")
     : null;
   const querySourceKey = sourceKey
     ? whitespace === "show" && !loadAnyway ? sourceKey : `${sourceKey}:whitespace:${whitespace}:load:${loadAnyway}`
     : null;
 
-  const queryKey = useMemo(
-    () => repoId && path && querySourceKey
-      ? queryKeys.repos.fileDiff(repoId, path, querySourceKey)
-      : queryKeys.repos.all,
-    [path, querySourceKey, repoId],
-  );
+  const queryKey = useMemo(() => {
+    if (!repoId || !path || !querySourceKey) return queryKeys.repos.all;
+    if (source?.kind === "stash") {
+      return [
+        ...queryKeys.repos.stashFileDiff(repoId, source.stashId, source.group, path),
+        whitespace,
+        loadAnyway,
+      ] as const;
+    }
+    return queryKeys.repos.fileDiff(repoId, path, querySourceKey);
+  }, [loadAnyway, path, querySourceKey, repoId, source?.kind, source?.kind === "stash" ? source.group : null, source?.kind === "stash" ? source.stashId : null, whitespace]);
   const query = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam, signal }): Promise<DiffWindowPage> => {
@@ -88,7 +104,19 @@ export function useFileDiff(
             loadAnyway,
             signal,
           )
-        : await getWorkingFileDiffPage(
+        : source!.kind === "stash"
+          ? await getStashFileDiffPage(
+              repoId!,
+              source!.stashId,
+              source!.group,
+              path!,
+              pageParam,
+              DIFF_WINDOW_LINES,
+              whitespace,
+              loadAnyway,
+              signal,
+            )
+          : await getWorkingFileDiffPage(
             repoId!,
             path!,
             source!.staged,
@@ -110,8 +138,8 @@ export function useFileDiff(
     initialPageParam: 0,
     getNextPageParam: (lastPage) => lastPage.data.nextOffset ?? undefined,
     enabled: repoId !== null && path !== null && source !== null,
-    staleTime: source?.kind === "commit" ? Infinity : 0,
-    gcTime: source?.kind === "commit" ? 30 * 60 * 1_000 : undefined,
+    staleTime: source?.kind === "working" ? 0 : Infinity,
+    gcTime: source?.kind === "working" ? undefined : 30 * 60 * 1_000,
   });
 
   const merge = useMemo(
@@ -133,7 +161,11 @@ export function useFileDiff(
 
   useEffect(() => {
     if (merge.status !== "valid" || !repoId) return;
-    observeDiffPage(repoId, { data: merge.diff, generations: merge.generations }, source?.kind === "working" ? "working" : "history");
+    observeDiffPage(
+      repoId,
+      { data: merge.diff, generations: merge.generations },
+      source?.kind === "working" ? "working" : source?.kind === "stash" ? "stashes" : "history",
+    );
   }, [merge, repoId, source?.kind]);
 
   useEffect(() => {

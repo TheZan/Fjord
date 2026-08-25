@@ -616,6 +616,19 @@
   },
   "stash": {
     "empty": "No hay stashes.",
+    "inspector": {
+      "createdFrom": "Creado desde {{branch}}",
+      "createdDetached": "Creado con HEAD separado",
+      "baseCommit": "Commit base",
+      "files_one": "{{count}} archivo",
+      "files_other": "{{count}} archivos",
+      "groupStaged": "Cambios preparados",
+      "groupWorktree": "Cambios de trabajo",
+      "groupUntracked": "Sin seguimiento",
+      "applyIsUnstaged": "Aplicar restaura estos cambios como no preparados salvo que se restaure el estado preparado.",
+      "truncated": "Este stash es demasiado grande para mostrar todos los archivos.",
+      "empty": "Este stash no contiene cambios de archivos."
+    },
     "create": {
       "title": "Guardar cambios en el stash",
       "name": "Nombre",

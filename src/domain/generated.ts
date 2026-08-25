@@ -92,6 +92,10 @@ export type StashId = string;
 
 export type StashEntry = { id: StashId, index: number, refName: string, message: string, title: string, base: CommitId, branch: string | null, createdAt: string, filesChanged: number, hasIndexState: boolean, hasUntracked: boolean, };
 
+export type StashFileGroup = "index" | "worktree" | "untracked";
+
+export type StashFiles = { staged: Array<FileDiff>, worktree: Array<FileDiff>, untracked: Array<FileDiff>, truncated: boolean, };
+
 export type StashScope = { "kind": "all" } | { "kind": "paths", paths: Array<string>, };
 
 export type CreateStashRequest = { scope: StashScope, message: string, includeUntracked: boolean, };

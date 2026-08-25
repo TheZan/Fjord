@@ -47,6 +47,8 @@ export type {
   SquashMergeOutcome,
   SquashMergeResult,
   StashEntry,
+  StashFileGroup,
+  StashFiles,
   StashId,
   StashScope,
   TagInfo,

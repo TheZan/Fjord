@@ -7,8 +7,10 @@ import type {
   WorkingFileActionContext,
 } from "@/application/useWorkingFileActions";
 import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
+import { useStashes } from "@/application/useStashes";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
+import { StashInspector, type StashFileSelection } from "@/presentation/StashInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
 import { PerformanceBoundary } from "@/presentation/performance";
 import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
@@ -202,6 +204,11 @@ export function RepoDetailView({
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
+  const [selectedStashFile, setSelectedStashFile] = useState<StashFileSelection | null>(null);
+  const { stashes, loading: stashesLoading, error: stashesError } = useStashes(repo.id);
+  const selectedStash = selectedStashId
+    ? stashes.find((stash) => stash.id === selectedStashId) ?? null
+    : null;
   const workingSelection = useWorkingFileSelection(repo.id, changes);
   const selectedWorkingEntries = [...workingSelection.targets]
     .map((target) => {
@@ -228,6 +235,10 @@ export function RepoDetailView({
   useEffect(() => {
     setSelectedCommitFile(null);
   }, [selectedCommit?.id]);
+
+  useEffect(() => {
+    setSelectedStashFile(null);
+  }, [selectedStashId]);
 
   useEffect(() => {
     if (!workingSelected) workingSelection.clear();
@@ -271,9 +282,14 @@ export function RepoDetailView({
           source: { kind: "working", staged: selectedWorkingFile.staged },
         }
       : null
-    : selectedCommit && selectedCommitFile
-      ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
-      : null;
+    : selectedStashId && selectedStashFile?.stashId === selectedStashId
+      ? {
+          path: selectedStashFile.path,
+          source: { kind: "stash", stashId: selectedStashFile.stashId, group: selectedStashFile.group },
+        }
+      : selectedCommit && selectedCommitFile
+        ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
+        : null;
   const applyDiffFile = diffTarget?.source.kind === "working"
     ? diffTarget.source.staged
       ? () => onUnstage([diffTarget.path])
@@ -300,6 +316,17 @@ export function RepoDetailView({
       pendingDraftMessage={pendingDraftMessage}
       onPendingDraftMessageConsumed={onPendingDraftMessageConsumed}
     />
+  ) : selectedStash ? (
+    <StashInspector
+      repoId={repo.id}
+      stash={selectedStash}
+      selectedFile={selectedStashFile}
+      onSelectFile={setSelectedStashFile}
+    />
+  ) : selectedStashId && stashesLoading ? (
+    <Muted className="text-[12px]">{t("commits.loading")}</Muted>
+  ) : selectedStashId && stashesError ? (
+    <Muted className="text-[12px]">{stashesError}</Muted>
   ) : selectedCommit ? (
     <CommitInspector
       repoId={repo.id}
@@ -327,7 +354,7 @@ export function RepoDetailView({
         onCreateBranch={onCreateBranch}
         utilities={utilities}
         onOpenInspector={
-          compactLayout && (workingSelected || selectedCommit)
+          compactLayout && (workingSelected || selectedCommit || selectedStashId)
             ? () => setInspectorDrawerOpen(true)
             : undefined
         }
@@ -391,7 +418,7 @@ export function RepoDetailView({
               focusedBranch={branchScrollRequest?.branch ?? null}
               selectedStashId={selectedStashId}
               onSelectBranch={onSelectBranch}
-              onSelectStash={onSelectStash}
+              onSelectStash={handleSelectStash}
               onStashContextMenu={onSelectStash}
               onCheckout={onCheckout}
               checkoutDisabledReason={
@@ -420,9 +447,11 @@ export function RepoDetailView({
                   ? onDiscardPatch
                   : undefined
               }
-              onBack={() =>
-                workingSelected ? workingSelection.clear() : setSelectedCommitFile(null)
-              }
+              onBack={() => {
+                if (workingSelected) workingSelection.clear();
+                else if (selectedStashId) setSelectedStashFile(null);
+                else setSelectedCommitFile(null);
+              }}
               onWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
             />
           )}
@@ -644,6 +673,11 @@ export function RepoDetailView({
 
   function handleSelectWorking() {
     onSelectWorking();
+    if (compactLayout) setInspectorDrawerOpen(true);
+  }
+
+  function handleSelectStash(stashId: StashId) {
+    onSelectStash(stashId);
     if (compactLayout) setInspectorDrawerOpen(true);
   }
 }

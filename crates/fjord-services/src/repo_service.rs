@@ -12,7 +12,8 @@ use fjord_domain::{
     PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo, RemotePushResult,
     RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath, RepositoryId,
     RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult, StashEntry,
-    StashScope, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    StashFileGroup, StashFiles, StashId, StashScope, StoredRepositorySnapshot, TagInfo,
+    WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -1517,6 +1518,49 @@ impl RepoService {
         Ok(self.git.stashes(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn get_stash_files(
+        &self,
+        repo_id: RepositoryId,
+        stash_id: &StashId,
+    ) -> Result<StashFiles, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .stash_files(&RepoPath::new(repo.path), stash_id, DIFF_WINDOW_MAX_LINES)
+            .await?)
+    }
+
+    pub async fn get_stash_file_diff(
+        &self,
+        repo_id: RepositoryId,
+        stash_id: &StashId,
+        group: StashFileGroup,
+        path: &str,
+        options: DiffRequestOptions,
+    ) -> Result<FileDiffWindow, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let window = self
+            .git
+            .stash_file_diff_window(
+                &RepoPath::new(repo.path),
+                stash_id,
+                group,
+                path,
+                DiffWindowOptions {
+                    offset: options.offset,
+                    limit: normalized_diff_limit(options.limit),
+                    max_file_bytes: if options.load_anyway {
+                        u64::MAX
+                    } else {
+                        DIFF_FILE_MAX_BYTES
+                    },
+                    whitespace: options.whitespace,
+                },
+            )
+            .await?;
+        ensure_diff_response_ceiling(window)
+    }
+
     pub async fn create_stash(
         &self,
         repo_id: RepositoryId,
@@ -2234,8 +2278,9 @@ mod tests {
     use fjord_domain::{
         CommitId, CommitPage, CommitSummary, Consequence, DestructiveAction, DiscardSelection,
         FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-        ReflogPage, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry, StashId,
-        TagInfo, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+        ReflogPage, RepoStatus, RepoStatusSummary, RepositoryEntry, Settings, StashEntry,
+        StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges, WorkingFile, Workspace,
+        WorkspaceId,
     };
     use fjord_ports::{DestructiveActionFacts, ForcePushPlan, PushTarget};
     use std::path::{Path, PathBuf};
@@ -2422,6 +2467,8 @@ mod tests {
         generation_changes_on_first_preflight: bool,
         working_diff_calls: AtomicUsize,
         diff_window_options: Mutex<Vec<DiffWindowOptions>>,
+        stash_file_limits: Mutex<Vec<u32>>,
+        stash_diff_requests: Mutex<Vec<(StashId, StashFileGroup, String)>>,
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         discard_patch_call: Mutex<Option<RecordedDiscard>>,
@@ -2991,6 +3038,43 @@ mod tests {
                 has_untracked: false,
             }])
         }
+        async fn stash_files(
+            &self,
+            repo: &RepoPath,
+            _stash_id: &StashId,
+            limit: u32,
+        ) -> Result<StashFiles, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.stash_file_limits.lock().unwrap().push(limit);
+            Ok(StashFiles {
+                staged: vec![FileDiff {
+                    path: "src/main.rs".into(),
+                    change_type: FileChangeType::Modified,
+                    additions: 1,
+                    deletions: 0,
+                }],
+                worktree: vec![],
+                untracked: vec![],
+                truncated: false,
+            })
+        }
+        async fn stash_file_diff_window(
+            &self,
+            repo: &RepoPath,
+            stash_id: &StashId,
+            group: StashFileGroup,
+            path: &str,
+            options: DiffWindowOptions,
+        ) -> Result<FileDiffWindow, GitError> {
+            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
+            self.stash_diff_requests.lock().unwrap().push((
+                stash_id.clone(),
+                group,
+                path.to_string(),
+            ));
+            self.diff_window_options.lock().unwrap().push(options);
+            Ok(fake_diff_window(path))
+        }
         async fn create_stash(
             &self,
             repo: &RepoPath,
@@ -3354,6 +3438,47 @@ mod tests {
             git.diff_window_options.lock().unwrap()[0].max_file_bytes,
             DIFF_FILE_MAX_BYTES
         );
+    }
+
+    #[tokio::test]
+    async fn stash_reads_use_stable_identity_and_the_shared_diff_ceilings() {
+        let (repo, git, _, service) = service_with_fake_git();
+        let stash_id = StashId("1111111111111111111111111111111111111111".into());
+
+        let files = service.get_stash_files(repo.id, &stash_id).await.unwrap();
+        assert_eq!(files.staged[0].path, "src/main.rs");
+        assert_eq!(
+            git.stash_file_limits.lock().unwrap().as_slice(),
+            [DIFF_WINDOW_MAX_LINES]
+        );
+
+        let detail = service
+            .get_stash_file_diff(
+                repo.id,
+                &stash_id,
+                StashFileGroup::Worktree,
+                "src/main.rs",
+                DiffRequestOptions {
+                    offset: 7,
+                    limit: u32::MAX,
+                    whitespace: DiffWhitespaceMode::IgnoreAll,
+                    load_anyway: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(detail.path, "src/main.rs");
+        assert_eq!(*git.seen_path.lock().unwrap(), Some(repo.path));
+        assert_eq!(
+            git.stash_diff_requests.lock().unwrap().as_slice(),
+            [(stash_id, StashFileGroup::Worktree, "src/main.rs".into())]
+        );
+        let options = git.diff_window_options.lock().unwrap()[0];
+        assert_eq!(options.offset, 7);
+        assert_eq!(options.limit, DIFF_WINDOW_MAX_LINES);
+        assert_eq!(options.max_file_bytes, DIFF_FILE_MAX_BYTES);
+        assert_eq!(options.whitespace, DiffWhitespaceMode::IgnoreAll);
     }
 
     #[tokio::test]

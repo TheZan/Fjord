@@ -616,6 +616,19 @@
   },
   "stash": {
     "empty": "Aucun stash.",
+    "inspector": {
+      "createdFrom": "Créé depuis {{branch}}",
+      "createdDetached": "Créé sur un HEAD détaché",
+      "baseCommit": "Commit de base",
+      "files_one": "{{count}} fichier",
+      "files_other": "{{count}} fichiers",
+      "groupStaged": "Modifications indexées",
+      "groupWorktree": "Modifications de travail",
+      "groupUntracked": "Non suivis",
+      "applyIsUnstaged": "Appliquer restaure ces modifications comme non indexées, sauf si vous restaurez l’état indexé.",
+      "truncated": "Ce stash est trop volumineux pour afficher tous les fichiers.",
+      "empty": "Ce stash ne contient aucune modification de fichier."
+    },
     "create": {
       "title": "Remiser les modifications",
       "name": "Nom",

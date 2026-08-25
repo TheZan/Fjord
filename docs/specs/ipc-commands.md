@@ -71,6 +71,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
 | `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | Rich identity-bearing `StashEntry` from [`stash-management.md`](stash-management.md) §1.2, in exact Git stack order; read-locked and cached against the `stash` generation |
+| `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | Bounded, authoritative stash file groups: base→index, index→stash, and empty→untracked; resolved only by stable `StashId` and read-locked |
+| `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Read-only tree-to-tree stash diff using the existing 2,000-line, 2 MB response, and 10 MB source-file ceilings; `load_anyway` overrides only the source-file ceiling |
 | `get_commit_log` | `{ repo_id, cursor?, limit }` | `GenerationEnvelope<CommitPage>` | `cursor` from the previous page's `next_cursor`; omitted = from `HEAD` |
 | `get_reflog` | `{ repo_id, ref_name?, cursor?, limit }` | `GenerationEnvelope<ReflogPage>` | Newest-first, capped at 200 entries per page; omitted `ref_name` reads `HEAD`, and `cursor` is the opaque value from `nextCursor` |
 | `get_reflog_refs` | `{ repo_id }` | `GenerationEnvelope<string[]>` | Canonical `refs/heads/*` names that currently have a reflog |
@@ -167,8 +169,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | [`stash-management.md`](stash-management.md) §4.2 | `P10-STASH-04` |
-| `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | [`stash-management.md`](stash-management.md) §4.4 | `P10-STASH-04` |
 | `apply_stash` | `{ repo_id, stash_id, restore_index }` | `StashApplyResult` | [`stash-management.md`](stash-management.md) §6.2 | `P10-STASH-06` |
 | `create_branch_from_stash` | `{ repo_id, stash_id, name, apply, keep }` | `CreateBranchFromStashResult` | [`stash-management.md`](stash-management.md) §6.6 | `P10-STASH-06` |
 | `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12 | `P10-WC-MULTI-03` |
