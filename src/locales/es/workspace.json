@@ -587,7 +587,8 @@
     "local": "Local",
     "remote": "Remoto",
     "tags": "Tags",
-    "filterPlaceholder": "Filtrar ramas y tags",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Filtrar ramas, tags y stashes",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Limpiar",
     "noMatches": "Sin coincidencias.",
@@ -614,6 +615,7 @@
     "pushFailure": "Error: {{error}}"
   },
   "stash": {
+    "empty": "No hay stashes.",
     "create": {
       "title": "Guardar cambios en el stash",
       "name": "Nombre",

@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useBranches } from "@/application/useBranches";
+import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
 import { RepoTree } from "@/presentation/RepoTree";
-import type { BranchInfo, TagInfo } from "@/domain/git";
+import type { BranchInfo, StashEntry, TagInfo } from "@/domain/git";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
+    i18n: { language: "en" },
     t: (key: string, values?: Record<string, unknown>) =>
       key === "tree.filterCount"
         ? `${values?.matched}/${values?.total}`
@@ -19,6 +21,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/application/useBranches", () => ({ useBranches: vi.fn() }));
+vi.mock("@/application/useStashes", () => ({ useStashes: vi.fn() }));
 vi.mock("@/application/useTags", () => ({ useTags: vi.fn() }));
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
@@ -39,11 +42,53 @@ const branches: BranchInfo[] = [
   { name: "origin/HEAD", isCurrent: false, isRemote: true, upstream: null, ahead: 0, behind: 0, targetCommitId: "aaa" },
 ];
 const tags: TagInfo[] = [{ name: "v1.0", targetCommitId: "abcdef012345" }];
+const stashes: StashEntry[] = [
+  {
+    id: "stash-oid-newest",
+    index: 0,
+    refName: "stash@{0}",
+    message: "On develop: Payment validation WIP",
+    title: "Payment validation WIP",
+    base: "1111111111111111111111111111111111111111",
+    branch: "develop",
+    createdAt: "2026-08-24T10:00:00Z",
+    filesChanged: 2,
+    hasIndexState: true,
+    hasUntracked: false,
+  },
+  {
+    id: "stash-oid-detached",
+    index: 2,
+    refName: "stash@{2}",
+    message: "Detached experiment with full message match",
+    title: "Experiment",
+    base: "abcdef0123456789abcdef0123456789abcdef01",
+    branch: null,
+    createdAt: "2026-08-23T10:00:00Z",
+    filesChanged: 1,
+    hasIndexState: false,
+    hasUntracked: true,
+  },
+  {
+    id: "stash-oid-similar-title",
+    index: 1,
+    refName: "stash@{1}",
+    message: "On main: Payment validation WIP",
+    title: "Payment validation WIP",
+    base: "2222222222222222222222222222222222222222",
+    branch: "main",
+    createdAt: "2026-08-22T10:00:00Z",
+    filesChanged: 3,
+    hasIndexState: false,
+    hasUntracked: false,
+  },
+];
 
 describe("RepoTree", () => {
   beforeEach(() => {
     vi.mocked(useBranches).mockReturnValue({ branches, loading: false, error: null });
     vi.mocked(useTags).mockReturnValue({ tags, loading: false, error: null });
+    vi.mocked(useStashes).mockReturnValue({ stashes, loading: false, error: null });
   });
 
   it("groups refs, suppresses remote HEAD, and filters case-insensitively", () => {
@@ -58,11 +103,91 @@ describe("RepoTree", () => {
     expect(screen.getByText("v1.0")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("tree.filterPlaceholder"), { target: { value: " REL " } });
-    expect(screen.getByText("1/4")).toBeInTheDocument();
+    expect(screen.getByText("1/7")).toBeInTheDocument();
     expect(screen.getAllByText("tree.noMatches")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "release" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "tree.clearFilter" }));
-    expect(screen.queryByText("1/4")).not.toBeInTheDocument();
+    expect(screen.queryByText("1/7")).not.toBeInTheDocument();
+  });
+
+  it("renders Stashes after Tags with the exact count and backend order", () => {
+    const { container } = render(<RepoTree repoId="repo-1" />);
+    const tagsHeader = screen.getByRole("button", { name: /tree.tags/ });
+    const stashesHeader = screen.getByRole("button", { name: /tree.stashes.*3/ });
+
+    expect(tagsHeader.compareDocumentPosition(stashesHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll("[data-stash-id]")).toHaveLength(0);
+
+    fireEvent.click(stashesHeader);
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>("[data-stash-id]"), (row) => row.dataset.stashId),
+    ).toEqual(stashes.map((entry) => entry.id));
+    expect(screen.getByText("develop · stash@{0}")).toBeInTheDocument();
+    expect(screen.getByText("abcdef0 · stash@{2}")).toBeInTheDocument();
+  });
+
+  it("selects duplicate-titled stash rows by stable StashId", () => {
+    const onSelectStash = vi.fn();
+    const { container } = render(<RepoTree repoId="repo-1" onSelectStash={onSelectStash} />);
+    fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));
+
+    const rows = container.querySelectorAll<HTMLButtonElement>("[data-stash-id='stash-oid-similar-title']");
+    fireEvent.click(rows[0]);
+    expect(onSelectStash).toHaveBeenCalledWith("stash-oid-similar-title");
+  });
+
+  it("opens the typed stash-menu seam from mouse and keyboard and restores focus", () => {
+    const onStashContextMenu = vi.fn();
+    const { container } = render(
+      <RepoTree repoId="repo-1" onStashContextMenu={onStashContextMenu} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));
+    const row = container.querySelector<HTMLButtonElement>("[data-stash-id='stash-oid-detached']")!;
+
+    fireEvent.contextMenu(row, { clientX: 12, clientY: 34 });
+    expect(onStashContextMenu).toHaveBeenLastCalledWith("stash-oid-detached");
+    expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+    fireEvent.keyDown(screen.getByRole("menu", { name: "tree.stashes" }), { key: "Escape" });
+    expect(row).toHaveFocus();
+
+    fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+    expect(onStashContextMenu).toHaveBeenLastCalledWith("stash-oid-detached");
+    fireEvent.keyDown(screen.getByRole("menu", { name: "tree.stashes" }), { key: "Escape" });
+    expect(row).toHaveFocus();
+
+    fireEvent.keyDown(row, { key: "ContextMenu" });
+    expect(onStashContextMenu).toHaveBeenLastCalledWith("stash-oid-detached");
+    fireEvent.keyDown(screen.getByRole("menu", { name: "tree.stashes" }), { key: "Escape" });
+    expect(row).toHaveFocus();
+  });
+
+  it("filters stashes by title or full message without reordering them", () => {
+    const { container } = render(<RepoTree repoId="repo-1" />);
+    fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));
+
+    fireEvent.change(screen.getByPlaceholderText("tree.filterPlaceholder"), {
+      target: { value: "payment validation" },
+    });
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>("[data-stash-id]"), (row) => row.dataset.stashId),
+    ).toEqual(["stash-oid-newest", "stash-oid-similar-title"]);
+
+    fireEvent.change(screen.getByPlaceholderText("tree.filterPlaceholder"), {
+      target: { value: "full message match" },
+    });
+    expect(
+      Array.from(container.querySelectorAll<HTMLElement>("[data-stash-id]"), (row) => row.dataset.stashId),
+    ).toEqual(["stash-oid-detached"]);
+  });
+
+  it("keeps the empty Stashes section and renders its localized empty state", () => {
+    vi.mocked(useStashes).mockReturnValue({ stashes: [], loading: false, error: null });
+    render(<RepoTree repoId="repo-1" />);
+
+    const header = screen.getByRole("button", { name: /tree.stashes.*0/ });
+    expect(screen.queryByText("stash.empty")).not.toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.getByText("stash.empty")).toBeInTheDocument();
   });
 
   it("shows upstream divergence and a persistent publish action when the current branch is untracked", () => {

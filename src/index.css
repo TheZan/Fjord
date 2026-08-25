@@ -423,3 +423,17 @@ code,
     transform: scale(1);
   }
 }
+/* Stash metadata keeps branch/ref identity visible before optional relative time. */
+.repo-tree-container {
+  container-type: inline-size;
+}
+
+.stash-relative-time {
+  display: none;
+}
+
+@container (min-width: 20rem) {
+  .stash-relative-time {
+    display: inline;
+  }
+}

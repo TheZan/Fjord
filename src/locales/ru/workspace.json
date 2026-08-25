@@ -595,7 +595,8 @@
     "local": "Локальные",
     "remote": "Удалённые",
     "tags": "Теги",
-    "filterPlaceholder": "Фильтр по веткам и тегам",
+    "stashes": "Stash",
+    "filterPlaceholder": "Фильтр по веткам, тегам и stash",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Очистить",
     "noMatches": "Совпадений нет.",
@@ -622,6 +623,7 @@
     "pushFailure": "Ошибка: {{error}}"
   },
   "stash": {
+    "empty": "Нет stash.",
     "create": {
       "title": "Сохранить изменения в stash",
       "name": "Название",

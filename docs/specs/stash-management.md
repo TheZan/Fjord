@@ -73,9 +73,9 @@ The one sentence the rest of the document exists to make true:
 | Pop | ⚠️ Already on the confirmed destructive path — there is no `stash_pop` IPC command, and `execute_destructive_action`'s `StashPop { index }` arm already builds `stash pop stash@{index}` for an **arbitrary** index. The limitation is entirely in the frontend, which hard-codes `index: 0` at both dispatch sites in `RepoDetailContainer.tsx`, and in the action's index-keyed identity. Separately, `GitBackend::stash_pop` / `mutations::stash_pop` (`git2`, always index 0) is **dead production code** reached only by tests. |
 | Drop | 🚧 Absent. |
 | Create branch from stash | 🚧 Absent. |
-| Stash in the repository tree | 🚧 Absent. `RepoTree.tsx` has exactly three sections: Local, Remote, Tags. |
+| Stash in the repository tree | ✅ `RepoTree.tsx` renders Stashes after Tags in backend stack order, including the zero-entry state; filtering, virtualization, keyboard navigation, selection, and context-menu invocation all retain `StashId` as logical identity. The typed selection/menu seams are ready for `P10-STASH-04`/`06` without pulling their inspector or actions forward. |
 | Stash in the commit graph | 🚧 Absent. |
-| Stash inspector / diff | 🚧 Absent. The only stash text in the UI is `stash@{0}` in a completion notice and a count badge on the toolbar overflow's Pop entry. |
+| Stash inspector / diff | 🚧 Absent. RepoTree now carries the selected `StashId` into repository-detail state, but the inspector content and bounded stash diff remain owned by `P10-STASH-04`. |
 | Destructive coverage | ⚠️ `DestructiveAction::StashPop { index }` exists with `StashEntryConsumed { index, message }` facts and `NotRecoverable`, keyed on the unstable index. There is no `StashDrop`. |
 | Generations | ✅ `MutationKind::StashPush` / `StashPop` both map to `WORKING_STASH`, and the watcher's `stashes` change set maps to `stash` ([`performance.md`](performance.md) §5). |
 

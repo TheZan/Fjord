@@ -229,6 +229,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onSquashMergeBranch,
     onWorkingFileAction,
     pendingDraftMessage,
+    selectedStashId,
+    onSelectStash,
+    workingSelected,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash" | "stash-pop") => void;
@@ -257,12 +260,17 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       target: import("@/domain/git").WorkingFileTarget,
     ) => void;
     pendingDraftMessage: string | null;
+    selectedStashId: import("@/domain/git").StashId | null;
+    onSelectStash: (stashId: import("@/domain/git").StashId) => void;
+    workingSelected: boolean;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
       <output data-testid="pending-draft-message">{pendingDraftMessage ?? ""}</output>
       <output data-testid="action-error">{actionError ?? ""}</output>
       <output data-testid="action-success">{actionSuccess ?? ""}</output>
+      <output data-testid="selected-stash-id">{selectedStashId ?? ""}</output>
+      <output data-testid="working-selected">{String(workingSelected)}</output>
       <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
@@ -270,6 +278,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
+      <button type="button" onClick={() => onSelectStash("exact-stash-oid")}>select stash</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
@@ -410,6 +419,14 @@ describe("RepoDetailContainer checkout confirmation", () => {
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
+  });
+
+  it("carries an exact StashId into repository-detail selection state", () => {
+    render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "select stash" }));
+    expect(screen.getByTestId("selected-stash-id")).toHaveTextContent("exact-stash-oid");
+    expect(screen.getByTestId("working-selected")).toHaveTextContent("false");
   });
 
   it("routes toolbar stash through the shared named All request", async () => {

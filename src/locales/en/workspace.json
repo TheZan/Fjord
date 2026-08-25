@@ -633,7 +633,8 @@
     "local": "Local",
     "remote": "Remote",
     "tags": "Tags",
-    "filterPlaceholder": "Filter branches and tags",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Filter branches, tags, and stashes",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Clear",
     "noMatches": "No matches.",
@@ -660,6 +661,7 @@
     "pushFailure": "Failed: {{error}}"
   },
   "stash": {
+    "empty": "No stashes.",
     "create": {
       "title": "Stash changes",
       "name": "Name",
