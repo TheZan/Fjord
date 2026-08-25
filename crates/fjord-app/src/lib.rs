@@ -133,6 +133,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::cherry_pick,
             commands::revert_commit,
             commands::get_stashes,
+            commands::get_stash_files,
+            commands::get_stash_file_diff,
             commands::create_stash,
             commands::stash_paths_supported,
             commands::open_terminal,

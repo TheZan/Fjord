@@ -830,6 +830,30 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText("diff.loaded")).toBeInTheDocument();
   });
 
+  it("keeps stash diffs read-only while reusing the normal diff renderer", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="both.txt"
+        source={{ kind: "stash", stashId: "stash-oid", group: "index" }}
+      />,
+    );
+
+    expect(state.useFileDiff).toHaveBeenCalledWith(
+      "repo-1",
+      "both.txt",
+      { kind: "stash", stashId: "stash-oid", group: "index" },
+      "show",
+      false,
+    );
+    expect(screen.getByText("@@ -4,2 +4,2 @@")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.stageFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.unstageFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.discardFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.stageHunk" })).not.toBeInTheDocument();
+  });
+
   it("requires an explicit load-anyway action above the display ceiling", () => {
     state.hasMore = false;
     state.diff = { ...textDiff(), tooLarge: true, fileBytes: 12 * 1024 * 1024, hunks: [] };

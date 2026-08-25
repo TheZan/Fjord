@@ -624,6 +624,21 @@
   },
   "stash": {
     "empty": "Нет stash.",
+    "inspector": {
+      "createdFrom": "Создан из {{branch}}",
+      "createdDetached": "Создан при отсоединённом HEAD",
+      "baseCommit": "Базовый commit",
+      "files_one": "{{count}} файл",
+      "files_few": "{{count}} файла",
+      "files_many": "{{count}} файлов",
+      "files_other": "{{count}} файла",
+      "groupStaged": "Подготовленные изменения",
+      "groupWorktree": "Рабочие изменения",
+      "groupUntracked": "Неотслеживаемые",
+      "applyIsUnstaged": "Apply восстанавливает эти изменения как неподготовленные, если не выбрано восстановление staged-состояния.",
+      "truncated": "Этот stash слишком велик, чтобы показать все файлы.",
+      "empty": "В этом stash нет изменений файлов."
+    },
     "create": {
       "title": "Сохранить изменения в stash",
       "name": "Название",

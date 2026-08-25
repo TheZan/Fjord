@@ -545,7 +545,7 @@ pending. No existing
   Stash Inspector; right-click, `Shift+F10`, and the Context Menu key open the
   shared stash menu with focus restoration, matching branch/tag parity.
   Verification: frontend cases 1–4 of spec §Testing strategy.
-- [ ] **P10-STASH-04** — **Stash Inspector** plus a bounded stash diff. Same slot
+- [x] **P10-STASH-04** — **Stash Inspector** plus a bounded stash diff. Same slot
   and composition as `CommitInspector.tsx`, reusing `FileEntryList`,
   `FileViewTabs`, `FileTreeControls`, and `useFileTreeCollapse` — no second file
   list. Header: title, `ref_name`, source branch (or an honest detached note),

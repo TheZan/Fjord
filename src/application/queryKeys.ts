@@ -41,6 +41,10 @@ export const queryKeys = {
       [...queryKeys.repos.fileDiffAuthorities(repoId), sourceKey, path] as const,
     workingChanges: (repoId: string) => [...queryKeys.repos.detail(repoId), "workingChanges"] as const,
     stashes: (repoId: string) => [...queryKeys.repos.detail(repoId), "stashes"] as const,
+    stashFiles: (repoId: string, stashId: string) =>
+      [...queryKeys.repos.stashes(repoId), stashId, "files"] as const,
+    stashFileDiff: (repoId: string, stashId: string, group: string, path: string) =>
+      [...queryKeys.repos.stashes(repoId), stashId, "diff", group, path] as const,
     diffToolAvailability: (repoId: string) =>
       [...queryKeys.repos.detail(repoId), "diffToolAvailability"] as const,
   },

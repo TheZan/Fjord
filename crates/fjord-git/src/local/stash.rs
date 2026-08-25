@@ -6,9 +6,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use fjord_domain::{CommitId, CreateStashRequest, StashEntry, StashId, StashScope};
+use fjord_domain::{
+    CommitId, CreateStashRequest, DiffWhitespaceMode, FileDiff, FileDiffWindow, StashEntry,
+    StashFileGroup, StashFiles, StashId, StashScope,
+};
 use fjord_ports::{GitError, RepoPath};
 use git2::{ErrorCode, ObjectType, Oid, Repository, Tree};
+use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -1268,6 +1272,235 @@ pub(super) async fn stashes(repo: &RepoPath) -> Result<Vec<StashEntry>, GitError
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+pub(super) async fn files(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_id: &StashId,
+    limit: u32,
+) -> Result<StashFiles, GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let stash_id = stash_id.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        let trees = LocalGitBackend::with_runtime_git2(&repo, |git| stash_trees(git, &stash_id))?;
+        let git = LocalGitBackend::open(&repo)?;
+        let mut remaining = limit as usize;
+        let (staged, staged_truncated) = tree_file_list(
+            &commands,
+            &repo,
+            &git,
+            Some(&trees.base_tree),
+            &trees.index_tree,
+            &trees.stash_id,
+            remaining,
+        )?;
+        remaining = remaining.saturating_sub(staged.len());
+        let (worktree, worktree_truncated) = tree_file_list(
+            &commands,
+            &repo,
+            &git,
+            Some(&trees.index_tree),
+            &trees.stash_tree,
+            &trees.stash_id,
+            remaining,
+        )?;
+        remaining = remaining.saturating_sub(worktree.len());
+        let (untracked, untracked_truncated) = match &trees.untracked {
+            Some((commit_id, tree_id)) => {
+                tree_file_list(&commands, &repo, &git, None, tree_id, commit_id, remaining)?
+            }
+            None => (Vec::new(), false),
+        };
+
+        Ok(StashFiles {
+            staged,
+            worktree,
+            untracked,
+            truncated: staged_truncated || worktree_truncated || untracked_truncated,
+        })
+    })
+    .await
+    .map_err(join_error)?
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn file_diff_window(
+    repo: &RepoPath,
+    stash_id: &StashId,
+    group: StashFileGroup,
+    path: &str,
+    offset: u32,
+    limit: u32,
+    max_file_bytes: u64,
+    whitespace: DiffWhitespaceMode,
+) -> Result<FileDiffWindow, GitError> {
+    let repo = repo.clone();
+    let stash_id = stash_id.clone();
+    let path = path.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || {
+        let trees = LocalGitBackend::with_runtime_git2(&repo, |git| stash_trees(git, &stash_id))?;
+        let pair = trees.pair(group)?;
+        if whitespace == DiffWhitespaceMode::Show {
+            let git = LocalGitBackend::open(&repo)?;
+            let old_tree = pair
+                .old_tree
+                .as_deref()
+                .map(|tree_id| super::diff::tree_by_id(&git, tree_id))
+                .transpose()?;
+            let new_tree = super::diff::tree_by_id(&git, &pair.new_tree)?;
+            super::diff::tree_file_diff_window(
+                &git,
+                old_tree.as_ref(),
+                &new_tree,
+                &path,
+                offset,
+                limit,
+                max_file_bytes,
+            )
+        } else {
+            LocalGitBackend::with_runtime_git2(&repo, |git| {
+                let old_tree = pair
+                    .old_tree
+                    .as_deref()
+                    .map(|tree_id| {
+                        let oid =
+                            Oid::from_str(tree_id).map_err(LocalGitBackend::map_git2_error)?;
+                        git.find_tree(oid).map_err(LocalGitBackend::map_git2_error)
+                    })
+                    .transpose()?;
+                let new_oid =
+                    Oid::from_str(&pair.new_tree).map_err(LocalGitBackend::map_git2_error)?;
+                let new_tree = git
+                    .find_tree(new_oid)
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                super::diff::git2_tree_file_diff_window(
+                    git,
+                    old_tree.as_ref(),
+                    &new_tree,
+                    &path,
+                    offset,
+                    limit,
+                    max_file_bytes,
+                    whitespace,
+                )
+            })
+        }
+    })
+    .await
+    .map_err(join_error)?
+}
+
+struct StashTrees {
+    stash_id: String,
+    base_tree: String,
+    index_tree: String,
+    stash_tree: String,
+    untracked: Option<(String, String)>,
+}
+
+struct TreePair {
+    old_tree: Option<String>,
+    new_tree: String,
+}
+
+impl StashTrees {
+    fn pair(&self, group: StashFileGroup) -> Result<TreePair, GitError> {
+        match group {
+            StashFileGroup::Index => Ok(TreePair {
+                old_tree: Some(self.base_tree.clone()),
+                new_tree: self.index_tree.clone(),
+            }),
+            StashFileGroup::Worktree => Ok(TreePair {
+                old_tree: Some(self.index_tree.clone()),
+                new_tree: self.stash_tree.clone(),
+            }),
+            StashFileGroup::Untracked => self
+                .untracked
+                .as_ref()
+                .map(|(_, tree)| TreePair {
+                    old_tree: None,
+                    new_tree: tree.clone(),
+                })
+                .ok_or_else(|| GitError::Git2("stash has no untracked tree".to_string())),
+        }
+    }
+}
+
+fn stash_trees(git: &Repository, id: &StashId) -> Result<StashTrees, GitError> {
+    resolve_stash(git, id)?;
+    let oid = Oid::from_str(&id.0).map_err(|_| GitError::StashNotFound)?;
+    let stash = git
+        .find_commit(oid)
+        .map_err(LocalGitBackend::map_git2_error)?;
+    if !(2..=3).contains(&stash.parent_count()) {
+        return Err(malformed(format!(
+            "stash commit {oid} has {} parents; expected two or three",
+            stash.parent_count()
+        )));
+    }
+    let base = stash.parent(0).map_err(LocalGitBackend::map_git2_error)?;
+    let index = stash.parent(1).map_err(LocalGitBackend::map_git2_error)?;
+    let untracked = if stash.parent_count() == 3 {
+        let commit = stash.parent(2).map_err(LocalGitBackend::map_git2_error)?;
+        Some((commit.id().to_string(), commit.tree_id().to_string()))
+    } else {
+        None
+    };
+    Ok(StashTrees {
+        stash_id: stash.id().to_string(),
+        base_tree: base.tree_id().to_string(),
+        index_tree: index.tree_id().to_string(),
+        stash_tree: stash.tree_id().to_string(),
+        untracked,
+    })
+}
+
+fn tree_file_list(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    git: &gix::Repository,
+    old_tree_id: Option<&str>,
+    new_tree_id: &str,
+    stats_commit_id: &str,
+    limit: usize,
+) -> Result<(Vec<FileDiff>, bool), GitError> {
+    let old_tree = old_tree_id
+        .map(|tree_id| super::diff::tree_by_id(git, tree_id))
+        .transpose()?;
+    let new_tree = super::diff::tree_by_id(git, new_tree_id)?;
+    let (changes, truncated) =
+        LocalGitBackend::tree_changes_bounded(git, old_tree.as_ref(), &new_tree, limit)?;
+    let paths = changes
+        .iter()
+        .map(|change| change.attach(git, git).location().to_string())
+        .collect::<Vec<_>>();
+    let mut line_stats = LocalGitBackend::tree_line_stats_for_paths(
+        commands,
+        repo,
+        stats_commit_id,
+        old_tree.as_ref(),
+        &new_tree,
+        &paths,
+    )?;
+    let files = changes
+        .into_iter()
+        .map(|change| {
+            let attached = change.attach(git, git);
+            let path = attached.location().to_string();
+            let (additions, deletions) = line_stats.remove(&path).unwrap_or_default();
+            FileDiff {
+                path,
+                change_type: LocalGitBackend::classify_change(&attached),
+                additions,
+                deletions,
+            }
+        })
+        .collect();
+    Ok((files, truncated))
 }
 
 fn read_stashes(git: &mut Repository) -> Result<Vec<StashEntry>, GitError> {

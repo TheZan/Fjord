@@ -18,9 +18,9 @@ use fjord_domain::{
     RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
     ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult, StashEntry,
-    StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
-    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
-    Workspace, WorkspaceId,
+    StashFileGroup, StashFiles, StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme,
+    UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
+    WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -89,6 +89,8 @@ fn generated_types() -> String {
     push::<TagInfo>(&mut output, &config);
     push::<StashId>(&mut output, &config);
     push::<StashEntry>(&mut output, &config);
+    push::<StashFileGroup>(&mut output, &config);
+    push::<StashFiles>(&mut output, &config);
     push_without_trailing_whitespace::<StashScope>(&mut output, &config);
     push::<CreateStashRequest>(&mut output, &config);
     push::<CreateStashResult>(&mut output, &config);

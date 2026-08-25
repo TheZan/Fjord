@@ -511,6 +511,25 @@ pub struct StashEntry {
     pub has_untracked: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum StashFileGroup {
+    Index,
+    Worktree,
+    Untracked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct StashFiles {
+    pub staged: Vec<FileDiff>,
+    pub worktree: Vec<FileDiff>,
+    pub untracked: Vec<FileDiff>,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",

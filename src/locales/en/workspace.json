@@ -662,6 +662,19 @@
   },
   "stash": {
     "empty": "No stashes.",
+    "inspector": {
+      "createdFrom": "Created from {{branch}}",
+      "createdDetached": "Created on a detached HEAD",
+      "baseCommit": "Base commit",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} files",
+      "groupStaged": "Staged changes",
+      "groupWorktree": "Working changes",
+      "groupUntracked": "Untracked",
+      "applyIsUnstaged": "Apply restores these changes as unstaged unless you restore the staged state.",
+      "truncated": "This stash is too large to list every file.",
+      "empty": "This stash contains no file changes."
+    },
     "create": {
       "title": "Stash changes",
       "name": "Name",

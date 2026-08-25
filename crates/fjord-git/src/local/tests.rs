@@ -5648,6 +5648,232 @@ async fn rich_stash_list_matches_git_order_and_keeps_ids_when_positions_shift() 
 }
 
 #[tokio::test]
+async fn stash_files_reconstruct_staged_worktree_and_untracked_trees() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[("tracked.txt", b"base\n"), ("worktree.txt", b"base\n")],
+    )
+    .await;
+    write_file(&repo, "tracked.txt", "base\nstaged\n");
+    run_git_success(&backend, &repo, &["add", "tracked.txt"]);
+    write_file(&repo, "worktree.txt", "worktree only\n");
+    write_file(&repo, "untracked.txt", "untracked\n");
+    run_git_success(
+        &backend,
+        &repo,
+        &["stash", "push", "-u", "-m", "three groups"],
+    );
+
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    let files = backend.stash_files(&repo, &entry.id, 2_000).await.unwrap();
+    assert_eq!(
+        files
+            .staged
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["tracked.txt"]
+    );
+    assert_eq!(
+        files
+            .worktree
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["worktree.txt"]
+    );
+    assert_eq!(
+        files
+            .untracked
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["untracked.txt"]
+    );
+    assert!(!files.truncated);
+
+    let bounded = backend.stash_files(&repo, &entry.id, 1).await.unwrap();
+    assert_eq!(bounded.staged.len(), 1);
+    assert!(bounded.worktree.is_empty());
+    assert!(bounded.untracked.is_empty());
+    assert!(bounded.truncated);
+
+    let untracked = backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Untracked,
+            "untracked.txt",
+            DiffWindowOptions {
+                offset: 0,
+                limit: 2_000,
+                max_file_bytes: u64::MAX,
+                whitespace: DiffWhitespaceMode::Show,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(untracked.change_type, FileChangeType::Added);
+    assert!(untracked
+        .hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .any(|line| { line.kind == DiffLineKind::Addition && line.content == "untracked" }));
+}
+
+#[tokio::test]
+async fn stash_file_diff_keeps_the_staged_and_worktree_halves_distinct() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("both.txt", b"base\n")]).await;
+    write_file(&repo, "both.txt", "base\nstaged\n");
+    run_git_success(&backend, &repo, &["add", "both.txt"]);
+    write_file(&repo, "both.txt", "base\nstaged\nworking\n");
+    run_git_success(&backend, &repo, &["stash", "push", "-m", "split path"]);
+
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    let files = backend.stash_files(&repo, &entry.id, 2_000).await.unwrap();
+    assert_eq!(files.staged[0].path, "both.txt");
+    assert_eq!(files.worktree[0].path, "both.txt");
+
+    let options = DiffWindowOptions {
+        offset: 0,
+        limit: 2_000,
+        max_file_bytes: u64::MAX,
+        whitespace: DiffWhitespaceMode::Show,
+    };
+    let index = backend
+        .stash_file_diff_window(&repo, &entry.id, StashFileGroup::Index, "both.txt", options)
+        .await
+        .unwrap();
+    let worktree = backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Worktree,
+            "both.txt",
+            options,
+        )
+        .await
+        .unwrap();
+    let added = |window: &FileDiffWindow| {
+        window
+            .hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .filter(|line| line.kind == DiffLineKind::Addition)
+            .map(|line| line.content.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(added(&index), ["staged"]);
+    assert_eq!(added(&worktree), ["working"]);
+
+    let bounded = backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Index,
+            "both.txt",
+            DiffWindowOptions {
+                limit: 1,
+                ..options
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        bounded
+            .hunks
+            .iter()
+            .map(|hunk| hunk.lines.len())
+            .sum::<usize>(),
+        1
+    );
+    assert!(bounded.truncated);
+    assert_eq!(bounded.next_offset, Some(1));
+
+    write_file(&repo, "both.txt", "current worktree must not matter\n");
+    let frozen = backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Worktree,
+            "both.txt",
+            options,
+        )
+        .await
+        .unwrap();
+    assert_eq!(added(&frozen), ["working"]);
+    assert!(matches!(
+        backend
+            .stash_file_diff_window(
+                &repo,
+                &StashId("0".repeat(40)),
+                StashFileGroup::Index,
+                "both.txt",
+                options,
+            )
+            .await,
+        Err(GitError::StashNotFound)
+    ));
+    assert!(backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Untracked,
+            "both.txt",
+            options,
+        )
+        .await
+        .is_err());
+    assert!(backend
+        .stash_file_diff_window(
+            &repo,
+            &entry.id,
+            StashFileGroup::Index,
+            "missing.txt",
+            options,
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn external_pathspec_stash_inspector_shows_unrelated_recorded_index_content() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[("a.txt", b"a base\n"), ("b.txt", b"b base\n")],
+    )
+    .await;
+    write_file(&repo, "a.txt", "a staged\n");
+    run_git_success(&backend, &repo, &["add", "a.txt"]);
+    write_file(&repo, "a.txt", "a staged\na worktree\n");
+    write_file(&repo, "b.txt", "b unrelated staged\n");
+    run_git_success(&backend, &repo, &["add", "b.txt"]);
+    run_git_success(
+        &backend,
+        &repo,
+        &["stash", "push", "-m", "external pathspec", "--", "a.txt"],
+    );
+
+    assert_eq!(
+        index_blob(&repo, "b.txt").as_deref(),
+        Some(b"b unrelated staged\n".as_slice())
+    );
+    let entry = backend.stashes(&repo).await.unwrap().remove(0);
+    let files = backend.stash_files(&repo, &entry.id, 2_000).await.unwrap();
+    assert!(files.staged.iter().any(|file| file.path == "a.txt"));
+    assert!(files.staged.iter().any(|file| file.path == "b.txt"));
+    assert!(files.worktree.iter().any(|file| file.path == "a.txt"));
+}
+
+#[tokio::test]
 async fn stash_base_and_committer_time_stay_bound_to_the_stash_commit() {
     let (_directory, repo, backend) = initialized_stash_repo().await;
     let base = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))

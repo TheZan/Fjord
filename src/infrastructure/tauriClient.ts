@@ -59,6 +59,9 @@ import type {
   RepoStatus,
   RepositoryFilePath,
   StashEntry,
+  StashFileGroup,
+  StashFiles,
+  StashId,
   TagInfo,
   WorkingChanges,
 } from "@/domain/git";
@@ -630,7 +633,7 @@ function observedDiffPage(
 export function observeDiffPage(
   repoId: string,
   response: VersionedFileDiffWindow,
-  scope: "working" | "history",
+  scope: "working" | "history" | "stashes",
 ) {
   return observedDiffPage(repoId, response, scope);
 }
@@ -737,6 +740,32 @@ export function revertCommit(repoId: string, commitId: string): Promise<void> {
 
 export function getStashes(repoId: string, signal?: AbortSignal): Promise<StashEntry[]> {
   return invokeVersioned("get_stashes", { repoId }, repoId, "stashes", signal);
+}
+
+export function getStashFiles(
+  repoId: string,
+  stashId: StashId,
+  signal?: AbortSignal,
+): Promise<StashFiles> {
+  return invokeVersioned("get_stash_files", { repoId, stashId }, repoId, "stashes", signal);
+}
+
+export function getStashFileDiffPage(
+  repoId: string,
+  stashId: StashId,
+  group: StashFileGroup,
+  path: string,
+  offset: number,
+  limit: number,
+  whitespace: DiffWhitespaceMode,
+  loadAnyway: boolean,
+  signal?: AbortSignal,
+): Promise<VersionedFileDiffWindow> {
+  return invokeAbortable<VersionedFileDiffWindow>(
+    "get_stash_file_diff",
+    { repoId, stashId, group, path, offset, limit, whitespace, loadAnyway },
+    signal,
+  );
 }
 
 export function setBranchUpstream(repoId: string, branch: string, upstream: string): Promise<void> {

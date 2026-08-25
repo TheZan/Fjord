@@ -105,7 +105,7 @@ export function FileDiffView({
   // tripped React's "Maximum update depth exceeded". Key on its primitive
   // fields instead so the effect only reruns when the source actually
   // changes.
-  const sourceKey = source.kind === "working" ? `working:${source.staged}` : `commit:${source.commitId}`;
+  const sourceKey = diffSourceKey(source);
   useEffect(() => {
     onWhitespaceModeChange?.(source.kind === "working" ? { path, source } : null, whitespace);
     return () => onWhitespaceModeChange?.(null, "show");
@@ -875,7 +875,9 @@ interface PendingDiscard {
 }
 
 function diffSourceKey(source: DiffSource) {
-  return source.kind === "commit" ? `commit:${source.commitId}` : `working:${source.staged}`;
+  if (source.kind === "commit") return `commit:${source.commitId}`;
+  if (source.kind === "stash") return `stash:${source.stashId}:${source.group}`;
+  return `working:${source.staged}`;
 }
 
 function generationKey(generations: GenerationSet | null) {

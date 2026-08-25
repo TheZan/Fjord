@@ -51,6 +51,25 @@ describe("invalidateRepoData", () => {
       queryKey: queryKeys.repos.reflogs("repo-1"),
     });
   });
+
+  it("invalidates the stash scope that owns list, inspector files, and file diffs", async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateRepoData(queryClient.client, "repo-1", "workspace-1", ["stashes"]);
+
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.stashes("repo-1"),
+    });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.stashes("repo-1"),
+    });
+    expect(queryKeys.repos.stashFiles("repo-1", "stash-oid").slice(0, 3)).toEqual(
+      queryKeys.repos.stashes("repo-1"),
+    );
+    expect(queryKeys.repos.stashFileDiff("repo-1", "stash-oid", "index", "a.txt").slice(0, 3)).toEqual(
+      queryKeys.repos.stashes("repo-1"),
+    );
+  });
 });
 
 function fakeQueryClient() {
