@@ -98,10 +98,19 @@ export function FileDiffView({
   const { t } = useTranslation("workspace");
   const [whitespace, setWhitespace] = useState<DiffWhitespaceMode>("show");
 
+  // `source` is a fresh object literal on every render of the caller
+  // (RepoDetailView builds it inline), so depending on it directly made this
+  // effect refire on every unrelated re-render — each run notified the
+  // parent, which re-rendered and recreated `source`, forming a loop that
+  // tripped React's "Maximum update depth exceeded". Key on its primitive
+  // fields instead so the effect only reruns when the source actually
+  // changes.
+  const sourceKey = source.kind === "working" ? `working:${source.staged}` : `commit:${source.commitId}`;
   useEffect(() => {
     onWhitespaceModeChange?.(source.kind === "working" ? { path, source } : null, whitespace);
     return () => onWhitespaceModeChange?.(null, "show");
-  }, [path, source, whitespace, onWhitespaceModeChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, sourceKey, whitespace, onWhitespaceModeChange]);
   const [wordDiff, setWordDiff] = useState(true);
   const [loadAnyway, setLoadAnyway] = useState(false);
   const { diff, loading, loadingMore, hasMore, loadMore, error, generations, snapshotInvalid } = useFileDiff(

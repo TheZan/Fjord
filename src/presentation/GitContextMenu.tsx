@@ -85,7 +85,7 @@ export function ContextMenu({
       <div
         ref={menuRef}
         role="menu"
-        className="desktop-popover absolute min-w-52 overflow-hidden rounded-md border py-1"
+        className="desktop-popover absolute min-w-52 rounded-md border py-1"
         style={{
           left: menuPosition.x,
           top: menuPosition.y,
@@ -138,8 +138,21 @@ export function ContextMenu({
           }
         }}
       >
-        {items.map((item, index) => (
-          <div key={item.id} className={`relative ${item.separatorBefore ? "mt-1 border-t pt-1" : ""}`} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
+        {items.map((item, index) => {
+          // The menu's own `overflow-hidden` used to clip its rounded
+          // corners to the row highlight — but that also clipped any
+          // submenu, which renders outside this row's box via `left-full`/
+          // `right-full`. Rounding the edge rows individually keeps the
+          // corners tidy without hiding submenus.
+          const edgeRounding = item.children
+            ? ""
+            : index === 0
+              ? "overflow-hidden rounded-t-md"
+              : index === items.length - 1
+                ? "overflow-hidden rounded-b-md"
+                : "";
+          return (
+          <div key={item.id} className={`relative ${edgeRounding} ${item.separatorBefore ? "mt-1 border-t pt-1" : ""}`} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
             <button
               ref={(element) => {
                 itemRefs.current[index] = element;
@@ -185,7 +198,8 @@ export function ContextMenu({
               />
             ) : null}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -210,11 +224,19 @@ function ContextSubmenu({
     if (!menu) return;
     const bounds = menu.getBoundingClientRect();
     const overflowBottom = bounds.bottom - (window.innerHeight - 8);
+    // Runs once per mount: the submenu remounts fresh every time it opens
+    // (conditionally rendered by the parent), so there is no later point at
+    // which re-measuring is needed. Re-running on every `items` identity
+    // change instead caused a render/measure feedback loop — `items` is a
+    // fresh array on every parent render, so this effect fired every time
+    // the submenu was open, calling `setPlacement` again and again until
+    // React's nested-update limit tripped ("Maximum update depth exceeded").
     setPlacement({
       side: bounds.right > window.innerWidth - 8 ? "left" : "right",
       offsetY: overflowBottom > 0 ? -overflowBottom : 0,
     });
-  }, [items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => refs.current[active]?.focus());
