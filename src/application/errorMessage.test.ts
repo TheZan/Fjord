@@ -34,6 +34,9 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "stash_ambiguous", message: "raw git" })).toBe(
       "errors.stash_ambiguous",
     );
+    expect(errorTranslationKey({ code: "stash_recovery_failed", message: "raw git" })).toBe(
+      "errors.stash_recovery_failed",
+    );
   });
 
   it("never exposes unknown backend or JavaScript messages", () => {
@@ -76,5 +79,36 @@ describe("errorTranslationKey", () => {
     expect(message).toContain("owned by another account");
     expect(message).toContain("safe.directory");
     expect(message).not.toContain("/secret/repo");
+  });
+
+  it("interpolates the requested unrepresentable stash path", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "stash_scope_unrepresentable",
+      message: "backend fallback",
+      paths: ["nested"],
+    });
+
+    expect(message).toContain("nested");
+    expect(message).not.toContain("null");
+    expect(message).not.toContain("undefined");
+  });
+
+  it("falls back to a usable generic message when an error path is missing", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "stash_scope_unrepresentable",
+      message: "backend fallback",
+    });
+
+    expect(message).toBe(
+      "Something went wrong. Try again or restart Fjord if the problem continues.",
+    );
+    expect(message).not.toContain("null");
+    expect(message).not.toContain("undefined");
   });
 });

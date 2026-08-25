@@ -25,6 +25,7 @@ import {
   checkoutBranch,
   cherryPick,
   commitRepo,
+  createStash,
   createBranch,
   createBranchAt,
   createTag,
@@ -53,8 +54,6 @@ import {
   revertCommit,
   stageFiles,
   stagePatch,
-  stashFile,
-  stashPush,
   unstageFiles,
   unstagePatch,
   unsetBranchUpstream,
@@ -68,14 +67,14 @@ import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog"
 import { MergeDialog } from "@/presentation/MergeDialog";
 import { SquashMergeDialog } from "@/presentation/SquashMergeDialog";
 import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
-import { StashFileDialog } from "@/presentation/StashFileDialog";
+import { CreateStashDialog } from "@/presentation/CreateStashDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
 import { isOperationInProgress } from "@/presentation/OperationBanner";
 import { queryKeys } from "@/application/queryKeys";
 import { useDiffToolAvailability } from "@/application/useDiffToolAvailability";
-import { useStashFileSupported } from "@/application/useStashFileSupported";
+import { useStashPathsSupported } from "@/application/useStashPathsSupported";
 
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
@@ -130,12 +129,14 @@ export function RepoDetailContainer({
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
-  const [stashFileTarget, setStashFileTarget] = useState<WorkingFileTarget | null>(null);
+  const [stashDialog, setStashDialog] = useState<
+    { kind: "all" } | { kind: "paths"; target: WorkingFileTarget } | null
+  >(null);
   const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
     { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
   >(null);
   const diffToolAvailable = useDiffToolAvailability(repo.id, snapshot.ready);
-  const stashFileSupported = useStashFileSupported();
+  const stashPathsSupported = useStashPathsSupported();
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
     onStage,
@@ -143,7 +144,7 @@ export function RepoDetailContainer({
     onDiscard: requestWorkingFileDiscard,
     onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
     onOpenMergeTool: () => onAction("merge-tool"),
-    onStashFile: (target) => setStashFileTarget(target),
+    onStashFile: (target) => setStashDialog({ kind: "paths", target }),
     onAddIgnore,
     onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
     onError: (error) => setActionError(userErrorMessage(error)),
@@ -261,6 +262,7 @@ export function RepoDetailContainer({
     setWorkingSelected(false);
     setRecoveryCenterOpen(false);
     setMergeSource(null);
+    setStashDialog(null);
   }, [repo.id]);
 
   useEffect(() => {
@@ -295,6 +297,10 @@ export function RepoDetailContainer({
       setDestructiveAction({ kind: "stashPop", index: 0 });
       return;
     }
+    if (action === "stash") {
+      setStashDialog({ kind: "all" });
+      return;
+    }
     if (needsConfirmation(action)) {
       setActionConfirmation({ kind: "origin", action });
       return;
@@ -321,13 +327,12 @@ export function RepoDetailContainer({
       return;
     }
 
-    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">, () => Promise<void>> = {
-      stash: () => stashPush(repo.id),
+    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push" | "stash" | "stash-pop">, () => Promise<void>> = {
       terminal: () => openTerminal(repo.id),
       "open-ide": () => openInIde(repo.id),
       "merge-tool": () => openMergeTool(repo.id),
     };
-    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">;
+    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push" | "stash" | "stash-pop">;
     void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
@@ -887,21 +892,30 @@ export function RepoDetailContainer({
         );
       }}
       diffToolDisabledReason={diffToolAvailable ? undefined : t("workingFile.disabled.noDiffTool")}
-      stashFileDisabledReason={stashFileSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
+      stashFileDisabledReason={stashPathsSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
     />
     )}
-    {stashFileTarget ? (
-      <StashFileDialog
-        target={stashFileTarget}
-        onClose={() => setStashFileTarget(null)}
-        onConfirm={(message) => {
-          const target = stashFileTarget;
+    {stashDialog ? (
+      <CreateStashDialog
+        initialScope={stashDialog.kind === "all"
+          ? { kind: "all" }
+          : { kind: "paths", paths: [stashDialog.target.path] }}
+        selectedPaths={stashDialog.kind === "paths"
+          ? [{
+              path: stashDialog.target.path,
+              untracked: changes.unstaged.find((file) => file.path === stashDialog.target.path)?.tracked === false,
+            }]
+          : []}
+        pathsSupported={stashPathsSupported}
+        onClose={() => setStashDialog(null)}
+        onConfirm={(request) => {
+          const action = request.scope.kind === "all" ? "stash" : "stash-file";
           void runWorkingAction(
-            "stash-file",
-            () => stashFile(repo.id, target.path, message),
+            action,
+            async () => { await createStash(repo.id, request); },
             ["status", "working", "stashes"],
           ).then((ok) => {
-            if (ok) setStashFileTarget(null);
+            if (ok) setStashDialog(null);
           });
         }}
       />

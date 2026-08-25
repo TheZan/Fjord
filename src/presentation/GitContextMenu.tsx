@@ -335,6 +335,9 @@ export function TextActionDialog({
   label,
   initialValue = "",
   confirmLabel,
+  children,
+  disabled = false,
+  disabledReason,
   onConfirm,
   onClose,
 }: {
@@ -343,6 +346,9 @@ export function TextActionDialog({
   label: string;
   initialValue?: string;
   confirmLabel: string;
+  children?: ReactNode;
+  disabled?: boolean;
+  disabledReason?: string;
   onConfirm: (value: string) => void;
   onClose: () => void;
 }) {
@@ -363,13 +369,19 @@ export function TextActionDialog({
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && value.trim()) onConfirm(value.trim());
+            if (event.key === "Enter" && value.trim() && !disabled) onConfirm(value.trim());
           }}
         />
       </label>
+      {children}
+      {disabledReason ? (
+        <p role="status" className="text-[12px]" style={{ color: "var(--rust-ink)" }}>
+          {disabledReason}
+        </p>
+      ) : null}
       <DialogActions
         confirmLabel={confirmLabel}
-        disabled={!value.trim()}
+        disabled={!value.trim() || disabled}
         onConfirm={() => onConfirm(value.trim())}
         onClose={onClose}
       />

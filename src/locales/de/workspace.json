@@ -613,6 +613,24 @@
     "pushSuccess": "Gepusht",
     "pushFailure": "Fehlgeschlagen: {{error}}"
   },
+  "stash": {
+    "create": {
+      "title": "Änderungen stashen",
+      "name": "Name",
+      "scope": "Umfang",
+      "all": "Alle geänderten Dateien",
+      "selected": "Ausgewählte Dateien ({{count}})",
+      "selectedFiles": "Ausgewählte Dateien",
+      "includeUntracked": "Nicht verfolgte Dateien einschließen",
+      "untrackedExcluded": "{{count}} nicht verfolgte Datei(en) ausgeschlossen: {{paths}}",
+      "emptyEffectiveScope": "Keine ausgewählten verfolgten Dateien verbleiben. Schließen Sie nicht verfolgte Dateien ein.",
+      "unsupportedGit": "Bereichsbezogene Stashes benötigen Git 2.23 oder neuer.",
+      "defaultAll": "Fjord: Änderungen stashen",
+      "defaultPaths": "Fjord: {{count}} Dateien stashen",
+      "andMore": "und {{count}} weitere",
+      "confirm": "Stashen"
+    }
+  },
   "workingFile": {
     "stage": "Stagen",
     "unstage": "Aus Staging entfernen",
@@ -635,7 +653,7 @@
       "message": "Nachricht",
       "defaultMessage": "Fjord: Stash {{path}}",
       "stagedNotPreserved": "Der Bereitstellungsstatus bleibt nicht erhalten: Beim Wiederherstellen dieses Stashs erscheinen die Änderungen als nicht bereitgestellt.",
-      "unsupportedGit": "Zum Stashen einer einzelnen Datei ist Git 2.13 oder neuer erforderlich.",
+      "unsupportedGit": "Bereichsbezogene Stashes benötigen Git 2.23 oder neuer.",
       "confirm": "Datei stashen"
     },
     "disabled": {

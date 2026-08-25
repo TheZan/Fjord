@@ -123,22 +123,6 @@ impl LocalGitBackend {
             Err(err) => Err(Self::map_git2_error(err)),
         }
     }
-
-    /// An owned signature. `Repository::signature` borrows the repo, which
-    /// deadlocks the borrow checker against the `&mut Repository` the stash
-    /// APIs require — so read the identity out and rebuild it detached.
-    pub(super) fn owned_signature(
-        git: &git2::Repository,
-    ) -> Result<git2::Signature<'static>, GitError> {
-        let (name, email) = {
-            let signature = git.signature().map_err(Self::map_git2_error)?;
-            (
-                signature.name().unwrap_or("Fjord").to_string(),
-                signature.email().unwrap_or("").to_string(),
-            )
-        };
-        git2::Signature::now(&name, &email).map_err(Self::map_git2_error)
-    }
 }
 
 fn is_repository_ownership_error(message: &str) -> bool {

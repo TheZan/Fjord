@@ -45,6 +45,6 @@ export const queryKeys = {
       [...queryKeys.repos.detail(repoId), "diffToolAvailability"] as const,
   },
   git: {
-    stashFileSupported: ["git", "stashFileSupported"] as const,
+    stashPathsSupported: ["git", "stashPathsSupported"] as const,
   },
 };

@@ -78,7 +78,11 @@
     "stash_not_found": "Ese stash ya no existe. Actualiza la vista e inténtalo de nuevo.",
     "stash_ambiguous": "Más de una entrada de stash apunta al mismo commit; Fjord no elegirá una al azar.",
     "stash_file_conflicted": "Este archivo tiene conflictos sin resolver. Resuélvalos primero.",
-    "stash_file_unsupported_git": "Guardar un solo archivo en el stash requiere Git 2.13 o posterior.",
+    "stash_file_unsupported_git": "La creación de stash con un ámbito de rutas exacto requiere Git 2.23 o posterior.",
+    "stash_scope_empty": "Selecciona al menos un archivo para guardar en el stash.",
+    "stash_concurrent_update": "El repositorio cambió mientras se creaba el stash. No se guardó nada.",
+    "stash_recovery_failed": "No se pudo crear el stash y Fjord no pudo restaurar por completo el estado del repositorio. Revisa los cambios preparados y del directorio de trabajo antes de continuar.",
+    "stash_scope_unrepresentable": "El estado de {{path}} no se puede representar exactamente, por lo que no se creó ningún stash.",
     "unexpected": "Algo salió mal. Inténtalo de nuevo o reinicia Fjord.",
     "workspace_not_found": "No se encontró el workspace. Actualiza la app e inténtalo de nuevo.",
     "log_folder_unavailable": "No se pudo abrir la carpeta de registros. Abre manualmente la carpeta de datos de la aplicación."

@@ -659,6 +659,24 @@
     "pushSuccess": "Pushed",
     "pushFailure": "Failed: {{error}}"
   },
+  "stash": {
+    "create": {
+      "title": "Stash changes",
+      "name": "Name",
+      "scope": "Scope",
+      "all": "All changed files",
+      "selected": "Selected files ({{count}})",
+      "selectedFiles": "Selected files",
+      "includeUntracked": "Include untracked files",
+      "untrackedExcluded": "Excluded {{count}} untracked file(s): {{paths}}",
+      "emptyEffectiveScope": "No tracked selected files remain. Include untracked files to continue.",
+      "unsupportedGit": "Scoped stash creation needs Git 2.23 or newer.",
+      "defaultAll": "Fjord: stash changes",
+      "defaultPaths": "Fjord: stash {{count}} files",
+      "andMore": "and {{count}} more",
+      "confirm": "Stash"
+    }
+  },
   "workingFile": {
     "stage": "Stage",
     "unstage": "Unstage",
@@ -681,7 +699,7 @@
       "message": "Message",
       "defaultMessage": "Fjord: stash {{path}}",
       "stagedNotPreserved": "Staged state is not preserved: restoring this stash brings the changes back as unstaged.",
-      "unsupportedGit": "Stashing a single file needs Git 2.13 or newer.",
+      "unsupportedGit": "Scoped stash creation needs Git 2.23 or newer.",
       "confirm": "Stash file"
     },
     "disabled": {

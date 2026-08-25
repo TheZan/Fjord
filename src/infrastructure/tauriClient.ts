@@ -7,6 +7,8 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AmendInfo,
+  CreateStashRequest,
+  CreateStashResult,
   DestructiveAction,
   DestructivePreflight,
   DiffWhitespaceMode,
@@ -745,16 +747,12 @@ export function unsetBranchUpstream(repoId: string, branch: string): Promise<voi
   return invoke("unset_branch_upstream", { repoId, branch });
 }
 
-export function stashPush(repoId: string, message: string | null = null): Promise<void> {
-  return invoke("stash_push", { repoId, message });
+export function createStash(repoId: string, request: CreateStashRequest): Promise<CreateStashResult> {
+  return invoke("create_stash", { repoId, request });
 }
 
-export function stashFile(repoId: string, path: string, message: string): Promise<void> {
-  return invoke("stash_file", { repoId, path, message });
-}
-
-export function stashFileSupported(): Promise<boolean> {
-  return invoke("stash_file_supported");
+export function stashPathsSupported(): Promise<boolean> {
+  return invoke("stash_paths_supported");
 }
 
 export function openTerminal(repoId: string): Promise<void> {

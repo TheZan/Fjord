@@ -121,7 +121,7 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | File open / reveal | ✅ `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path` (`P10-WC-01`): repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments. `IdeLauncher` carries an optional line. |
 | External diff tool | ✅ `open_external_diff` (`git difftool`) with a `Settings.diff_tool` **name** only, plus `diff_tool_availability` for the live disabled reason (`P10-WC-06`). The merge tool stays a separate concept (§6.4). |
 | `.gitignore` writing | ✅ Root `.gitignore` only, UTF-8 with BOM/terminator preservation and fail-closed on invalid UTF-8 (`P10-WC-02`). Global excludes, `.git/info/exclude`, and `core.excludesFile` are still never touched. |
-| File-scoped stash | ⚠️ `stash_file` (`P10-WC-05`), Git's own pathspec-scoped `stash push -u -m … -- <path>`. What shipped is **file-scoped worktree removal** with the unrelated-*current*-changes invariant proven per file state. The entry it creates still records whole trees, so a later apply can restore more than the one file; that is the stash-content invariant `P10-STASH-02` adds ([`stash-management.md`](stash-management.md) §2.3). `P10-STASH-02` generalizes creation to *n* paths under one `create_stash` contract and **migrates this action onto it** (§2.9 there). |
+| File-scoped stash | ✅ `Stash file…` is the one-path case of `create_stash { scope: Paths }` (`P10-STASH-02`). The exact-scope engine constructs base/index/worktree/untracked trees through private indexes, builds the stash object graph with `write-tree` and `commit-tree`, and publishes `refs/stash` atomically via `update-ref` with expected-OID CAS validation. The resulting normal Git stash entry contains only the selected semantic path, preserves partially staged structure, and excludes unrelated staged/unstaged/untracked state both at creation and later Apply/Pop. |
 | Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard), both reusing the `P8-01` constructor unchanged (`P10-WC-03`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
@@ -640,7 +640,7 @@ executable name, an argument list, or a shell string.
 | `add_ignore_rule` | Appends one rule to the repository-root `.gitignore` (`P10-WC-02`). |
 | `preview_ignore_rule` | Read-only: the exact rule text and whether it is already present. |
 | `export_patch` | Writes the patch for one file/side to a user-chosen destination (`P10-WC-03`). |
-| `stash_file` | File-scoped stash (`P10-WC-05`). |
+| `create_stash { scope: Paths }` | Exact file-scoped stash (`P10-STASH-02`; one file is the N=1 case). |
 | `DestructiveAction::DeleteFile` | Delete through the existing preflight/token executor (`P10-WC-04`). |
 
 **Opening files.** `IdeLauncher` gains an explicit file-and-position shape rather
@@ -804,40 +804,32 @@ reads repository state and writes a file outside it, mutating nothing.
   (and `--cached --check` for the staged variant) succeeds against the matching
   fixture state.
 
-**Stash file (`P10-WC-05`).** What shipped is **file-scoped worktree removal**,
-and its invariant is absolute:
-
-> Stashing one selected file preserves the Git state of every unrelated file
-> byte-for-byte — index entries, worktree contents, and untracked files alike.
-
-That is a statement about the **working tree at creation time**. It is *not* a
-statement about the entry's reusable contents: a pathspec-scoped stash records
-whole trees, so a later apply of a `P10-WC-05` entry can restore unrelated staged
-content. [`stash-management.md`](stash-management.md) §2.3 names these two
-properties invariant **A** (the one proven here) and invariant **B** (the one
-`P10-STASH-02` adds), and §2.9 there records that `Stash file…` is migrated onto
-the `P10-STASH-02` engine so one-file and *n*-file stashes cannot end up with
-different apply semantics. Nothing below should be read as a `P10-WC-05` claim
-about **B**.
-
-Fjord does **not** implement any of this by hiding other changes, stashing, and
-restoring them. That sequence has no atomic boundary and fails destructively on
-interruption. The shipped mechanism is Git's own pathspec-scoped stash:
+**Stash file (`P10-WC-05` entry point, `P10-STASH-02` engine).** The current
+production behavior is exactly the one-path form of the unified contract:
 
 ```text
-git stash push [-u] -m "Fjord: stash <path>" -- <path>
+Stash file… = create_stash { scope: Paths { paths: [path] } }
 ```
 
-- Requires Git ≥ 2.13 for pathspec-limited `stash push`. The version is read by
-  parsing `git --version` through the already-resolved `GitCommandFactory` —
-  **not** through `GitEnvironmentProvider`, which this section previously claimed;
-  `P10-WC-05` chose the narrower dependency deliberately, since the check needs
-  nothing else the provider exposes. An older Git disables the entry with the
-  reason `workingFile.stashFile.unsupportedGit`, and the check is repeated
-  fail-closed inside the mutation.
-- Runs under the repository write lock through the shared resolved executable
-  with arguments passed individually.
-- Behavior per file state, stated so the implementer invents nothing:
+The exact-scope engine builds private base/index/worktree/untracked trees,
+constructs the ordinary Git stash object graph with `write-tree` and
+`commit-tree`, cleans only the selected semantic scope, and publishes
+`refs/stash` with expected-OID CAS validation. It proves both invariants from
+[`stash-management.md`](stash-management.md) §2.3:
+
+- **A — unrelated current state is preserved:** every unrelated index entry,
+  worktree file, and untracked file remains byte-for-byte unchanged at creation.
+- **B — later Apply/Pop is exact:** the resulting ordinary Git-compatible entry
+  contains only the selected semantic scope, so applying or popping it cannot
+  restore unrelated changes.
+
+Fjord does **not** implement this by hiding unrelated changes, stashing, and
+restoring them. The operation runs under the repository write lock and Git's
+index/HEAD locks. Exact path scope requires Git ≥ 2.23; capability is read from
+the already-resolved `GitCommandFactory`, the UI stays disabled until support is
+positively confirmed, and the mutation rechecks fail-closed.
+
+- Behavior per file state:
 
   | File state | Behavior |
   |---|---|
@@ -853,36 +845,18 @@ git stash push [-u] -m "Fjord: stash <path>" -- <path>
   the user to discover it.
 - Dialog: title `Stash changes in {{path}}`, one message field prefilled with
   `Fjord: stash <path>`, plus the staged-state sentence above.
-- If P10-WC-05's implementation cannot demonstrate the unrelated-file invariant
-  (invariant **A**) with the tests in §Testing strategy, the correct outcome is to
-  **not ship the action** and keep the task open. An approximate file stash is
-  worse than no file stash. The same rule, applied to invariant **B**, is
-  `P10-STASH-02`'s proof gate.
+This section owns the *entry point* — where the menu item sits and when it is
+disabled. The shared creation contract, per-state semantics for one or many
+paths, naming, and downstream stash actions belong to
+[`stash-management.md`](stash-management.md).
 
-**Where this goes next.** `P10-STASH-02` replaces the shipped single-path
-implementation with one `create_stash` contract over
-`StashScope::{ All, Paths }`, so "stash the repository", "stash this file", and
-"stash these three files" become one engine and one dialog rather than three
-code paths ([`stash-management.md`](stash-management.md) §2). This section keeps
-ownership of the *entry point* — where the menu item sits and when it is disabled
-— while the contract, the per-state behavior table for *n* paths, the scoped
-invariants, the naming rules, and everything downstream of creation (browsing,
-inspection, apply, pop, drop, create-branch) belong to that spec.
-
-Two facts from there are worth carrying in mind before reading this section's
-table as the whole truth:
-
-- A pathspec-scoped `git stash push` *records* whole trees even though it only
-  *removes* the selected paths from the working tree, so a later `apply` of a
-  `P10-WC-05` entry restores more than was stashed. The invariant above is about
-  what stays in the working tree — what the user is looking at — and is not a
-  claim about the entry's contents.
-- `P10-STASH-02` makes that unacceptable as a product contract: a Fjord-created
-  `Paths` stash must contain **only** the selected paths, so pathspec
-  `git stash push` is no longer committed to as the final mechanism, and the task
-  does not ship until the apply side is proven
-  ([`stash-management.md`](stash-management.md) §2.2–§2.3). If that proof fails,
-  `Stash file…` stays exactly as it is today and `Stash N files…` does not ship.
+**Historical P10-WC-05 implementation.** The original implementation used
+pathspec-limited `git stash push` and its real-Git fixtures proved invariant A
+only: selected worktree removal preserved unrelated current state. Because a
+pathspec stash records whole trees, those fixtures did not prove invariant B and
+could not support the final exact-scope product promise. `P10-STASH-02` replaced
+that mechanism after both A and B passed against real Git; production no longer
+uses pathspec stash creation for `Paths`.
 
 **Delete file (`P10-WC-04`).** Destructive, never immediate, always through the
 existing preflight contract:
@@ -1690,7 +1664,7 @@ repository-root file is the one a reviewer will actually see in the diff.
   resolution and process launches are one call each, the ignore write is one
   bounded read-modify-append, and patch export reuses a diff the view has
   usually already computed for the current generation.
-- `stash_file` and `DeleteFile` are ordinary write-lock mutations that advance
+- `create_stash` and `DeleteFile` are ordinary write-lock mutations that advance
   only `working_tree` (and `stash` for the former); neither forces a full
   repository refetch.
 

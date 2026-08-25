@@ -613,6 +613,24 @@
     "pushSuccess": "Enviado",
     "pushFailure": "Error: {{error}}"
   },
+  "stash": {
+    "create": {
+      "title": "Guardar cambios en el stash",
+      "name": "Nombre",
+      "scope": "Ámbito",
+      "all": "Todos los archivos modificados",
+      "selected": "Archivos seleccionados ({{count}})",
+      "selectedFiles": "Archivos seleccionados",
+      "includeUntracked": "Incluir archivos sin seguimiento",
+      "untrackedExcluded": "Se excluyeron {{count}} archivo(s) sin seguimiento: {{paths}}",
+      "emptyEffectiveScope": "No quedan archivos con seguimiento seleccionados. Incluye los archivos sin seguimiento para continuar.",
+      "unsupportedGit": "El stash con ámbito limitado requiere Git 2.23 o posterior.",
+      "defaultAll": "Fjord: guardar cambios",
+      "defaultPaths": "Fjord: guardar {{count}} archivos",
+      "andMore": "y {{count}} más",
+      "confirm": "Guardar"
+    }
+  },
   "workingFile": {
     "stage": "Preparar",
     "unstage": "Quitar de preparados",
@@ -635,7 +653,7 @@
       "message": "Mensaje",
       "defaultMessage": "Fjord: stash de {{path}}",
       "stagedNotPreserved": "El estado preparado no se conserva: al restaurar este stash, los cambios vuelven como no preparados.",
-      "unsupportedGit": "Guardar un solo archivo en el stash requiere Git 2.13 o posterior.",
+      "unsupportedGit": "El stash con ámbito limitado requiere Git 2.23 o posterior.",
       "confirm": "Guardar archivo en stash"
     },
     "disabled": {

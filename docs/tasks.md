@@ -321,7 +321,7 @@ renumbering anything.
 2. P10-WC-01…06      Working Changes file context actions            ✅ done
 3. P10-WC-MULTI-01   Working Changes multi-selection model
 4. P10-STASH-01      Stable stash identity + the reads built on it
-5. P10-STASH-02      Exact-scope stash creation  ⚠ proof gate before shipping
+5. P10-STASH-02      Exact-scope stash creation                         ✅ done
 6. P10-WC-MULTI-02   Batch Stage/Unstage + Stash N files… entry point
 7. P10-STASH-03…06   Stash tree, inspector, graph markers, actions
 8. P10-WC-MULTI-03   Batch Discard + multi-file patch export
@@ -336,19 +336,19 @@ The Stash and multi-selection blocks interleave rather than queue, because they
 share exactly one edge in each direction and nothing else: `Stash N files…`
 (`P10-WC-MULTI-02`) needs the exact-scope backend from `P10-STASH-02`, and
 `P10-STASH-02` needs nothing from the selection work — a one-path `Paths` scope
-is the same contract `Stash file…` migrates onto. `P10-WC-MULTI-01` leads the
+is the same contract `Stash file…` now uses. `P10-WC-MULTI-01` leads the
 whole sequence because it is pure frontend, blocks nothing, and is what every
 later batch action reads from.
 
-**`P10-STASH-02` carries a proof gate**, and the order above depends on it.
-`Paths` promises an exact subset — "Stash 4 files" means those four files, on
-apply as well as on creation — and pathspec `git stash push` alone does not
-deliver that ([`specs/stash-management.md`](specs/stash-management.md) §2.2–§2.3).
-If the exact-scope construction cannot be proven safe and Git-compatible,
-`P10-STASH-02` stays open, `Stash file…` keeps its shipped behavior, and step 6
-ships **without** its `Stash N files…` entry point; nothing downstream is
-blocked, because `P10-STASH-03…06` depend on `01`'s identity model rather than on
-`02`.
+**`P10-STASH-02` is complete and its proof gate passed.** The gate existed
+because direct pathspec stash proved only preservation of unrelated current
+state, not exact later Apply/Pop behavior. It is marked done because both
+invariant A and invariant B now pass against real Git, the exact-scope result
+remains an ordinary Git-compatible stash, and `create_stash` with `scope: Paths`
+delivers an exact subset — "Stash 4 files" means those four files both at
+creation and on later use. The implementation uses explicit tree construction,
+`write-tree`/`commit-tree`, and atomic `update-ref` publication with expected-OID
+CAS validation ([`specs/stash-management.md`](specs/stash-management.md) §2).
 
 Why merge is first, explicitly:
 
@@ -374,7 +374,7 @@ Why merge is first, explicitly:
   `P10-MERGE-01`–`03`
   it can stash before an integration — but it still cannot *see* a stash, act on
   anything but `stash@{0}`, or get stashed work back onto a branch of its own.
-  Every piece it needs is shipped: the pathspec stash engine, the destructive
+  Every piece it needs is shipped: the exact-scope stash engine, the destructive
   preflight/token path, the RepoTree section pattern, the commit-graph ref-badge
   row, the Commit Inspector composition, the bounded diff pipeline, and the
   generation model. It comes before Workspace Intelligence because it removes a
@@ -405,7 +405,7 @@ Spec: [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6. `P
 - [x] **P10-WC-02** — **Ignore** submenu for untracked files only, writing to the repository-root `.gitignore`: exact-path, extension, and directory rules, each showing the exact rule text before it is written. Never touches global excludes, `.git/info/exclude`, `core.excludesFile`, or system Git configuration. **Supported encoding is exactly UTF-8, with or without a BOM** — no charset detection, no Windows-1251/1252/UTF-16 guessing. An existing file keeps its BOM presence, its dominant CRLF/LF terminator, and every unrelated byte; a missing final newline is added before the rule; a missing `.gitignore` is created as UTF-8 without BOM with LF. A file whose bytes are not valid UTF-8 **fails closed** with `ignore_file_encoding_unsupported` and is left byte-for-byte untouched rather than rewritten. Duplicates report `AlreadyPresent` instead of appending. Ignore is unavailable — disabled with a stated reason — for tracked files, because `.gitignore` cannot untrack them; a separate explicit "Stop tracking" workflow is not created here. Verification: exact-filename, extension, and directory rules; duplicate no-op; the encoding/terminator matrix (UTF-8 LF, UTF-8 CRLF, UTF-8 BOM preserved, missing final newline, file creation); invalid UTF-8 refused without modifying the file; tracked-file refusal.
 - [x] **P10-WC-03** — **Create patch from changes…** (unstaged, `INDEX -> WORKTREE`) and **Create patch from staged changes…** (staged, `HEAD -> INDEX`), plus the **Copy patch to clipboard** follow-up. Both reuse the shipped `PatchSelection` and the `P8-01` deterministic patch constructor unchanged — no second diff or patch implementation. A new read-only `export_patch` (`crates/fjord-git/src/local/working_tree.rs`) takes the repository *read* lock, builds a `FileDiffDetail` the same way the mutating patch commands do, and calls the existing `build_unified_patch`; it never touches the write lock, `git apply`, or any generation. Two IPC commands: `export_patch` writes the bytes to a native-save-dialog destination and returns nothing (patch content never crosses IPC for the file-save path — only `get_patch_text`, added for the clipboard follow-up, returns it as a string). Native save dialog via `@tauri-apps/plugin-dialog`'s `save()` (already a dependency; only a thin `pickSaveDestination` wrapper was new), default filename `<file-name>.patch`. Frontend selection-building was factored out of the existing Discard-file flow into a shared `buildWholeFilePatchSelection` helper (`src/application/wholeFilePatchSelection.ts`), removing duplication rather than adding a second copy. Disabled with `workingFile.disabled.whitespaceMode` while a whitespace-ignoring mode is active **for the specific row currently open in the diff view** — `FileDiffView` reports its live `{path, source, mode}` up through a new `onWhitespaceModeChange` prop; other rows have no open diff to disagree with, so nothing to gate. Binary/mode-only files are not hidden from the menu (the lightweight `WorkingFile` row summary carries no binary flag); a click on one fails closed with the existing `patch_unsupported` code instead — recorded as a deliberate scope limit in [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md) §6. Verification: two Rust integration tests build a patch, reset only the base side (worktree file or index entry) under test, and assert `git apply --check` / `git apply --cached --check` succeed and reproduce the modified content/index state exactly; component tests cover the menu's per-row adaptivity (both sources, deleted rows, whitespace-disabled state), the hook's save/cancel/clipboard flows, and the container's destination-picked export plus the `workingFile.patchSaved` notice. i18n: `workingFile.createPatch`/`createPatchStaged`/`copyPatch`/`patchSaved`/`disabled.whitespaceMode` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
 - [x] **P10-WC-04** — **Delete file…** as `DestructiveAction::DeleteFile { path }` on the existing preflight/token/`execute_destructive_action` path — no private command, so file deletion cannot become the first destructive action that bypasses preflight enforcement. New backend module `crates/fjord-git/src/local/delete_file.rs` owns path containment (repository-root canonicalization, `..`/absolute/`.git` rejection), Git-state classification, and the actual removal; `destructive_preflight.rs`/`destructive_execution.rs` route `DeleteFile` into it exactly like every other action in the shared enum, and `repo_service.rs` needed only one line added to its existing preflight match arm. Distinct computed consequences and honest labels via the new `Consequence::FileRemoved { path, tracked }` and `Recoverability::Committed` domain variants: an untracked file is `NotRecoverable`; a tracked file that is unmodified in the worktree with nothing staged is `Committed` ("the committed version stays in `HEAD`"); a tracked file with worktree-only modifications degrades to `NotRecoverable` by additionally reusing the existing `ModifiedFilesDiscarded` consequence rather than inventing a third message. **A path that also appears in the staged list is blocked, not labelled** (`delete_file_partially_staged`): removing the worktree file while the index holds independent staged content has no single honest consequence, so the menu entry is disabled with a stated reason *and* the backend refuses — computed in preflight so no token is issued, and re-checked under the write lock at execution (new `GitError::DeleteFilePartiallyStaged`/`DeleteFileConflicted`/`DeleteTargetNotAFile` variants carry the same stable codes both ways), because frontend disabling is never the guarantee. Discard on that same unstaged row stays enabled, because it reverses only `INDEX -> WORKTREE` and preserves the staged side. A conflicted file is refused (`delete_file_conflicted`). Never recursive — offered only on file rows, and the backend refuses a directory (`delete_target_not_a_file`); a symlink is unlinked via a Windows/Unix-correct `remove_file`/`remove_dir` split, never followed. `MutationKind::DeleteFile` advances only `working_tree`. Frontend: `WorkingFileContextMenu` renders **Delete file…** last, danger-styled, with an ellipsis, on the unstaged row only, disabled with `workingFile.disabled.deleteAlsoStaged` when the row's path is also present in the staged section (computed in `RepoDetailView` from the live `WorkingChanges`, not cached); `useWorkingFileActions` routes it through a new `onDelete` callback into the existing generic `destructiveAction`/`DestructivePreflightDialog` state `RepoDetailContainer` already uses for every other enum-driven action — no new dialog. `DestructivePreflightDialog` gained one `ConsequenceItem` case and passes `{ path }` as blocker interpolation context when the action is `deleteFile`. Verification: seven `fjord-git` integration tests (untracked/atomic, tracked-unmodified/`Committed`/`HEAD`-retrievable/appears-as-unstaged-deletion, tracked-modified degrades to `NotRecoverable`, the paired partially-staged-blocks-while-discard-still-works case, conflicted refusal, directory refusal, path-traversal refusal) plus a Unix-only symlink-unlink test and the `generation.rs` mutation-mask table entry; component tests for `workingFileMenuItems`' placement/danger-styling/disabled states and the shared `ContextMenu`'s refusal to dispatch a disabled entry, plus a `useWorkingFileActions` dispatch test. i18n: `workingFile.delete`, `workingFile.disabled.deleteAlsoStaged`, `preflight.deleteFile.*`, `preflight.recoverability.committed`, `preflight.blockers.delete_target_not_a_file`/`delete_file_partially_staged`/`delete_file_conflicted`, `preflight.consequences.fileRemovedTracked`/`fileRemovedUntracked` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
-- [x] **P10-WC-05** — **Stash file…**: file-scoped worktree removal via Git's pathspec stash, whose invariant is that unrelated staged, unstaged, and untracked changes in the working tree are preserved exactly. Implemented with Git's own pathspec-scoped `stash push -u -m … -- <path>` (`crates/fjord-git/src/local/stash_file.rs`), never by hiding other changes, stashing, and restoring them — that sequence has no atomic boundary. `-u` is passed unconditionally rather than branched per file state, since the trailing pathspec is what bounds the operation to the one path; verified directly against real Git (unstaged, staged, both-sided, and untracked fixtures each leave a second unrelated staged entry, a second unrelated unstaged file, and an unrelated untracked file byte-for-byte unchanged, asserted before and after the stash). Requires Git >= 2.13 (pathspec-limited `stash push`), checked by parsing `git --version` directly rather than through `GitEnvironmentProvider` — a deliberate simplification, since the check needs only the already-resolved `GitCommandFactory` and nothing else the provider exposes; exposed as a new `stash_file_supported` IPC command polled by `useStashFileSupported` (a global, non-repo-scoped query, since it depends only on the resolved Git executable) and re-checked fail-closed inside `stash()` itself before every mutation. A conflicted path is refused (`GitError::StashFileConflicted`) via a live `git2` status read, since squash-style operations have no `MERGE_HEAD` to key off. Frontend: `WorkingFileContextMenu` renders **Stash file…** grouped with **Ignore** (unstaged rows only, withheld from conflicted and staged rows per §6.2), disabled with the stated reason on an unsupported Git; `useWorkingFileActions` routes it through a new `onStashFile` callback into a new `StashFileDialog` (built on the shared `TextActionDialog` primitive — title naming the path, a prefilled `Fjord: stash <path>` message field, and the staged-not-preserved sentence as its description) that `RepoDetailContainer` renders and wires to the new `stash_file` IPC command, invalidating `status`/`working`/`stashes` on success. `MutationKind::StashPush` (already `WORKING_STASH`-masked) is reused rather than adding a new mutation kind, since a file stash advances exactly the same two generations a whole-repository stash does. Verification: five `fjord-git` integration tests proving the unrelated-file invariant for each of the five file states (unstaged, staged, both, untracked, conflicted-refused) plus a version-gate test against the resolved Git, and unit tests for the `git --version` parser's accept/reject boundary at 2.13. i18n: `workingFile.stashFile.*` (`label`/`title`/`message`/`defaultMessage`/`stagedNotPreserved`/`unsupportedGit`/`confirm`) and `errors.stash_file_conflicted`/`stash_file_unsupported_git` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green. **Scope of what this proved, stated exactly:** the five fixtures assert the working tree immediately after creation — this is *file-scoped worktree removal preserving unrelated current changes*, invariant **A** of [`specs/stash-management.md`](specs/stash-management.md) §2.3. None of them applies the resulting entry, and a pathspec stash records whole trees, so **this task makes no claim about what a later Apply/Pop restores** (invariant **B**). `P10-STASH-02` adds that invariant, and migrates this action onto its engine (spec §2.9); until then `Stash file…` keeps exactly the behavior described here.
+- [x] **P10-WC-05** — **Stash file…** historical implementation and proof of invariant A: file-scoped worktree removal via Git's pathspec stash preserved every unrelated staged, unstaged, and untracked change in the current working tree. It used `stash push -u -m … -- <path>` in the former `stash_file.rs`, never a non-atomic hide/stash/restore sequence, and its five real-Git fixtures covered unstaged, staged, both-sided, untracked, and conflicted-refused states. This task intentionally made no claim about later Apply/Pop behavior (invariant B): pathspec stash records whole trees. `P10-STASH-02` subsequently proved B, migrated `Stash file…` to the shared exact-scope `create_stash { scope: Paths }` engine, retired `stash_file.rs`/`stash_file_supported`, and raised the scoped capability floor from Git 2.13 to 2.23. This entry records the original acceptance history, not current production behavior (spec §2.9).
 - [x] **P10-WC-06** — **Open in external diff tool** for the selected file and side. The merge tool and the diff tool stay separate concepts: `open_merge_tool` remains `git mergetool` driven by `merge.tool` for conflicts; a new `open_external_diff` (`crates/fjord-git/src/local/diff_tool.rs`) drives `git difftool`. Fjord stores exactly one thing — an optional **Git difftool name** in `Settings.diff_tool` (forward-only `0007_diff_tool.sql`, [`specs/data-model.md`](specs/data-model.md)) with two documented states: `null` means "let Git resolve `diff.tool` / `difftool.<name>.cmd`", and `"meld"` means invoke `git difftool --tool=meld`. **Never an executable path, a shell command, or a command line** — `SettingsService::update_settings` rejects a value containing anything but ASCII alphanumerics/`-`/`_`/`.` with the stable code `diff_tool_name_invalid` (new `StoreError::InvalidSetting(&'static str)` variant) before it ever reaches the store. Invocation is `difftool --no-prompt -- <path>` for an unstaged row and `difftool --no-prompt --cached -- <path>` for a staged row, plus `--tool=<name>` when one is stored (pure `build_args` unit-tested per row/preference combination). Resolution: preference `null` checks `diff.tool` via a `git2` config read (no subprocess); a named preference is checked against `git difftool --tool-help`'s parsed tool list (`parse_tool_help`), which recognizes both currently-available and merely-valid tools — and a custom `difftool.<name>.cmd` entry, whose listing strips the `.cmd` suffix Git's own output appends to user-defined tool names. All four resolution outcomes are wired: preference `null` with `diff.tool` configured works; preference `null` with no `diff.tool` **disables** the entry (`workingFile.disabled.noDiffTool`, computed by a new `diff_tool_availability` IPC command polled through `useDiffToolAvailability`) rather than letting `--no-prompt` hit Git's interactive tool chooser; a stored name Git can resolve wins over `diff.tool`; a stored name Git cannot resolve fails closed with `diff_tool_not_configured` naming the tool (`AppError.tool`, interpolated into the localized message) even if the menu entry was bypassed. Frontend: `WorkingFileContextMenu` renders **Open in external diff tool** on every non-conflicted row (including deleted rows, since `git difftool` diffs a missing worktree file against `/dev/null` without Fjord needing the file to exist), disabled with the live reason; `useWorkingFileActions` dispatches it straight through the new `openExternalDiff` IPC call, no dialog. Settings gained a **Tools → External diff tool** text field (`SettingsDialog.tsx`) alongside the existing IDE fields. Verification: `build_args` unit tests for all four row/preference combinations; `fjord-git` integration tests for `diff_tool_availability` (`Auto` reflecting `git config diff.tool`, a named tool resolving via a `difftool.<name>.cmd` fixture) and for `open_external_diff` failing closed on both the unconfigured-`Auto` and unresolvable-name outcomes; `fjord-services` tests asserting `diff_tool_name_invalid` for paths, commands, shell metacharacters, and empty strings, and that a plain name round-trips; `fjord-db` round-trip test for the new column. i18n: `workingFile.openExternalDiff`, `workingFile.disabled.noDiffTool`, `settings.diffTool.*`, `errors.diff_tool_name_invalid`/`diff_tool_not_configured` added to all five locales; `npm run check-i18n` and `npm run check-ipc-docs` green.
 
 ### Stash Management
@@ -420,13 +420,13 @@ the Working Changes entry points and selection only;
 [`repository-safety.md`](specs/repository-safety.md) §3 owns the Pop/Drop
 destructive facts. Nothing normative is duplicated across them.
 
-This is not a second stash subsystem. It generalizes what `P10-WC-05` shipped and
-retires the parts of the old whole-repository stash that cannot be made safe —
+This is not a second stash subsystem. It generalized what `P10-WC-05` shipped and
+retired the parts of the old whole-repository stash that could not be made safe —
 above all the use of `stash@{n}` as identity. It also **strengthens** what
 `P10-WC-05` shipped: that task delivered file-scoped worktree removal preserving
-unrelated current changes; `P10-STASH-02` upgrades it into a first-class reusable
+unrelated current changes; `P10-STASH-02` upgraded it into a first-class reusable
 scoped stash whose stored and apply semantics are exact, and `Stash file…`
-migrates onto that one engine so no two scoped-stash behaviors coexist.
+migrated onto that one engine so no two scoped-stash behaviors coexist.
 
 Dependency order — `P10-STASH-01` → `02` → `03` → `04` → `05` → `06`. The real
 edges are narrower than the chain: `02`–`06` each depend only on `01`'s identity
@@ -434,8 +434,9 @@ and model, `05` also needs `04`'s inspector as its selection target, and `06` is
 scheduled after `03`/`04`/`05` so its one shared menu ships once into three
 existing entry points instead of being written, then rewired twice. One edge
 points outward: `P10-WC-MULTI-02`'s `Stash N files…` entry point needs `02`'s
-multi-path backend **and its passed proof gate** — if `02` stays open, that one
-entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existing
+multi-path backend **and its passed proof gate**. That edge is now satisfied; the
+entry point remains part of `WC-MULTI-02`, while the rest of that task is still
+pending. No existing
 `P10-*` id is renamed or renumbered.
 
 - [x] **P10-STASH-01** — Rich stash model with immutable identity, and the reads
@@ -465,7 +466,7 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   §Testing strategy — identity stability across insertion and removal, base-commit
   correctness across later commits and branch switches, the empty-untracked-parent
   case, and stale-identity fail-closed on every action.
-- [ ] **P10-STASH-02** — Unified stash creation for all / one / many paths with a
+- [x] **P10-STASH-02** — Unified stash creation for all / one / many paths with a
   user-authored name, and an **exact** scope contract. One typed contract
   `CreateStashRequest { scope: All | Paths { paths }, message, include_untracked }`;
   an empty `paths` is `stash_scope_empty`, **not** a spelling of `All` (the
@@ -478,36 +479,36 @@ entry point stays unshipped while the rest of `WC-MULTI-02` proceeds. No existin
   **(A)** creating the stash leaves every unrelated staged, unstaged, and
   untracked change byte-for-byte unchanged — `P10-WC-05`'s invariant, restated for
   *n* paths; and **(B)** a later Apply / Pop of that entry touches **only** the
-  selected paths, i.e. `set(touched) == set(requested)`. `P10-WC-05` proves (A)
-  only: verified against real Git, a pathspec-scoped `git stash push` records
-  whole trees, so unrelated staged content lands in the entry and is reapplied
-  (spec §4.3). **Direct pathspec `git stash push -- <paths>` is therefore no longer
-  committed to as the final mechanism** — it is the starting point and the shipped
-  prototype, and it is acceptable only if tests prove the finished entry applies
-  selected paths alone. `Paths` is a **construction** problem (spec §2.2):
-  evaluate a temporary/private index, plumbing (`write-tree`/`commit-tree`/
-  `git stash store`), or another system-Git mechanism, and pick one with evidence.
+  selected paths, i.e. `set(touched) == set(requested)`. Historically,
+  `P10-WC-05` proved (A) only: verified against real Git, a pathspec-scoped
+  `git stash push` records whole trees, so unrelated staged content lands in the
+  entry and is reapplied (spec §4.3). **Direct pathspec
+  `git stash push -- <paths>` was therefore insufficient** for the final
+  contract. `Paths` was treated as a **construction** problem (spec §2.2), and
+  the completed implementation uses private indexes, `write-tree`/`commit-tree`,
+  and atomic `update-ref` CAS publication.
   The result must stay an ordinary Git stash — `git stash list`/`show`/`apply`/`pop`
   must work on it from a terminal. Explicitly forbidden: a Fjord stash database, a
   patch file posing as a stash, temporary mutation of unrelated working files, and
-  any "hide → stash → restore" sequence with no atomic boundary. **Proof gate:
-  this task does not ship until the apply-side fixtures pass.** If exact-scope
-  creation cannot be done safely and Git-compatibly, `P10-STASH-02` stays **open**,
-  `Stash file…` keeps its current behavior, and `Stash N files…`
-  (`P10-WC-MULTI-02`) does not ship — a smaller safe product beats a
-  `Stash 4 files` that restores five. A selection whose state the construction
-  cannot represent exactly fails closed with `stash_scope_unrepresentable` and
-  creates nothing. One engine and one module either way: `stash_file.rs` becomes
-  `stash.rs`, `git2::stash_save2` is retired, `stash_push`/`stash_file` collapse
-  into `create_stash`, and **`Stash file…` is migrated onto the new engine** so
+  any "hide → stash → restore" sequence with no atomic boundary. **Completed
+  proof gate:** the task was eligible to close only after apply-side fixtures
+  proved both invariants against real Git and ordinary Git compatibility. Had
+  that proof failed, the historical acceptance rule was to leave the task open
+  and withhold `Stash N files…`, because a smaller safe product is better than a
+  `Stash 4 files` that restores five. The proof passed. A selection whose state
+  the construction cannot represent exactly fails closed with
+  `stash_scope_unrepresentable` and
+  creates nothing. One engine and one module: `stash.rs` owns the private-index /
+  `write-tree` / `commit-tree` construction, real `index.lock` plus prepared
+  expected-HEAD validation, and reflog-creating `update-ref` CAS publication;
+  `git2::stash_save2` is retired, `stash_push`/`stash_file` collapsed
+  into `create_stash`, and **`Stash file…` was migrated onto the new engine** so
   one-file and *n*-file stashes cannot end up with different apply semantics
-  (spec §2.9) — there must ultimately be one implementation of interactive scoped
+  (spec §2.9) — there is one implementation of interactive scoped
   stash. Everything runs through the resolved `GitCommandFactory` with
-  individually passed arguments, under the repository write lock. Git ≥ 2.13 gates
+  individually passed arguments, under the repository write lock. Git ≥ 2.23 gates
   `Paths` only (not `All`), read by parsing `git --version` through the resolved
-  factory — which is what `stash_file.rs` actually does today — and exposed as
-  `stash_paths_supported`; the chosen construction may raise that floor, and if it
-  does, the gate checks the raised floor. `include_untracked` is scope-specific
+  factory and exposed as `stash_paths_supported`. `include_untracked` is scope-specific
   (spec §2.4.1): for `Paths` it means *selected* untracked paths may be included
   and never sweeps in unrelated untracked files; with it off, selected untracked
   paths are excluded from the **effective** set the dialog counts, confirms, and
