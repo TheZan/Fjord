@@ -1,7 +1,10 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { WorkingFile, WorkingFileTarget } from "@/domain/git";
-import type { WorkingFileAction } from "@/application/useWorkingFileActions";
+import type {
+  WorkingFileAction,
+  WorkingFileActionContext,
+} from "@/application/useWorkingFileActions";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 
 export interface WorkingFileMenuState {
@@ -10,8 +13,24 @@ export interface WorkingFileMenuState {
   position: { x: number; y: number };
 }
 
+export interface WorkingFileActionEntry {
+  file: WorkingFile;
+  target: WorkingFileTarget;
+}
+
+interface WorkingFileMenuContext {
+  clicked: WorkingFileActionEntry;
+  selection: readonly WorkingFileActionEntry[];
+  busy: boolean;
+  patchExportDisabledReason?: string;
+  deleteDisabledReason?: string;
+  diffToolDisabledReason?: string;
+  stashFileDisabledReason?: string;
+}
+
 export function WorkingFileContextMenu({
   state,
+  selection = [],
   busy,
   patchExportDisabledReason,
   deleteDisabledReason,
@@ -21,6 +40,7 @@ export function WorkingFileContextMenu({
   onClose,
 }: {
   state: WorkingFileMenuState;
+  selection?: readonly WorkingFileActionEntry[];
   busy: boolean;
   /** Set when the row's diff is the one currently open with a
    * whitespace-ignoring mode active — the displayed diff would not match
@@ -32,35 +52,43 @@ export function WorkingFileContextMenu({
   /** Set when no external diff tool currently resolves (Auto with no
    * `diff.tool` configured, or a stored name Git cannot resolve). */
   diffToolDisabledReason?: string;
-  /** Set when the resolved Git is older than 2.13 and cannot run a
-   * pathspec-scoped `stash push`. */
+  /** Set when the resolved Git is older than 2.23 and cannot run exact
+   * scoped stash creation. */
   stashFileDisabledReason?: string;
-  onAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
+  onAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
   return (
     <ContextMenu
       position={state.position}
-      items={workingFileMenuItems(
-        state.file,
-        state.target,
+      items={workingFileMenuItems({
+        clicked: { file: state.file, target: state.target },
+        selection,
         busy,
-        t,
         patchExportDisabledReason,
         deleteDisabledReason,
         diffToolDisabledReason,
         stashFileDisabledReason,
-      )}
+      }, t)}
       onClose={onClose}
       onSelect={(id) => {
         onClose();
-        onAction(id as WorkingFileAction, state.target);
+        onAction(id as WorkingFileAction, {
+          clickedTarget: state.target,
+          targets: (selection.length > 0 ? selection : [{ file: state.file, target: state.target }])
+            .map((entry) => entry.target),
+        });
       }}
     />
   );
 }
 
+export function workingFileMenuItems(
+  context: WorkingFileMenuContext,
+  t: TFunction<"workspace">,
+): ContextMenuItem[];
+/** Compatibility signature for the shipped single-row item-builder callers. */
 export function workingFileMenuItems(
   file: WorkingFile,
   target: WorkingFileTarget,
@@ -70,7 +98,98 @@ export function workingFileMenuItems(
   deleteDisabledReason?: string,
   diffToolDisabledReason?: string,
   stashFileDisabledReason?: string,
+): ContextMenuItem[];
+export function workingFileMenuItems(
+  contextOrFile: WorkingFileMenuContext | WorkingFile,
+  targetOrT: WorkingFileTarget | TFunction<"workspace">,
+  busy?: boolean,
+  legacyT?: TFunction<"workspace">,
+  patchExportDisabledReason?: string,
+  deleteDisabledReason?: string,
+  diffToolDisabledReason?: string,
+  stashFileDisabledReason?: string,
 ): ContextMenuItem[] {
+  const context: WorkingFileMenuContext = "clicked" in contextOrFile
+    ? contextOrFile
+    : {
+        clicked: { file: contextOrFile, target: targetOrT as WorkingFileTarget },
+        selection: [{ file: contextOrFile, target: targetOrT as WorkingFileTarget }],
+        busy: busy ?? false,
+        patchExportDisabledReason,
+        deleteDisabledReason,
+        diffToolDisabledReason,
+        stashFileDisabledReason,
+      };
+  const t = ("clicked" in contextOrFile ? targetOrT : legacyT) as TFunction<"workspace">;
+  const selection = context.selection.length > 0 ? context.selection : [context.clicked];
+  if (selection.length > 1) return batchWorkingFileMenuItems(selection, context, t);
+  return singleWorkingFileMenuItems(context.clicked.file, context.clicked.target, context, t);
+}
+
+function batchWorkingFileMenuItems(
+  selection: readonly WorkingFileActionEntry[],
+  context: WorkingFileMenuContext,
+  t: TFunction<"workspace">,
+): ContextMenuItem[] {
+  const count = selection.length;
+  const source = selection[0].target.source;
+  const conflict = selection.find((entry) => entry.file.conflicted);
+  const disabledReason = conflict
+    ? t("workingFile.disabled.conflictedSelection", { path: conflict.target.path })
+    : undefined;
+  const disabled = context.busy || Boolean(disabledReason);
+  const copyPaths: ContextMenuItem = {
+    id: "copyPaths",
+    label: t("workingFile.copyPaths"),
+    icon: "copy",
+    separatorBefore: true,
+    disabled,
+    disabledReason,
+  };
+
+  if (source === "index") {
+    return [
+      {
+        id: "unstage",
+        label: t("workingFile.unstageFiles", { count }),
+        disabled,
+        disabledReason,
+      },
+      copyPaths,
+    ];
+  }
+
+  const stashDisabledReason = disabledReason ?? context.stashFileDisabledReason;
+  return [
+    {
+      id: "stage",
+      label: t("workingFile.stageFiles", { count }),
+      disabled,
+      disabledReason,
+    },
+    {
+      id: "stashFile",
+      label: t("workingFile.stashFiles", { count }),
+      disabled: context.busy || Boolean(stashDisabledReason),
+      disabledReason: stashDisabledReason,
+    },
+    copyPaths,
+  ];
+}
+
+function singleWorkingFileMenuItems(
+  file: WorkingFile,
+  target: WorkingFileTarget,
+  context: WorkingFileMenuContext,
+  t: TFunction<"workspace">,
+): ContextMenuItem[] {
+  const {
+    busy,
+    patchExportDisabledReason,
+    deleteDisabledReason,
+    diffToolDisabledReason,
+    stashFileDisabledReason,
+  } = context;
   const copyPath: ContextMenuItem = {
     id: "copyPath",
     label: t("workingFile.copyPath.label"),

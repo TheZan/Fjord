@@ -8,13 +8,26 @@ import {
 } from "@/presentation/WorkingFileContextMenu";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) => {
+      if (key === "workingFile.stageFiles") return `Stage ${values?.count} files`;
+      if (key === "workingFile.unstageFiles") return `Unstage ${values?.count} files`;
+      if (key === "workingFile.stashFiles") return `Stash ${values?.count} files…`;
+      return key;
+    },
+  }),
 }));
 
 const normal: WorkingFile = { path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false };
 const worktree: WorkingFileTarget = { path: normal.path, source: "worktree" };
 const index: WorkingFileTarget = { path: normal.path, source: "index" };
-const t = ((key: string) => key) as never;
+const t = vi.fn((key: string, values?: Record<string, unknown>) => {
+  if (key === "workingFile.stageFiles") return `Stage ${values?.count} files`;
+  if (key === "workingFile.unstageFiles") return `Unstage ${values?.count} files`;
+  if (key === "workingFile.stashFiles") return `Stash ${values?.count} files…`;
+  if (key === "workingFile.disabled.conflictedSelection") return `${values?.path} conflicted`;
+  return key;
+}) as never;
 
 describe("WorkingFileContextMenu", () => {
   it("builds distinct unstaged and staged action sets", () => {
@@ -29,6 +42,88 @@ describe("WorkingFileContextMenu", () => {
     expect(staged).not.toContain("discard");
     expect(staged).not.toContain("ignore");
     expect(staged).not.toContain("delete");
+  });
+
+  it("builds the counted MULTI-02 subset from one shared item model", () => {
+    const unstagedSelection = ["d.ts", "b.ts", "a.ts", "c.ts"].map((path) => ({
+      file: { ...normal, path },
+      target: { path, source: "worktree" as const },
+    }));
+    const stagedSelection = ["c.ts", "a.ts", "b.ts"].map((path) => ({
+      file: { ...normal, path },
+      target: { path, source: "index" as const },
+    }));
+
+    const unstaged = workingFileMenuItems({
+      clicked: unstagedSelection[1],
+      selection: unstagedSelection,
+      busy: false,
+    }, t);
+    const staged = workingFileMenuItems({
+      clicked: stagedSelection[0],
+      selection: stagedSelection,
+      busy: false,
+    }, t);
+
+    expect(unstaged.map((item) => [item.id, item.label])).toEqual([
+      ["stage", "Stage 4 files"],
+      ["stashFile", "Stash 4 files…"],
+      ["copyPaths", "workingFile.copyPaths"],
+    ]);
+    expect(staged.map((item) => [item.id, item.label])).toEqual([
+      ["unstage", "Unstage 3 files"],
+      ["copyPaths", "workingFile.copyPaths"],
+    ]);
+    expect(t).toHaveBeenCalledWith("workingFile.stageFiles", { count: 4 });
+    expect(t).toHaveBeenCalledWith("workingFile.unstageFiles", { count: 3 });
+    expect(ids(unstaged)).not.toEqual(expect.arrayContaining(["discard", "createPatch", "copyPatch"]));
+  });
+
+  it("disables the whole MULTI-02 mutation set and names the conflicted path", () => {
+    const selection = [
+      { file: normal, target: worktree },
+      {
+        file: { ...normal, path: "src/conflict.ts", conflicted: true },
+        target: { path: "src/conflict.ts", source: "worktree" as const },
+      },
+    ];
+    const items = workingFileMenuItems({
+      clicked: selection[0],
+      selection,
+      busy: false,
+    }, t);
+
+    expect(items).toHaveLength(3);
+    expect(items.every((item) => item.disabled)).toBe(true);
+    expect(items[0].disabledReason).toBe("src/conflict.ts conflicted");
+  });
+
+  it("dispatches all selected paths when right-clicking inside the selection", () => {
+    const onAction = vi.fn();
+    const selection = ["a.ts", "b.ts", "c.ts", "d.ts"].map((path) => ({
+      file: { ...normal, path },
+      target: { path, source: "worktree" as const },
+    }));
+    const state: WorkingFileMenuState = {
+      file: selection[1].file,
+      target: selection[1].target,
+      position: { x: 10, y: 20 },
+    };
+    render(
+      <WorkingFileContextMenu
+        state={state}
+        selection={selection}
+        busy={false}
+        onAction={onAction}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stash 4 files…" }));
+    expect(onAction).toHaveBeenCalledWith("stashFile", {
+      clickedTarget: selection[1].target,
+      targets: selection.map((entry) => entry.target),
+    });
   });
 
   it("renders delete last, danger-styled, and enabled by default on the unstaged row only", () => {
@@ -170,7 +265,10 @@ describe("WorkingFileContextMenu", () => {
     await waitFor(() => expect(screen.getByRole("menuitem", { name: "workingFile.copyPath.relative" })).toHaveFocus());
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.copyPath.absolute" }));
 
-    expect(onAction).toHaveBeenCalledWith("copyAbsolute", worktree);
+    expect(onAction).toHaveBeenCalledWith("copyAbsolute", {
+      clickedTarget: worktree,
+      targets: [worktree],
+    });
   });
 
   it("dispatches delete for the exact unstaged target when clicked", () => {
@@ -187,7 +285,10 @@ describe("WorkingFileContextMenu", () => {
 
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.delete" }));
 
-    expect(onAction).toHaveBeenCalledWith("delete", worktree);
+    expect(onAction).toHaveBeenCalledWith("delete", {
+      clickedTarget: worktree,
+      targets: [worktree],
+    });
   });
 
   it("dispatches stashFile and openExternalDiff for the exact target when clicked", () => {
@@ -203,10 +304,16 @@ describe("WorkingFileContextMenu", () => {
     );
 
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.stashFile.label" }));
-    expect(onAction).toHaveBeenCalledWith("stashFile", worktree);
+    expect(onAction).toHaveBeenCalledWith("stashFile", {
+      clickedTarget: worktree,
+      targets: [worktree],
+    });
 
     fireEvent.click(screen.getByRole("menuitem", { name: "workingFile.openExternalDiff" }));
-    expect(onAction).toHaveBeenCalledWith("openExternalDiff", worktree);
+    expect(onAction).toHaveBeenCalledWith("openExternalDiff", {
+      clickedTarget: worktree,
+      targets: [worktree],
+    });
   });
 
   it("does not dispatch when the disabled delete entry is activated", () => {

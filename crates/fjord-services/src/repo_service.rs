@@ -110,11 +110,15 @@ fn resolve_repository_file(root: &Path, path: &str) -> Result<RepositoryFilePath
         return Err(RepoError::PathOutsideRepository(path.to_string()));
     }
 
+    // `fjord_fs::canonicalize_path` (not `std::fs::canonicalize` directly)
+    // so the resulting `absolute` path has no Windows `\\?\` verbatim
+    // prefix — it's copied to the clipboard and opened in external tools,
+    // both of which should see a normal-looking path.
     let canonical_root =
-        std::fs::canonicalize(root).map_err(|_| RepoError::PathNotFound(path.to_string()))?;
+        fjord_fs::canonicalize_path(root).map_err(|_| RepoError::PathNotFound(path.to_string()))?;
     let relative = segments.iter().collect::<PathBuf>();
     let parent = relative.parent().unwrap_or_else(|| Path::new(""));
-    let canonical_parent = std::fs::canonicalize(canonical_root.join(parent))
+    let canonical_parent = fjord_fs::canonicalize_path(&canonical_root.join(parent))
         .map_err(|_| RepoError::PathNotFound(path.to_string()))?;
     if !canonical_parent.starts_with(&canonical_root) {
         return Err(RepoError::PathOutsideRepository(path.to_string()));
@@ -4623,7 +4627,7 @@ mod tests {
         assert_eq!(resolved.relative, "src/app.rs");
         assert_eq!(
             resolved.absolute,
-            std::fs::canonicalize(root.join("src"))
+            fjord_fs::canonicalize_path(&root.join("src"))
                 .unwrap()
                 .join("app.rs")
         );

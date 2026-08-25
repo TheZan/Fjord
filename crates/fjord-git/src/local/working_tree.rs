@@ -244,17 +244,31 @@ pub(super) async fn stage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitE
         LocalGitBackend::with_runtime_git2(&repo, |git| {
             let mut index = LocalGitBackend::fresh_index(git)?;
 
-            // `add_all` rather than `add_path` even for explicit paths: it is
-            // the only one that also records *deletions*, so staging a removed
-            // file from the commit panel doesn't fail on the missing file.
             if paths.is_empty() {
+                // Empty remains the deliberate Stage All contract.
                 index
                     .add_all(["*"], IndexAddOption::DEFAULT, None)
                     .map_err(LocalGitBackend::map_git2_error)?;
             } else {
-                index
-                    .add_all(paths.iter(), IndexAddOption::DEFAULT, None)
-                    .map_err(LocalGitBackend::map_git2_error)?;
+                // `add_all` treats semantic filenames as pathspecs. Use
+                // literal index operations against one fresh index and write
+                // it once; missing tracked paths represent deletions.
+                for path in &paths {
+                    match index.add_path(path) {
+                        Ok(()) => {}
+                        Err(error) if error.code() == git2::ErrorCode::NotFound => {
+                            // `add_path` is literal but cannot represent a
+                            // deletion. Remove the missing tracked path from
+                            // this same in-memory index transaction instead.
+                            if index.get_path(path, 0).is_some() {
+                                index
+                                    .remove_path(path)
+                                    .map_err(LocalGitBackend::map_git2_error)?;
+                            }
+                        }
+                        Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+                    }
+                }
             }
 
             index.write().map_err(LocalGitBackend::map_git2_error)
@@ -864,8 +878,29 @@ pub(super) async fn unstage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), Gi
                 git.reset_default(head.as_ref(), ["*"])
                     .map_err(LocalGitBackend::map_git2_error)
             } else {
-                git.reset_default(head.as_ref(), paths.iter())
-                    .map_err(LocalGitBackend::map_git2_error)
+                let mut index = LocalGitBackend::fresh_index(git)?;
+                let mut head_index = git2::Index::new().map_err(LocalGitBackend::map_git2_error)?;
+                if let Some(head) = head.as_ref() {
+                    let tree = head
+                        .peel_to_tree()
+                        .map_err(LocalGitBackend::map_git2_error)?;
+                    head_index
+                        .read_tree(&tree)
+                        .map_err(LocalGitBackend::map_git2_error)?;
+                }
+
+                for path in &paths {
+                    if let Some(head_entry) = head_index.get_path(path, 0) {
+                        index
+                            .add(&head_entry)
+                            .map_err(LocalGitBackend::map_git2_error)?;
+                    } else if index.get_path(path, 0).is_some() {
+                        index
+                            .remove_path(path)
+                            .map_err(LocalGitBackend::map_git2_error)?;
+                    }
+                }
+                index.write().map_err(LocalGitBackend::map_git2_error)
             }
         })
     })

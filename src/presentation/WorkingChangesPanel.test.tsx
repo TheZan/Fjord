@@ -22,6 +22,12 @@ vi.mock("react-i18next", () => ({
       if (key === "workingChanges.selectionAnnouncement") {
         return `${values?.count ?? 0} of ${values?.total ?? 0} selected`;
       }
+      if (key === "workingChanges.selectedCount") return `${values?.count} selected`;
+      if (key === "workingChanges.selectionActions") return `Actions for ${values?.count} selected files`;
+      if (key === "workingChanges.clearSelection") return "Clear";
+      if (key === "workingFile.stageFiles") return `Stage ${values?.count} files`;
+      if (key === "workingFile.unstageFiles") return `Unstage ${values?.count} files`;
+      if (key === "workingFile.stashFiles") return `Stash ${values?.count} files…`;
       return key;
     },
   }),
@@ -60,6 +66,7 @@ function props(overrides: Partial<React.ComponentProps<typeof WorkingChangesPane
     selection: selectionController(),
     onStage: vi.fn(),
     onUnstage: vi.fn(),
+    onSelectionAction: vi.fn(),
     onPrepareAmend: vi.fn(async () => ({ message: "Previous commit", publishedUpstream: null })),
     onCommit: vi.fn(async () => true),
   };
@@ -82,6 +89,8 @@ function selectionController(
     prepareContextMenu: vi.fn(),
     registerVisibleTargets: vi.fn(),
     clear: vi.fn(),
+    beginSourceRemap: vi.fn(() => true),
+    completeSourceRemap: vi.fn(),
     ...overrides,
   };
 }
@@ -138,6 +147,86 @@ describe("WorkingChangesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "working.unstageAll" }));
     expect(panelProps.onUnstage).toHaveBeenCalledWith(["README.md"]);
     expect(screen.getByText("working.conflicted")).toBeInTheDocument();
+  });
+
+  it("shows the shared unstaged selection toolbar, dispatches its full selection, and clears", () => {
+    const toolbarChanges: WorkingChanges = {
+      unstaged: [
+        { path: "b.ts", changeType: "modified", tracked: true, conflicted: false },
+        { path: "a.ts", changeType: "modified", tracked: true, conflicted: false },
+      ],
+      staged: [],
+    };
+    const targets = new Set([
+      { path: "b.ts", source: "worktree" as const },
+      { path: "a.ts", source: "worktree" as const },
+    ]);
+    const clear = vi.fn();
+    const onSelectionAction = vi.fn();
+    const selection = selectionController({
+      targets,
+      source: "worktree",
+      active: { path: "b.ts", source: "worktree" },
+      anchor: { path: "b.ts", source: "worktree" },
+      selectedPaths: vi.fn((source) => source === "worktree"
+        ? new Set<string>(["a.ts", "b.ts"])
+        : new Set<string>()),
+      clear,
+    });
+    render(<WorkingChangesPanel {...props({
+      changes: toolbarChanges,
+      selection,
+      onSelectionAction,
+    })} />);
+
+    expect(screen.getByTestId("worktree-selection-toolbar")).toHaveTextContent("2 selected");
+    expect(screen.getByRole("button", { name: "Stage 2 files" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stash 2 files…" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Discard|patch/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stage 2 files" }));
+    const expectedContext = {
+      clickedTarget: { path: "b.ts", source: "worktree" },
+      targets: [
+        { path: "b.ts", source: "worktree" },
+        { path: "a.ts", source: "worktree" },
+      ],
+    };
+    expect(onSelectionAction).toHaveBeenCalledWith("stage", expectedContext);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for 2 selected files" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Stage 2 files" }));
+    expect(onSelectionAction).toHaveBeenLastCalledWith("stage", expectedContext);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it("shows only Unstage as the staged selection toolbar primary mutation", () => {
+    const toolbarChanges: WorkingChanges = {
+      unstaged: [],
+      staged: [
+        { path: "a.ts", changeType: "modified", tracked: true, conflicted: false },
+        { path: "b.ts", changeType: "modified", tracked: true, conflicted: false },
+      ],
+    };
+    const targets = new Set([
+      { path: "a.ts", source: "index" as const },
+      { path: "b.ts", source: "index" as const },
+    ]);
+    const selection = selectionController({
+      targets,
+      source: "index",
+      active: { path: "a.ts", source: "index" },
+      anchor: { path: "a.ts", source: "index" },
+      selectedPaths: vi.fn((source) => source === "index"
+        ? new Set<string>(["a.ts", "b.ts"])
+        : new Set<string>()),
+    });
+    render(<WorkingChangesPanel {...props({ changes: toolbarChanges, selection })} />);
+
+    expect(screen.getByRole("button", { name: "Unstage 2 files" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Stash/ })).not.toBeInTheDocument();
   });
 
   it("forwards exact staged and unstaged row identity in Path and Tree views", () => {

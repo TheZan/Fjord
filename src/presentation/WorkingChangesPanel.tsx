@@ -15,6 +15,12 @@ import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
 import type { AmendInfo, WorkingChanges, WorkingFile, WorkingFileTarget } from "@/domain/git";
 import type { WorkingFileSelectionController } from "@/application/useWorkingFileSelection";
+import type { WorkingFileAction, WorkingFileActionContext } from "@/application/useWorkingFileActions";
+import { ContextMenu } from "@/presentation/GitContextMenu";
+import {
+  workingFileMenuItems,
+  type WorkingFileActionEntry,
+} from "@/presentation/WorkingFileContextMenu";
 
 /**
  * The commit panel: what's staged, what isn't, and the message that will turn
@@ -30,6 +36,8 @@ export function WorkingChangesPanel({
   selection,
   onStage,
   onUnstage,
+  onSelectionAction,
+  stashFileDisabledReason,
   onFileContextMenu,
   onPrepareAmend,
   onCommit,
@@ -44,6 +52,8 @@ export function WorkingChangesPanel({
   selection: WorkingFileSelectionController;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
+  onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  stashFileDisabledReason?: string;
   onFileContextMenu?: (
     file: WorkingFile,
     target: WorkingFileTarget,
@@ -203,6 +213,8 @@ export function WorkingChangesPanel({
           busy={busy || !validated}
           selection={selection}
           onAct={onStage}
+          onSelectionAction={onSelectionAction}
+          stashFileDisabledReason={stashFileDisabledReason}
           onFileContextMenu={onFileContextMenu}
         />
         <FileSection
@@ -216,6 +228,8 @@ export function WorkingChangesPanel({
           busy={busy || !validated}
           selection={selection}
           onAct={onUnstage}
+          onSelectionAction={onSelectionAction}
+          stashFileDisabledReason={stashFileDisabledReason}
           onFileContextMenu={onFileContextMenu}
         />
       </div>
@@ -297,6 +311,8 @@ function FileSection({
   busy,
   selection,
   onAct,
+  onSelectionAction,
+  stashFileDisabledReason,
   onFileContextMenu,
 }: {
   label: string;
@@ -309,6 +325,8 @@ function FileSection({
   busy: boolean;
   selection: WorkingFileSelectionController;
   onAct: (paths: string[]) => void;
+  onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  stashFileDisabledReason?: string;
   onFileContextMenu?: (
     file: WorkingFile,
     target: WorkingFileTarget,
@@ -316,12 +334,38 @@ function FileSection({
   ) => void;
 }) {
   const { t } = useTranslation("workspace");
+  const [selectionMenuPosition, setSelectionMenuPosition] = useState<{ x: number; y: number } | null>(null);
   if (files.length === 0) return null;
 
   const source = staged ? "index" as const : "worktree" as const;
   const selectedPaths = selection.selectedPaths(source);
   const activePath = selection.active?.source === source ? selection.active.path : null;
   const targetFor = (path: string): WorkingFileTarget => ({ path, source });
+  const selectedEntries: WorkingFileActionEntry[] = files
+    .filter((file) => selectedPaths.has(file.path))
+    .map((file) => ({ file, target: targetFor(file.path) }));
+  const selectionItems = selectedEntries.length >= 2
+    ? workingFileMenuItems({
+        clicked: selectedEntries[0],
+        selection: selectedEntries,
+        busy,
+        stashFileDisabledReason,
+      }, t)
+    : [];
+  const primaryIds = source === "worktree" ? ["stage", "stashFile"] : ["unstage"];
+  const primaryItems = primaryIds
+    .map((id) => selectionItems.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const actionContext: WorkingFileActionContext | null = selectedEntries.length >= 2
+    ? {
+        clickedTarget: selectedEntries[0].target,
+        targets: selectedEntries.map((entry) => entry.target),
+      }
+    : null;
+
+  function dispatchSelectionAction(action: WorkingFileAction) {
+    if (actionContext) onSelectionAction(action, actionContext);
+  }
 
   return (
     <div className="p-2">
@@ -329,16 +373,71 @@ function FileSection({
         <span className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
           {label} ({files.length})
         </span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onAct(files.map((file) => file.path))}
-          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
-          style={{ color: "var(--fjord-ink)" }}
-        >
-          {bulkLabel}
-        </button>
+        {selectedEntries.length >= 2 ? (
+          <div className="flex min-w-0 items-center gap-1" data-testid={`${source}-selection-toolbar`}>
+            <span className="mr-1 whitespace-nowrap text-[11px]" style={{ color: "var(--slate)" }}>
+              {t("workingChanges.selectedCount", { count: selectedEntries.length })}
+            </span>
+            {primaryItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.label}
+                title={item.disabledReason}
+                disabled={item.disabled}
+                onClick={() => dispatchSelectionAction(item.id as WorkingFileAction)}
+                className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+                style={{ color: "var(--fjord-ink)" }}
+              >
+                {item.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-label={t("workingChanges.selectionActions", { count: selectedEntries.length })}
+              onClick={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect();
+                setSelectionMenuPosition({ x: bounds.right, y: bounds.bottom });
+              }}
+              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: "var(--fjord-ink)" }}
+            >
+              ⋯
+            </button>
+            <button
+              type="button"
+              aria-label={t("workingChanges.clearSelection")}
+              onClick={selection.clear}
+              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: "var(--fjord-ink)" }}
+            >
+              {t("workingChanges.clearSelection")}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct(files.map((file) => file.path))}
+            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+            style={{ color: "var(--fjord-ink)" }}
+          >
+            {bulkLabel}
+          </button>
+        )}
       </div>
+
+      {selectionMenuPosition ? (
+        <ContextMenu
+          position={selectionMenuPosition}
+          items={selectionItems}
+          onClose={() => setSelectionMenuPosition(null)}
+          onSelect={(id) => {
+            setSelectionMenuPosition(null);
+            dispatchSelectionAction(id as WorkingFileAction);
+          }}
+        />
+      ) : null}
 
       <FileEntryList
         files={files}

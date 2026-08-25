@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
@@ -15,7 +15,8 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import { useWorkingFileActions, type WorkingFileAction } from "@/application/useWorkingFileActions";
+import { useWorkingFileActions } from "@/application/useWorkingFileActions";
+import type { DiffSource } from "@/application/useFileDiff";
 import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -130,21 +131,40 @@ export function RepoDetailContainer({
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
   const [stashDialog, setStashDialog] = useState<
-    { kind: "all" } | { kind: "paths"; target: WorkingFileTarget } | null
+    { kind: "all" } | { kind: "paths"; paths: string[] } | null
   >(null);
   const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
     { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
   >(null);
+  // Stable identity: FileDiffView depends on this callback to know when to
+  // re-notify, and `source` — passed fresh from RepoDetailView on every
+  // render — is keyed down to primitives there. Recreating this closure
+  // every render defeated that and caused FileDiffView's effect to fire
+  // continuously, each run flipping this state and re-rendering this
+  // component, which recreated the closure again ("Maximum update depth
+  // exceeded").
+  const onWorkingDiffWhitespaceModeChange = useCallback(
+    (target: { path: string; source: DiffSource } | null, mode: DiffWhitespaceMode) => {
+      setOpenWorkingDiffWhitespace(
+        target && target.source.kind === "working"
+          ? { path: target.path, staged: target.source.staged, mode }
+          : null,
+      );
+    },
+    [],
+  );
   const diffToolAvailable = useDiffToolAvailability(repo.id, snapshot.ready);
   const stashPathsSupported = useStashPathsSupported();
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
+    changes,
+    stashPathsSupported,
     onStage,
     onUnstage,
     onDiscard: requestWorkingFileDiscard,
     onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
     onOpenMergeTool: () => onAction("merge-tool"),
-    onStashFile: (target) => setStashDialog({ kind: "paths", target }),
+    onStashFiles: (paths) => setStashDialog({ kind: "paths", paths }),
     onAddIgnore,
     onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
     onError: (error) => setActionError(userErrorMessage(error)),
@@ -613,11 +633,11 @@ export function RepoDetailContainer({
   }
 
   function onStage(paths: string[]) {
-    void runWorkingAction("stage", () => stageFiles(repo.id, paths));
+    return runWorkingAction("stage", () => stageFiles(repo.id, paths));
   }
 
   function onUnstage(paths: string[]) {
-    void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
+    return runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
   function onOperationControl(control: OperationControl) {
@@ -877,20 +897,12 @@ export function RepoDetailContainer({
       onPrepareAmend={onPrepareAmend}
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
-      onWorkingFileAction={(action: WorkingFileAction, target: WorkingFileTarget) => {
-        void workingFileActions.dispatch(action, target);
-      }}
+      onWorkingFileAction={(action, context) => workingFileActions.dispatch(action, context)}
       onCommit={onCommit}
       pendingDraftMessage={pendingDraftMessage}
       onPendingDraftMessageConsumed={() => setPendingDraftMessage(null)}
       openWorkingDiffWhitespace={openWorkingDiffWhitespace}
-      onWorkingDiffWhitespaceModeChange={(target, mode) => {
-        setOpenWorkingDiffWhitespace(
-          target && target.source.kind === "working"
-            ? { path: target.path, staged: target.source.staged, mode }
-            : null,
-        );
-      }}
+      onWorkingDiffWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
       diffToolDisabledReason={diffToolAvailable ? undefined : t("workingFile.disabled.noDiffTool")}
       stashFileDisabledReason={stashPathsSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
     />
@@ -899,12 +911,12 @@ export function RepoDetailContainer({
       <CreateStashDialog
         initialScope={stashDialog.kind === "all"
           ? { kind: "all" }
-          : { kind: "paths", paths: [stashDialog.target.path] }}
+          : { kind: "paths", paths: stashDialog.paths }}
         selectedPaths={stashDialog.kind === "paths"
-          ? [{
-              path: stashDialog.target.path,
-              untracked: changes.unstaged.find((file) => file.path === stashDialog.target.path)?.tracked === false,
-            }]
+          ? stashDialog.paths.map((path) => ({
+              path,
+              untracked: changes.unstaged.find((file) => file.path === path)?.tracked === false,
+            }))
           : []}
         pathsSupported={stashPathsSupported}
         onClose={() => setStashDialog(null)}

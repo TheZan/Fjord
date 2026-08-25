@@ -1,5 +1,11 @@
 import { useCallback, useState } from "react";
-import type { IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, WorkingFileTarget } from "@/domain/git";
+import type {
+  IgnoreRuleKind,
+  IgnoreRuleOutcome,
+  IgnoreRulePreview,
+  WorkingChanges,
+  WorkingFileTarget,
+} from "@/domain/git";
 import { buildWholeFilePatchSelection } from "@/application/wholeFilePatchSelection";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import {
@@ -23,6 +29,7 @@ export type WorkingFileAction =
   | "openMergeTool"
   | "openExternalDiff"
   | "stashFile"
+  | "copyPaths"
   | "copyRelative"
   | "copyAbsolute"
   | "createPatch"
@@ -30,6 +37,12 @@ export type WorkingFileAction =
   | "ignoreFile"
   | "ignoreExtension"
   | "ignoreDirectory";
+
+export interface WorkingFileActionContext {
+  clickedTarget: WorkingFileTarget;
+  /** Logical selection, never mounted rows or virtual items. */
+  targets: readonly WorkingFileTarget[];
+}
 
 export interface IgnoreRuleState {
   target: WorkingFileTarget;
@@ -43,30 +56,67 @@ export interface IgnoreRuleState {
 
 export function useWorkingFileActions({
   repoId,
+  changes,
+  stashPathsSupported,
   onStage,
   onUnstage,
   onDiscard,
   onDelete,
   onOpenMergeTool,
-  onStashFile,
+  onStashFiles,
   onAddIgnore,
   onPatchSaved,
   onError,
 }: {
   repoId: string;
-  onStage: (paths: string[]) => void;
-  onUnstage: (paths: string[]) => void;
+  changes: WorkingChanges;
+  stashPathsSupported: boolean;
+  onStage: (paths: string[]) => boolean | void | Promise<boolean | void>;
+  onUnstage: (paths: string[]) => boolean | void | Promise<boolean | void>;
   onDiscard: (target: WorkingFileTarget) => void;
   onDelete: (target: WorkingFileTarget) => void;
   onOpenMergeTool: () => void;
-  onStashFile: (target: WorkingFileTarget) => void;
+  onStashFiles: (paths: string[]) => void;
   onAddIgnore: (target: WorkingFileTarget, kind: IgnoreRuleKind) => Promise<IgnoreRuleOutcome | null>;
   onPatchSaved: (destination: string) => void;
   onError: (error: unknown) => void;
 }) {
   const [ignoreRule, setIgnoreRule] = useState<IgnoreRuleState | null>(null);
 
-  const dispatch = useCallback(async (action: WorkingFileAction, target: WorkingFileTarget) => {
+  const dispatch = useCallback(async (
+    action: WorkingFileAction,
+    contextOrTarget: WorkingFileActionContext | WorkingFileTarget,
+  ): Promise<boolean | void> => {
+    const context = "clickedTarget" in contextOrTarget
+      ? contextOrTarget
+      : { clickedTarget: contextOrTarget, targets: [contextOrTarget] };
+    const targets = canonicalTargets(context.targets);
+    const target = context.clickedTarget;
+    if (isSelectionAction(action)) {
+      if (targets.length === 0 || !sourceHomogeneous(targets)) return false;
+      const files = targets.map((selected) => fileForTarget(changes, selected));
+      if (files.some((file) => file === undefined) || files.some((file) => file?.conflicted)) {
+        return false;
+      }
+      const source = targets[0].source;
+      const paths = targets.map((selected) => selected.path);
+      if (action === "stage") {
+        if (source !== "worktree") return false;
+        return await onStage(paths);
+      }
+      if (action === "unstage") {
+        if (source !== "index") return false;
+        return await onUnstage(paths);
+      }
+      if (action === "stashFile") {
+        if (source !== "worktree" || !stashPathsSupported) return false;
+        onStashFiles(paths);
+        return true;
+      }
+      await navigator.clipboard?.writeText(paths.join("\n"));
+      return true;
+    }
+
     const kind = ignoreKind(action);
     if (kind) {
       setIgnoreRule({ target, kind, preview: null, loading: true, pending: false, outcome: null, error: null });
@@ -84,12 +134,9 @@ export function useWorkingFileActions({
     }
 
     try {
-      if (action === "stage") return onStage([target.path]);
-      if (action === "unstage") return onUnstage([target.path]);
       if (action === "discard") return onDiscard(target);
       if (action === "delete") return onDelete(target);
       if (action === "openMergeTool") return onOpenMergeTool();
-      if (action === "stashFile") return onStashFile(target);
       if (action === "openExternalDiff") {
         return await openExternalDiff(repoId, target.path, target.source);
       }
@@ -121,7 +168,7 @@ export function useWorkingFileActions({
     } catch (error) {
       onError(error);
     }
-  }, [onDelete, onDiscard, onError, onOpenMergeTool, onStashFile, onPatchSaved, onStage, onUnstage, repoId]);
+  }, [changes, onDelete, onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onStashFiles, onUnstage, repoId, stashPathsSupported]);
 
   const confirmIgnoreRule = useCallback(async () => {
     if (!ignoreRule?.preview || ignoreRule.loading || ignoreRule.pending || ignoreRule.preview.alreadyPresent) return;
@@ -141,6 +188,32 @@ export function useWorkingFileActions({
   }, []);
 
   return { dispatch, ignoreRule, confirmIgnoreRule, closeIgnoreRule };
+}
+
+function isSelectionAction(action: WorkingFileAction) {
+  return action === "stage"
+    || action === "unstage"
+    || action === "stashFile"
+    || action === "copyPaths";
+}
+
+function canonicalTargets(targets: readonly WorkingFileTarget[]) {
+  const unique = new Map<string, WorkingFileTarget>();
+  for (const target of targets) unique.set(`${target.source}\0${target.path}`, target);
+  return [...unique.values()].sort((left, right) => {
+    if (left.path !== right.path) return left.path < right.path ? -1 : 1;
+    if (left.source === right.source) return 0;
+    return left.source < right.source ? -1 : 1;
+  });
+}
+
+function sourceHomogeneous(targets: readonly WorkingFileTarget[]) {
+  return targets.every((target) => target.source === targets[0]?.source);
+}
+
+function fileForTarget(changes: WorkingChanges, target: WorkingFileTarget) {
+  const section = target.source === "index" ? changes.staged : changes.unstaged;
+  return section.find((file) => file.path === target.path);
 }
 
 function baseFileName(path: string): string {

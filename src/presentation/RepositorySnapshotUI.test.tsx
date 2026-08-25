@@ -54,9 +54,12 @@ describe("repository snapshot UI", () => {
         prepareContextMenu: vi.fn(),
         registerVisibleTargets: vi.fn(),
         clear: vi.fn(),
+        beginSourceRemap: vi.fn(() => true),
+        completeSourceRemap: vi.fn(),
       },
       onStage: vi.fn(),
       onUnstage: vi.fn(),
+      onSelectionAction: vi.fn(),
       onPrepareAmend: vi.fn(async () => null),
       onCommit: vi.fn(async () => true),
     };

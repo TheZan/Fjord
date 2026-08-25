@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
 import { mergeSourceForBranch } from "@/application/mergeBranchAction";
-import type { WorkingFileAction } from "@/application/useWorkingFileActions";
+import type {
+  WorkingFileAction,
+  WorkingFileActionContext,
+} from "@/application/useWorkingFileActions";
 import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
@@ -29,7 +32,6 @@ import type {
   PatchSelection,
   RepoStatus,
   WorkingChanges,
-  WorkingFileTarget,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -176,7 +178,10 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
-  onWorkingFileAction: (action: WorkingFileAction, target: WorkingFileTarget) => void;
+  onWorkingFileAction: (
+    action: WorkingFileAction,
+    context: WorkingFileActionContext,
+  ) => Promise<boolean | void>;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
   pendingDraftMessage: string | null;
   onPendingDraftMessageConsumed: () => void;
@@ -193,6 +198,13 @@ export function RepoDetailView({
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
   const workingSelection = useWorkingFileSelection(repo.id, changes);
+  const selectedWorkingEntries = [...workingSelection.targets]
+    .map((target) => {
+      const section = target.source === "index" ? changes.staged : changes.unstaged;
+      const file = section.find((candidate) => candidate.path === target.path);
+      return file ? { file, target } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   const selectedWorkingFile = workingSelection.active
     ? {
         path: workingSelection.active.path,
@@ -273,6 +285,8 @@ export function RepoDetailView({
       selection={workingSelection}
       onStage={onStage}
       onUnstage={onUnstage}
+      onSelectionAction={handleWorkingFileAction}
+      stashFileDisabledReason={stashFileDisabledReason}
       onFileContextMenu={(file, target, position) => {
         setWorkingFileMenu({ file, target, position });
       }}
@@ -531,6 +545,7 @@ export function RepoDetailView({
       {workingFileMenu ? (
         <WorkingFileContextMenu
           state={workingFileMenu}
+          selection={selectedWorkingEntries}
           busy={!actionsValidated || actionPending !== null}
           patchExportDisabledReason={
             openWorkingDiffWhitespace
@@ -549,11 +564,26 @@ export function RepoDetailView({
           diffToolDisabledReason={diffToolDisabledReason}
           stashFileDisabledReason={stashFileDisabledReason}
           onClose={() => setWorkingFileMenu(null)}
-          onAction={onWorkingFileAction}
+          onAction={handleWorkingFileAction}
         />
       ) : null}
     </ScreenSurface>
   );
+
+  async function handleWorkingFileAction(
+    action: WorkingFileAction,
+    context: WorkingFileActionContext,
+  ) {
+    const destination = action === "stage"
+      ? "index" as const
+      : action === "unstage"
+        ? "worktree" as const
+        : null;
+    const remapPrepared = destination !== null
+      && workingSelection.beginSourceRemap(context.targets, destination);
+    const result = await onWorkingFileAction(action, context);
+    if (remapPrepared) workingSelection.completeSourceRemap(result === true);
+  }
 
   function handleBranchContextAction(
     action: BranchContextAction,

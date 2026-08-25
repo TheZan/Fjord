@@ -1336,6 +1336,162 @@ async fn stage_and_commit_create_head_commit() {
 }
 
 #[tokio::test]
+async fn batch_stage_updates_every_selected_path_and_leaves_unselected_changes_unstaged() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("a.txt", b"a base\n"),
+            ("b.txt", b"b base\n"),
+            ("unselected.txt", b"unselected base\n"),
+        ],
+    )
+    .await;
+
+    write_file(&repo, "a.txt", "a selected\n");
+    write_file(&repo, "b.txt", "b selected\n");
+    write_file(&repo, "unselected.txt", "unselected worktree\n");
+
+    backend
+        .stage(&repo, &[PathBuf::from("a.txt"), PathBuf::from("b.txt")])
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo, "a.txt"), Some(b"a selected\n".to_vec()));
+    assert_eq!(index_blob(&repo, "b.txt"), Some(b"b selected\n".to_vec()));
+    assert_eq!(
+        index_blob(&repo, "unselected.txt"),
+        Some(b"unselected base\n".to_vec())
+    );
+    let unselected = Repository::open(&repo.0)
+        .unwrap()
+        .status_file(Path::new("unselected.txt"))
+        .unwrap();
+    assert!(!unselected.contains(Status::INDEX_MODIFIED));
+    assert!(unselected.contains(Status::WT_MODIFIED));
+}
+
+#[tokio::test]
+async fn batch_unstage_updates_every_selected_path_and_preserves_unrelated_index_state() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("a.txt", b"a base\n"),
+            ("b.txt", b"b base\n"),
+            ("unselected.txt", b"unselected base\n"),
+        ],
+    )
+    .await;
+
+    write_file(&repo, "a.txt", "a selected\n");
+    write_file(&repo, "b.txt", "b selected\n");
+    write_file(&repo, "unselected.txt", "unselected staged\n");
+    backend.stage(&repo, &[]).await.unwrap();
+    let unselected_index = index_blob(&repo, "unselected.txt");
+
+    backend
+        .unstage(&repo, &[PathBuf::from("a.txt"), PathBuf::from("b.txt")])
+        .await
+        .unwrap();
+
+    assert_eq!(index_blob(&repo, "a.txt"), Some(b"a base\n".to_vec()));
+    assert_eq!(index_blob(&repo, "b.txt"), Some(b"b base\n".to_vec()));
+    assert_eq!(index_blob(&repo, "unselected.txt"), unselected_index);
+    let unselected = Repository::open(&repo.0)
+        .unwrap()
+        .status_file(Path::new("unselected.txt"))
+        .unwrap();
+    assert!(unselected.contains(Status::INDEX_MODIFIED));
+    assert!(!unselected.contains(Status::WT_MODIFIED));
+}
+
+#[tokio::test]
+async fn explicit_stage_and_unstage_paths_are_literal_pathspecs() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("report[1].txt", b"bracket base\n"),
+            ("report1.txt", b"plain base\n"),
+        ],
+    )
+    .await;
+
+    write_file(&repo, "report[1].txt", "bracket changed\n");
+    write_file(&repo, "report1.txt", "plain changed\n");
+    backend
+        .stage(&repo, &[PathBuf::from("report[1].txt")])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo, "report[1].txt"),
+        Some(b"bracket changed\n".to_vec())
+    );
+    assert_eq!(
+        index_blob(&repo, "report1.txt"),
+        Some(b"plain base\n".to_vec())
+    );
+
+    backend
+        .stage(&repo, &[PathBuf::from("report1.txt")])
+        .await
+        .unwrap();
+    backend
+        .unstage(&repo, &[PathBuf::from("report[1].txt")])
+        .await
+        .unwrap();
+
+    assert_eq!(
+        index_blob(&repo, "report[1].txt"),
+        Some(b"bracket base\n".to_vec())
+    );
+    assert_eq!(
+        index_blob(&repo, "report1.txt"),
+        Some(b"plain changed\n".to_vec())
+    );
+}
+
+#[tokio::test]
+async fn explicit_stage_and_unstage_keep_added_and_deleted_path_semantics() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(&backend, &repo, &[("deleted.txt", b"tracked\n")]).await;
+    std::fs::remove_file(repo.0.join("deleted.txt")).unwrap();
+    write_file(&repo, "added.txt", "new\n");
+
+    backend
+        .stage(
+            &repo,
+            &[PathBuf::from("deleted.txt"), PathBuf::from("added.txt")],
+        )
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo, "deleted.txt"), None);
+    assert_eq!(index_blob(&repo, "added.txt"), Some(b"new\n".to_vec()));
+
+    backend
+        .unstage(
+            &repo,
+            &[PathBuf::from("deleted.txt"), PathBuf::from("added.txt")],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        index_blob(&repo, "deleted.txt"),
+        Some(b"tracked\n".to_vec())
+    );
+    assert_eq!(index_blob(&repo, "added.txt"), None);
+}
+
+#[tokio::test]
 async fn amend_allows_message_only_change_and_preserves_tree_and_parents() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();
@@ -8454,6 +8610,77 @@ async fn exact_scoped_stash_preserves_unrelated_state_and_applies_only_selected_
         d_worktree_before
     );
     assert_eq!(std::fs::read(repo.0.join("u2.txt")).unwrap(), u2_before);
+}
+
+#[tokio::test]
+async fn selected_path_stash_entry_point_preserves_every_unselected_state() {
+    let (_dir, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("selected-worktree.txt", b"base worktree\n"),
+            ("selected-both.txt", b"base both\n"),
+            ("unrelated-staged.txt", b"base staged\n"),
+            ("unrelated-worktree.txt", b"base unrelated\n"),
+        ],
+    )
+    .await;
+
+    write_file(&repo, "selected-worktree.txt", "selected worktree\n");
+    write_file(&repo, "selected-both.txt", "selected index\n");
+    run_git_success(&backend, &repo, &["add", "selected-both.txt"]);
+    write_file(&repo, "selected-both.txt", "selected index and worktree\n");
+    write_file(&repo, "selected-untracked.txt", "selected untracked\n");
+
+    write_file(&repo, "unrelated-staged.txt", "unrelated staged\n");
+    run_git_success(&backend, &repo, &["add", "unrelated-staged.txt"]);
+    write_file(&repo, "unrelated-worktree.txt", "unrelated worktree\n");
+    write_file(&repo, "unrelated-untracked.txt", "unrelated untracked\n");
+    let unrelated_index = index_blob(&repo, "unrelated-staged.txt");
+    let unrelated_worktree = std::fs::read(repo.0.join("unrelated-worktree.txt")).unwrap();
+    let unrelated_untracked = std::fs::read(repo.0.join("unrelated-untracked.txt")).unwrap();
+
+    let result = backend
+        .create_stash(
+            &repo,
+            &paths_stash_request(
+                &[
+                    "selected-worktree.txt",
+                    "selected-both.txt",
+                    "selected-untracked.txt",
+                ],
+                "working selection",
+                true,
+            ),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.entry.files_changed, 3);
+    assert_eq!(
+        std::fs::read(repo.0.join("selected-worktree.txt")).unwrap(),
+        b"base worktree\n"
+    );
+    assert_eq!(
+        std::fs::read(repo.0.join("selected-both.txt")).unwrap(),
+        b"base both\n"
+    );
+    assert_eq!(
+        index_blob(&repo, "selected-both.txt"),
+        Some(b"base both\n".to_vec())
+    );
+    assert!(!repo.0.join("selected-untracked.txt").exists());
+    assert_eq!(index_blob(&repo, "unrelated-staged.txt"), unrelated_index);
+    assert_eq!(
+        std::fs::read(repo.0.join("unrelated-worktree.txt")).unwrap(),
+        unrelated_worktree
+    );
+    assert_eq!(
+        std::fs::read(repo.0.join("unrelated-untracked.txt")).unwrap(),
+        unrelated_untracked
+    );
 }
 
 #[tokio::test]
