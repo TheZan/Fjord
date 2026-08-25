@@ -57,6 +57,100 @@ describe("useWorkingFileActions", () => {
     expect(onUnstage).toHaveBeenCalledWith(["src/app.ts"]);
   });
 
+  it("dispatches one canonical Stage or Unstage call for the complete selection", async () => {
+    const onStage = vi.fn(async () => true);
+    const onUnstage = vi.fn(async () => true);
+    const batchChanges = {
+      unstaged: ["d.ts", "b.ts", "a.ts"].map(file),
+      staged: ["z.ts", "c.ts"].map(file),
+    };
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({
+      changes: batchChanges,
+      onStage,
+      onUnstage,
+    })));
+
+    await act(() => result.current.dispatch("stage", {
+      clickedTarget: { path: "b.ts", source: "worktree" },
+      targets: [
+        { path: "d.ts", source: "worktree" },
+        { path: "b.ts", source: "worktree" },
+        { path: "a.ts", source: "worktree" },
+      ],
+    }));
+    await act(() => result.current.dispatch("unstage", {
+      clickedTarget: { path: "z.ts", source: "index" },
+      targets: [
+        { path: "z.ts", source: "index" },
+        { path: "c.ts", source: "index" },
+      ],
+    }));
+
+    expect(onStage).toHaveBeenCalledOnce();
+    expect(onStage).toHaveBeenCalledWith(["a.ts", "b.ts", "d.ts"]);
+    expect(onUnstage).toHaveBeenCalledOnce();
+    expect(onUnstage).toHaveBeenCalledWith(["c.ts", "z.ts"]);
+  });
+
+  it("refuses empty, mixed-source, stale, and conflicted selection actions", async () => {
+    const onStage = vi.fn();
+    const onUnstage = vi.fn();
+    const onStashFiles = vi.fn();
+    const conflicted = { ...file("conflict.ts"), conflicted: true };
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({
+      changes: { unstaged: [file("a.ts"), conflicted], staged: [file("b.ts")] },
+      onStage,
+      onUnstage,
+      onStashFiles,
+    })));
+    const clicked = { path: "a.ts", source: "worktree" as const };
+
+    await act(() => result.current.dispatch("stage", { clickedTarget: clicked, targets: [] }));
+    await act(() => result.current.dispatch("unstage", { clickedTarget: clicked, targets: [] }));
+    await act(() => result.current.dispatch("stashFile", { clickedTarget: clicked, targets: [] }));
+    await act(() => result.current.dispatch("stage", {
+      clickedTarget: clicked,
+      targets: [clicked, { path: "b.ts", source: "index" }],
+    }));
+    await act(() => result.current.dispatch("stage", {
+      clickedTarget: clicked,
+      targets: [clicked, { path: "missing.ts", source: "worktree" }],
+    }));
+    await act(() => result.current.dispatch("stage", {
+      clickedTarget: clicked,
+      targets: [clicked, { path: "conflict.ts", source: "worktree" }],
+    }));
+
+    expect(onStage).not.toHaveBeenCalled();
+    expect(onUnstage).not.toHaveBeenCalled();
+    expect(onStashFiles).not.toHaveBeenCalled();
+  });
+
+  it("opens the shared stash path flow with every selected path and fails closed on capability", async () => {
+    const onStashFiles = vi.fn();
+    const batchChanges = { unstaged: ["d.ts", "b.ts", "a.ts"].map(file), staged: [] };
+    const selection = {
+      clickedTarget: { path: "b.ts", source: "worktree" as const },
+      targets: ["d.ts", "b.ts", "a.ts"].map((path) => ({ path, source: "worktree" as const })),
+    };
+    const { result, rerender } = renderHook(
+      ({ supported }) => useWorkingFileActions(dependencies({
+        changes: batchChanges,
+        stashPathsSupported: supported,
+        onStashFiles,
+      })),
+      { initialProps: { supported: true } },
+    );
+
+    await act(() => result.current.dispatch("stashFile", selection));
+    expect(onStashFiles).toHaveBeenCalledWith(["a.ts", "b.ts", "d.ts"]);
+
+    onStashFiles.mockClear();
+    rerender({ supported: false });
+    await act(() => result.current.dispatch("stashFile", selection));
+    expect(onStashFiles).not.toHaveBeenCalled();
+  });
+
   it("routes delete through the onDelete callback with the exact target", async () => {
     const onDelete = vi.fn();
     const { result } = renderHook(() => useWorkingFileActions(dependencies({ onDelete })));
@@ -67,14 +161,14 @@ describe("useWorkingFileActions", () => {
     expect(onDelete).toHaveBeenCalledWith(target);
   });
 
-  it("routes stashFile through the onStashFile callback with the exact target", async () => {
-    const onStashFile = vi.fn();
-    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onStashFile })));
+  it("routes stashFile through the shared selected-path callback", async () => {
+    const onStashFiles = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ onStashFiles })));
     const target = { path: "src/app.ts", source: "worktree" as const };
 
     await act(() => result.current.dispatch("stashFile", target));
 
-    expect(onStashFile).toHaveBeenCalledWith(target);
+    expect(onStashFiles).toHaveBeenCalledWith([target.path]);
   });
 
   it("opens the external diff tool for the exact row target", async () => {
@@ -168,15 +262,24 @@ describe("useWorkingFileActions", () => {
 function dependencies(overrides: Record<string, unknown> = {}) {
   return {
     repoId: "repo-1",
+    changes: {
+      unstaged: [{ path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false }],
+      staged: [{ path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false }],
+    },
+    stashPathsSupported: true,
     onStage: vi.fn(),
     onUnstage: vi.fn(),
     onDiscard: vi.fn(),
     onDelete: vi.fn(),
     onOpenMergeTool: vi.fn(),
-    onStashFile: vi.fn(),
+    onStashFiles: vi.fn(),
     onAddIgnore: vi.fn(async () => "added" as const),
     onPatchSaved: vi.fn(),
     onError: vi.fn(),
     ...overrides,
   } as Parameters<typeof useWorkingFileActions>[0];
+}
+
+function file(path: string) {
+  return { path, changeType: "modified" as const, tracked: true, conflicted: false };
 }

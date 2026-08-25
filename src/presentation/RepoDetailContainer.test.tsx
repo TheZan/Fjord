@@ -64,7 +64,10 @@ vi.mock("@/application/useRepositorySnapshot", () => ({
 }));
 vi.mock("@/application/useWorkingChanges", () => ({
   useWorkingChanges: () => ({
-    changes: { staged: [], unstaged: [] },
+    changes: {
+      staged: [],
+      unstaged: [{ path: "file.txt", changeType: "modified", tracked: true, conflicted: false }],
+    },
     loading: false,
     error: null,
   }),

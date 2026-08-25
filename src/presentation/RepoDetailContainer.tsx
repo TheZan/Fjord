@@ -15,7 +15,7 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import { useWorkingFileActions, type WorkingFileAction } from "@/application/useWorkingFileActions";
+import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import type { DiffSource } from "@/application/useFileDiff";
 import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
@@ -131,7 +131,7 @@ export function RepoDetailContainer({
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
   const [stashDialog, setStashDialog] = useState<
-    { kind: "all" } | { kind: "paths"; target: WorkingFileTarget } | null
+    { kind: "all" } | { kind: "paths"; paths: string[] } | null
   >(null);
   const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
     { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
@@ -157,12 +157,14 @@ export function RepoDetailContainer({
   const stashPathsSupported = useStashPathsSupported();
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
+    changes,
+    stashPathsSupported,
     onStage,
     onUnstage,
     onDiscard: requestWorkingFileDiscard,
     onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
     onOpenMergeTool: () => onAction("merge-tool"),
-    onStashFile: (target) => setStashDialog({ kind: "paths", target }),
+    onStashFiles: (paths) => setStashDialog({ kind: "paths", paths }),
     onAddIgnore,
     onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
     onError: (error) => setActionError(userErrorMessage(error)),
@@ -631,11 +633,11 @@ export function RepoDetailContainer({
   }
 
   function onStage(paths: string[]) {
-    void runWorkingAction("stage", () => stageFiles(repo.id, paths));
+    return runWorkingAction("stage", () => stageFiles(repo.id, paths));
   }
 
   function onUnstage(paths: string[]) {
-    void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
+    return runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
   function onOperationControl(control: OperationControl) {
@@ -895,9 +897,7 @@ export function RepoDetailContainer({
       onPrepareAmend={onPrepareAmend}
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
-      onWorkingFileAction={(action: WorkingFileAction, target: WorkingFileTarget) => {
-        void workingFileActions.dispatch(action, target);
-      }}
+      onWorkingFileAction={(action, context) => workingFileActions.dispatch(action, context)}
       onCommit={onCommit}
       pendingDraftMessage={pendingDraftMessage}
       onPendingDraftMessageConsumed={() => setPendingDraftMessage(null)}
@@ -911,12 +911,12 @@ export function RepoDetailContainer({
       <CreateStashDialog
         initialScope={stashDialog.kind === "all"
           ? { kind: "all" }
-          : { kind: "paths", paths: [stashDialog.target.path] }}
+          : { kind: "paths", paths: stashDialog.paths }}
         selectedPaths={stashDialog.kind === "paths"
-          ? [{
-              path: stashDialog.target.path,
-              untracked: changes.unstaged.find((file) => file.path === stashDialog.target.path)?.tracked === false,
-            }]
+          ? stashDialog.paths.map((path) => ({
+              path,
+              untracked: changes.unstaged.find((file) => file.path === path)?.tracked === false,
+            }))
           : []}
         pathsSupported={stashPathsSupported}
         onClose={() => setStashDialog(null)}

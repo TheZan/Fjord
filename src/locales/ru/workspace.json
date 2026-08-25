@@ -641,7 +641,15 @@
   },
   "workingFile": {
     "stage": "Индексировать",
+    "stageFiles_one": "Индексировать",
+    "stageFiles_few": "Индексировать {{count}} файла",
+    "stageFiles_many": "Индексировать {{count}} файлов",
+    "stageFiles_other": "Индексировать {{count}} файла",
     "unstage": "Убрать из индекса",
+    "unstageFiles_one": "Убрать из индекса",
+    "unstageFiles_few": "Убрать из индекса {{count}} файла",
+    "unstageFiles_many": "Убрать из индекса {{count}} файлов",
+    "unstageFiles_other": "Убрать из индекса {{count}} файла",
     "discard": "Отменить рабочие изменения…",
     "discardIncomplete": "Откройте diff файла, чтобы отменить изменения в таком большом файле.",
     "openInConfiguredEditor": "Открыть в настроенном редакторе",
@@ -650,6 +658,11 @@
     "openMergeTool": "Открыть инструмент слияния",
     "openExternalDiff": "Открыть во внешнем инструменте сравнения",
     "copyPath": { "label": "Копировать путь", "relative": "Относительный путь", "absolute": "Абсолютный путь" },
+    "copyPaths": "Копировать пути",
+    "stashFiles_one": "Убрать файл в stash…",
+    "stashFiles_few": "Убрать {{count}} файла в stash…",
+    "stashFiles_many": "Убрать {{count}} файлов в stash…",
+    "stashFiles_other": "Убрать {{count}} файла в stash…",
     "createPatch": "Создать патч из изменений…",
     "createPatchStaged": "Создать патч из подготовленных изменений…",
     "copyPatch": "Копировать патч в буфер обмена",
@@ -667,7 +680,8 @@
     "disabled": {
       "whitespaceMode": "Отображаемый diff не совпадает с патчем, который применит Git.",
       "deleteAlsoStaged": "У этого файла есть и подготовленные изменения. Уберите их из индекса перед удалением файла.",
-      "noDiffTool": "Внешний инструмент сравнения не настроен. Задайте diff.tool в Git или выберите его в Настройки → Инструменты."
+      "noDiffTool": "Внешний инструмент сравнения не настроен. Задайте diff.tool в Git или выберите его в Настройки → Инструменты.",
+      "conflictedSelection": "В файле {{path}} есть конфликт. Разрешите его перед действием с выбранными файлами."
     },
     "ignore": {
       "label": "Игнорировать",
@@ -717,7 +731,16 @@
     "selectionAnnouncement_one": "Выбран {{count}} файл из {{total}}",
     "selectionAnnouncement_few": "Выбрано {{count}} файла из {{total}}",
     "selectionAnnouncement_many": "Выбрано {{count}} файлов из {{total}}",
-    "selectionAnnouncement_other": "Выбрано {{count}} файлов из {{total}}"
+    "selectionAnnouncement_other": "Выбрано {{count}} файлов из {{total}}",
+    "selectedCount_one": "Выбран {{count}}",
+    "selectedCount_few": "Выбрано {{count}}",
+    "selectedCount_many": "Выбрано {{count}}",
+    "selectedCount_other": "Выбрано {{count}}",
+    "selectionActions_one": "Действия для {{count}} выбранного файла",
+    "selectionActions_few": "Действия для {{count}} выбранных файлов",
+    "selectionActions_many": "Действия для {{count}} выбранных файлов",
+    "selectionActions_other": "Действия для {{count}} выбранного файла",
+    "clearSelection": "Очистить"
   },
   "workspaces": {
     "label": "Рабочие пространства",

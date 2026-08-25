@@ -1,3 +1,4 @@
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { WorkingFileTarget } from "@/domain/git";
 import {
@@ -5,6 +6,7 @@ import {
   applyWorkingSelectionIntent,
   prepareWorkingContextSelection,
   reconcileWorkingSelection,
+  useWorkingFileSelection,
   workingTargetKey,
 } from "@/application/useWorkingFileSelection";
 
@@ -175,7 +177,70 @@ describe("Working Changes selection transitions", () => {
   it("distinguishes the same path on index and worktree by logical identity", () => {
     expect(workingTargetKey(a)).not.toBe(workingTargetKey(stagedA));
   });
+
+  it("follows successful Stage and Unstage through the next authoritative query", () => {
+    const initial = workingChanges(["a.ts", "b.ts", "c.ts"], []);
+    const { result, rerender } = renderHook(
+      ({ repoId, changes }) => useWorkingFileSelection(repoId, changes),
+      { initialProps: { repoId: "repo-1", changes: initial } },
+    );
+    act(() => {
+      result.current.select(a, [a, b, c], { toggle: false, range: false });
+      result.current.select(b, [a, b, c], { toggle: true, range: false });
+      result.current.select(c, [a, b, c], { toggle: true, range: false });
+      expect(result.current.beginSourceRemap([a, b, c], "index")).toBe(true);
+    });
+
+    rerender({ repoId: "repo-1", changes: workingChanges([], ["a.ts", "b.ts"]) });
+    act(() => result.current.completeSourceRemap(true));
+    expect([...result.current.targets].map(workingTargetKey).sort()).toEqual([
+      workingTargetKey(target("a.ts", "index")),
+      workingTargetKey(target("b.ts", "index")),
+    ]);
+    expect(result.current.active).toEqual(target("a.ts", "index"));
+    expect(result.current.anchor).toBeNull();
+
+    const stagedTargets = [...result.current.targets];
+    act(() => expect(result.current.beginSourceRemap(stagedTargets, "worktree")).toBe(true));
+    rerender({ repoId: "repo-1", changes: workingChanges(["a.ts"], []) });
+    act(() => result.current.completeSourceRemap(true));
+    expect([...result.current.targets]).toEqual([target("a.ts", "worktree")]);
+  });
+
+  it("preserves selection on failure and never applies a pending remap to another repository", () => {
+    const initial = workingChanges(["a.ts", "b.ts"], []);
+    const { result, rerender } = renderHook(
+      ({ repoId, changes }) => useWorkingFileSelection(repoId, changes),
+      { initialProps: { repoId: "repo-1", changes: initial } },
+    );
+    act(() => {
+      result.current.select(a, [a, b], { toggle: false, range: false });
+      result.current.select(b, [a, b], { toggle: true, range: false });
+      result.current.beginSourceRemap([a, b], "index");
+      result.current.completeSourceRemap(false);
+    });
+    expect([...result.current.targets].map(workingTargetKey).sort()).toEqual([
+      workingTargetKey(a),
+      workingTargetKey(b),
+    ]);
+
+    act(() => result.current.beginSourceRemap([a, b], "index"));
+    rerender({ repoId: "repo-2", changes: workingChanges([], ["a.ts", "b.ts"]) });
+    act(() => result.current.completeSourceRemap(true));
+    expect(result.current.targets.size).toBe(0);
+    expect(result.current.active).toBeNull();
+  });
 });
+
+function workingChanges(unstaged: string[], staged: string[]) {
+  const files = (paths: string[]) => paths.map((path) => ({
+    path,
+    changeType: "modified" as const,
+    tracked: true,
+    conflicted: false,
+  }));
+  return { unstaged: files(unstaged), staged: files(staged) };
+}
 
 function target(path: string, source: WorkingFileTarget["source"]): WorkingFileTarget {
   return { path, source };

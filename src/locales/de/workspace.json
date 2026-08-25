@@ -633,7 +633,11 @@
   },
   "workingFile": {
     "stage": "Stagen",
+    "stageFiles_one": "Stagen",
+    "stageFiles_other": "{{count}} Dateien stagen",
     "unstage": "Aus Staging entfernen",
+    "unstageFiles_one": "Aus Staging entfernen",
+    "unstageFiles_other": "{{count}} Dateien aus Staging entfernen",
     "discard": "Arbeitsänderungen verwerfen…",
     "discardIncomplete": "Öffne den Datei-Diff, um Änderungen in einer so großen Datei zu verwerfen.",
     "openInConfiguredEditor": "Im konfigurierten Editor öffnen",
@@ -642,6 +646,9 @@
     "openMergeTool": "Merge-Werkzeug öffnen",
     "openExternalDiff": "In externem Diff-Tool öffnen",
     "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" },
+    "copyPaths": "Pfade kopieren",
+    "stashFiles_one": "Datei stashen…",
+    "stashFiles_other": "{{count}} Dateien stashen…",
     "createPatch": "Patch aus Änderungen erstellen…",
     "createPatchStaged": "Patch aus vorgemerkten Änderungen erstellen…",
     "copyPatch": "Patch in die Zwischenablage kopieren",
@@ -659,7 +666,8 @@
     "disabled": {
       "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde.",
       "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
-      "noDiffTool": "Es ist kein externes Diff-Tool konfiguriert. Legen Sie diff.tool in Git fest oder wählen Sie eines unter Einstellungen → Werkzeuge."
+      "noDiffTool": "Es ist kein externes Diff-Tool konfiguriert. Legen Sie diff.tool in Git fest oder wählen Sie eines unter Einstellungen → Werkzeuge.",
+      "conflictedSelection": "{{path}} hat einen Konflikt. Lösen Sie ihn, bevor Sie die Auswahl bearbeiten."
     },
     "ignore": {
       "label": "Ignorieren",
@@ -705,7 +713,12 @@
   },
   "workingChanges": {
     "selectionAnnouncement_one": "{{count}} von {{total}} Datei ausgewählt",
-    "selectionAnnouncement_other": "{{count}} von {{total}} Dateien ausgewählt"
+    "selectionAnnouncement_other": "{{count}} von {{total}} Dateien ausgewählt",
+    "selectedCount_one": "{{count}} ausgewählt",
+    "selectedCount_other": "{{count}} ausgewählt",
+    "selectionActions_one": "Aktionen für {{count}} ausgewählte Datei",
+    "selectionActions_other": "Aktionen für {{count}} ausgewählte Dateien",
+    "clearSelection": "Leeren"
   },
   "workspaces": {
     "label": "Workspaces",

@@ -633,7 +633,11 @@
   },
   "workingFile": {
     "stage": "Indexer",
+    "stageFiles_one": "Indexer",
+    "stageFiles_other": "Indexer {{count}} fichiers",
     "unstage": "Désindexer",
+    "unstageFiles_one": "Désindexer",
+    "unstageFiles_other": "Désindexer {{count}} fichiers",
     "discard": "Abandonner les modifications…",
     "discardIncomplete": "Ouvrez le diff du fichier pour abandonner les modifications d’un fichier aussi volumineux.",
     "openInConfiguredEditor": "Ouvrir dans l’éditeur configuré",
@@ -642,6 +646,9 @@
     "openMergeTool": "Ouvrir l’outil de fusion",
     "openExternalDiff": "Ouvrir dans l’outil de diff externe",
     "copyPath": { "label": "Copier le chemin", "relative": "Chemin relatif", "absolute": "Chemin absolu" },
+    "copyPaths": "Copier les chemins",
+    "stashFiles_one": "Mettre le fichier dans le stash…",
+    "stashFiles_other": "Mettre {{count}} fichiers dans le stash…",
     "createPatch": "Créer un patch à partir des modifications…",
     "createPatchStaged": "Créer un patch à partir des modifications indexées…",
     "copyPatch": "Copier le patch dans le presse-papiers",
@@ -659,7 +666,8 @@
     "disabled": {
       "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait.",
       "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
-      "noDiffTool": "Aucun outil de diff externe n'est configuré. Définissez diff.tool dans Git, ou choisissez-en un dans Paramètres → Outils."
+      "noDiffTool": "Aucun outil de diff externe n'est configuré. Définissez diff.tool dans Git, ou choisissez-en un dans Paramètres → Outils.",
+      "conflictedSelection": "{{path}} présente un conflit. Résolvez-le avant d’agir sur cette sélection."
     },
     "ignore": {
       "label": "Ignorer",
@@ -705,7 +713,12 @@
   },
   "workingChanges": {
     "selectionAnnouncement_one": "{{count}} fichier sélectionné sur {{total}}",
-    "selectionAnnouncement_other": "{{count}} fichiers sélectionnés sur {{total}}"
+    "selectionAnnouncement_other": "{{count}} fichiers sélectionnés sur {{total}}",
+    "selectedCount_one": "{{count}} sélectionné",
+    "selectedCount_other": "{{count}} sélectionnés",
+    "selectionActions_one": "Actions pour {{count}} fichier sélectionné",
+    "selectionActions_other": "Actions pour {{count}} fichiers sélectionnés",
+    "clearSelection": "Effacer"
   },
   "workspaces": {
     "label": "Workspaces",

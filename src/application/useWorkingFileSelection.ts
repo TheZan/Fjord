@@ -35,6 +35,11 @@ export interface WorkingFileSelectionController extends WorkingSelection {
     visibleTargets: readonly WorkingFileTarget[],
   ) => void;
   clear: () => void;
+  beginSourceRemap: (
+    targets: readonly WorkingFileTarget[],
+    destination: PatchSource,
+  ) => boolean;
+  completeSourceRemap: (succeeded: boolean) => void;
 }
 
 const TARGET_KEY_SEPARATOR = "\0";
@@ -66,6 +71,14 @@ export class WorkingSelectionModel {
   source: PatchSource | null = null;
   active: WorkingFileTarget | null = null;
   anchor: WorkingFileTarget | null = null;
+  pendingSourceRemap: {
+    repositoryId: string;
+    paths: readonly string[];
+    from: PatchSource;
+    to: PatchSource;
+    activePath: string | null;
+    anchorPath: string | null;
+  } | null = null;
 
   constructor(repositoryId: string) {
     this.repositoryId = repositoryId;
@@ -238,6 +251,55 @@ export class WorkingSelectionModel {
     return true;
   }
 
+  beginSourceRemap(
+    repositoryId: string,
+    targets: readonly WorkingFileTarget[],
+    destination: PatchSource,
+  ) {
+    this.ensureRepository(repositoryId);
+    if (targets.length === 0) return false;
+    const source = targets[0].source;
+    if (
+      source === destination
+      || targets.some((target) => target.source !== source || !this.has(target))
+    ) {
+      return false;
+    }
+    const paths = [...new Set(targets.map((target) => target.path))].sort(compareRepositoryPaths);
+    this.pendingSourceRemap = {
+      repositoryId,
+      paths,
+      from: source,
+      to: destination,
+      activePath: this.active?.source === source ? this.active.path : null,
+      anchorPath: this.anchor?.source === source ? this.anchor.path : null,
+    };
+    return true;
+  }
+
+  completeSourceRemap(
+    repositoryId: string,
+    succeeded: boolean,
+    availableTargets: readonly WorkingFileTarget[],
+  ) {
+    const pending = this.pendingSourceRemap;
+    this.pendingSourceRemap = null;
+    if (!pending || pending.repositoryId !== repositoryId || !succeeded) return false;
+
+    const requested = new Set(pending.paths);
+    const destinationTargets = availableTargets.filter((target) => (
+      target.source === pending.to && requested.has(target.path)
+    ));
+    this.#targetKeys.clear();
+    for (const target of destinationTargets) this.#targetKeys.add(workingTargetKey(target));
+    this.source = destinationTargets.length > 0 ? pending.to : null;
+    this.active = destinationTargets.find((target) => target.path === pending.activePath)
+      ?? destinationTargets[0]
+      ?? null;
+    this.anchor = destinationTargets.find((target) => target.path === pending.anchorPath) ?? null;
+    return true;
+  }
+
   targetsView(
     repositoryId: string,
     availableByKey: ReadonlyMap<string, WorkingFileTarget>,
@@ -293,8 +355,14 @@ export class WorkingSelectionModel {
 
   private reset(repositoryId: string) {
     this.#clearSelection();
+    this.pendingSourceRemap = null;
     this.repositoryId = repositoryId;
   }
+}
+
+function compareRepositoryPaths(left: string, right: string) {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 function nearestSurvivingTarget(
@@ -416,6 +484,8 @@ export function useWorkingFileSelection(
     [availableTargets],
   );
   const previousOrder = useRef<string[]>(availableTargets.map(workingTargetKey));
+  const availableTargetsRef = useRef(availableTargets);
+  availableTargetsRef.current = availableTargets;
   const modelRef = useRef<WorkingSelectionModel | null>(null);
   if (!modelRef.current) modelRef.current = new WorkingSelectionModel(repositoryId);
   const model = modelRef.current;
@@ -468,6 +538,17 @@ export function useWorkingFileSelection(
   const clear = useCallback(() => {
     notifyIfChanged(model.clear(repositoryId));
   }, [model, notifyIfChanged, repositoryId]);
+  const beginSourceRemap = useCallback((
+    targets: readonly WorkingFileTarget[],
+    destination: PatchSource,
+  ) => model.beginSourceRemap(repositoryId, targets, destination), [model, repositoryId]);
+  const completeSourceRemap = useCallback((succeeded: boolean) => {
+    notifyIfChanged(model.completeSourceRemap(
+      repositoryId,
+      succeeded,
+      availableTargetsRef.current,
+    ));
+  }, [model, notifyIfChanged, repositoryId]);
   const isSelected = useCallback(
     (target: WorkingFileTarget) => model.repositoryId === repositoryId && model.has(target),
     [model, repositoryId],
@@ -502,5 +583,7 @@ export function useWorkingFileSelection(
     prepareContextMenu,
     registerVisibleTargets,
     clear,
+    beginSourceRemap,
+    completeSourceRemap,
   };
 }

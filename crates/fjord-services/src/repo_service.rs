@@ -114,8 +114,8 @@ fn resolve_repository_file(root: &Path, path: &str) -> Result<RepositoryFilePath
     // so the resulting `absolute` path has no Windows `\\?\` verbatim
     // prefix — it's copied to the clipboard and opened in external tools,
     // both of which should see a normal-looking path.
-    let canonical_root = fjord_fs::canonicalize_path(root)
-        .map_err(|_| RepoError::PathNotFound(path.to_string()))?;
+    let canonical_root =
+        fjord_fs::canonicalize_path(root).map_err(|_| RepoError::PathNotFound(path.to_string()))?;
     let relative = segments.iter().collect::<PathBuf>();
     let parent = relative.parent().unwrap_or_else(|| Path::new(""));
     let canonical_parent = fjord_fs::canonicalize_path(&canonical_root.join(parent))
