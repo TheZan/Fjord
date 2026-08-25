@@ -112,7 +112,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
-| `create_stash` | `{ repo_id, request: { scope, message, include_untracked } }` | `CreateStashResult` | The only interactive creation command. `All` delegates to `git stash push [-u] -m`; `Paths` constructs exact base/index/worktree/untracked trees through private indexes, uses `write-tree` and `commit-tree` to build the stash object graph, and publishes `refs/stash` via `update-ref` with expected-OID CAS validation; a CAS loss restores the original index (`P10-STASH-02`) |
+| `create_stash` | `{ repo_id, request: { scope, message, include_untracked } }` | `CreateStashResult` | The only interactive creation command. `All` delegates to `git stash push [-u] -m`; `Paths` constructs exact base/index/worktree/untracked trees through private indexes, uses `write-tree` and `commit-tree` to build the stash object graph, and publishes `refs/stash` via `update-ref` with expected-OID CAS validation. A failed publication independently attempts selected tracked-worktree, selected-untracked, and original-index recovery; complete recovery preserves the primary error, while incomplete recovery returns `stash_recovery_failed` (`P10-STASH-02`) |
 | `stash_paths_supported` | — | `boolean` | Whether the resolved Git supports exact scoped stash creation (Git >= 2.23). Global and non-repo-scoped; `All` is not gated |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `diff_tool_availability` | `{ repo_id }` | `boolean` | Whether `Settings.diff_tool` (or, if unset, Git's own `diff.tool`) currently resolves to something Git can run (`P10-WC-06`) |
@@ -236,9 +236,10 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
   `stash_file_unsupported`, which never existed in code or in any locale.)
 - Stash management (`P10-STASH-01`–`P10-STASH-06`,
   [`stash-management.md`](stash-management.md) §10): `stash_not_found`,
-  `stash_ambiguous`, `stash_scope_empty`, `stash_concurrent_update`, `stash_scope_unrepresentable` (carries
-  the offending `paths`), `stash_apply_would_overwrite` (carries bounded
-  `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
+  `stash_ambiguous`, `stash_scope_empty`, `stash_concurrent_update`,
+  `stash_recovery_failed`, `stash_scope_unrepresentable` (carries the requested
+  offending semantic target in `paths`), `stash_apply_would_overwrite` (carries
+  bounded `paths`), `stash_apply_index_refused`, `stash_apply_failed`. The
   existing `nothing_to_stash`, `stash_file_conflicted`, and
   `stash_file_unsupported_git` are reused unchanged; `stash_empty` is retired
   with the dead `GitBackend::stash_pop` method. A conflicting stash apply or pop

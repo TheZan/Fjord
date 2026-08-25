@@ -408,8 +408,8 @@ The obvious mechanism —
 git stash push [-u] -m <message> -- <path>...
 ```
 
-— is **not** adopted here as the final mechanism. It is the shipped `P10-WC-05`
-mechanism, it is the natural starting point, and it satisfies exactly one of the
+— is **not** adopted here as the final mechanism. It was the historical
+`P10-WC-05` mechanism and satisfied exactly one of the
 two invariants in §2.3. A pathspec-scoped `git stash push` bounds *what leaves
 the working tree*; it does **not** bound *what the entry records*. Verified
 against real Git, the resulting stash commit's index and worktree trees are whole
@@ -433,7 +433,10 @@ worktree tree, and selected untracked tree are revalidated under those locks.
 Cleanup writes the alternate index and only the selected worktree paths; standard
 Git index/HEAD writers therefore serialize or fail on Git's own locks. A failure
 before publication restores the selected index/worktree split directly from the
-already-built stash parents while the same boundary is still held.
+already-built stash parents while the same boundary is still held. Recovery
+treats selected tracked worktree restoration, selected untracked restoration,
+and original-index restoration/removal as independent steps: every safe step is
+attempted even when an earlier one fails.
 
 While `index.lock` remains present, Fjord atomically replaces the real index from
 the cleaned alternate index and then publishes with one `git update-ref
@@ -442,7 +445,14 @@ either changes `refs/stash` and appends its ordinary Git reflog entry together,
 or changes neither; there is no `stash store` followed by a racy readback and no
 compensating ref rewind that leaves a hidden reflog entry. If the CAS loses, the
 captured raw index bytes and selected worktree state are restored while
-`index.lock` still excludes conforming Git writers. After CAS success there is
+`index.lock` still excludes conforming Git writers. If every recovery step
+succeeds, Fjord returns the original publication error
+(`stash_concurrent_update`). If any recovery step fails, structured diagnostics
+retain both the primary operation failure and every recovery failure, while the
+public result becomes `stash_recovery_failed`; the UI then tells the user to
+review staged and working changes rather than claiming nothing was stashed. The
+same recovery accounting applies to cleanup and real-index replacement failures.
+After CAS success there is
 no fallible operation left: dropping the transaction only releases the lock.
 Generations advance only after the complete operation succeeds. RAII cleanup
 removes the real index/HEAD locks, private index files, and sibling `.lock` files
@@ -507,19 +517,15 @@ set(paths a Fjord-created `Paths` stash touches on apply)
     == set(paths the request semantically asked for)
 ```
 
-The shipped `P10-WC-05` implementation demonstrates **A** only. Its five fixtures
-assert unrelated files immediately after creation; none of them applies the entry
-afterwards. Nothing in this document should be read as a claim that pathspec
-`git stash push` already satisfies **B** — verified against real Git, it does not
-(§4.3).
+The historical `P10-WC-05` implementation demonstrated **A** only. Its five
+fixtures asserted unrelated files immediately after creation; none applied the
+entry afterwards. Pathspec `git stash push` does not satisfy **B** (§4.3).
 
-**Proof gate.** `P10-STASH-02` does not ship until both invariants are proven by
-the fixtures in §Testing strategy — including the apply-side ones, which are the
-important regression. If exact-scope construction cannot be done safely and
-Git-compatibly in the first attempt, the correct outcome is to leave
-`P10-STASH-02` **open**, keep `Stash file…` on its current single-path behavior,
-and not ship `Stash N files…`. A smaller safe product is better than a
-`Stash 4 files` that restores more than four files.
+**Completed proof gate.** `P10-STASH-02` was allowed to ship only after the
+fixtures in §Testing strategy proved both invariants, including the apply-side
+regression, against real Git while preserving ordinary Git compatibility. That
+gate passed. The historical failure rule was to leave `P10-STASH-02` open and
+withhold `Stash N files…` rather than ship a scope that restored extra paths.
 
 **Fail closed, never approximate.** If a selected state cannot be represented
 exactly by the chosen construction, the request is refused with
@@ -673,21 +679,21 @@ primitive in `CreateStashDialog.tsx`:
 preserving unrelated current changes — invariant **A** of §2.3, proven by five
 fixtures. It made no claim about invariant **B**, and none should be read into it.
 
-`P10-STASH-02` upgrades and generalizes that into a **first-class reusable scoped
+`P10-STASH-02` upgraded and generalized that into a **first-class reusable scoped
 stash whose stored and apply semantics are exact** — A *and* B, for *n* paths.
 
 The consequence is stated plainly rather than left implied:
 
-> When `P10-STASH-02` lands, the shipped `Stash file…` is **migrated** onto the
-> new engine. `stash_file` and its single-path module stop existing; a one-file
-> stash becomes `StashScope::Paths { paths: [p] }` and nothing else.
+> `Stash file…` is now the one-path case of the exact engine:
+> `StashScope::Paths { paths: [p] }`. The former `stash_file` command and its
+> single-path module no longer exist.
 
-There must ultimately be **one** implementation of interactive scoped stash.
-Fjord must not end up with an old one-file behavior and a new multi-file behavior
-whose entries apply differently — two stashes created from the same menu, one
-file and four files, must obey the same contract. Until `P10-STASH-02` lands,
-`Stash file…` keeps its shipped behavior unchanged; it is not retro-labelled as
-satisfying **B**.
+There is **one** implementation of interactive scoped stash. Fjord does not have
+an old one-file behavior and a new multi-file behavior whose entries apply
+differently — two stashes created from the same menu, one file and four files,
+obey the same exact contract. The historical `P10-WC-05` pathspec implementation
+is still credited only with invariant A; invariant B belongs to the completed
+`P10-STASH-02` engine.
 
 ### 3. Stashes in the repository tree (`P10-STASH-03`)
 
@@ -1293,9 +1299,15 @@ New stable codes, spelled here so no task invents a variant:
   state, or expected previous `refs/stash` changed before the exact-scope
   transaction could publish; cleanup is rolled back and no Fjord reflog entry is
   created.
+- `stash_recovery_failed` — stash creation failed and one or more independent
+  recovery steps could not fully restore captured repository state. Diagnostics
+  retain the primary and recovery causes; the user must review staged and working
+  changes before continuing. This message never claims that nothing was stashed.
 - `stash_scope_unrepresentable` — a selected path's state cannot be recorded
   exactly by the scoped-creation construction, so nothing is created rather than
-  something approximate (§2.3). Carries the offending path in `AppError.paths`.
+  something approximate (§2.3). Carries the requested semantic target that
+  expanded to the offending Git entry in `AppError.paths`, not an arbitrary
+  selected path or merely the first expanded entry.
 - `stash_apply_would_overwrite` — Git refused before writing; carries the bounded
   path list in `AppError.paths` (§6.2).
 - `stash_apply_index_refused` — `--index` could not reinstate the index (§6.2).
@@ -1695,6 +1707,7 @@ Russian per the glossary.
 | `errors.stash_ambiguous` *(common)* | `More than one stash entry points at the same commit; Fjord will not guess which one you meant.` |
 | `errors.stash_scope_empty` *(common)* | `No files were selected to stash.` |
 | `errors.stash_concurrent_update` *(common)* | `The repository changed while the stash was being created. Nothing was stashed.` |
+| `errors.stash_recovery_failed` *(common)* | `Stash creation failed and Fjord could not fully restore the repository. Review your staged and working changes before continuing.` |
 | `errors.stash_scope_unrepresentable` *(common)* | `The state of {{path}} cannot be stashed on its own, so nothing was stashed.` |
 | `errors.stash_apply_would_overwrite` *(common)* | `Applying this stash would overwrite local changes.` |
 | `errors.stash_apply_index_refused` *(common)* | `The staged state of this stash could not be restored.` |

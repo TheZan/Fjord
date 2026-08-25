@@ -61,6 +61,7 @@ const USER_ERROR_CODES = new Set([
   "stash_file_unsupported_git",
   "stash_scope_empty",
   "stash_concurrent_update",
+  "stash_recovery_failed",
   "stash_scope_unrepresentable",
   "workspace_not_found",
 ]);
@@ -71,7 +72,12 @@ export function errorTranslationKey(error: unknown): string {
 }
 
 export function userErrorMessage(error: unknown): string {
-  return i18n.t(errorTranslationKey(error), { ns: "common", tool: readErrorTool(error), path: readErrorPath(error) });
+  const key = errorTranslationKey(error);
+  const path = readErrorPath(error);
+  if (key === "errors.stash_scope_unrepresentable" && path === null) {
+    return i18n.t("errors.unexpected", { ns: "common" });
+  }
+  return i18n.t(key, { ns: "common", tool: readErrorTool(error), path });
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -93,7 +99,8 @@ function readErrorTool(error: unknown): string | null {
 
 function readErrorPath(error: unknown): string | null {
   if (error && typeof error === "object" && "paths" in error && Array.isArray(error.paths) && error.paths.length > 0) {
-    return String(error.paths[0]);
+    const path = error.paths[0];
+    return typeof path === "string" && path.length > 0 ? path : null;
   }
   return null;
 }

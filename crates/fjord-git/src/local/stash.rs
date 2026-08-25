@@ -48,17 +48,9 @@ impl Drop for TemporaryIndex {
 
 pub(super) async fn paths_supported(commands: &GitCommandFactory) -> Result<bool, GitError> {
     let commands = commands.clone();
-    tokio::task::spawn_blocking(move || {
-        let output = commands
-            .command()?
-            .arg("--version")
-            .output()
-            .map_err(io_error)?;
-        Ok(output.status.success()
-            && meets_minimum_version(&String::from_utf8_lossy(&output.stdout)))
-    })
-    .await
-    .map_err(join_error)?
+    tokio::task::spawn_blocking(move || resolved_git_supports_paths(&commands))
+        .await
+        .map_err(join_error)?
 }
 
 pub(super) async fn create(
@@ -219,7 +211,7 @@ fn create_paths(
         .find(|path| !selected.contains(*path))
     {
         return Err(GitError::StashScopeUnrepresentable {
-            path: path.clone(),
+            path: requested_scope_for_expanded(path, &selected),
         });
     }
 
@@ -393,31 +385,29 @@ fn create_paths(
     )
     .and_then(|()| before_stash_publication(repo));
     if let Err(error) = cleanup {
-        if let Err(rollback_error) = rollback_scope(
+        let recovery = recover_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
-            transaction.alternate_index_path(),
-        ) {
-            tracing::warn!("rollback failed after cleanup error: {rollback_error}");
-        }
-        return Err(error);
+            &transaction,
+            IndexRecovery::NotRequired,
+        );
+        return Err(recovery_error(error, recovery));
     }
 
     if let Err(error) = transaction.replace_real_while_locked(transaction.alternate_index_path()) {
-        if let Err(rollback_error) = rollback_scope(
+        let recovery = recover_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
-            transaction.alternate_index_path(),
-        ) {
-            tracing::warn!("rollback failed after index replacement error: {rollback_error}");
-        }
-        return Err(error);
+            &transaction,
+            IndexRecovery::Restore(original_index.as_ref()),
+        );
+        return Err(recovery_error(error, recovery));
     }
     if let Err(error) = publish_stash_atomic(
         commands,
@@ -426,29 +416,16 @@ fn create_paths(
         stash_before.as_deref(),
         &stash_message,
     ) {
-        if let Err(rollback_error) = rollback_scope(
+        let recovery = recover_scope(
             commands,
             repo,
             &stash_oid,
             &tracked,
             &untracked,
-            transaction.alternate_index_path(),
-        ) {
-            tracing::warn!("rollback failed after publish error: {rollback_error}");
-        }
-        match original_index.as_ref() {
-            Some(backup) => {
-                if let Err(restore_error) = transaction.replace_real_while_locked(&backup.path) {
-                    tracing::warn!("index restoration failed after publish error: {restore_error}");
-                }
-            }
-            None => {
-                if let Err(remove_error) = transaction.remove_real_while_locked() {
-                    tracing::warn!("index removal failed after publish error: {remove_error}");
-                }
-            }
-        }
-        return Err(error);
+            &transaction,
+            IndexRecovery::Restore(original_index.as_ref()),
+        );
+        return Err(recovery_error(error, recovery));
     }
 
     // No fallible work remains after the atomic ref/reflog CAS. Dropping the
@@ -601,84 +578,180 @@ fn cleanup_scope(
     Ok(())
 }
 
-fn rollback_scope(
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecoveryStep {
+    TrackedWorktree,
+    UntrackedWorktree,
+    OriginalIndex,
+}
+
+impl RecoveryStep {
+    fn label(self) -> &'static str {
+        match self {
+            Self::TrackedWorktree => "selected_worktree",
+            Self::UntrackedWorktree => "selected_untracked",
+            Self::OriginalIndex => "original_index",
+        }
+    }
+}
+
+struct RecoveryFailure {
+    step: RecoveryStep,
+    error: GitError,
+}
+
+enum IndexRecovery<'a> {
+    NotRequired,
+    Restore(Option<&'a TemporaryIndex>),
+}
+
+fn recover_scope(
     commands: &GitCommandFactory,
     repo: &RepoPath,
     stash_oid: &str,
     tracked: &[String],
     untracked: &[String],
-    transaction_index: &Path,
-) -> Result<(), GitError> {
+    transaction: &patch_transaction::IndexTransaction,
+    index_recovery: IndexRecovery<'_>,
+) -> Vec<RecoveryFailure> {
+    let mut failures = Vec::new();
     if !tracked.is_empty() {
-        let specs = literal_pathspecs(tracked.iter().map(String::as_str));
-        let index_source = format!("--source={stash_oid}^2");
-        run_dynamic(
-            commands,
-            repo,
-            ["restore", index_source.as_str(), "--staged", "--"],
-            &specs,
-            Some(transaction_index),
-            None,
-        )?;
-        let git_dir = LocalGitBackend::with_runtime_git2(repo, |git| Ok(git.path().to_path_buf()))?;
-        let worktree_index = TemporaryIndex::new(&git_dir);
-        run(
-            commands,
-            repo,
-            &[OsString::from("read-tree"), OsString::from("--empty")],
-            Some(&worktree_index.path),
-            None,
-        )?;
-        run_dynamic(
-            commands,
-            repo,
-            ["clean", "-f", "-x", "--"],
-            &specs,
-            Some(&worktree_index.path),
-            None,
-        )?;
-        let present = nul_list(
-            &run_dynamic(
-                commands,
-                repo,
-                ["ls-tree", "-r", "--name-only", "-z", stash_oid, "--"],
-                &specs,
-                None,
-                None,
-            )?
-            .stdout,
+        record_recovery(
+            &mut failures,
+            RecoveryStep::TrackedWorktree,
+            before_stash_recovery(repo, RecoveryStep::TrackedWorktree)
+                .and_then(|()| restore_tracked_worktree(commands, repo, stash_oid, tracked)),
         );
-        if !present.is_empty() {
-            run(
-                commands,
-                repo,
-                &[OsString::from("read-tree"), OsString::from(stash_oid)],
-                Some(&worktree_index.path),
-                None,
-            )?;
-            let present_specs = literal_pathspecs(present.iter().map(String::as_str));
-            run_dynamic(
-                commands,
-                repo,
-                ["checkout", "--force", stash_oid, "--"],
-                &present_specs,
-                Some(&worktree_index.path),
-                None,
-            )?;
-        }
     }
     if !untracked.is_empty() {
-        let specs = literal_pathspecs(untracked.iter().map(String::as_str));
-        let source = format!("--source={stash_oid}^3");
-        run_dynamic(
+        record_recovery(
+            &mut failures,
+            RecoveryStep::UntrackedWorktree,
+            before_stash_recovery(repo, RecoveryStep::UntrackedWorktree).and_then(|()| {
+                restore_untracked_worktree(
+                    commands,
+                    repo,
+                    stash_oid,
+                    untracked,
+                    transaction.alternate_index_path(),
+                )
+            }),
+        );
+    }
+    if let IndexRecovery::Restore(original_index) = index_recovery {
+        record_recovery(
+            &mut failures,
+            RecoveryStep::OriginalIndex,
+            before_stash_recovery(repo, RecoveryStep::OriginalIndex).and_then(|()| {
+                match original_index {
+                    Some(backup) => transaction.replace_real_while_locked(&backup.path),
+                    None => transaction.remove_real_while_locked(),
+                }
+            }),
+        );
+    }
+    failures
+}
+
+fn record_recovery(
+    failures: &mut Vec<RecoveryFailure>,
+    step: RecoveryStep,
+    result: Result<(), GitError>,
+) {
+    if let Err(error) = result {
+        failures.push(RecoveryFailure { step, error });
+    }
+}
+
+fn recovery_error(primary: GitError, failures: Vec<RecoveryFailure>) -> GitError {
+    if failures.is_empty() {
+        return primary;
+    }
+    for failure in failures {
+        tracing::error!(
+            primary = %primary,
+            recovery_step = failure.step.label(),
+            recovery = %failure.error,
+            "exact-scope stash failed and repository recovery was incomplete"
+        );
+    }
+    GitError::StashRecoveryFailed
+}
+
+fn restore_tracked_worktree(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_oid: &str,
+    tracked: &[String],
+) -> Result<(), GitError> {
+    let specs = literal_pathspecs(tracked.iter().map(String::as_str));
+    let git_dir = LocalGitBackend::with_runtime_git2(repo, |git| Ok(git.path().to_path_buf()))?;
+    let worktree_index = TemporaryIndex::new(&git_dir);
+    run(
+        commands,
+        repo,
+        &[OsString::from("read-tree"), OsString::from("--empty")],
+        Some(&worktree_index.path),
+        None,
+    )?;
+    run_dynamic(
+        commands,
+        repo,
+        ["clean", "-f", "-x", "--"],
+        &specs,
+        Some(&worktree_index.path),
+        None,
+    )?;
+    let present = nul_list(
+        &run_dynamic(
             commands,
             repo,
-            ["restore", source.as_str(), "--worktree", "--"],
+            ["ls-tree", "-r", "--name-only", "-z", stash_oid, "--"],
             &specs,
-            Some(transaction_index),
             None,
-        )?;
+            None,
+        )?
+        .stdout,
+    );
+    if present.is_empty() {
+        return Ok(());
     }
+    run(
+        commands,
+        repo,
+        &[OsString::from("read-tree"), OsString::from(stash_oid)],
+        Some(&worktree_index.path),
+        None,
+    )?;
+    let present_specs = literal_pathspecs(present.iter().map(String::as_str));
+    run_dynamic(
+        commands,
+        repo,
+        ["checkout", "--force", stash_oid, "--"],
+        &present_specs,
+        Some(&worktree_index.path),
+        None,
+    )?;
+    Ok(())
+}
+
+fn restore_untracked_worktree(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_oid: &str,
+    untracked: &[String],
+    transaction_index: &Path,
+) -> Result<(), GitError> {
+    let specs = literal_pathspecs(untracked.iter().map(String::as_str));
+    let source = format!("--source={stash_oid}^3");
+    run_dynamic(
+        commands,
+        repo,
+        ["restore", source.as_str(), "--worktree", "--"],
+        &specs,
+        Some(transaction_index),
+        None,
+    )?;
     Ok(())
 }
 
@@ -689,6 +762,9 @@ fn publish_stash_atomic(
     previous: Option<&str>,
     message: &str,
 ) -> Result<(), GitError> {
+    if fail_stash_publication(repo) {
+        return Err(GitError::StashConcurrentUpdate);
+    }
     let expected = previous
         .map(ToString::to_string)
         .unwrap_or_else(|| "0".repeat(stash_oid.len()));
@@ -729,14 +805,23 @@ use publication_test_hooks::before as before_stash_publication;
 
 #[cfg(test)]
 pub(super) use publication_test_hooks::{
-    install_failure as install_stash_publication_failure,
+    install_cas_failure as install_stash_cas_failure,
+    install_failure as install_stash_cleanup_failure,
     install_pause as install_stash_publication_pause,
 };
+
+#[cfg(not(test))]
+fn fail_stash_publication(_repo: &RepoPath) -> bool {
+    false
+}
+
+#[cfg(test)]
+use publication_test_hooks::fail_publication as fail_stash_publication;
 
 #[cfg(test)]
 mod publication_test_hooks {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::sync::{mpsc, Mutex, OnceLock};
     use tokio::sync::oneshot;
 
@@ -751,6 +836,11 @@ mod publication_test_hooks {
     fn hooks() -> &'static Mutex<HashMap<PathBuf, Hook>> {
         static HOOKS: OnceLock<Mutex<HashMap<PathBuf, Hook>>> = OnceLock::new();
         HOOKS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn cas_failures() -> &'static Mutex<HashSet<PathBuf>> {
+        static FAILURES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+        FAILURES.get_or_init(|| Mutex::new(HashSet::new()))
     }
 
     fn key(repo: &RepoPath) -> PathBuf {
@@ -786,6 +876,16 @@ mod publication_test_hooks {
 
     pub(crate) struct PublicationFailure {
         key: PathBuf,
+    }
+
+    pub(crate) struct PublicationCasFailure {
+        key: PathBuf,
+    }
+
+    impl Drop for PublicationCasFailure {
+        fn drop(&mut self) {
+            cas_failures().lock().unwrap().remove(&self.key);
+        }
     }
 
     impl Drop for PublicationFailure {
@@ -825,6 +925,20 @@ mod publication_test_hooks {
         PublicationFailure { key }
     }
 
+    pub(crate) fn install_cas_failure(repo: &RepoPath) -> PublicationCasFailure {
+        let key = key(repo);
+        let inserted = cas_failures().lock().unwrap().insert(key.clone());
+        assert!(
+            inserted,
+            "only one stash CAS failure may exist per repository"
+        );
+        PublicationCasFailure { key }
+    }
+
+    pub(crate) fn fail_publication(repo: &RepoPath) -> bool {
+        cas_failures().lock().unwrap().remove(&key(repo))
+    }
+
     pub(crate) fn before(repo: &RepoPath) -> Result<(), GitError> {
         match hooks().lock().unwrap().remove(&key(repo)) {
             Some(Hook::Pause { reached, resume }) => {
@@ -836,6 +950,112 @@ mod publication_test_hooks {
             }
             Some(Hook::Fail) => Err(GitError::StashConcurrentUpdate),
             None => Ok(()),
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn before_stash_recovery(_repo: &RepoPath, _step: RecoveryStep) -> Result<(), GitError> {
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) use recovery_test_hooks::install as install_stash_recovery_failures;
+
+#[cfg(test)]
+use recovery_test_hooks::before as before_stash_recovery;
+
+#[cfg(test)]
+mod recovery_test_hooks {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+    pub(crate) struct RecoveryAttempts {
+        pub(crate) tracked_worktree: bool,
+        pub(crate) untracked_worktree: bool,
+        pub(crate) original_index: bool,
+    }
+
+    struct Hook {
+        fail_tracked_worktree: bool,
+        fail_original_index: bool,
+        attempts: Arc<Mutex<RecoveryAttempts>>,
+    }
+
+    fn hooks() -> &'static Mutex<HashMap<PathBuf, Hook>> {
+        static HOOKS: OnceLock<Mutex<HashMap<PathBuf, Hook>>> = OnceLock::new();
+        HOOKS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn key(repo: &RepoPath) -> PathBuf {
+        std::fs::canonicalize(&repo.0).unwrap_or_else(|_| repo.0.clone())
+    }
+
+    pub(crate) struct RecoveryFailures {
+        key: PathBuf,
+        attempts: Arc<Mutex<RecoveryAttempts>>,
+    }
+
+    impl RecoveryFailures {
+        pub(crate) fn attempts(&self) -> RecoveryAttempts {
+            *self.attempts.lock().unwrap()
+        }
+    }
+
+    impl Drop for RecoveryFailures {
+        fn drop(&mut self) {
+            hooks().lock().unwrap().remove(&self.key);
+        }
+    }
+
+    pub(crate) fn install(
+        repo: &RepoPath,
+        fail_tracked_worktree: bool,
+        fail_original_index: bool,
+    ) -> RecoveryFailures {
+        let key = key(repo);
+        let attempts = Arc::new(Mutex::new(RecoveryAttempts::default()));
+        let previous = hooks().lock().unwrap().insert(
+            key.clone(),
+            Hook {
+                fail_tracked_worktree,
+                fail_original_index,
+                attempts: Arc::clone(&attempts),
+            },
+        );
+        assert!(
+            previous.is_none(),
+            "only one stash recovery hook may exist per repository"
+        );
+        RecoveryFailures { key, attempts }
+    }
+
+    pub(crate) fn before(repo: &RepoPath, step: RecoveryStep) -> Result<(), GitError> {
+        let mut hooks = hooks().lock().unwrap();
+        let Some(hook) = hooks.get_mut(&key(repo)) else {
+            return Ok(());
+        };
+        let mut attempts = hook.attempts.lock().unwrap();
+        match step {
+            RecoveryStep::TrackedWorktree => attempts.tracked_worktree = true,
+            RecoveryStep::UntrackedWorktree => attempts.untracked_worktree = true,
+            RecoveryStep::OriginalIndex => attempts.original_index = true,
+        }
+        let should_fail = match step {
+            RecoveryStep::TrackedWorktree => hook.fail_tracked_worktree,
+            RecoveryStep::OriginalIndex => hook.fail_original_index,
+            RecoveryStep::UntrackedWorktree => false,
+        };
+        drop(attempts);
+        if should_fail {
+            Err(GitError::Git2(format!(
+                "injected stash recovery failure: {}",
+                step.label()
+            )))
+        } else {
+            Ok(())
         }
     }
 }
@@ -891,6 +1111,20 @@ fn meets_minimum_version(version_output: &str) -> bool {
     let major = parts.next().and_then(|part| part.parse::<u32>().ok());
     let minor = parts.next().and_then(|part| part.parse::<u32>().ok());
     matches!((major, minor), (Some(major), Some(minor)) if (major, minor) >= MINIMUM_PATHS_VERSION)
+}
+
+fn requested_scope_for_expanded(path: &str, selected: &BTreeSet<String>) -> String {
+    selected
+        .iter()
+        .filter(|requested| {
+            path == requested.as_str()
+                || path
+                    .strip_prefix(requested.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+        .max_by_key(|requested| requested.len())
+        .cloned()
+        .unwrap_or_else(|| path.to_string())
 }
 
 fn literal_pathspecs<'a>(paths: impl IntoIterator<Item = &'a str>) -> Vec<OsString> {

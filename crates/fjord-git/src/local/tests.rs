@@ -8036,6 +8036,131 @@ async fn exact_stash_publication_cas_leaves_only_the_external_reflog_entry() {
     assert_stash_transaction_artifacts_cleaned(&backend, &repo);
 }
 
+async fn exact_stash_recovery_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("selected.txt", b"selected A\n"),
+            ("other-staged.txt", b"staged A\n"),
+            ("other-worktree.txt", b"worktree A\n"),
+        ],
+    )
+    .await;
+    write_file(&repo, "selected.txt", "selected staged\n");
+    run_git_success(&backend, &repo, &["add", "selected.txt"]);
+    write_file(
+        &repo,
+        "selected.txt",
+        "selected staged\nselected worktree\n",
+    );
+    write_file(&repo, "selected-new.txt", "selected untracked\n");
+    write_file(&repo, "other-staged.txt", "staged B\n");
+    run_git_success(&backend, &repo, &["add", "other-staged.txt"]);
+    write_file(&repo, "other-worktree.txt", "worktree B\n");
+    write_file(&repo, "other-new.txt", "other untracked\n");
+    (directory, repo, backend)
+}
+
+async fn assert_exact_stash_recovery_failure(
+    fail_tracked_worktree: bool,
+    fail_original_index: bool,
+) {
+    let (_directory, repo, backend) = exact_stash_recovery_fixture().await;
+    let index_before = std::fs::read(resolved_index_path(&repo)).unwrap();
+    let selected_before = std::fs::read(repo.0.join("selected.txt")).unwrap();
+    let unrelated_before = ["other-staged.txt", "other-worktree.txt", "other-new.txt"]
+        .map(|path| (path, std::fs::read(repo.0.join(path)).unwrap()));
+    let generations_before = backend.generations(&repo).unwrap();
+    let _cas_failure = stash::install_stash_cas_failure(&repo);
+    let recovery =
+        stash::install_stash_recovery_failures(&repo, fail_tracked_worktree, fail_original_index);
+
+    let result = backend
+        .create_stash(
+            &repo,
+            &paths_stash_request(
+                &["selected.txt", "selected-new.txt"],
+                "injected recovery failure",
+                true,
+            ),
+        )
+        .await;
+
+    assert!(matches!(result, Err(GitError::StashRecoveryFailed)));
+    let attempts = recovery.attempts();
+    assert!(attempts.tracked_worktree);
+    assert!(attempts.untracked_worktree);
+    assert!(attempts.original_index);
+    assert_eq!(
+        std::fs::read(repo.0.join("selected-new.txt")).unwrap(),
+        b"selected untracked\n"
+    );
+    if fail_tracked_worktree {
+        // The injected failure occurs before tracked restoration, so the exact
+        // expected residual state is the cleaned HEAD version.
+        assert_eq!(
+            std::fs::read(repo.0.join("selected.txt")).unwrap(),
+            b"selected A\n"
+        );
+    } else {
+        assert_eq!(
+            std::fs::read(repo.0.join("selected.txt")).unwrap(),
+            selected_before
+        );
+    }
+    if fail_original_index {
+        // The cleaned alternate index was published before the injected
+        // recovery failure. Unrelated staged state still survives.
+        assert_eq!(
+            index_blob(&repo, "selected.txt").as_deref(),
+            Some(b"selected A\n".as_slice())
+        );
+        assert_eq!(
+            index_blob(&repo, "other-staged.txt").as_deref(),
+            Some(b"staged B\n".as_slice())
+        );
+        assert_ne!(
+            std::fs::read(resolved_index_path(&repo)).unwrap(),
+            index_before
+        );
+    } else {
+        assert_eq!(
+            std::fs::read(resolved_index_path(&repo)).unwrap(),
+            index_before
+        );
+    }
+    for (path, bytes) in unrelated_before {
+        assert_eq!(std::fs::read(repo.0.join(path)).unwrap(), bytes, "{path}");
+    }
+    assert!(cli_stash_rows(&backend, &repo).is_empty());
+    assert!(!run_git_status(
+        &backend,
+        &repo,
+        &["rev-parse", "--verify", "--quiet", "refs/stash"],
+    )
+    .success());
+    assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    assert_stash_transaction_artifacts_cleaned(&backend, &repo);
+}
+
+#[tokio::test]
+async fn exact_stash_publication_failure_with_worktree_recovery_failure_is_typed() {
+    assert_exact_stash_recovery_failure(true, false).await;
+}
+
+#[tokio::test]
+async fn exact_stash_publication_failure_with_index_recovery_failure_is_typed() {
+    assert_exact_stash_recovery_failure(false, true).await;
+}
+
+#[tokio::test]
+async fn exact_stash_publication_failure_with_both_recovery_failures_is_typed() {
+    assert_exact_stash_recovery_failure(true, true).await;
+}
+
 #[tokio::test]
 async fn exact_stash_failure_before_publication_rolls_back_exactly() {
     let (_dir, repo) = empty_repo();
@@ -8080,7 +8205,7 @@ async fn exact_stash_failure_before_publication_rolls_back_exactly() {
     )
     .success();
     let generations_before = backend.generations(&repo).unwrap();
-    let _failure = stash::install_stash_publication_failure(&repo);
+    let _failure = stash::install_stash_cleanup_failure(&repo);
 
     let result = backend
         .create_stash(
@@ -8645,20 +8770,37 @@ async fn directory_scope_is_unrepresentable_and_changes_nothing() {
     let (_dir, repo) = empty_repo();
     let backend = LocalGitBackend::new();
     std::fs::create_dir_all(repo.0.join("nested")).unwrap();
-    commit_fixture(&backend, &repo, &[("nested/file.txt", b"base\n")]).await;
+    commit_fixture(
+        &backend,
+        &repo,
+        &[
+            ("normal.txt", b"normal base\n"),
+            ("nested/file.txt", b"base\n"),
+        ],
+    )
+    .await;
+    write_file(&repo, "normal.txt", "normal changed\n");
     write_file(&repo, "nested/file.txt", "changed\n");
+    let normal_before = std::fs::read(repo.0.join("normal.txt")).unwrap();
     let worktree_before = std::fs::read(repo.0.join("nested/file.txt")).unwrap();
     let index_before = git_output(&backend, &repo, &["ls-files", "--stage", "-z"]);
     let generations_before = backend.generations(&repo).unwrap();
 
     let result = backend
-        .create_stash(&repo, &paths_stash_request(&["nested"], "directory", true))
+        .create_stash(
+            &repo,
+            &paths_stash_request(&["normal.txt", "nested"], "directory", true),
+        )
         .await;
 
     assert!(matches!(
         result,
-        Err(GitError::StashScopeUnrepresentable { path }) if path == "nested/file.txt"
+        Err(GitError::StashScopeUnrepresentable { path }) if path == "nested"
     ));
+    assert_eq!(
+        std::fs::read(repo.0.join("normal.txt")).unwrap(),
+        normal_before
+    );
     assert_eq!(
         std::fs::read(repo.0.join("nested/file.txt")).unwrap(),
         worktree_before

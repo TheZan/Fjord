@@ -278,7 +278,7 @@ pub enum GitError {
     DiffToolNotConfigured { tool: String },
     #[error("the diff tool name is invalid")]
     DiffToolNameInvalid,
-    #[error("single-file stashing requires Git 2.23 or newer")]
+    #[error("exact path-scoped stash creation requires Git 2.23 or newer")]
     StashFileUnsupportedGit,
     #[error("{path} has unresolved conflicts")]
     StashFileConflicted { path: String },
@@ -286,6 +286,8 @@ pub enum GitError {
     StashScopeEmpty,
     #[error("the repository changed while the exact stash was being created")]
     StashConcurrentUpdate,
+    #[error("stash creation failed and repository state could not be fully restored")]
+    StashRecoveryFailed,
     #[error("the selected state cannot be represented exactly: {path}")]
     StashScopeUnrepresentable { path: String },
     #[error("operation not yet implemented on this backend: {0}")]
