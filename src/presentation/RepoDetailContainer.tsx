@@ -17,7 +17,7 @@ import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, WorkingFileTarget } from "@/domain/git";
+import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashId, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -115,6 +115,7 @@ export function RepoDetailContainer({
     error: changesError,
   } = useWorkingChanges(repo.id, snapshot.ready);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
+  const [selectedStashId, setSelectedStashId] = useState<StashId | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
   const [commitSearchRequestId, setCommitSearchRequestId] = useState<number | null>(null);
@@ -247,6 +248,7 @@ export function RepoDetailContainer({
 
     if (command.kind === "selectCommit") {
       setWorkingSelected(false);
+      setSelectedStashId(null);
       setSelectedCommit(command.commit);
       return;
     }
@@ -279,6 +281,7 @@ export function RepoDetailContainer({
 
   useEffect(() => {
     setSelectedCommit(null);
+    setSelectedStashId(null);
     setWorkingSelected(false);
     setRecoveryCenterOpen(false);
     setMergeSource(null);
@@ -289,13 +292,13 @@ export function RepoDetailContainer({
     if (changesLoading) return;
 
     if (workingFileCount > 0) {
-      if (!selectedCommit && !workingSelected) setWorkingSelected(true);
+      if (!selectedCommit && !selectedStashId && !workingSelected) setWorkingSelected(true);
       return;
     }
 
     if (commitsLoading) return;
 
-    if (!selectedCommit) {
+    if (!selectedCommit && !selectedStashId) {
       setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
     }
   }, [
@@ -303,6 +306,7 @@ export function RepoDetailContainer({
     commits,
     commitsLoading,
     selectedCommit,
+    selectedStashId,
     status?.branch,
     workingFileCount,
     workingSelected,
@@ -596,6 +600,7 @@ export function RepoDetailContainer({
 
   function requestBranchGraphScroll(branch: string) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setBranchScrollRequest((current) => ({ branch, id: (current?.id ?? 0) + 1 }));
   }
 
@@ -792,12 +797,20 @@ export function RepoDetailContainer({
 
   function onSelectCommit(commit: CommitSummary) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
   function onRevealCommit(commit: CommitSummary) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setSelectedCommit(commit);
+  }
+
+  function onSelectStash(stashId: StashId) {
+    setWorkingSelected(false);
+    setSelectedCommit(null);
+    setSelectedStashId(stashId);
   }
 
   async function onAddIgnore(
@@ -853,6 +866,7 @@ export function RepoDetailContainer({
         if (actionOperationId) void cancelOperation(actionOperationId);
       }}
       selectedCommit={selectedCommit}
+      selectedStashId={selectedStashId}
       workingSelected={workingSelected}
       changes={changes}
       changesLoading={changesLoading}
@@ -887,9 +901,11 @@ export function RepoDetailContainer({
       onRevertCommit={onRevertCommit}
       utilities={utilities}
       onSelectCommit={onSelectCommit}
+      onSelectStash={onSelectStash}
       onRevealCommit={onRevealCommit}
       onSelectWorking={() => {
         setSelectedCommit(null);
+        setSelectedStashId(null);
         setWorkingSelected(true);
       }}
       onStage={onStage}

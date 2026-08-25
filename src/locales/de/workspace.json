@@ -587,7 +587,8 @@
     "local": "Lokal",
     "remote": "Remote",
     "tags": "Tags",
-    "filterPlaceholder": "Branches und Tags filtern",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Branches, Tags und Stashes filtern",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Leeren",
     "noMatches": "Keine Treffer.",
@@ -614,6 +615,7 @@
     "pushFailure": "Fehlgeschlagen: {{error}}"
   },
   "stash": {
+    "empty": "Keine Stashes.",
     "create": {
       "title": "Änderungen stashen",
       "name": "Name",

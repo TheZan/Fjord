@@ -36,11 +36,13 @@ export type ContextMenuIcon =
 export function ContextMenu({
   position,
   items,
+  ariaLabel,
   onSelect,
   onClose,
 }: {
   position: { x: number; y: number };
   items: ContextMenuItem[];
+  ariaLabel?: string;
   onSelect: (id: string) => void;
   onClose: () => void;
 }) {
@@ -67,9 +69,12 @@ export function ContextMenu({
 
   useEffect(() => {
     if (openSubmenu) return;
-    const frame = window.requestAnimationFrame(() => itemRefs.current[activeIndex]?.focus());
+    const frame = window.requestAnimationFrame(() => {
+      if (items.length === 0) menuRef.current?.focus();
+      else itemRefs.current[activeIndex]?.focus();
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex, openSubmenu]);
+  }, [activeIndex, items.length, openSubmenu]);
 
   function moveActive(direction: 1 | -1) {
     if (items.every((item) => item.disabled)) return;
@@ -85,6 +90,8 @@ export function ContextMenu({
       <div
         ref={menuRef}
         role="menu"
+        aria-label={ariaLabel}
+        tabIndex={items.length === 0 ? -1 : undefined}
         className="desktop-popover absolute min-w-52 rounded-md border py-1"
         style={{
           left: menuPosition.x,

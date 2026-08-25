@@ -31,6 +31,7 @@ import type {
   MergeSource,
   PatchSelection,
   RepoStatus,
+  StashId,
   WorkingChanges,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
@@ -69,6 +70,7 @@ export function RepoDetailView({
   branchScrollRequest,
   commitSearchRequestId,
   selectedCommit,
+  selectedStashId,
   workingSelected,
   changes,
   changesLoading,
@@ -97,6 +99,7 @@ export function RepoDetailView({
   onRevertCommit,
   utilities,
   onSelectCommit,
+  onSelectStash,
   onRevealCommit,
   onSelectWorking,
   onStage,
@@ -138,6 +141,7 @@ export function RepoDetailView({
   branchScrollRequest: BranchGraphScrollRequest | null;
   commitSearchRequestId: number | null;
   selectedCommit: CommitSummary | null;
+  selectedStashId: StashId | null;
   workingSelected: boolean;
   changes: WorkingChanges;
   changesLoading: boolean;
@@ -166,6 +170,7 @@ export function RepoDetailView({
   onRevertCommit: (commitId: string) => void;
   utilities: ReactNode;
   onSelectCommit: (commit: CommitSummary) => void;
+  onSelectStash: (stashId: StashId) => void;
   onRevealCommit: (commit: CommitSummary) => void;
   onSelectWorking: () => void;
   onStage: (paths: string[]) => void;
@@ -384,7 +389,10 @@ export function RepoDetailView({
             <RepoTree
               repoId={repo.id}
               focusedBranch={branchScrollRequest?.branch ?? null}
+              selectedStashId={selectedStashId}
               onSelectBranch={onSelectBranch}
+              onSelectStash={onSelectStash}
+              onStashContextMenu={onSelectStash}
               onCheckout={onCheckout}
               checkoutDisabledReason={
                 operationInProgress ? t("operationBanner.blockedActions") : undefined

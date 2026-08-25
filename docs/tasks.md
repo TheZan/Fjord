@@ -531,7 +531,7 @@ pending. No existing
   files survive creation; frontend cases 11–15. A `02A`/`02B` research/production
   split was considered and rejected: the board has no suffix-task precedent, so
   the gate is expressed as this task staying open until the proof lands.
-- [ ] **P10-STASH-03** — **Stashes** section in `RepoTree`, after Tags, never
+- [x] **P10-STASH-03** — **Stashes** section in `RepoTree`, after Tags, never
   merged into branches or tags — a stash cannot be checked out, pushed, or merged,
   and listing it among refs would invite exactly those gestures (spec §3).
   `SectionKey` gains `"stashes"`; the section consumes `useStashes` beside
