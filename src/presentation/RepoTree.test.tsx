@@ -161,6 +161,20 @@ describe("RepoTree", () => {
     expect(row).toHaveFocus();
   });
 
+  it("reveals the exact stash selected from the shared tree menu", () => {
+    const onRevealStashInGraph = vi.fn();
+    const { container } = render(
+      <RepoTree repoId="repo-1" onRevealStashInGraph={onRevealStashInGraph} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));
+    const row = container.querySelector<HTMLButtonElement>("[data-stash-id='stash-oid-detached']")!;
+
+    fireEvent.contextMenu(row, { clientX: 12, clientY: 34 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.revealInGraph" }));
+
+    expect(onRevealStashInGraph).toHaveBeenCalledWith("stash-oid-detached");
+  });
+
   it("filters stashes by title or full message without reordering them", () => {
     const { container } = render(<RepoTree repoId="repo-1" />);
     fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));

@@ -7,6 +7,7 @@ import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
 import { Input, Surface } from "@/presentation/ui";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
+import { StashContextMenu } from "@/presentation/StashContextMenu";
 import { formatRelativeTime } from "@/presentation/formatRelativeTime";
 import type { BranchInfo, StashEntry, StashId, TagInfo } from "@/domain/git";
 
@@ -31,6 +32,7 @@ export function RepoTree({
   selectedStashId,
   onSelectStash,
   onStashContextMenu,
+  onRevealStashInGraph,
 }: {
   repoId: string;
   focusedBranch?: string | null;
@@ -43,6 +45,7 @@ export function RepoTree({
   selectedStashId?: StashId | null;
   onSelectStash?: (stashId: StashId) => void;
   onStashContextMenu?: (stashId: StashId) => void;
+  onRevealStashInGraph?: (stashId: StashId) => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
@@ -244,16 +247,19 @@ export function RepoTree({
           )}
         </TreeSection>
       </div>
-      {menu && (
+      {menu?.kind === "stash" ? (
+        <StashContextMenu
+          state={menu}
+          onClose={() => setMenu(null)}
+          onRevealInGraph={onRevealStashInGraph}
+        />
+      ) : menu ? (
         <ContextMenu
           position={menu}
-          ariaLabel={menu.kind === "stash" ? t("tree.stashes") : undefined}
           items={
             menu.kind === "branch"
               ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
-              : menu.kind === "tag"
-                ? tagMenuItems(menu.tag, t)
-                : []
+              : tagMenuItems(menu.tag, t)
           }
           onClose={() => setMenu(null)}
           onSelect={(action) => {
@@ -266,12 +272,12 @@ export function RepoTree({
                 visibleRemoteBranches.map((branch) => branch.name),
               );
             }
-            else if (selection.kind === "tag") {
+            else {
               onTagContextAction?.(action as TagContextAction, selection.tag);
             }
           }}
         />
-      )}
+      ) : null}
     </Surface>
   );
 

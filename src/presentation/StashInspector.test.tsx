@@ -70,6 +70,22 @@ describe("StashInspector", () => {
     expect(screen.getByRole("region", { name: "stash.inspector.groupUntracked" })).toBeInTheDocument();
   });
 
+  it("exposes Reveal in graph from the inspector", () => {
+    const onRevealInGraph = vi.fn();
+    render(
+      <StashInspector
+        repoId="repo-1"
+        stash={stash}
+        selectedFile={null}
+        onSelectFile={vi.fn()}
+        onRevealInGraph={onRevealInGraph}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "stash.action.revealInGraph" }));
+    expect(onRevealInGraph).toHaveBeenCalledTimes(1);
+  });
+
   it("keys duplicate paths by group when selecting their distinct rows", () => {
     const onSelectFile = vi.fn();
     render(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={onSelectFile} />);
