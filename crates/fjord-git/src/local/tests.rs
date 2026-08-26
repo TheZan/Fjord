@@ -5871,6 +5871,26 @@ async fn external_pathspec_stash_inspector_shows_unrelated_recorded_index_conten
     assert!(files.staged.iter().any(|file| file.path == "a.txt"));
     assert!(files.staged.iter().any(|file| file.path == "b.txt"));
     assert!(files.worktree.iter().any(|file| file.path == "a.txt"));
+
+    run_git_success(&backend, &repo, &["reset", "--hard", "HEAD"]);
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("a.txt")).unwrap(),
+        "a base\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("b.txt")).unwrap(),
+        "b base\n"
+    );
+
+    run_git_success(&backend, &repo, &["stash", "apply", &entry.id.0]);
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("a.txt")).unwrap(),
+        "a staged\na worktree\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("b.txt")).unwrap(),
+        "b unrelated staged\n"
+    );
 }
 
 #[tokio::test]
