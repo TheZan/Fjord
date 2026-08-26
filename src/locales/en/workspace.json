@@ -662,6 +662,11 @@
   },
   "stash": {
     "empty": "No stashes.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "revealInGraph": "Reveal in graph"
+    },
+    "revealNotFound": "The commit this stash was created from is not in this history.",
     "inspector": {
       "createdFrom": "Created from {{branch}}",
       "createdDetached": "Created on a detached HEAD",

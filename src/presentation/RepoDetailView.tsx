@@ -8,7 +8,11 @@ import type {
 } from "@/application/useWorkingFileActions";
 import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 import { useStashes } from "@/application/useStashes";
-import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
+import {
+  CommitGraph,
+  type BranchGraphScrollRequest,
+  type StashGraphRevealRequest,
+} from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
 import { StashInspector, type StashFileSelection } from "@/presentation/StashInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
@@ -228,6 +232,8 @@ export function RepoDetailView({
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error"; retainedStash: boolean } | null>(null);
+  const [stashRevealRequest, setStashRevealRequest] = useState<StashGraphRevealRequest | null>(null);
+  const stashRevealSequence = useRef(0);
   const previousPendingAction = useRef<string | null>(null);
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
@@ -239,6 +245,11 @@ export function RepoDetailView({
   useEffect(() => {
     setSelectedStashFile(null);
   }, [selectedStashId]);
+
+  useEffect(() => {
+    setStashRevealRequest(null);
+    stashRevealSequence.current = 0;
+  }, [repo.id]);
 
   useEffect(() => {
     if (!workingSelected) workingSelection.clear();
@@ -322,6 +333,7 @@ export function RepoDetailView({
       stash={selectedStash}
       selectedFile={selectedStashFile}
       onSelectFile={setSelectedStashFile}
+      onRevealInGraph={() => requestRevealStashInGraph(selectedStash.id)}
     />
   ) : selectedStashId && stashesLoading ? (
     <Muted className="text-[12px]">{t("commits.loading")}</Muted>
@@ -419,7 +431,8 @@ export function RepoDetailView({
               selectedStashId={selectedStashId}
               onSelectBranch={onSelectBranch}
               onSelectStash={handleSelectStash}
-              onStashContextMenu={onSelectStash}
+              onStashContextMenu={handleSelectStash}
+              onRevealStashInGraph={requestRevealStashInGraph}
               onCheckout={onCheckout}
               checkoutDisabledReason={
                 operationInProgress ? t("operationBanner.blockedActions") : undefined
@@ -472,6 +485,18 @@ export function RepoDetailView({
                 onMergeBranch={onMergeBranch}
                 onSquashMergeBranch={onSquashMergeBranch}
                 onCommitContextAction={handleCommitContextAction}
+                selectedStashId={selectedStashId}
+                onSelectStash={handleSelectStash}
+                onStashContextMenu={handleSelectStash}
+                revealStashRequest={stashRevealRequest}
+                onRevealStashNotFound={() => {
+                  setNotice({
+                    id: Date.now(),
+                    message: t("stash.revealNotFound"),
+                    tone: "error",
+                    retainedStash: false,
+                  });
+                }}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
                 onSelectWorking={handleSelectWorking}
@@ -679,6 +704,17 @@ export function RepoDetailView({
   function handleSelectStash(stashId: StashId) {
     onSelectStash(stashId);
     if (compactLayout) setInspectorDrawerOpen(true);
+  }
+
+  function requestRevealStashInGraph(stashId: StashId) {
+    const stash = stashes.find((entry) => entry.id === stashId);
+    if (!stash) return;
+    stashRevealSequence.current += 1;
+    setStashRevealRequest({
+      id: stashRevealSequence.current,
+      stashId: stash.id,
+      base: stash.base,
+    });
   }
 }
 

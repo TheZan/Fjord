@@ -624,6 +624,11 @@
   },
   "stash": {
     "empty": "Нет stash.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "revealInGraph": "Показать в графе"
+    },
+    "revealNotFound": "Commit, на основе которого создан этот stash, отсутствует в этой истории.",
     "inspector": {
       "createdFrom": "Создан из {{branch}}",
       "createdDetached": "Создан при отсоединённом HEAD",

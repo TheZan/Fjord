@@ -5,11 +5,20 @@ import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useCommitLog } from "@/application/useCommitLog";
 import { useCommitSearch } from "@/application/useCommitSearch";
+import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
 import type { GraphRow } from "@/presentation/graphLayout";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
+import { StashContextMenu } from "@/presentation/StashContextMenu";
 import { useGraphLayout } from "@/presentation/useGraphLayout";
-import type { BranchInfo, CommitSummary, MergeSource, TagInfo } from "@/domain/git";
+import type {
+  BranchInfo,
+  CommitSummary,
+  MergeSource,
+  StashEntry,
+  StashId,
+  TagInfo,
+} from "@/domain/git";
 
 const LANE_COLORS = [
   "var(--graph-lane-1)",
@@ -34,6 +43,13 @@ const SEARCH_DEBOUNCE_MS = 180;
  * gets clipped so the message column always keeps its space.
  */
 const MAX_VISIBLE_LANES = 12;
+const EMPTY_STASHES: StashEntry[] = [];
+
+export interface StashGraphRevealRequest {
+  id: number;
+  stashId: StashId;
+  base: string;
+}
 
 function laneColor(lane: number): string {
   return LANE_COLORS[lane % LANE_COLORS.length];
@@ -61,6 +77,11 @@ export function CommitGraph({
   onMergeBranch,
   onSquashMergeBranch,
   onCommitContextAction,
+  selectedStashId,
+  onSelectStash,
+  onStashContextMenu,
+  revealStashRequest,
+  onRevealStashNotFound,
   workingFileCount = 0,
   workingSelected = false,
   onSelectWorking,
@@ -76,6 +97,11 @@ export function CommitGraph({
   onMergeBranch?: (source: MergeSource) => void;
   onSquashMergeBranch?: (source: MergeSource) => void;
   onCommitContextAction?: (action: CommitContextAction, commit: CommitSummary) => void;
+  selectedStashId?: StashId | null;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu?: (stashId: StashId) => void;
+  revealStashRequest?: StashGraphRevealRequest | null;
+  onRevealStashNotFound?: (stashId: StashId) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
   workingFileCount?: number;
   workingSelected?: boolean;
@@ -87,7 +113,8 @@ export function CommitGraph({
   const [pendingSearchRevealId, setPendingSearchRevealId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
   const [refMenu, setRefMenu] = useState<{ refInfo: CommitRef; x: number; y: number } | null>(null);
-  const [refFlyout, setRefFlyout] = useState<{ anchorRect: DOMRect; refs: CommitRef[] } | null>(null);
+  const [stashMenu, setStashMenu] = useState<{ stashId: StashId; x: number; y: number } | null>(null);
+  const [refFlyout, setRefFlyout] = useState<{ anchorRect: DOMRect; badges: CommitBadge[] } | null>(null);
   const refFlyoutCloseTimeout = useRef<number | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
   const effectiveSearchQuery = searchOpen ? debouncedSearchQuery : "";
@@ -96,6 +123,7 @@ export function CommitGraph({
   const search = useCommitSearch(repoId, effectiveSearchQuery);
   const { branches } = useBranches(repoId);
   const { tags } = useTags(repoId);
+  const { stashes } = useStashes(repoId);
   const searchActive = effectiveSearchQuery.trim().length > 0;
   const visibleCommits = searchActive ? search.commits : commits;
   const visibleLoading = searchActive ? search.loading : loading;
@@ -112,11 +140,15 @@ export function CommitGraph({
   const branchesByCommit = useMemo(() => groupBranchesByCommit(branches), [branches]);
   const tagNames = useMemo(() => new Set(tags.map((tag) => tag.name)), [tags]);
   const tagsByCommit = useMemo(() => groupTagsByCommit(tags), [tags]);
+  const stashesByBase = useMemo(() => groupStashesByBase(stashes), [stashes]);
+  const loadedCommitIds = useMemo(() => new Set(commits.map((commit) => commit.id)), [commits]);
   const visibleLanes = Math.min(laneCount, MAX_VISIBLE_LANES);
   const gutterWidth = GUTTER_PAD * 2 + Math.max(visibleLanes - 1, 0) * LANE_PITCH;
   const parentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const fulfilledBranchScrollId = useRef<number | null>(null);
+  const fulfilledStashRevealId = useRef<number | null>(null);
+  const activeStashRevealId = useRef<number | null>(null);
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -133,6 +165,23 @@ export function CommitGraph({
     setSearchOpen(false);
     setSearchQuery("");
   }, [scrollToBranch]);
+
+  useEffect(() => {
+    activeStashRevealId.current = revealStashRequest?.id ?? null;
+    if (!revealStashRequest) return;
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, [revealStashRequest]);
+
+  useEffect(() => {
+    setMenu(null);
+    setRefMenu(null);
+    setStashMenu(null);
+    setRefFlyout(null);
+    fulfilledBranchScrollId.current = null;
+    fulfilledStashRevealId.current = null;
+    activeStashRevealId.current = null;
+  }, [repoId]);
 
   useEffect(() => {
     if (openSearchRequestId == null) return;
@@ -203,6 +252,47 @@ export function CommitGraph({
     searchActive,
   ]);
 
+  useEffect(() => {
+    if (
+      !revealStashRequest ||
+      searchActive ||
+      fulfilledStashRevealId.current === revealStashRequest.id
+    ) {
+      return;
+    }
+
+    const rowIndex = rows.findIndex((row) => row.commit.id === revealStashRequest.base);
+    if (rowIndex !== -1) {
+      fulfilledStashRevealId.current = revealStashRequest.id;
+      onSelectStash?.(revealStashRequest.stashId);
+      const currentIndex = Math.round((parentRef.current?.scrollTop ?? 0) / ROW_HEIGHT);
+      rowVirtualizer.scrollToIndex(rowIndex, {
+        align: "center",
+        behavior: Math.abs(rowIndex - currentIndex) > 40 ? "auto" : "smooth",
+      });
+      focusStashMarker(parentRef, revealStashRequest.stashId);
+      return;
+    }
+
+    if (loadingUntilCommitId !== revealStashRequest.base) {
+      const requestId = revealStashRequest.id;
+      void loadUntilCommit(revealStashRequest.base).then((found) => {
+        if (activeStashRevealId.current !== requestId || found) return;
+        fulfilledStashRevealId.current = requestId;
+        onRevealStashNotFound?.(revealStashRequest.stashId);
+      });
+    }
+  }, [
+    loadUntilCommit,
+    loadingUntilCommitId,
+    onRevealStashNotFound,
+    onSelectStash,
+    revealStashRequest,
+    rowVirtualizer,
+    rows,
+    searchActive,
+  ]);
+
   /**
    * A commit picked from search results only exists in the filtered list
    * while search stays open. Once the bar closes, the full graph is back —
@@ -263,6 +353,10 @@ export function CommitGraph({
     pendingSearchRevealId && loadingUntilCommitId === pendingSearchRevealId
       ? pendingSearchRevealId.slice(0, 7)
       : null;
+  const seekingStashBaseLabel =
+    revealStashRequest && loadingUntilCommitId === revealStashRequest.base
+      ? revealStashRequest.base.slice(0, 7)
+      : null;
 
   function navigateToCommit(currentCommit: CommitSummary, target: "previous" | "next" | "first" | "last") {
     const currentIndex = rows.findIndex((row) => row.commit.id === currentCommit.id);
@@ -291,9 +385,9 @@ export function CommitGraph({
     }
   }
 
-  function openRefFlyout(anchorRect: DOMRect, refs: CommitRef[]) {
+  function openRefFlyout(anchorRect: DOMRect, badges: CommitBadge[]) {
     cancelRefFlyoutClose();
-    setRefFlyout({ anchorRect, refs });
+    setRefFlyout({ anchorRect, badges });
   }
 
   function scheduleRefFlyoutClose() {
@@ -319,10 +413,13 @@ export function CommitGraph({
         />
       )}
       {seekingBranchLabel && <BranchSeekStatus label={t("commits.locatingBranch", { branch: seekingBranchLabel })} />}
-      {!seekingBranchLabel && seekingCommitLabel && (
+      {!seekingBranchLabel && seekingStashBaseLabel && (
+        <BranchSeekStatus label={t("commits.locatingCommit", { sha: seekingStashBaseLabel })} />
+      )}
+      {!seekingBranchLabel && !seekingStashBaseLabel && seekingCommitLabel && (
         <BranchSeekStatus label={t("commits.locatingCommit", { sha: seekingCommitLabel })} />
       )}
-      {!seekingBranchLabel && !seekingCommitLabel && layoutComputing && rows.length > 0 ? (
+      {!seekingBranchLabel && !seekingStashBaseLabel && !seekingCommitLabel && layoutComputing && rows.length > 0 ? (
         <BranchSeekStatus label={t("commits.updatingGraph")} />
       ) : null}
       <div ref={parentRef} className="h-full w-full overflow-auto">
@@ -367,7 +464,13 @@ export function CommitGraph({
                   branchesByCommit={branchesByCommit}
                   tagNames={tagNames}
                   tagsByCommit={tagsByCommit}
+                  stashes={
+                    loadedCommitIds.has(row.commit.id)
+                      ? stashesByBase.get(row.commit.id) ?? EMPTY_STASHES
+                      : EMPTY_STASHES
+                  }
                   selected={row.commit.id === selectedCommitId}
+                  selectedStashId={selectedStashId ?? null}
                   focusable={
                     row.commit.id === selectedCommitId ||
                     (selectedCommitId == null && virtualRow.index === 0)
@@ -381,6 +484,11 @@ export function CommitGraph({
                   })}
                   onCheckout={onCheckout}
                   onRefContextMenu={(refInfo, position) => setRefMenu({ refInfo, ...position })}
+                  onSelectStash={onSelectStash}
+                  onStashContextMenu={(stashId, position) => {
+                    onStashContextMenu?.(stashId);
+                    setStashMenu({ stashId, ...position });
+                  }}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                   onOpenRefFlyout={openRefFlyout}
                   onCloseRefFlyoutSoon={scheduleRefFlyoutClose}
@@ -416,9 +524,15 @@ export function CommitGraph({
       {refFlyout && (
         <RefBadgeFlyout
           anchorRect={refFlyout.anchorRect}
-          refs={refFlyout.refs}
+          badges={refFlyout.badges}
           onCheckout={onCheckout}
           onRefContextMenu={(refInfo, position) => setRefMenu({ refInfo, ...position })}
+          selectedStashId={selectedStashId ?? null}
+          onSelectStash={onSelectStash}
+          onStashContextMenu={(stashId, position) => {
+            onStashContextMenu?.(stashId);
+            setStashMenu({ stashId, ...position });
+          }}
           onMouseEnter={cancelRefFlyoutClose}
           onMouseLeave={scheduleRefFlyoutClose}
         />
@@ -461,6 +575,9 @@ export function CommitGraph({
             if (action === "copy") void navigator.clipboard?.writeText(refInfo.label);
           }}
         />
+      )}
+      {stashMenu && (
+        <StashContextMenu state={stashMenu} onClose={() => setStashMenu(null)} />
       )}
     </div>
   );
@@ -655,13 +772,17 @@ function CommitRow({
   branchesByCommit,
   tagNames,
   tagsByCommit,
+  stashes,
   selected,
+  selectedStashId,
   focusable,
   onSelect,
   onNavigate,
   ariaLabel,
   onCheckout,
   onRefContextMenu,
+  onSelectStash,
+  onStashContextMenu,
   onContextMenu,
   onOpenRefFlyout,
   onCloseRefFlyoutSoon,
@@ -674,7 +795,9 @@ function CommitRow({
   branchesByCommit: Map<string, BranchInfo[]>;
   tagNames: Set<string>;
   tagsByCommit: Map<string, TagInfo[]>;
+  stashes: StashEntry[];
   selected: boolean;
+  selectedStashId: StashId | null;
   focusable: boolean;
   onSelect?: (commit: CommitSummary) => void;
   onNavigate?: (
@@ -684,8 +807,10 @@ function CommitRow({
   ariaLabel: string;
   onCheckout?: (branch: string) => void;
   onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu: (stashId: StashId, position: { x: number; y: number }) => void;
   onContextMenu?: (event: MouseEvent<HTMLDivElement>, commit: CommitSummary) => void;
-  onOpenRefFlyout: (anchorRect: DOMRect, refs: CommitRef[]) => void;
+  onOpenRefFlyout: (anchorRect: DOMRect, badges: CommitBadge[]) => void;
   onCloseRefFlyoutSoon: () => void;
 }) {
   const { commit, lane } = row;
@@ -698,6 +823,10 @@ function CommitRow({
     branchByName,
     tagNames,
   );
+  const badges: CommitBadge[] = [
+    ...refs.map((refInfo) => ({ kind: "ref" as const, refInfo })),
+    ...stashes.map((stash) => ({ kind: "stash" as const, stash })),
+  ];
 
   return (
     <div
@@ -748,9 +877,12 @@ function CommitRow({
       }}
     >
       <RefBadgeGroup
-        refs={refs}
+        badges={badges}
         onCheckout={onCheckout}
-        onContextMenu={onRefContextMenu}
+        onRefContextMenu={onRefContextMenu}
+        selectedStashId={selectedStashId}
+        onSelectStash={onSelectStash}
+        onStashContextMenu={onStashContextMenu}
         onOpen={onOpenRefFlyout}
         onCloseSoon={onCloseRefFlyoutSoon}
       />
@@ -888,6 +1020,99 @@ function RefBadge({
   );
 }
 
+type CommitBadge =
+  | { kind: "ref"; refInfo: CommitRef }
+  | { kind: "stash"; stash: StashEntry };
+
+function CommitBadgeItem({
+  badge,
+  onCheckout,
+  onRefContextMenu,
+  selectedStashId,
+  onSelectStash,
+  onStashContextMenu,
+}: {
+  badge: CommitBadge;
+  onCheckout?: (branch: string) => void;
+  onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
+  selectedStashId: StashId | null;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu: (stashId: StashId, position: { x: number; y: number }) => void;
+}) {
+  return badge.kind === "ref" ? (
+    <RefBadge
+      refInfo={badge.refInfo}
+      onCheckout={onCheckout}
+      onContextMenu={onRefContextMenu}
+    />
+  ) : (
+    <StashMarker
+      stash={badge.stash}
+      selected={badge.stash.id === selectedStashId}
+      onSelect={onSelectStash}
+      onContextMenu={onStashContextMenu}
+    />
+  );
+}
+
+function StashMarker({
+  stash,
+  selected,
+  onSelect,
+  onContextMenu,
+}: {
+  stash: StashEntry;
+  selected: boolean;
+  onSelect?: (stashId: StashId) => void;
+  onContextMenu: (stashId: StashId, position: { x: number; y: number }) => void;
+}) {
+  const { t } = useTranslation("workspace");
+  const label = t("stash.markerLabel", { title: stash.title, ref: stash.refName });
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      data-stash-id={stash.id}
+      data-selected={selected}
+      aria-label={label}
+      title={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect?.(stash.id);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const bounds = event.currentTarget.getBoundingClientRect();
+          onContextMenu(stash.id, { x: bounds.left + 8, y: bounds.bottom + 2 });
+          return;
+        }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect?.(stash.id);
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu(stash.id, { x: event.clientX, y: event.clientY });
+      }}
+      className="commit-stash-marker interactive-control inline-flex h-[22px] max-w-full shrink-0 items-center gap-1 rounded px-1.5 text-[11px] font-medium"
+      style={{
+        background: "var(--moss-tint)",
+        border: selected ? "1px solid var(--moss)" : "0.5px solid var(--moss)",
+        color: "var(--moss-ink)",
+      }}
+    >
+      <span aria-hidden="true">◈</span>
+      <span className="truncate">{stash.title}</span>
+    </span>
+  );
+}
+
 /**
  * A commit can carry a dozen branches/tags at once (long-lived integration
  * branches, release tags). Rendering them all inline used to spill the badge
@@ -895,22 +1120,28 @@ function RefBadge({
  * active-branch-first) plus a "+N" count, and reveal the rest on hover.
  */
 function RefBadgeGroup({
-  refs,
+  badges,
   onCheckout,
-  onContextMenu,
+  onRefContextMenu,
+  selectedStashId,
+  onSelectStash,
+  onStashContextMenu,
   onOpen,
   onCloseSoon,
 }: {
-  refs: CommitRef[];
+  badges: CommitBadge[];
   onCheckout?: (branch: string) => void;
-  onContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
-  onOpen: (anchorRect: DOMRect, refs: CommitRef[]) => void;
+  onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
+  selectedStashId: StashId | null;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu: (stashId: StashId, position: { x: number; y: number }) => void;
+  onOpen: (anchorRect: DOMRect, badges: CommitBadge[]) => void;
   onCloseSoon: () => void;
 }) {
   const rootRef = useRef<HTMLSpanElement>(null);
-  if (refs.length === 0) return <span className="min-w-0" />;
+  if (badges.length === 0) return <span className="min-w-0" />;
 
-  const [first, ...rest] = refs;
+  const [first, ...rest] = badges;
 
   return (
     <span
@@ -919,7 +1150,7 @@ function RefBadgeGroup({
       onMouseEnter={() => {
         if (rest.length === 0) return;
         const rect = rootRef.current?.getBoundingClientRect();
-        if (rect) onOpen(rect, refs);
+        if (rect) onOpen(rect, badges);
       }}
       onMouseLeave={() => {
         if (rest.length > 0) onCloseSoon();
@@ -934,7 +1165,14 @@ function RefBadgeGroup({
         take it from there.
       */}
       <span className="min-w-0 flex-1 overflow-hidden">
-        <RefBadge refInfo={first} onCheckout={onCheckout} onContextMenu={onContextMenu} />
+        <CommitBadgeItem
+          badge={first}
+          onCheckout={onCheckout}
+          onRefContextMenu={onRefContextMenu}
+          selectedStashId={selectedStashId}
+          onSelectStash={onSelectStash}
+          onStashContextMenu={onStashContextMenu}
+        />
       </span>
       {rest.length > 0 && (
         <span
@@ -962,16 +1200,22 @@ function RefBadgeGroup({
  */
 function RefBadgeFlyout({
   anchorRect,
-  refs,
+  badges,
   onCheckout,
   onRefContextMenu,
+  selectedStashId,
+  onSelectStash,
+  onStashContextMenu,
   onMouseEnter,
   onMouseLeave,
 }: {
   anchorRect: DOMRect;
-  refs: CommitRef[];
+  badges: CommitBadge[];
   onCheckout?: (branch: string) => void;
   onRefContextMenu: (refInfo: CommitRef, position: { x: number; y: number }) => void;
+  selectedStashId: StashId | null;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu: (stashId: StashId, position: { x: number; y: number }) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }) {
@@ -995,9 +1239,19 @@ function RefBadgeFlyout({
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
       >
-        {refs.map((ref) => (
-          <div key={ref.original} className="min-w-0">
-            <RefBadge refInfo={ref} onCheckout={onCheckout} onContextMenu={onRefContextMenu} />
+        {badges.map((badge) => (
+          <div
+            key={badge.kind === "ref" ? `ref:${badge.refInfo.original}` : `stash:${badge.stash.id}`}
+            className="min-w-0"
+          >
+            <CommitBadgeItem
+              badge={badge}
+              onCheckout={onCheckout}
+              onRefContextMenu={onRefContextMenu}
+              selectedStashId={selectedStashId}
+              onSelectStash={onSelectStash}
+              onStashContextMenu={onStashContextMenu}
+            />
           </div>
         ))}
       </div>
@@ -1063,7 +1317,9 @@ const MemoizedCommitRow = memo(CommitRow, (previous, next) =>
   previous.branchesByCommit === next.branchesByCommit &&
   previous.tagNames === next.tagNames &&
   previous.tagsByCommit === next.tagsByCommit &&
+  previous.stashes === next.stashes &&
   previous.selected === next.selected &&
+  previous.selectedStashId === next.selectedStashId &&
   previous.focusable === next.focusable &&
   previous.ariaLabel === next.ariaLabel,
 );
@@ -1175,6 +1431,15 @@ function focusCommitRow(parentRef: RefObject<HTMLDivElement | null>, commitId: s
   });
 }
 
+function focusStashMarker(parentRef: RefObject<HTMLDivElement | null>, stashId: StashId) {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      const markers = parentRef.current?.querySelectorAll<HTMLElement>("[data-stash-id]") ?? [];
+      Array.from(markers).find((marker) => marker.dataset.stashId === stashId)?.focus();
+    });
+  });
+}
+
 function GraphSkeleton({ gutterWidth }: { gutterWidth: number }) {
   return (
     <div aria-hidden="true">
@@ -1224,6 +1489,16 @@ function groupTagsByCommit(tags: TagInfo[]) {
     byCommit.set(tag.targetCommitId, list);
   }
   return byCommit;
+}
+
+function groupStashesByBase(stashes: StashEntry[]) {
+  const grouped = new Map<string, StashEntry[]>();
+  for (const stash of stashes) {
+    const entries = grouped.get(stash.base);
+    if (entries) entries.push(stash);
+    else grouped.set(stash.base, [stash]);
+  }
+  return grouped;
 }
 
 function normalizeRefName(ref: string) {

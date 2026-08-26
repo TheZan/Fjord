@@ -12,6 +12,7 @@ import {
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { formatDateTime } from "@/presentation/formatDateTime";
+import { Button } from "@/presentation/ui";
 
 export interface StashFileSelection {
   stashId: StashId;
@@ -24,11 +25,13 @@ export function StashInspector({
   stash,
   selectedFile,
   onSelectFile,
+  onRevealInGraph,
 }: {
   repoId: string;
   stash: StashEntry;
   selectedFile: StashFileSelection | null;
   onSelectFile: (selection: StashFileSelection) => void;
+  onRevealInGraph?: () => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { files, loading, error } = useStashFiles(repoId, stash.id);
@@ -71,11 +74,18 @@ export function StashInspector({
       </div>
 
       <div
-        className="flex min-w-0 shrink-0 items-center justify-end gap-1 border-b px-3 py-1.5"
+        className="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5"
         style={{ borderColor: "var(--hairline)" }}
       >
-        {viewMode === "tree" && <FileTreeControls collapse={collapse} />}
-        <FileViewTabs mode={viewMode} onChange={setViewMode} />
+        {onRevealInGraph ? (
+          <Button size="sm" onClick={onRevealInGraph}>
+            {t("stash.action.revealInGraph")}
+          </Button>
+        ) : <span />}
+        <span className="flex items-center gap-1">
+          {viewMode === "tree" && <FileTreeControls collapse={collapse} />}
+          <FileViewTabs mode={viewMode} onChange={setViewMode} />
+        </span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">

@@ -616,6 +616,11 @@
   },
   "stash": {
     "empty": "No hay stashes.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "revealInGraph": "Mostrar en el gráfico"
+    },
+    "revealNotFound": "El commit desde el que se creó este stash no está en este historial.",
     "inspector": {
       "createdFrom": "Creado desde {{branch}}",
       "createdDetached": "Creado con HEAD separado",

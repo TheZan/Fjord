@@ -575,7 +575,7 @@ pending. No existing
   correctness, the both-sided path appearing in two groups with the correct halves,
   and the whole-trees fixture that exists specifically to stop a future "fix" that
   filters the list.
-- [ ] **P10-STASH-05** — Stash markers in the commit graph. A stash is rendered as
+- [x] **P10-STASH-05** — Stash markers in the commit graph. A stash is rendered as
   a **marker attached to its base commit** in the existing ref-badge row — never as
   a lane, never as history. Git's internal stash commits are an implementation
   detail: exposing their two- or three-parent topology would put uncheckoutable,
