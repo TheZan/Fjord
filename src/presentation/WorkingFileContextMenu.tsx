@@ -148,6 +148,7 @@ function batchWorkingFileMenuItems(
   };
 
   if (source === "index") {
+    const patchDisabledReason = disabledReason ?? context.patchExportDisabledReason;
     return [
       {
         id: "unstage",
@@ -156,14 +157,34 @@ function batchWorkingFileMenuItems(
         disabledReason,
       },
       copyPaths,
+      {
+        id: "createPatch",
+        label: t("workingFile.createPatchFilesStaged", { count }),
+        disabled: context.busy || Boolean(patchDisabledReason),
+        disabledReason: patchDisabledReason,
+      },
+      {
+        id: "copyPatch",
+        label: t("workingFile.copyPatchFiles", { count }),
+        disabled: context.busy || Boolean(patchDisabledReason),
+        disabledReason: patchDisabledReason,
+      },
     ];
   }
 
   const stashDisabledReason = disabledReason ?? context.stashFileDisabledReason;
+  const patchDisabledReason = disabledReason ?? context.patchExportDisabledReason;
   return [
     {
       id: "stage",
       label: t("workingFile.stageFiles", { count }),
+      disabled,
+      disabledReason,
+    },
+    {
+      id: "discard",
+      label: t("workingFile.discardFiles", { count }),
+      danger: true,
       disabled,
       disabledReason,
     },
@@ -174,6 +195,18 @@ function batchWorkingFileMenuItems(
       disabledReason: stashDisabledReason,
     },
     copyPaths,
+    {
+      id: "createPatch",
+      label: t("workingFile.createPatchFiles", { count }),
+      disabled: context.busy || Boolean(patchDisabledReason),
+      disabledReason: patchDisabledReason,
+    },
+    {
+      id: "copyPatch",
+      label: t("workingFile.copyPatchFiles", { count }),
+      disabled: context.busy || Boolean(patchDisabledReason),
+      disabledReason: patchDisabledReason,
+    },
   ];
 }
 

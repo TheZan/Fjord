@@ -669,12 +669,12 @@ describe("FileDiffView windowing", () => {
           newLines: 2,
         },
       },
-      {
+      [{
         path: "large.txt",
         source: "worktree",
         baseDigest: "digest-1",
         hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
-      },
+      }],
     ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "context.cancel" }));
@@ -745,12 +745,12 @@ describe("FileDiffView windowing", () => {
         kind: "discard",
         selection: { kind: "file", path: "large.txt" },
       },
-      {
+      [{
         path: "large.txt",
         source: "worktree",
         baseDigest: "digest-1",
         hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
-      },
+      }],
     ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
 

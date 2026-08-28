@@ -56,6 +56,7 @@ export interface IgnoreRuleState {
 
 export function useWorkingFileActions({
   repoId,
+  repositoryName,
   changes,
   stashPathsSupported,
   onStage,
@@ -69,11 +70,12 @@ export function useWorkingFileActions({
   onError,
 }: {
   repoId: string;
+  repositoryName: string;
   changes: WorkingChanges;
   stashPathsSupported: boolean;
   onStage: (paths: string[]) => boolean | void | Promise<boolean | void>;
   onUnstage: (paths: string[]) => boolean | void | Promise<boolean | void>;
-  onDiscard: (target: WorkingFileTarget) => void;
+  onDiscard: (targets: readonly WorkingFileTarget[]) => void;
   onDelete: (target: WorkingFileTarget) => void;
   onOpenMergeTool: () => void;
   onStashFiles: (paths: string[]) => void;
@@ -113,6 +115,33 @@ export function useWorkingFileActions({
         onStashFiles(paths);
         return true;
       }
+      if (action === "discard") {
+        if (source !== "worktree") return false;
+        onDiscard(targets);
+        return true;
+      }
+      if (action === "createPatch" || action === "copyPatch") {
+        try {
+          const selections = await Promise.all(targets.map((selected) =>
+            buildWholeFilePatchSelection(repoId, selected.path, selected.source)));
+          if (action === "createPatch") {
+            const suggestedName = selections.length === 1
+              ? `${baseFileName(selections[0].path)}.patch`
+              : `${baseFileName(repositoryName)}-${selections.length}-files.patch`;
+            const destination = await pickSaveDestination(suggestedName);
+            if (destination === null) return;
+            await exportPatch(repoId, selections, destination);
+            onPatchSaved(destination);
+            return true;
+          }
+          const text = await getPatchText(repoId, selections);
+          await navigator.clipboard?.writeText(text);
+          return true;
+        } catch (error) {
+          onError(error);
+          return false;
+        }
+      }
       await navigator.clipboard?.writeText(paths.join("\n"));
       return true;
     }
@@ -134,7 +163,6 @@ export function useWorkingFileActions({
     }
 
     try {
-      if (action === "discard") return onDiscard(target);
       if (action === "delete") return onDelete(target);
       if (action === "openMergeTool") return onOpenMergeTool();
       if (action === "openExternalDiff") {
@@ -151,24 +179,12 @@ export function useWorkingFileActions({
       }
       if (action === "reveal") return await revealRepositoryPath(repoId, target.path);
       if (action === "copyRelative") return await navigator.clipboard?.writeText(target.path);
-      if (action === "createPatch") {
-        const selection = await buildWholeFilePatchSelection(repoId, target.path, target.source);
-        const destination = await pickSaveDestination(`${baseFileName(target.path)}.patch`);
-        if (destination === null) return;
-        await exportPatch(repoId, selection, destination);
-        return onPatchSaved(destination);
-      }
-      if (action === "copyPatch") {
-        const selection = await buildWholeFilePatchSelection(repoId, target.path, target.source);
-        const text = await getPatchText(repoId, selection);
-        return await navigator.clipboard?.writeText(text);
-      }
       const resolved = await resolveRepositoryFilePath(repoId, target.path);
       await navigator.clipboard?.writeText(resolved.absolute);
     } catch (error) {
       onError(error);
     }
-  }, [changes, onDelete, onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onStashFiles, onUnstage, repoId, stashPathsSupported]);
+  }, [changes, onDelete, onDiscard, onError, onOpenMergeTool, onPatchSaved, onStage, onStashFiles, onUnstage, repoId, repositoryName, stashPathsSupported]);
 
   const confirmIgnoreRule = useCallback(async () => {
     if (!ignoreRule?.preview || ignoreRule.loading || ignoreRule.pending || ignoreRule.preview.alreadyPresent) return;
@@ -193,7 +209,10 @@ export function useWorkingFileActions({
 function isSelectionAction(action: WorkingFileAction) {
   return action === "stage"
     || action === "unstage"
+    || action === "discard"
     || action === "stashFile"
+    || action === "createPatch"
+    || action === "copyPatch"
     || action === "copyPaths";
 }
 

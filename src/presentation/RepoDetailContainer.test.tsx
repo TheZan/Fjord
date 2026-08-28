@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -66,7 +66,12 @@ vi.mock("@/application/useWorkingChanges", () => ({
   useWorkingChanges: () => ({
     changes: {
       staged: [],
-      unstaged: [{ path: "file.txt", changeType: "modified", tracked: true, conflicted: false }],
+      unstaged: ["file.txt", "batch-a.txt", "batch-b.txt"].map((path) => ({
+        path,
+        changeType: "modified" as const,
+        tracked: true,
+        conflicted: false,
+      })),
     },
     loading: false,
     error: null,
@@ -204,6 +209,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   stagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   unstagePatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   discardPatch: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
+  discardPatches: vi.fn(async () => ({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 })),
   getWorkingFileDiffWithGenerations: vi.fn(async () => ({
     generations: { workingTree: 4, refs: 2, history: 1, stash: 0, config: 0 },
     data: {
@@ -284,7 +290,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onSquashMergeBranch: (source: import("@/domain/git").MergeSource) => void;
     onWorkingFileAction: (
       action: import("@/application/useWorkingFileActions").WorkingFileAction,
-      target: import("@/domain/git").WorkingFileTarget,
+      target: import("@/application/useWorkingFileActions").WorkingFileActionContext | import("@/domain/git").WorkingFileTarget,
     ) => void;
     pendingDraftMessage: string | null;
     selectedStashId: import("@/domain/git").StashId | null;
@@ -321,6 +327,13 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
+      <button type="button" onClick={() => onWorkingFileAction("discard", {
+        clickedTarget: { path: "batch-b.txt", source: "worktree" },
+        targets: [
+          { path: "batch-b.txt", source: "worktree" },
+          { path: "batch-a.txt", source: "worktree" },
+        ],
+      })}>discard working file batch</button>
       <button type="button" onClick={() => onWorkingFileAction("ignoreExtension", { path: "logs/debug.log", source: "worktree" })}>ignore log files</button>
       <button type="button" onClick={() => onWorkingFileAction("createPatch", { path: "file.txt", source: "worktree" })}>create patch</button>
       <button type="button" onClick={() => onWorkingFileAction("stashFile", { path: "file.txt", source: "worktree" })}>stash file</button>
@@ -447,6 +460,8 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(unstagePatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(discardPatch).mockReset();
     vi.mocked(discardPatch).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
+    vi.mocked(discardPatches).mockReset();
+    vi.mocked(discardPatches).mockResolvedValue({ workingTree: 5, refs: 2, history: 1, stash: 0, config: 0 });
     vi.mocked(getWorkingFileDiffWithGenerations).mockClear();
     vi.mocked(preflightDestructiveAction).mockReset();
     vi.mocked(invalidateRepoData).mockClear();
@@ -845,11 +860,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(preflightDestructiveAction).toHaveBeenCalledWith(
       "repo-1",
       action,
-      expect.objectContaining({
+      [expect.objectContaining({
         path: "file.txt",
         source: "worktree",
         baseDigest: "whole-file-digest",
-      }),
+      })],
     );
 
     const confirm = screen.getByRole("button", { name: "preflight.discard.confirm" });
@@ -862,6 +877,66 @@ describe("RepoDetailContainer checkout confirmation", () => {
       { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
       "discard-file-token-2",
     ));
+  });
+
+  it("routes batch discard through one dialog and one exact vector payload", async () => {
+    const action = { kind: "discardFiles" as const, paths: ["batch-a.txt", "batch-b.txt"] };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "discard-batch-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "discard-batch-token-2"));
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "discard working file batch" }));
+    expect(await screen.findByRole("dialog", { name: "preflight.discardFiles.title" })).toBeInTheDocument();
+    expect(discardPatches).not.toHaveBeenCalled();
+    const selections = ["batch-a.txt", "batch-b.txt"].map((path) => ({
+      path,
+      source: "worktree" as const,
+      baseDigest: "whole-file-digest",
+      hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
+    }));
+    expect(preflightDestructiveAction).toHaveBeenCalledWith("repo-1", action, selections);
+
+    const confirm = screen.getByRole("button", { name: "preflight.discardFiles.confirm" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(discardPatches).toHaveBeenCalledOnce());
+    expect(discardPatches).toHaveBeenCalledWith(
+      "repo-1",
+      action,
+      selections,
+      { workingTree: 1, refs: 2, history: 3, stash: 0, config: 0 },
+      "discard-batch-token-2",
+    );
+    expect(discardPatch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale batch as one action without retrying or narrowing", async () => {
+    const action = { kind: "discardFiles" as const, paths: ["batch-a.txt", "batch-b.txt"] };
+    vi.mocked(preflightDestructiveAction)
+      .mockResolvedValueOnce(actionPreflight(action, "discard-batch-token-1"))
+      .mockResolvedValueOnce(actionPreflight(action, "discard-batch-token-2"));
+    vi.mocked(discardPatches).mockRejectedValue({ code: "patch_stale" });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "discard working file batch" }));
+    const confirm = await screen.findByRole("button", { name: "preflight.discardFiles.confirm" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(discardPatches).toHaveBeenCalledOnce());
+    expect(discardPatch).not.toHaveBeenCalled();
+    expect(rejectWorkingDiffSnapshot).toHaveBeenCalledTimes(2);
+    expect(rejectWorkingDiffSnapshot).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "batch-a.txt", "worktree",
+    );
+    expect(rejectWorkingDiffSnapshot).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "batch-b.txt", "worktree",
+    );
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "workspace-1", ["status", "working"],
+    );
   });
 
   it("previews an ignore rule before the validated mutation and refreshes working state", async () => {
@@ -896,7 +971,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     await waitFor(() => expect(exportPatch).toHaveBeenCalledWith(
       "repo-1",
-      expect.objectContaining({ path: "file.txt", source: "worktree", baseDigest: "whole-file-digest" }),
+      [expect.objectContaining({ path: "file.txt", source: "worktree", baseDigest: "whole-file-digest" })],
       "C:\\Users\\me\\file.txt.patch",
     ));
     expect(pickSaveDestination).toHaveBeenCalledWith("file.txt.patch");

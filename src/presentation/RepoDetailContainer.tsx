@@ -35,6 +35,7 @@ import {
   createBranchFromStash,
   createTag,
   discardPatch,
+  discardPatches,
   getAmendInfo,
   invokeErrorCode,
   invokeErrorPaths,
@@ -167,6 +168,7 @@ export function RepoDetailContainer({
   const stashPathsSupported = useStashPathsSupported();
   const workingFileActions = useWorkingFileActions({
     repoId: repo.id,
+    repositoryName: repo.name,
     changes,
     stashPathsSupported,
     onStage,
@@ -777,7 +779,7 @@ export function RepoDetailContainer({
       action,
       () => mutate(repo.id, selection, expectedGenerations).then(() => undefined),
       ["status", "working"],
-      (error) => handleRejectedPatchMutation(error, selection),
+      (error) => handleRejectedPatchMutation(error, [selection]),
     );
   }
 
@@ -800,17 +802,43 @@ export function RepoDetailContainer({
         confirmationToken,
       ).then(() => undefined),
       ["status", "working"],
-      (error) => handleRejectedPatchMutation(error, selection),
+      (error) => handleRejectedPatchMutation(error, [selection]),
     );
   }
 
-  async function requestWorkingFileDiscard(target: WorkingFileTarget) {
-    if (target.source !== "worktree") return;
+  function onDiscardPatches(
+    action: DestructiveAction,
+    selections: PatchSelection[],
+    expectedGenerations: GenerationSet,
+    confirmationToken: string,
+  ): Promise<boolean> {
+    if (selections.length === 0 || selections.some((selection) => (
+      isWorkingDiffSnapshotRejected(queryClient, repo.id, selection.path, selection.source)
+    ))) {
+      return Promise.resolve(false);
+    }
+    return runRepoAction(
+      "discard-patches",
+      () => discardPatches(
+        repo.id,
+        action,
+        selections,
+        expectedGenerations,
+        confirmationToken,
+      ).then(() => undefined),
+      ["status", "working"],
+      (error) => handleRejectedPatchMutation(error, selections),
+    );
+  }
+
+  async function requestWorkingFileDiscard(targets: readonly WorkingFileTarget[]) {
+    if (targets.length === 0 || targets.some((target) => target.source !== "worktree")) return;
     let prepared: WorkingFileDiscard | null = null;
     const ready = await runRepoAction("discard-file-preflight", async () => {
-      let selection: PatchSelection;
+      let selections: PatchSelection[];
       try {
-        selection = await buildWholeFilePatchSelection(repo.id, target.path, "worktree");
+        selections = await Promise.all(targets.map((target) =>
+          buildWholeFilePatchSelection(repo.id, target.path, "worktree")));
       } catch (error) {
         if (error instanceof IncompleteWorkingDiffError) {
           throw new Error(t("workingFile.discardIncomplete"));
@@ -818,21 +846,28 @@ export function RepoDetailContainer({
         throw error;
       }
       prepared = {
-        action: { kind: "discard", selection: { kind: "file", path: target.path } },
-        selection,
+        action: selections.length === 1
+          ? { kind: "discard", selection: { kind: "file", path: selections[0].path } }
+          : { kind: "discardFiles", paths: selections.map((selection) => selection.path) },
+        selections,
       };
     });
     if (ready && prepared) setWorkingFileDiscard(prepared);
   }
 
-  async function handleRejectedPatchMutation(error: unknown, selection: PatchSelection): Promise<boolean> {
+  async function handleRejectedPatchMutation(
+    error: unknown,
+    selections: readonly PatchSelection[],
+  ): Promise<boolean> {
     const code = invokeErrorCode(error);
     if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
 
     // A rejected patch invalidates the rendered snapshot. TanStack Query can
     // retain that data after a failed refetch, so only a later successful,
     // authoritative working-diff result may release this latch.
-    rejectWorkingDiffSnapshot(queryClient, repo.id, selection.path, selection.source);
+    for (const selection of selections) {
+      rejectWorkingDiffSnapshot(queryClient, repo.id, selection.path, selection.source);
+    }
     setActionConfirmation(null);
     setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
     try {
@@ -1138,16 +1173,23 @@ export function RepoDetailContainer({
       <DestructivePreflightDialog
         repoId={repo.id}
         action={workingFileDiscard.action}
-        patchSelection={workingFileDiscard.selection}
+        patchSelections={workingFileDiscard.selections}
         onClose={() => setWorkingFileDiscard(null)}
         onConfirm={async (generations, confirmationToken) => {
           const request = workingFileDiscard;
-          const ok = await onDiscardPatch(
-            request.action,
-            request.selection,
-            generations,
-            confirmationToken,
-          );
+          const ok = request.selections.length === 1
+            ? await onDiscardPatch(
+                request.action,
+                request.selections[0],
+                generations,
+                confirmationToken,
+              )
+            : await onDiscardPatches(
+                request.action,
+                request.selections,
+                generations,
+                confirmationToken,
+              );
           if (ok) setWorkingFileDiscard(null);
         }}
       />
@@ -1175,7 +1217,7 @@ type NetworkRepoAction = "fetch" | "pull" | "push";
 type CheckoutOverwrite = { branch: string; paths: string[] };
 type WorkingFileDiscard = {
   action: DestructiveAction;
-  selection: PatchSelection;
+  selections: PatchSelection[];
 };
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
@@ -1209,6 +1251,7 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
     case "deleteFile":
       return ["status", "working"];
     case "discard":
+    case "discardFiles":
     case "forceWithLease":
       return [];
   }

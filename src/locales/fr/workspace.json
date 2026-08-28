@@ -458,6 +458,14 @@
       "title": "Abandonner les modifications ?",
       "confirm": "Abandonner les modifications"
     },
+    "discardFiles": {
+      "title_one": "Abandonner les modifications dans ce fichier ?",
+      "title_other": "Abandonner les modifications dans {{count}} fichiers ?",
+      "confirm": "Abandonner les modifications",
+      "changedLines_one": "{{count}} ligne modifiée sera abandonnée.",
+      "changedLines_other": "{{count}} lignes modifiées seront abandonnées.",
+      "stagedUnaffected": "Les modifications indexées ne sont pas modifiées."
+    },
     "forceWithLease": {
       "title": "Forcer le push avec lease ?",
       "confirm": "Forcer le push",
@@ -704,6 +712,8 @@
     "unstageFiles_one": "Désindexer",
     "unstageFiles_other": "Désindexer {{count}} fichiers",
     "discard": "Abandonner les modifications…",
+    "discardFiles_one": "Abandonner les modifications…",
+    "discardFiles_other": "Abandonner les modifications dans {{count}} fichiers…",
     "discardIncomplete": "Ouvrez le diff du fichier pour abandonner les modifications d’un fichier aussi volumineux.",
     "openInConfiguredEditor": "Ouvrir dans l’éditeur configuré",
     "openWithDefault": "Ouvrir avec l’application par défaut",
@@ -717,6 +727,12 @@
     "createPatch": "Créer un patch à partir des modifications…",
     "createPatchStaged": "Créer un patch à partir des modifications indexées…",
     "copyPatch": "Copier le patch dans le presse-papiers",
+    "createPatchFiles_one": "Créer un patch à partir des modifications…",
+    "createPatchFiles_other": "Créer un patch à partir de {{count}} fichiers…",
+    "createPatchFilesStaged_one": "Créer un patch à partir des modifications indexées…",
+    "createPatchFilesStaged_other": "Créer un patch à partir de {{count}} fichiers indexés…",
+    "copyPatchFiles_one": "Copier le patch dans le presse-papiers",
+    "copyPatchFiles_other": "Copier le patch pour {{count}} fichiers",
     "patchSaved": "Patch enregistré dans {{path}}.",
     "delete": "Supprimer le fichier…",
     "stashFile": {
