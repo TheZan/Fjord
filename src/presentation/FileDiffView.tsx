@@ -40,7 +40,7 @@ const LINE_PREFIX: Record<DiffLineKind, string> = {
  * enabled/disabled and stage/discard read at a glance without hovering.
  */
 const DIFF_ACTION_BUTTON_CLASS =
-  "interactive-control rounded border px-2 py-0.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45";
+  "interactive-control shrink-0 whitespace-nowrap rounded border px-2 py-0.5 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-45";
 
 function toolbarActionStyle(tone: "stage" | "discard"): CSSProperties {
   return {
@@ -323,112 +323,119 @@ export function FileDiffView({
   return <>
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
       <div
-        className="flex items-center gap-3 border-b px-3 py-2"
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2"
         style={{ borderColor: "var(--hairline)" }}
       >
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="interactive-control shrink-0 rounded px-1.5 py-0.5 text-[11px]"
-            style={{ color: "var(--slate)" }}
-          >
-            ← {t("diff.back")}
-          </button>
-        )}
-        {diff && (
-          <span
-            className="w-4 shrink-0 text-center font-mono text-xs font-semibold"
-            style={{ color: CHANGE_TYPE_COLOR[diff.changeType] }}
-            title={t(`commitInspector.changeType.${diff.changeType}`)}
-          >
-            {t(`commitInspector.changeTypeMark.${diff.changeType}`)}
-          </span>
-        )}
-        <code className="min-w-0 flex-1 truncate font-mono text-xs" style={{ color: "var(--ink)" }}>
-          {path}
-        </code>
-        <div
-          role="radiogroup"
-          aria-label={t("diff.viewMode")}
-          className="flex shrink-0 items-center rounded border p-0.5"
-          style={{ borderColor: "var(--hairline)", background: "var(--canvas)" }}
-        >
-          {(["unified", "split"] as const).map((mode) => (
+        <div className="flex min-w-40 flex-1 items-center gap-3">
+          {onBack && (
             <button
-              key={mode}
               type="button"
-              role="radio"
-              aria-checked={diffMode === mode}
-              data-diff-mode={mode}
-              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
-              style={{
-                background: diffMode === mode ? "var(--paper)" : "transparent",
-                color: diffMode === mode ? "var(--ink)" : "var(--slate)",
-              }}
-              onClick={() => changeDiffMode(mode)}
-              onKeyDown={(event) => {
-                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                event.preventDefault();
-                const nextMode = mode === "unified" ? "split" : "unified";
-                changeDiffMode(nextMode);
-                queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-diff-mode="${nextMode}"]`)?.focus());
-              }}
+              onClick={onBack}
+              className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: "var(--slate)" }}
             >
-              {t(`diff.${mode}`)}
+              ← {t("diff.back")}
             </button>
-          ))}
+          )}
+          {diff && (
+            <span
+              className="w-4 shrink-0 text-center font-mono text-xs font-semibold"
+              style={{ color: CHANGE_TYPE_COLOR[diff.changeType] }}
+              title={t(`commitInspector.changeType.${diff.changeType}`)}
+            >
+              {t(`commitInspector.changeTypeMark.${diff.changeType}`)}
+            </span>
+          )}
+          <code className="min-w-0 flex-1 truncate font-mono text-xs" style={{ color: "var(--ink)" }}>
+            {path}
+          </code>
         </div>
-        <Select
-          aria-label={t("diff.whitespace.label")}
-          className="h-6 w-auto shrink-0 px-1.5 py-0 text-[11px]"
-          value={whitespace}
-          onChange={(event) => setWhitespace(event.target.value as DiffWhitespaceMode)}
+        <div
+          className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2"
+          data-testid="file-diff-header-actions"
         >
-          <option value="show">{t("diff.whitespace.show")}</option>
-          <option value="ignoreTrailing">{t("diff.whitespace.ignoreTrailing")}</option>
-          <option value="ignoreAll">{t("diff.whitespace.ignoreAll")}</option>
-        </Select>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={wordDiff}
-          className="interactive-control shrink-0 rounded px-1.5 py-0.5 text-[11px]"
-          style={{ color: wordDiff ? "var(--fjord-ink)" : "var(--slate)" }}
-          onClick={() => setWordDiff((enabled) => !enabled)}
-        >
-          {t("diff.wordDiff")}
-        </button>
-        {source.kind === "working" && onApplyFile ? (
+          <div
+            role="radiogroup"
+            aria-label={t("diff.viewMode")}
+            className="flex shrink-0 items-center rounded border p-0.5"
+            style={{ borderColor: "var(--hairline)", background: "var(--canvas)" }}
+          >
+            {(["unified", "split"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={diffMode === mode}
+                data-diff-mode={mode}
+                className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
+                style={{
+                  background: diffMode === mode ? "var(--paper)" : "transparent",
+                  color: diffMode === mode ? "var(--ink)" : "var(--slate)",
+                }}
+                onClick={() => changeDiffMode(mode)}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  const nextMode = mode === "unified" ? "split" : "unified";
+                  changeDiffMode(nextMode);
+                  queueMicrotask(() => document.querySelector<HTMLButtonElement>(`[data-diff-mode="${nextMode}"]`)?.focus());
+                }}
+              >
+                {t(`diff.${mode}`)}
+              </button>
+            ))}
+          </div>
+          <Select
+            aria-label={t("diff.whitespace.label")}
+            className="h-6 w-auto shrink-0 px-1.5 py-0 text-[11px]"
+            value={whitespace}
+            onChange={(event) => setWhitespace(event.target.value as DiffWhitespaceMode)}
+          >
+            <option value="show">{t("diff.whitespace.show")}</option>
+            <option value="ignoreTrailing">{t("diff.whitespace.ignoreTrailing")}</option>
+            <option value="ignoreAll">{t("diff.whitespace.ignoreAll")}</option>
+          </Select>
           <button
             type="button"
-            className={DIFF_ACTION_BUTTON_CLASS}
-            style={toolbarActionStyle("stage")}
-            disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard)}
-            onClick={onApplyFile}
+            role="switch"
+            aria-checked={wordDiff}
+            className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
+            style={{ color: wordDiff ? "var(--fjord-ink)" : "var(--slate)" }}
+            onClick={() => setWordDiff((enabled) => !enabled)}
           >
-            {t(source.staged ? "diff.unstageFile" : "diff.stageFile")}
+            {t("diff.wordDiff")}
           </button>
-        ) : null}
-        {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
-          <button
-            type="button"
-            className={DIFF_ACTION_BUTTON_CLASS}
-            style={toolbarActionStyle("discard")}
-            disabled={actionsDisabled || whitespace !== "show" || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
-            title={
-              whitespace !== "show"
-                ? t("diff.whitespace.partialActionsDisabled")
-                : hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined
-            }
-            onClick={() => requestDiscard(
-              wholeFileSelection(path, diff.hunks, diff.baseDigest!),
-              { kind: "file", path },
-            )}
-          >
-            {t("diff.discardFile")}
-          </button>
-        ) : null}
+          {source.kind === "working" && onApplyFile ? (
+            <button
+              type="button"
+              className={DIFF_ACTION_BUTTON_CLASS}
+              style={toolbarActionStyle("stage")}
+              disabled={actionsDisabled || selectionPending || Boolean(pendingDiscard)}
+              onClick={onApplyFile}
+            >
+              {t(source.staged ? "diff.unstageFile" : "diff.stageFile")}
+            </button>
+          ) : null}
+          {canDiscard && diff?.baseDigest && generations && diff.hunks.length > 0 ? (
+            <button
+              type="button"
+              className={DIFF_ACTION_BUTTON_CLASS}
+              style={toolbarActionStyle("discard")}
+              disabled={actionsDisabled || whitespace !== "show" || selectionPending || Boolean(pendingDiscard) || hasMore || loadingMore}
+              title={
+                whitespace !== "show"
+                  ? t("diff.whitespace.partialActionsDisabled")
+                  : hasMore || loadingMore ? t("diff.discardFileIncomplete") : undefined
+              }
+              onClick={() => requestDiscard(
+                wholeFileSelection(path, diff.hunks, diff.baseDigest!),
+                { kind: "file", path },
+              )}
+            >
+              {t("diff.discardFile")}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {diff ? (

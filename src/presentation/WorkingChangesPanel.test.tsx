@@ -179,9 +179,15 @@ describe("WorkingChangesPanel", () => {
       onSelectionAction,
     })} />);
 
-    expect(screen.getByTestId("worktree-selection-toolbar")).toHaveTextContent("2 selected");
-    expect(screen.getByRole("button", { name: "Stage 2 files" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Stash 2 files…" })).toBeEnabled();
+    const toolbar = screen.getByTestId("worktree-selection-toolbar");
+    expect(toolbar).toHaveTextContent("2 selected");
+    expect(toolbar).toHaveClass("flex-wrap");
+    const stageButton = screen.getByRole("button", { name: "Stage 2 files" });
+    const stashButton = screen.getByRole("button", { name: "Stash 2 files…" });
+    expect(stageButton).toBeEnabled();
+    expect(stashButton).toBeEnabled();
+    expect(stageButton).toHaveClass("shrink-0", "whitespace-nowrap");
+    expect(stashButton).toHaveClass("shrink-0", "whitespace-nowrap");
     expect(screen.queryByRole("button", { name: /Discard|patch/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Stage 2 files" }));
@@ -198,7 +204,9 @@ describe("WorkingChangesPanel", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Stage 2 files" }));
     expect(onSelectionAction).toHaveBeenLastCalledWith("stage", expectedContext);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    const clearButton = screen.getByRole("button", { name: "Clear" });
+    expect(clearButton).toHaveClass("shrink-0", "whitespace-nowrap");
+    fireEvent.click(clearButton);
     expect(clear).toHaveBeenCalledOnce();
   });
 

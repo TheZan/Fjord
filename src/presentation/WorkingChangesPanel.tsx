@@ -383,12 +383,15 @@ function FileSection({
 
   return (
     <div className="p-2">
-      <div className="mb-1 flex items-center justify-between gap-2 px-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
+        <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
           {label} ({files.length})
         </span>
         {selectedEntries.length >= 2 ? (
-          <div className="flex min-w-0 items-center gap-1" data-testid={`${source}-selection-toolbar`}>
+          <div
+            className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"
+            data-testid={`${source}-selection-toolbar`}
+          >
             <span className="mr-1 whitespace-nowrap text-[11px]" style={{ color: "var(--slate)" }}>
               {t("workingChanges.selectedCount", { count: selectedEntries.length })}
             </span>
@@ -400,7 +403,7 @@ function FileSection({
                 title={item.disabledReason}
                 disabled={item.disabled}
                 onClick={() => dispatchSelectionAction(item.id as WorkingFileAction)}
-                className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+                className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
                 style={{ color: "var(--fjord-ink)" }}
               >
                 {item.label}
@@ -413,7 +416,7 @@ function FileSection({
                 const bounds = event.currentTarget.getBoundingClientRect();
                 setSelectionMenuPosition({ x: bounds.right, y: bounds.bottom });
               }}
-              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
+              className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
               style={{ color: "var(--fjord-ink)" }}
             >
               ⋯
@@ -422,7 +425,7 @@ function FileSection({
               type="button"
               aria-label={t("workingChanges.clearSelection")}
               onClick={selection.clear}
-              className="interactive-control rounded px-1.5 py-0.5 text-[11px]"
+              className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
               style={{ color: "var(--fjord-ink)" }}
             >
               {t("workingChanges.clearSelection")}
@@ -433,7 +436,7 @@ function FileSection({
             type="button"
             disabled={busy}
             onClick={() => onAct(files.map((file) => file.path))}
-            className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+            className="interactive-control ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
             style={{ color: "var(--fjord-ink)" }}
           >
             {bulkLabel}

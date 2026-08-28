@@ -893,6 +893,32 @@ describe("FileDiffView windowing", () => {
     expect(onApplyFile).toHaveBeenCalledOnce();
   });
 
+  it("wraps localized diff controls as complete buttons instead of splitting their labels", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyFile={vi.fn()}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("file-diff-header-actions")).toHaveClass("flex-wrap");
+    for (const name of [
+      "diff.stageFile",
+      "diff.discardFile",
+      "diff.stageSelectedLines",
+      "diff.discardSelectedLines",
+      "diff.stageHunk",
+      "diff.discardHunk",
+    ]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("shrink-0", "whitespace-nowrap");
+    }
+  });
+
   it("measures the giant-file metadata viewport with React in the loop", () => {
     state.hasMore = false;
     state.diff = {
