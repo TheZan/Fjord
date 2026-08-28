@@ -596,7 +596,7 @@ pending. No existing
   `useCommitLog.loadUntilCommit` seek, and reports plainly when the commit is not
   in this history (spec §5.2). Verification: frontend cases 5, 8, 9, 10 of spec
   §Testing strategy.
-- [ ] **P10-STASH-06** — Apply / Pop / Drop / Create branch from stash / Copy,
+- [x] **P10-STASH-06** — Apply / Pop / Drop / Create branch from stash / Copy,
   from one shared item builder and one shared dispatch hook used by all three entry
   points (tree row, graph marker, inspector), the way `P10-WC-01` and
   `P10-MERGE-01` already do. Every entry carries a `StashId`; none carries an
