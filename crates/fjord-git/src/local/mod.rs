@@ -667,14 +667,14 @@ impl GitBackend for LocalGitBackend {
         &self,
         repo: &RepoPath,
         action: &DestructiveAction,
-        selection: &PatchSelection,
+        selections: &[PatchSelection],
         generations: crate::GenerationSet,
     ) -> Result<String, GitError> {
         working_tree::issue_discard_confirmation(
             &self.destructive_confirmations,
             repo,
             action,
-            selection,
+            selections,
             generations,
         )
         .await
@@ -754,12 +754,32 @@ impl GitBackend for LocalGitBackend {
         .await
     }
 
+    async fn discard_patches(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        selections: &[PatchSelection],
+        expected_generations: crate::GenerationSet,
+        confirmation_token: &str,
+    ) -> Result<crate::GenerationSet, GitError> {
+        working_tree::discard_patches(
+            &self.commands,
+            &self.destructive_confirmations,
+            repo,
+            action,
+            selections,
+            expected_generations,
+            confirmation_token,
+        )
+        .await
+    }
+
     async fn export_patch(
         &self,
         repo: &RepoPath,
-        selection: &PatchSelection,
+        selections: &[PatchSelection],
     ) -> Result<Vec<u8>, GitError> {
-        working_tree::export_patch(repo, selection).await
+        working_tree::export_patch(repo, selections).await
     }
 
     async fn amend_info(&self, repo: &RepoPath) -> Result<fjord_domain::AmendInfo, GitError> {

@@ -688,12 +688,13 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("unstage_patch"))
     }
-    /// Issues a short-lived backend confirmation for one exact discard scope.
+    /// Issues a short-lived backend confirmation for one exact ordered discard
+    /// scope. A single-file discard is represented by a one-element slice.
     async fn issue_discard_confirmation(
         &self,
         _repo: &RepoPath,
         _action: &DestructiveAction,
-        _selection: &PatchSelection,
+        _selections: &[PatchSelection],
         _generations: GenerationSet,
     ) -> Result<String, GitError> {
         Err(GitError::NotImplemented("issue_discard_confirmation"))
@@ -746,14 +747,27 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("discard_patch"))
     }
-    /// Read-only: constructs the patch bytes for one working-file selection
-    /// (unstaged `INDEX -> WORKTREE` or staged `HEAD -> INDEX`) without
+    /// Discards an exact ordered vector of whole-file worktree selections in
+    /// one confirmation-bound Git apply transaction.
+    async fn discard_patches(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _selections: &[PatchSelection],
+        _expected_generations: GenerationSet,
+        _confirmation_token: &str,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("discard_patches"))
+    }
+    /// Read-only: constructs the patch bytes for an exact non-empty vector of
+    /// source-homogeneous working-file selections (unstaged
+    /// `INDEX -> WORKTREE` or staged `HEAD -> INDEX`) without
     /// mutating the repository. Reuses the same deterministic constructor
     /// and digest verification as the mutating patch commands.
     async fn export_patch(
         &self,
         _repo: &RepoPath,
-        _selection: &PatchSelection,
+        _selections: &[PatchSelection],
     ) -> Result<Vec<u8>, GitError> {
         Err(GitError::NotImplemented("export_patch"))
     }

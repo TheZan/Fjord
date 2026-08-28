@@ -23,7 +23,7 @@ struct PendingConfirmation {
 }
 
 enum ConfirmationBinding {
-    Discard(PatchSelection),
+    Discard(Vec<PatchSelection>),
     ForcePush(ForcePushPlan),
     Action,
 }
@@ -40,7 +40,7 @@ impl DestructiveConfirmationStore {
         &self,
         repo: &RepoPath,
         action: &DestructiveAction,
-        selection: &PatchSelection,
+        selections: &[PatchSelection],
         generations: GenerationSet,
     ) -> Result<String, GitError> {
         let now = Instant::now();
@@ -53,7 +53,7 @@ impl DestructiveConfirmationStore {
             PendingConfirmation {
                 repo: repository_key(repo),
                 action: action.clone(),
-                binding: ConfirmationBinding::Discard(selection.clone()),
+                binding: ConfirmationBinding::Discard(selections.to_vec()),
                 generations,
                 expires_at: now + self.ttl,
             },
@@ -68,7 +68,7 @@ impl DestructiveConfirmationStore {
         token: &str,
         repo: &RepoPath,
         action: &DestructiveAction,
-        selection: &PatchSelection,
+        selections: &[PatchSelection],
         generations: GenerationSet,
     ) -> Result<(), GitError> {
         let pending = self
@@ -81,7 +81,7 @@ impl DestructiveConfirmationStore {
         if Instant::now() >= pending.expires_at
             || pending.repo != repository_key(repo)
             || pending.action != *action
-            || !matches!(pending.binding, ConfirmationBinding::Discard(ref pending_selection) if pending_selection == selection)
+            || !matches!(pending.binding, ConfirmationBinding::Discard(ref pending_selections) if pending_selections == selections)
             || pending.generations != generations
         {
             return Err(GitError::PreflightStale);
