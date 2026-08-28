@@ -10,7 +10,7 @@ Related: [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md
 §1–§5 are implemented (Phase 8), and so is §6 (`P10-WC-01`–`P10-WC-06`). §6 is
 the single normative definition of the Working Changes file context menu; §7 is
 the single normative definition of its **selection model and batch actions**
-(`P10-WC-MULTI-01`–`P10-WC-MULTI-03`, designed). Stash semantics beyond the entry
+(`P10-WC-MULTI-01`–`P10-WC-MULTI-03`, implemented). Stash semantics beyond the entry
 point are [`stash-management.md`](stash-management.md).
 
 ## Problem
@@ -116,13 +116,13 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 | Upstream management | ✅ Local set/unset commands, branch-context selection, persistent publish affordance, and per-branch upstream/divergence display. |
 | Branch context menu | ✅ checkout, create branch here, rename, delete, delete remote, copy (`GitContextMenu.tsx`, `RepoTree.tsx`). Merge is added by [`branch-merge.md`](branch-merge.md) §8. |
 | Working Changes file actions | ✅ `P10-WC-01`–`P10-WC-06` shipped §6 end to end: the `onFileContextMenu` seam on `FileEntryList`, the adaptive menu, open/reveal, ignore, patch export, delete, file stash, and external diff. |
-| Multi-selection | ✅ `P10-WC-MULTI-01` and `P10-WC-MULTI-02`: source-homogeneous `WorkingSelection` keyed by `{ source, path }`, desktop gestures, virtualization-safe accessibility, selection-aware context menus, and the compact section action strip. Batch Stage/Unstage and `Stash N files…` ship; batch Discard and multi-file patch export remain `P10-WC-MULTI-03`. |
-| Batch backend | ⚠️ Split. `stage_files`/`unstage_files` take one path vector and publish one index transaction. Explicit paths are literal: Stage uses `add_path`/`remove_path` and Unstage restores exact HEAD entries in one fresh index, while empty lists retain the existing all-files convention. `discard_patch` and `export_patch` each still take exactly one `PatchSelection` and need the `P10-WC-MULTI-03` batch contract (§7.12, §7.13). |
+| Multi-selection | ✅ `P10-WC-MULTI-01`–`P10-WC-MULTI-03`: source-homogeneous `WorkingSelection` keyed by `{ source, path }`, desktop gestures, virtualization-safe accessibility, selection-aware context menus, the compact section action strip, Batch Stage/Unstage, `Stash N files…`, atomic Batch Discard, and one-patch multi-file export/copy. |
+| Batch backend | ✅ `stage_files`/`unstage_files` take one path vector and publish one index transaction. Explicit paths are literal: Stage uses `add_path`/`remove_path` and Unstage restores exact HEAD entries in one fresh index, while empty lists retain the existing all-files convention. `discard_patches` consumes one vector-bound confirmation and applies one combined reverse patch; `export_patch`/`get_patch_text` validate a non-empty source-homogeneous selection vector and build one deterministic combined patch. |
 | File open / reveal | ✅ `resolve_repository_file_path`, `open_repository_path`, and `reveal_repository_path` (`P10-WC-01`): repository-relative, canonicalized backend-side, containment-checked, and launched with individually passed arguments. `IdeLauncher` carries an optional line. |
 | External diff tool | ✅ `open_external_diff` (`git difftool`) with a `Settings.diff_tool` **name** only, plus `diff_tool_availability` for the live disabled reason (`P10-WC-06`). The merge tool stays a separate concept (§6.4). |
 | `.gitignore` writing | ✅ Root `.gitignore` only, UTF-8 with BOM/terminator preservation and fail-closed on invalid UTF-8 (`P10-WC-02`). Global excludes, `.git/info/exclude`, and `core.excludesFile` are still never touched. |
 | File-scoped stash | ✅ `Stash file…` is the one-path case of `create_stash { scope: Paths }` (`P10-STASH-02`). The exact-scope engine constructs base/index/worktree/untracked trees through private indexes, builds the stash object graph with `write-tree` and `commit-tree`, and publishes `refs/stash` atomically via `update-ref` with expected-OID CAS validation. The resulting normal Git stash entry contains only the selected semantic path, preserves partially staged structure, and excludes unrelated staged/unstaged/untracked state both at creation and later Apply/Pop. |
-| Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard), both reusing the `P8-01` constructor unchanged (`P10-WC-03`). |
+| Patch export | ✅ `export_patch` (file) and `get_patch_text` (clipboard) accept one or more per-file selections, both reusing the `P8-01` constructor unchanged and concatenating sections in byte-lexicographic path order (`P10-WC-03`, `P10-WC-MULTI-03`). |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. That verdict
@@ -639,7 +639,7 @@ executable name, an argument list, or a shell string.
 | `open_external_diff` | Launches the configured external diff tool for one file and one side (`P10-WC-06`). |
 | `add_ignore_rule` | Appends one rule to the repository-root `.gitignore` (`P10-WC-02`). |
 | `preview_ignore_rule` | Read-only: the exact rule text and whether it is already present. |
-| `export_patch` | Writes the patch for one file/side to a user-chosen destination (`P10-WC-03`). |
+| `export_patch` | Writes one combined patch for a non-empty source-homogeneous selection vector to a user-chosen destination (`P10-WC-03`, `P10-WC-MULTI-03`). |
 | `create_stash { scope: Paths }` | Exact file-scoped stash (`P10-STASH-02`; one file is the N=1 case). |
 | `DestructiveAction::DeleteFile` | Delete through the existing preflight/token executor (`P10-WC-04`). |
 
@@ -1066,7 +1066,7 @@ smaller than it looks:
 | Selection state itself | ✅ `WorkingSelection` is source-aware, DOM-free, and keyed by `{ source, path }`; `FileEntryList` receives section-scoped `selectedPaths` plus `activePath`. |
 | Right-click and selection | ✅ Mouse and keyboard context-menu paths preserve a selection when invoked inside it and replace it when invoked outside. |
 | Row accessibility | ✅ Each section is a multi-select listbox, file rows are options with `aria-selected`, and roving focus remains distinct from selection. |
-| Batch backend | ✅ for stage/unstage (`stage_files`/`unstage_files` take one vector and publish one index transaction with literal explicit paths). 🚧 for discard and patch export, both remain strictly one `PatchSelection`. |
+| Batch backend | ✅ Stage/Unstage publish one literal-path index transaction; Batch Discard executes one confirmation-bound combined reverse patch; patch export validates every selected per-file digest and returns one canonically ordered combined patch. |
 
 #### 7.2 Two hazards that shape the design
 
@@ -1383,7 +1383,7 @@ The batch form is whole-file only: hunk and line discard remain single-file
 that could produce it and no sentence that could describe it honestly.
 
 **Execution, and why it is genuinely atomic.** `discard_patch` today takes the
-write lock, acquires Git's per-worktree `index.lock`, consumes the token,
+write lock, consumes the token, acquires Git's per-worktree `index.lock`,
 rebuilds the current diff, constructs a reverse patch, runs
 `git apply --reverse --check`, re-verifies the rebuilt patch and the index
 fingerprint, then applies. The batch runs the *same* sequence once, over a

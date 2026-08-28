@@ -13,6 +13,10 @@ vi.mock("react-i18next", () => ({
       if (key === "workingFile.stageFiles") return `Stage ${values?.count} files`;
       if (key === "workingFile.unstageFiles") return `Unstage ${values?.count} files`;
       if (key === "workingFile.stashFiles") return `Stash ${values?.count} files…`;
+      if (key === "workingFile.discardFiles") return `Discard changes in ${values?.count} files…`;
+      if (key === "workingFile.createPatchFiles") return `Create patch from ${values?.count} files…`;
+      if (key === "workingFile.createPatchFilesStaged") return `Create patch from ${values?.count} staged files…`;
+      if (key === "workingFile.copyPatchFiles") return `Copy patch for ${values?.count} files`;
       return key;
     },
   }),
@@ -25,6 +29,10 @@ const t = vi.fn((key: string, values?: Record<string, unknown>) => {
   if (key === "workingFile.stageFiles") return `Stage ${values?.count} files`;
   if (key === "workingFile.unstageFiles") return `Unstage ${values?.count} files`;
   if (key === "workingFile.stashFiles") return `Stash ${values?.count} files…`;
+  if (key === "workingFile.discardFiles") return `Discard changes in ${values?.count} files…`;
+  if (key === "workingFile.createPatchFiles") return `Create patch from ${values?.count} files…`;
+  if (key === "workingFile.createPatchFilesStaged") return `Create patch from ${values?.count} staged files…`;
+  if (key === "workingFile.copyPatchFiles") return `Copy patch for ${values?.count} files`;
   if (key === "workingFile.disabled.conflictedSelection") return `${values?.path} conflicted`;
   return key;
 }) as never;
@@ -44,7 +52,7 @@ describe("WorkingFileContextMenu", () => {
     expect(staged).not.toContain("delete");
   });
 
-  it("builds the counted MULTI-02 subset from one shared item model", () => {
+  it("builds the complete counted batch action sets from one shared item model", () => {
     const unstagedSelection = ["d.ts", "b.ts", "a.ts", "c.ts"].map((path) => ({
       file: { ...normal, path },
       target: { path, source: "worktree" as const },
@@ -67,16 +75,21 @@ describe("WorkingFileContextMenu", () => {
 
     expect(unstaged.map((item) => [item.id, item.label])).toEqual([
       ["stage", "Stage 4 files"],
+      ["discard", "Discard changes in 4 files…"],
       ["stashFile", "Stash 4 files…"],
       ["copyPaths", "workingFile.copyPaths"],
+      ["createPatch", "Create patch from 4 files…"],
+      ["copyPatch", "Copy patch for 4 files"],
     ]);
     expect(staged.map((item) => [item.id, item.label])).toEqual([
       ["unstage", "Unstage 3 files"],
       ["copyPaths", "workingFile.copyPaths"],
+      ["createPatch", "Create patch from 3 staged files…"],
+      ["copyPatch", "Copy patch for 3 files"],
     ]);
     expect(t).toHaveBeenCalledWith("workingFile.stageFiles", { count: 4 });
     expect(t).toHaveBeenCalledWith("workingFile.unstageFiles", { count: 3 });
-    expect(ids(unstaged)).not.toEqual(expect.arrayContaining(["discard", "createPatch", "copyPatch"]));
+    expect(ids(staged)).not.toContain("discard");
   });
 
   it("disables the whole MULTI-02 mutation set and names the conflicted path", () => {
@@ -93,7 +106,7 @@ describe("WorkingFileContextMenu", () => {
       busy: false,
     }, t);
 
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(6);
     expect(items.every((item) => item.disabled)).toBe(true);
     expect(items[0].disabledReason).toBe("src/conflict.ts conflicted");
   });
@@ -181,6 +194,29 @@ describe("WorkingFileContextMenu", () => {
       disabled: true,
       disabledReason: "workingFile.disabled.whitespaceMode",
     });
+  });
+
+  it("disables both batch patch actions as a unit in whitespace mode", () => {
+    const selection = ["a.ts", "b.ts", "c.ts"].map((path) => ({
+      file: { ...normal, path },
+      target: { path, source: "worktree" as const },
+    }));
+    const items = workingFileMenuItems({
+      clicked: selection[0],
+      selection,
+      busy: false,
+      patchExportDisabledReason: "workingFile.disabled.whitespaceMode",
+    }, t);
+
+    expect(items.find((item) => item.id === "createPatch")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.whitespaceMode",
+    });
+    expect(items.find((item) => item.id === "copyPatch")).toMatchObject({
+      disabled: true,
+      disabledReason: "workingFile.disabled.whitespaceMode",
+    });
+    expect(items.find((item) => item.id === "discard")).toMatchObject({ disabled: false });
   });
 
   it("offers adaptive ignore rules only for untracked worktree files", () => {

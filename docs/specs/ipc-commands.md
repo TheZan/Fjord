@@ -107,8 +107,9 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
-| `export_patch` | `{ repo_id, selection, destination }` | — | Read-only against the repository: reuses the `P8-01` patch constructor, then writes the bytes to the caller-chosen `destination` outside the repository (`P10-WC-03`). Patch bytes never cross IPC for this command. `P10-WC-MULTI-03` widens `selection` to `selections: Vec<PatchSelection>`, a single file being a vector of length one |
-| `get_patch_text` | `{ repo_id, selection }` | `string` | Same bytes as `export_patch`, returned as text for the "Copy patch to clipboard" follow-up — the only patch command whose content crosses IPC, since the frontend owns the Clipboard API (`P10-WC-03`). Widened to `selections` alongside `export_patch` by `P10-WC-MULTI-03` |
+| `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | Whole-file worktree batch only. Consumes one token bound to the exact ordered action/selection/digest/generation vector, then checks and applies one byte-path-ordered combined reverse patch under one write lock and one resolved `index.lock`; one stale or invalid member refuses the complete mutation (`P10-WC-MULTI-03`) |
+| `export_patch` | `{ repo_id, selections, destination }` | — | Read-only against the repository: validates every member of a non-empty source-homogeneous vector, reuses the `P8-01` patch constructor per file, orders sections byte-lexicographically by path, and writes one combined patch to the caller-chosen `destination`. Patch bytes never cross IPC for this command; a single file is a vector of length one (`P10-WC-03`, `P10-WC-MULTI-03`) |
+| `get_patch_text` | `{ repo_id, selections }` | `string` | Same combined bytes as `export_patch`, returned as text for the clipboard follow-up — the only patch command whose content crosses IPC, since the frontend owns the Clipboard API (`P10-WC-03`, `P10-WC-MULTI-03`) |
 | `add_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRuleOutcome` | Appends an exact file, extension, or directory rule to the root `.gitignore`; preserves UTF-8 BOM and dominant line endings, returns `alreadyPresent` without writing duplicates, and advances `working_tree` only on addition |
 | `commit_repo` | `{ repo_id, message, amend }` | `string` | New commit id; amend preserves `HEAD`'s author and parents and permits a message-only rewrite; ordinary commit returns `nothing_to_commit` when the index matches `HEAD` |
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | One operation id covers both phases. Once commit succeeds, push failure resolves as a partial outcome (`commitSucceeded: true`, `pushSucceeded: false`, stable `pushErrorCode`) and never rolls the commit back. |
@@ -171,8 +172,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12 | `P10-WC-MULTI-03` |
-| `export_patch` / `get_patch_text` *(widened to `selections`)* | `{ repo_id, selections, destination? }` | — / `string` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.13 | `P10-WC-MULTI-03` |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
 | `start_rebase` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §2 | `P10-04` |
 | `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
@@ -185,7 +184,7 @@ the `DeleteFile { path }` action through the existing enum and executor
 `P10-STASH-06` extended the same enum and executor again — `StashPop { id,
 restore_index }` replaced the index-keyed variant and `StashDrop { id }` was
 added — without adding a destructive command of its own.
-`P10-WC-MULTI-03` adds `DiscardFiles { paths }` to the same enum. It needs one
+`P10-WC-MULTI-03` added `DiscardFiles { paths }` to the same enum. It needs one
 new command, `discard_patches`, only because discard carries a `PatchSelection`
 payload that the shared `execute_destructive_action` signature does not — exactly
 the reason the shipped single-file `discard_patch` already exists

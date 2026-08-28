@@ -351,6 +351,71 @@ fn discard_consequences(
     (consequences, Recoverability::NotRecoverable, Vec::new())
 }
 
+fn validate_discard_files_request(
+    paths: &[String],
+    selections: &[PatchSelection],
+) -> Result<(), GitError> {
+    if paths.is_empty() || paths.len() != selections.len() {
+        return Err(GitError::PreflightStale);
+    }
+    let mut unique = std::collections::HashSet::with_capacity(paths.len());
+    if paths.iter().zip(selections).any(|(path, selection)| {
+        path != &selection.path
+            || selection.source != PatchSource::Worktree
+            || !unique.insert(path.as_str())
+    }) {
+        return Err(GitError::PreflightStale);
+    }
+    Ok(())
+}
+
+fn discard_files_consequences(
+    selections: &[PatchSelection],
+    diffs: &[FileDiffDetail],
+) -> (Vec<Consequence>, Recoverability, Vec<String>) {
+    let mut modified = Vec::new();
+    let mut untracked = Vec::new();
+    let mut line_consequences = Vec::with_capacity(diffs.len());
+    let mut blockers = Vec::new();
+
+    for (selection, diff) in selections.iter().zip(diffs) {
+        if diff.is_binary {
+            blockers.push("binary_changes_unsupported".to_string());
+            continue;
+        }
+        let changed_lines = diff.hunks.iter().map(changed_line_count).sum::<u32>();
+        if changed_lines == 0 {
+            blockers.push("no_changes_selected".to_string());
+            continue;
+        }
+        if diff.change_type == FileChangeType::Added {
+            untracked.push(selection.path.clone());
+        } else {
+            modified.push(selection.path.clone());
+        }
+        line_consequences.push(Consequence::ModifiedLinesDiscarded {
+            path: selection.path.clone(),
+            count: changed_lines,
+        });
+    }
+
+    let mut consequences = Vec::new();
+    if !modified.is_empty() {
+        consequences.push(Consequence::ModifiedFilesDiscarded {
+            count: modified.len() as u32,
+            sample: modified.into_iter().take(PREFLIGHT_SAMPLE_LIMIT).collect(),
+        });
+    }
+    if !untracked.is_empty() {
+        consequences.push(Consequence::UntrackedFilesDeleted {
+            count: untracked.len() as u32,
+            sample: untracked.into_iter().take(PREFLIGHT_SAMPLE_LIMIT).collect(),
+        });
+    }
+    consequences.extend(line_consequences);
+    (consequences, Recoverability::NotRecoverable, blockers)
+}
+
 fn matching_hunk(
     diff: &FileDiffDetail,
     old_start: u32,
@@ -1256,7 +1321,7 @@ impl RepoService {
         &self,
         repo_id: RepositoryId,
         action: DestructiveAction,
-        patch_selection: Option<PatchSelection>,
+        patch_selections: Option<Vec<PatchSelection>>,
     ) -> Result<DestructivePreflight, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let path = RepoPath::new(repo.path);
@@ -1271,6 +1336,21 @@ impl RepoService {
                         .working_file_diff(&path, selection.path(), false)
                         .await?;
                     discard_consequences(selection, &diff)
+                }
+                DestructiveAction::DiscardFiles { paths } => {
+                    let selections = patch_selections
+                        .as_deref()
+                        .ok_or(GitError::PreflightStale)?;
+                    validate_discard_files_request(paths, selections)?;
+                    let mut diffs = Vec::with_capacity(selections.len());
+                    for selection in selections {
+                        diffs.push(
+                            self.git
+                                .working_file_diff(&path, &selection.path, false)
+                                .await?,
+                        );
+                    }
+                    discard_files_consequences(selections, &diffs)
                 }
                 DestructiveAction::ForceWithLease => {
                     let plan = self.git.force_push_plan(&path).await?;
@@ -1316,11 +1396,21 @@ impl RepoService {
             let after = self.git.generations(&path)?;
             if before == after {
                 let confirmation_token = if blockers.is_empty() {
-                    if matches!(action, DestructiveAction::Discard { .. }) {
-                        let selection = patch_selection.as_ref().ok_or(GitError::PreflightStale)?;
+                    if matches!(
+                        action,
+                        DestructiveAction::Discard { .. } | DestructiveAction::DiscardFiles { .. }
+                    ) {
+                        let selections = patch_selections
+                            .as_deref()
+                            .ok_or(GitError::PreflightStale)?;
+                        if matches!(action, DestructiveAction::Discard { .. })
+                            && selections.len() != 1
+                        {
+                            return Err(GitError::PreflightStale.into());
+                        }
                         match self
                             .git
-                            .issue_discard_confirmation(&path, &action, selection, after)
+                            .issue_discard_confirmation(&path, &action, selections, after)
                             .await
                         {
                             Ok(token) => Some(token),
@@ -1772,15 +1862,36 @@ impl RepoService {
             .await?)
     }
 
+    pub async fn discard_patches(
+        &self,
+        repo_id: RepositoryId,
+        action: &DestructiveAction,
+        selections: &[PatchSelection],
+        expected_generations: GenerationSet,
+        confirmation_token: &str,
+    ) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .discard_patches(
+                &RepoPath::new(repo.path),
+                action,
+                selections,
+                expected_generations,
+                confirmation_token,
+            )
+            .await?)
+    }
+
     pub async fn export_patch(
         &self,
         repo_id: RepositoryId,
-        selection: &PatchSelection,
+        selections: &[PatchSelection],
     ) -> Result<Vec<u8>, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
-            .export_patch(&RepoPath::new(repo.path), selection)
+            .export_patch(&RepoPath::new(repo.path), selections)
             .await?)
     }
 
@@ -2488,6 +2599,13 @@ mod tests {
         GenerationSet,
         String,
     );
+    type RecordedDiscardBatch = (
+        PathBuf,
+        DestructiveAction,
+        Vec<PatchSelection>,
+        GenerationSet,
+        String,
+    );
     type RecordedDestructive = (PathBuf, DestructiveAction, GenerationSet, String);
 
     #[derive(Default)]
@@ -2502,6 +2620,7 @@ mod tests {
         stage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         unstage_patch_call: Mutex<Option<(PathBuf, PatchSelection, GenerationSet)>>,
         discard_patch_call: Mutex<Option<RecordedDiscard>>,
+        discard_patches_call: Mutex<Option<RecordedDiscardBatch>>,
         destructive_action_call: Mutex<Option<RecordedDestructive>>,
         reject_action_confirmation: bool,
         reject_force_confirmation: bool,
@@ -3167,7 +3286,7 @@ mod tests {
             &self,
             _repo: &RepoPath,
             _action: &DestructiveAction,
-            _selection: &PatchSelection,
+            _selections: &[PatchSelection],
             _generations: GenerationSet,
         ) -> Result<String, GitError> {
             Ok("confirmation-token".to_string())
@@ -3225,6 +3344,27 @@ mod tests {
                 repo.0.clone(),
                 action.clone(),
                 selection.clone(),
+                expected_generations,
+                confirmation_token.to_string(),
+            ));
+            Ok(GenerationSet {
+                working_tree: expected_generations.working_tree + 1,
+                ..expected_generations
+            })
+        }
+
+        async fn discard_patches(
+            &self,
+            repo: &RepoPath,
+            action: &DestructiveAction,
+            selections: &[PatchSelection],
+            expected_generations: GenerationSet,
+            confirmation_token: &str,
+        ) -> Result<GenerationSet, GitError> {
+            *self.discard_patches_call.lock().unwrap() = Some((
+                repo.0.clone(),
+                action.clone(),
+                selections.to_vec(),
                 expected_generations,
                 confirmation_token.to_string(),
             ));
@@ -4313,7 +4453,7 @@ mod tests {
                         path: "src/main.rs".into(),
                     },
                 },
-                Some(fake_worktree_selection(Vec::new())),
+                Some(vec![fake_worktree_selection(Vec::new())]),
             )
             .await
             .unwrap();
@@ -4496,7 +4636,7 @@ mod tests {
                         lines: vec![0, 0, 2],
                     },
                 },
-                Some(fake_worktree_selection(vec![0, 0, 2])),
+                Some(vec![fake_worktree_selection(vec![0, 0, 2])]),
             )
             .await
             .unwrap();
@@ -4520,13 +4660,82 @@ mod tests {
                         new_lines: 1,
                     },
                 },
-                Some(fake_worktree_selection(Vec::new())),
+                Some(vec![fake_worktree_selection(Vec::new())]),
             )
             .await
             .unwrap();
         assert_eq!(stale.blockers, ["selection_changed"]);
         assert_eq!(stale.confirmation_token, None);
         assert!(stale.consequences.is_empty());
+    }
+
+    #[tokio::test]
+    async fn batch_discard_preflight_aggregates_all_files_and_forwards_one_vector() {
+        let (repo, git, _, service) = service_with_fake_git();
+        let paths = ["c.txt", "a.txt", "b.txt"];
+        let selections = paths
+            .iter()
+            .map(|path| {
+                let mut selection = fake_worktree_selection(Vec::new());
+                selection.path = (*path).to_string();
+                selection
+            })
+            .collect::<Vec<_>>();
+        let action = DestructiveAction::DiscardFiles {
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        };
+
+        let preflight = service
+            .preflight_destructive_action(repo.id, action.clone(), Some(selections.clone()))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            preflight.confirmation_token.as_deref(),
+            Some("confirmation-token")
+        );
+        assert_eq!(preflight.recoverable, Recoverability::NotRecoverable);
+        assert_eq!(git.working_diff_calls.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            preflight.consequences.first(),
+            Some(&Consequence::ModifiedFilesDiscarded {
+                count: 3,
+                sample: vec!["c.txt".into(), "a.txt".into(), "b.txt".into()],
+            })
+        );
+        assert_eq!(
+            preflight
+                .consequences
+                .iter()
+                .filter_map(|consequence| match consequence {
+                    Consequence::ModifiedLinesDiscarded { count, .. } => Some(*count),
+                    _ => None,
+                })
+                .sum::<u32>(),
+            6
+        );
+
+        let generations = preflight.generations;
+        service
+            .discard_patches(
+                repo.id,
+                &action,
+                &selections,
+                generations,
+                "confirmation-token",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            git.discard_patches_call.lock().unwrap().as_ref(),
+            Some(&(
+                repo.path,
+                action,
+                selections,
+                generations,
+                "confirmation-token".to_string(),
+            ))
+        );
     }
 
     #[tokio::test]
@@ -4559,7 +4768,7 @@ mod tests {
                         path: "src/main.rs".into(),
                     },
                 },
-                Some(fake_worktree_selection(Vec::new())),
+                Some(vec![fake_worktree_selection(Vec::new())]),
             )
             .await
             .unwrap();

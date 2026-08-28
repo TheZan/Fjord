@@ -894,18 +894,47 @@ pub enum ResetMode {
     rename_all_fields = "camelCase"
 )]
 pub enum DestructiveAction {
-    Discard { selection: DiscardSelection },
+    Discard {
+        selection: DiscardSelection,
+    },
+    /// One whole-file worktree discard, confirmed and applied atomically for
+    /// the exact ordered path vector. Per-file coordinates and digests remain
+    /// in the accompanying `Vec<PatchSelection>` execution contract.
+    DiscardFiles {
+        paths: Vec<String>,
+    },
     ForceWithLease,
-    Reset { commit_id: String, mode: ResetMode },
-    DeleteBranch { name: String },
-    DeleteRemoteBranch { remote: String, branch: String },
-    DeleteTag { name: String },
-    StashPop { id: StashId, restore_index: bool },
-    StashDrop { id: StashId },
-    CheckoutDiscard { branch: String },
+    Reset {
+        commit_id: String,
+        mode: ResetMode,
+    },
+    DeleteBranch {
+        name: String,
+    },
+    DeleteRemoteBranch {
+        remote: String,
+        branch: String,
+    },
+    DeleteTag {
+        name: String,
+    },
+    StashPop {
+        id: StashId,
+        restore_index: bool,
+    },
+    StashDrop {
+        id: StashId,
+    },
+    CheckoutDiscard {
+        branch: String,
+    },
     AbortOperation,
-    RecoveryRestore { commit_id: String },
-    DeleteFile { path: String },
+    RecoveryRestore {
+        commit_id: String,
+    },
+    DeleteFile {
+        path: String,
+    },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only

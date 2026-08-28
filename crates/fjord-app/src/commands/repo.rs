@@ -440,11 +440,11 @@ pub async fn preflight_destructive_action(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     action: DestructiveAction,
-    patch_selection: Option<PatchSelection>,
+    patch_selections: Option<Vec<PatchSelection>>,
 ) -> Result<DestructivePreflight, AppError> {
     Ok(state
         .repos
-        .preflight_destructive_action(repo_id, action, patch_selection)
+        .preflight_destructive_action(repo_id, action, patch_selections)
         .await?)
 }
 
@@ -784,6 +784,27 @@ pub async fn discard_patch(
         .await?)
 }
 
+#[tauri::command]
+pub async fn discard_patches(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    action: DestructiveAction,
+    selections: Vec<PatchSelection>,
+    expected_generations: GenerationSet,
+    confirmation_token: String,
+) -> Result<GenerationSet, AppError> {
+    Ok(state
+        .repos
+        .discard_patches(
+            repo_id,
+            &action,
+            &selections,
+            expected_generations,
+            &confirmation_token,
+        )
+        .await?)
+}
+
 /// Writes a working-file patch to a user-chosen destination. Bytes come
 /// entirely from the shared `P8-01` patch constructor and are never
 /// returned over IPC or logged — only path/byte counts would ever appear in
@@ -792,10 +813,10 @@ pub async fn discard_patch(
 pub async fn export_patch(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-    selection: PatchSelection,
+    selections: Vec<PatchSelection>,
     destination: PathBuf,
 ) -> Result<(), AppError> {
-    let bytes = state.repos.export_patch(repo_id, &selection).await?;
+    let bytes = state.repos.export_patch(repo_id, &selections).await?;
     tokio::fs::write(&destination, &bytes)
         .await
         .map_err(|error| AppError::patch_export_failed(format!("could not write patch: {error}")))
@@ -808,9 +829,9 @@ pub async fn export_patch(
 pub async fn get_patch_text(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-    selection: PatchSelection,
+    selections: Vec<PatchSelection>,
 ) -> Result<String, AppError> {
-    let bytes = state.repos.export_patch(repo_id, &selection).await?;
+    let bytes = state.repos.export_patch(repo_id, &selections).await?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 

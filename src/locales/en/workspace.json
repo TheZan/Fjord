@@ -504,6 +504,14 @@
       "title": "Discard changes?",
       "confirm": "Discard changes"
     },
+    "discardFiles": {
+      "title_one": "Discard changes in this file?",
+      "title_other": "Discard changes in {{count}} files?",
+      "confirm": "Discard changes",
+      "changedLines_one": "{{count}} changed line will be discarded.",
+      "changedLines_other": "{{count}} changed lines will be discarded.",
+      "stagedUnaffected": "Staged changes are not modified."
+    },
     "forceWithLease": {
       "title": "Force push with lease?",
       "confirm": "Force push",
@@ -750,6 +758,8 @@
     "unstageFiles_one": "Unstage",
     "unstageFiles_other": "Unstage {{count}} files",
     "discard": "Discard working changes…",
+    "discardFiles_one": "Discard working changes…",
+    "discardFiles_other": "Discard changes in {{count}} files…",
     "discardIncomplete": "Open the file diff to discard changes in a file this large.",
     "openInConfiguredEditor": "Open in configured editor",
     "openWithDefault": "Open with default application",
@@ -763,6 +773,12 @@
     "createPatch": "Create patch from changes…",
     "createPatchStaged": "Create patch from staged changes…",
     "copyPatch": "Copy patch to clipboard",
+    "createPatchFiles_one": "Create patch from changes…",
+    "createPatchFiles_other": "Create patch from {{count}} files…",
+    "createPatchFilesStaged_one": "Create patch from staged changes…",
+    "createPatchFilesStaged_other": "Create patch from {{count}} staged files…",
+    "copyPatchFiles_one": "Copy patch to clipboard",
+    "copyPatchFiles_other": "Copy patch for {{count}} files",
     "patchSaved": "Patch saved to {{path}}.",
     "delete": "Delete file…",
     "stashFile": {

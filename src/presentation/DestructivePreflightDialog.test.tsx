@@ -53,7 +53,7 @@ describe("DestructivePreflightDialog", () => {
       <DestructivePreflightDialog
         repoId="repo-1"
         action={action}
-        patchSelection={patchSelection}
+        patchSelections={[patchSelection]}
         loadPreflight={loadPreflight}
         onConfirm={onConfirm}
         onClose={vi.fn()}
@@ -77,7 +77,7 @@ describe("DestructivePreflightDialog", () => {
       <DestructivePreflightDialog
         repoId="repo-1"
         action={action}
-        patchSelection={patchSelection}
+        patchSelections={[patchSelection]}
         loadPreflight={vi.fn().mockResolvedValue(preflight(1, 0, ["selection_changed"]))}
         onConfirm={vi.fn()}
         onClose={vi.fn()}
@@ -89,6 +89,55 @@ describe("DestructivePreflightDialog", () => {
     expect(screen.getByRole("button", { name: "preflight.discard.confirm" })).toBeDisabled();
     expect(dialog).toHaveAttribute("aria-describedby");
     expect((await axe.run(container)).violations).toEqual([]);
+  });
+
+  it("shows one counted batch dialog with the exact total and revalidates the vector", async () => {
+    const batchAction: DestructiveAction = {
+      kind: "discardFiles",
+      paths: ["a.txt", "b.txt", "c.txt"],
+    };
+    const selections: PatchSelection[] = batchAction.paths.map((path) => ({
+      path,
+      source: "worktree",
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    }));
+    const facts = preflight(
+      8,
+      0,
+      [],
+      "batch-token",
+      batchAction,
+      [
+        { kind: "modifiedFilesDiscarded", count: 3, sample: batchAction.paths },
+        { kind: "modifiedLinesDiscarded", path: "a.txt", count: 2 },
+        { kind: "modifiedLinesDiscarded", path: "b.txt", count: 5 },
+        { kind: "modifiedLinesDiscarded", path: "c.txt", count: 4 },
+      ],
+    );
+    const loadPreflight = vi.fn().mockResolvedValue(facts);
+    const onConfirm = vi.fn();
+    render(
+      <DestructivePreflightDialog
+        repoId="repo-1"
+        action={batchAction}
+        patchSelections={selections}
+        loadPreflight={loadPreflight}
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("dialog", { name: "preflight.discardFiles.title:3" })).toBeInTheDocument();
+    expect(screen.getByText("preflight.discardFiles.changedLines:11")).toBeInTheDocument();
+    expect(screen.getByText("preflight.discardFiles.stagedUnaffected")).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "preflight.discardFiles.confirm" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(facts.generations, "batch-token"));
+    expect(loadPreflight).toHaveBeenCalledTimes(2);
+    expect(loadPreflight).toHaveBeenNthCalledWith(1, "repo-1", batchAction, selections);
+    expect(loadPreflight).toHaveBeenNthCalledWith(2, "repo-1", batchAction, selections);
   });
 
   it.each([

@@ -37,6 +37,7 @@ export function WorkingChangesPanel({
   onStage,
   onUnstage,
   onSelectionAction,
+  patchExportDisabledTarget,
   stashFileDisabledReason,
   onFileContextMenu,
   onPrepareAmend,
@@ -53,6 +54,7 @@ export function WorkingChangesPanel({
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
   onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  patchExportDisabledTarget?: WorkingFileTarget;
   stashFileDisabledReason?: string;
   onFileContextMenu?: (
     file: WorkingFile,
@@ -214,6 +216,7 @@ export function WorkingChangesPanel({
           selection={selection}
           onAct={onStage}
           onSelectionAction={onSelectionAction}
+          patchExportDisabledTarget={patchExportDisabledTarget}
           stashFileDisabledReason={stashFileDisabledReason}
           onFileContextMenu={onFileContextMenu}
         />
@@ -229,6 +232,7 @@ export function WorkingChangesPanel({
           selection={selection}
           onAct={onUnstage}
           onSelectionAction={onSelectionAction}
+          patchExportDisabledTarget={patchExportDisabledTarget}
           stashFileDisabledReason={stashFileDisabledReason}
           onFileContextMenu={onFileContextMenu}
         />
@@ -312,6 +316,7 @@ function FileSection({
   selection,
   onAct,
   onSelectionAction,
+  patchExportDisabledTarget,
   stashFileDisabledReason,
   onFileContextMenu,
 }: {
@@ -326,6 +331,7 @@ function FileSection({
   selection: WorkingFileSelectionController;
   onAct: (paths: string[]) => void;
   onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  patchExportDisabledTarget?: WorkingFileTarget;
   stashFileDisabledReason?: string;
   onFileContextMenu?: (
     file: WorkingFile,
@@ -344,11 +350,19 @@ function FileSection({
   const selectedEntries: WorkingFileActionEntry[] = files
     .filter((file) => selectedPaths.has(file.path))
     .map((file) => ({ file, target: targetFor(file.path) }));
+  const patchExportDisabledReason = patchExportDisabledTarget
+    && selectedEntries.some((entry) => (
+      entry.target.path === patchExportDisabledTarget.path
+      && entry.target.source === patchExportDisabledTarget.source
+    ))
+    ? t("workingFile.disabled.whitespaceMode")
+    : undefined;
   const selectionItems = selectedEntries.length >= 2
     ? workingFileMenuItems({
         clicked: selectedEntries[0],
         selection: selectedEntries,
         busy,
+        patchExportDisabledReason,
         stashFileDisabledReason,
       }, t)
     : [];

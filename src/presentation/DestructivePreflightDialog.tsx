@@ -14,20 +14,20 @@ import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 type PreflightLoader = (
   repoId: string,
   action: DestructiveAction,
-  patchSelection: PatchSelection | null,
+  patchSelections: PatchSelection[] | null,
 ) => Promise<DestructivePreflight>;
 
 export function DestructivePreflightDialog({
   repoId,
   action,
-  patchSelection = null,
+  patchSelections = null,
   onConfirm,
   onClose,
   loadPreflight = preflightDestructiveAction,
 }: {
   repoId: string;
   action: DestructiveAction;
-  patchSelection?: PatchSelection | null;
+  patchSelections?: PatchSelection[] | null;
   onConfirm: (generations: GenerationSet, confirmationToken: string) => Promise<void> | void;
   onClose: () => void;
   loadPreflight?: PreflightLoader;
@@ -46,7 +46,7 @@ export function DestructivePreflightDialog({
   useEffect(() => {
     let active = true;
     setError(false);
-    void loadPreflight(repoId, action, patchSelection)
+    void loadPreflight(repoId, action, patchSelections)
       .then((result) => {
         if (active) setPreflight(result);
       })
@@ -56,17 +56,23 @@ export function DestructivePreflightDialog({
     return () => {
       active = false;
     };
-  }, [action, loadPreflight, patchSelection, repoId]);
+  }, [action, loadPreflight, patchSelections, repoId]);
 
   const actionName = action.kind;
   const blocked = Boolean(preflight?.blockers.length);
+  const batchChangedLines = action.kind === "discardFiles"
+    ? preflight?.consequences.reduce(
+        (total, consequence) => total + (consequence.kind === "modifiedLinesDiscarded" ? consequence.count : 0),
+        0,
+      ) ?? 0
+    : null;
 
   async function confirm() {
     if (!preflight || !preflight.confirmationToken || blocked || pending) return;
     setPending(true);
     setError(false);
     try {
-      const fresh = await loadPreflight(repoId, action, patchSelection);
+      const fresh = await loadPreflight(repoId, action, patchSelections);
       if (!samePreflight(preflight, fresh)) {
         setPreflight(fresh);
         setChanged(true);
@@ -100,7 +106,9 @@ export function DestructivePreflightDialog({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <h2 id={titleId} className="text-sm font-semibold" style={{ color: "var(--ink)" }}>
-          {t(`preflight.${actionName}.title`)}
+          {t(`preflight.${actionName}.title`, action.kind === "discardFiles"
+            ? { count: action.paths.length }
+            : undefined)}
         </h2>
         <p id={descriptionId} className="mt-1 text-[13px]" style={{ color: "var(--slate)" }}>
           {t("preflight.description")}
@@ -115,10 +123,23 @@ export function DestructivePreflightDialog({
         {preflight ? (
           <div className="mt-4 flex flex-col gap-3 text-[13px]">
             <ul className="flex list-disc flex-col gap-2 pl-5">
-              {preflight.consequences.map((consequence, index) => (
+              {preflight.consequences
+                .filter((consequence) => (
+                  action.kind !== "discardFiles" || consequence.kind !== "modifiedLinesDiscarded"
+                ))
+                .map((consequence, index) => (
                 <ConsequenceItem key={`${consequence.kind}-${index}`} consequence={consequence} action={action} />
-              ))}
+                ))}
+              {batchChangedLines !== null ? (
+                <li>{t("preflight.discardFiles.changedLines", { count: batchChangedLines })}</li>
+              ) : null}
             </ul>
+
+            {action.kind === "discardFiles" ? (
+              <p style={{ color: "var(--slate)" }}>
+                {t("preflight.discardFiles.stagedUnaffected")}
+              </p>
+            ) : null}
 
             {preflight.forceWithLease ? (
               <p className="font-mono text-[11px]" style={{ color: "var(--mist)" }}>

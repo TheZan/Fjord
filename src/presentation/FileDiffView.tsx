@@ -696,7 +696,7 @@ export function FileDiffView({
       <DestructivePreflightDialog
         repoId={repoId}
         action={pendingDiscard.action}
-        patchSelection={pendingDiscard.selection}
+        patchSelections={[pendingDiscard.selection]}
         onClose={() => setPendingDiscard(null)}
         onConfirm={async (confirmedGenerations, confirmationToken) => {
           const request = pendingDiscard;

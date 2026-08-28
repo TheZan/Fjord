@@ -148,6 +148,7 @@ fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), Gi
             },
         ),
         DestructiveAction::Discard { .. }
+        | DestructiveAction::DiscardFiles { .. }
         | DestructiveAction::ForceWithLease
         | DestructiveAction::DeleteRemoteBranch { .. }
         | DestructiveAction::AbortOperation

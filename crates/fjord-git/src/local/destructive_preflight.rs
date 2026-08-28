@@ -54,9 +54,9 @@ fn assemble_facts(
         }
         DestructiveAction::AbortOperation => abort_facts(git, sample_limit),
         DestructiveAction::DeleteFile { path } => super::delete_file::facts(git, repo, path),
-        DestructiveAction::Discard { .. } | DestructiveAction::ForceWithLease => {
-            Ok(blocked(BLOCKER_ACTION_UNSUPPORTED))
-        }
+        DestructiveAction::Discard { .. }
+        | DestructiveAction::DiscardFiles { .. }
+        | DestructiveAction::ForceWithLease => Ok(blocked(BLOCKER_ACTION_UNSUPPORTED)),
     }
 }
 

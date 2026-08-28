@@ -458,6 +458,14 @@
       "title": "Änderungen verwerfen?",
       "confirm": "Änderungen verwerfen"
     },
+    "discardFiles": {
+      "title_one": "Änderungen in dieser Datei verwerfen?",
+      "title_other": "Änderungen in {{count}} Dateien verwerfen?",
+      "confirm": "Änderungen verwerfen",
+      "changedLines_one": "{{count}} geänderte Zeile wird verworfen.",
+      "changedLines_other": "{{count}} geänderte Zeilen werden verworfen.",
+      "stagedUnaffected": "Vorgemerkte Änderungen werden nicht verändert."
+    },
     "forceWithLease": {
       "title": "Push mit Lease erzwingen?",
       "confirm": "Push erzwingen",
@@ -704,6 +712,8 @@
     "unstageFiles_one": "Aus Staging entfernen",
     "unstageFiles_other": "{{count}} Dateien aus Staging entfernen",
     "discard": "Arbeitsänderungen verwerfen…",
+    "discardFiles_one": "Arbeitsänderungen verwerfen…",
+    "discardFiles_other": "Änderungen in {{count}} Dateien verwerfen…",
     "discardIncomplete": "Öffne den Datei-Diff, um Änderungen in einer so großen Datei zu verwerfen.",
     "openInConfiguredEditor": "Im konfigurierten Editor öffnen",
     "openWithDefault": "Mit Standardanwendung öffnen",
@@ -717,6 +727,12 @@
     "createPatch": "Patch aus Änderungen erstellen…",
     "createPatchStaged": "Patch aus vorgemerkten Änderungen erstellen…",
     "copyPatch": "Patch in die Zwischenablage kopieren",
+    "createPatchFiles_one": "Patch aus Änderungen erstellen…",
+    "createPatchFiles_other": "Patch aus {{count}} Dateien erstellen…",
+    "createPatchFilesStaged_one": "Patch aus vorgemerkten Änderungen erstellen…",
+    "createPatchFilesStaged_other": "Patch aus {{count}} vorgemerkten Dateien erstellen…",
+    "copyPatchFiles_one": "Patch in die Zwischenablage kopieren",
+    "copyPatchFiles_other": "Patch für {{count}} Dateien kopieren",
     "patchSaved": "Patch gespeichert unter {{path}}.",
     "delete": "Datei löschen…",
     "stashFile": {

@@ -682,9 +682,9 @@ export function getWorkingFileDiffWithGenerations(
 export function preflightDestructiveAction(
   repoId: string,
   action: DestructiveAction,
-  patchSelection: PatchSelection | null = null,
+  patchSelections: PatchSelection[] | null = null,
 ): Promise<DestructivePreflight> {
-  return invoke("preflight_destructive_action", { repoId, action, patchSelection });
+  return invoke("preflight_destructive_action", { repoId, action, patchSelections });
 }
 
 export function executeDestructiveAction(
@@ -863,20 +863,41 @@ export function discardPatch(
   );
 }
 
-/** Writes the patch for one working-file selection to a chosen destination.
+export function discardPatches(
+  repoId: string,
+  action: DestructiveAction,
+  selections: PatchSelection[],
+  expectedGenerations: GenerationSet,
+  confirmationToken: string,
+): Promise<GenerationSet> {
+  return invoke<GenerationSet>("discard_patches", {
+    repoId,
+    action,
+    selections,
+    expectedGenerations,
+    confirmationToken,
+  }).then(
+    (generations) => {
+      observeRepositoryGenerations(repoId, generations, "working");
+      return generations;
+    },
+  );
+}
+
+/** Writes one combined patch for a non-empty selection vector to a chosen destination.
  * Patch bytes never cross IPC for this path — the backend writes them. */
 export function exportPatch(
   repoId: string,
-  selection: PatchSelection,
+  selections: PatchSelection[],
   destination: string,
 ): Promise<void> {
-  return invoke("export_patch", { repoId, selection, destination });
+  return invoke("export_patch", { repoId, selections, destination });
 }
 
 /** The same patch bytes as `exportPatch`, returned as text for the
  * clipboard follow-up — the only path where patch content crosses IPC. */
-export function getPatchText(repoId: string, selection: PatchSelection): Promise<string> {
-  return invoke("get_patch_text", { repoId, selection });
+export function getPatchText(repoId: string, selections: PatchSelection[]): Promise<string> {
+  return invoke("get_patch_text", { repoId, selections });
 }
 
 export function getAmendInfo(repoId: string): Promise<AmendInfo> {

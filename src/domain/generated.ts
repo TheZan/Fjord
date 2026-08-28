@@ -175,7 +175,7 @@ export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hu
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "discardFiles", paths: Array<string>, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
 
 export type DestructiveExecutionResult = { "kind": "completed" } | { "kind": "operationState", state: RepoOperationState, } | { "kind": "stashApply", result: StashApplyResult, };
 

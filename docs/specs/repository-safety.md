@@ -84,7 +84,7 @@ resolution.
 | Checkout | ✅ `checkout_branch` detects and returns bounded overwrite paths before switching, rechecks under the write lock after any targeted fetch, and offers cancel, retained stash-and-checkout, or confirmed discard. |
 | Stash | ✅ `create_stash` owns conventional whole-repository and exact selected-path creation. Apply, Pop, Drop, and create-branch-from-stash all take immutable `StashId` and re-resolve under the write lock. Pop and Drop use the shared one-use destructive token path with stable entry facts and `NotRecoverable`; Pop keeps the entry on conflict. Apply and branch creation keep the stash, never autostash/discard, and report stash conflicts without creating sequencer operation state. |
 | Reflog | ✅ P9-08 provides typed, generation-enveloped, newest-first `HEAD`/branch pages and canonical branch-ref discovery; P9-09 exposes them through the Recovery Center with HEAD-relative diffs and safe/confirmed recovery actions. |
-| Batch discard | 🚧 Absent. Every discard path takes exactly one `PatchSelection`; discarding four files is four confirmations. `P10-WC-MULTI-03` adds `DiscardFiles` on this same contract ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12). |
+| Batch discard | ✅ `DiscardFiles` binds one ordered vector of whole-file worktree selections to one token and executes one checked combined reverse patch under the repository write lock and resolved `index.lock`. Stale, conflicted, malformed, wrong-source, duplicate, or subset/superset/reordered vectors fail the whole action without mutation ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12). |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
 | Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
@@ -273,7 +273,7 @@ command of its own ([`stash-management.md`](stash-management.md) §6.3–§6.4):
   automatic `git gc` may collect them at any time. Per the labelling contract
   below, "usually recoverable for a while" is not a label this app offers.
 
-`P10-WC-MULTI-03` adds one more variant for the same reason — to keep a
+`P10-WC-MULTI-03` ships one more variant for the same reason — to keep a
 destructive action on the confirmed path rather than beside it
 ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12):
 

@@ -42,7 +42,12 @@ vi.mock("@/application/wholeFilePatchSelection", () => ({
 }));
 
 describe("useWorkingFileActions", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(buildWholeFilePatchSelection).mockResolvedValue(wholeFileSelection);
+    vi.mocked(pickSaveDestination).mockResolvedValue("C:\\Users\\me\\app.ts.patch");
+    vi.mocked(getPatchText).mockResolvedValue("--- a/src/app.ts\n+++ b/src/app.ts\n");
+  });
 
   it("routes row mutations through the same single-path callbacks", async () => {
     const onStage = vi.fn();
@@ -231,7 +236,7 @@ describe("useWorkingFileActions", () => {
 
     expect(buildWholeFilePatchSelection).toHaveBeenCalledWith("repo-1", "src/app.ts", "worktree");
     expect(pickSaveDestination).toHaveBeenCalledWith("app.ts.patch");
-    expect(exportPatch).toHaveBeenCalledWith("repo-1", wholeFileSelection, "C:\\Users\\me\\app.ts.patch");
+    expect(exportPatch).toHaveBeenCalledWith("repo-1", [wholeFileSelection], "C:\\Users\\me\\app.ts.patch");
     expect(onPatchSaved).toHaveBeenCalledWith("C:\\Users\\me\\app.ts.patch");
   });
 
@@ -246,6 +251,100 @@ describe("useWorkingFileActions", () => {
     expect(onPatchSaved).not.toHaveBeenCalled();
   });
 
+  it("routes batch discard through one canonical complete-selection callback", async () => {
+    const onDiscard = vi.fn();
+    const changes = { unstaged: ["d.ts", "b.ts", "a.ts", "c.ts"].map(file), staged: [] };
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ changes, onDiscard })));
+
+    await act(() => result.current.dispatch("discard", {
+      clickedTarget: { path: "b.ts", source: "worktree" },
+      targets: ["d.ts", "b.ts", "a.ts", "c.ts"].map((path) => ({ path, source: "worktree" as const })),
+    }));
+
+    expect(onDiscard).toHaveBeenCalledOnce();
+    expect(onDiscard).toHaveBeenCalledWith(["a.ts", "b.ts", "c.ts", "d.ts"].map((path) => ({
+      path,
+      source: "worktree",
+    })));
+  });
+
+  it("exports one deterministic patch for the complete multi-file selection", async () => {
+    const changes = { unstaged: ["c.ts", "a.ts", "b.ts"].map(file), staged: [] };
+    vi.mocked(buildWholeFilePatchSelection).mockImplementation(async (_repoId, path, source) => ({
+      path,
+      source,
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    }));
+    const onPatchSaved = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ changes, onPatchSaved })));
+
+    await act(() => result.current.dispatch("createPatch", {
+      clickedTarget: { path: "c.ts", source: "worktree" },
+      targets: ["c.ts", "a.ts", "b.ts"].map((path) => ({ path, source: "worktree" as const })),
+    }));
+
+    const selections = ["a.ts", "b.ts", "c.ts"].map((path) => ({
+      path,
+      source: "worktree" as const,
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    }));
+    expect(pickSaveDestination).toHaveBeenCalledOnce();
+    expect(pickSaveDestination).toHaveBeenCalledWith("Fjord-3-files.patch");
+    expect(exportPatch).toHaveBeenCalledOnce();
+    expect(exportPatch).toHaveBeenCalledWith("repo-1", selections, "C:\\Users\\me\\app.ts.patch");
+    expect(onPatchSaved).toHaveBeenCalledOnce();
+  });
+
+  it("copies one backend-rendered patch for the complete staged selection", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const changes = { unstaged: [], staged: ["b.ts", "a.ts"].map(file) };
+    vi.mocked(buildWholeFilePatchSelection).mockImplementation(async (_repoId, path, source) => ({
+      path,
+      source,
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    }));
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ changes })));
+
+    await act(() => result.current.dispatch("copyPatch", {
+      clickedTarget: { path: "b.ts", source: "index" },
+      targets: ["b.ts", "a.ts"].map((path) => ({ path, source: "index" as const })),
+    }));
+
+    expect(getPatchText).toHaveBeenCalledOnce();
+    expect(getPatchText).toHaveBeenCalledWith("repo-1", ["a.ts", "b.ts"].map((path) => ({
+      path,
+      source: "index",
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    })));
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledWith("--- a/src/app.ts\n+++ b/src/app.ts\n");
+  });
+
+  it("fails the whole patch action when any selected file cannot be prepared", async () => {
+    const failure = new Error("unsupported selected file");
+    vi.mocked(buildWholeFilePatchSelection).mockImplementation(async (_repoId, path, source) => {
+      if (path === "b.bin") throw failure;
+      return { path, source, baseDigest: `digest-${path}`, hunks: [] };
+    });
+    const changes = { unstaged: ["a.ts", "b.bin", "c.ts"].map(file), staged: [] };
+    const onError = vi.fn();
+    const { result } = renderHook(() => useWorkingFileActions(dependencies({ changes, onError })));
+
+    await act(() => result.current.dispatch("createPatch", {
+      clickedTarget: { path: "a.ts", source: "worktree" },
+      targets: ["a.ts", "b.bin", "c.ts"].map((path) => ({ path, source: "worktree" as const })),
+    }));
+
+    expect(onError).toHaveBeenCalledWith(failure);
+    expect(pickSaveDestination).not.toHaveBeenCalled();
+    expect(exportPatch).not.toHaveBeenCalled();
+  });
+
   it("copies the same patch bytes to the clipboard", async () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -254,7 +353,7 @@ describe("useWorkingFileActions", () => {
     await act(() => result.current.dispatch("copyPatch", { path: "src/app.ts", source: "index" }));
 
     expect(buildWholeFilePatchSelection).toHaveBeenCalledWith("repo-1", "src/app.ts", "index");
-    expect(getPatchText).toHaveBeenCalledWith("repo-1", wholeFileSelection);
+    expect(getPatchText).toHaveBeenCalledWith("repo-1", [wholeFileSelection]);
     expect(writeText).toHaveBeenCalledWith("--- a/src/app.ts\n+++ b/src/app.ts\n");
   });
 });
@@ -262,6 +361,7 @@ describe("useWorkingFileActions", () => {
 function dependencies(overrides: Record<string, unknown> = {}) {
   return {
     repoId: "repo-1",
+    repositoryName: "Fjord",
     changes: {
       unstaged: [{ path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false }],
       staged: [{ path: "src/app.ts", changeType: "modified", tracked: true, conflicted: false }],

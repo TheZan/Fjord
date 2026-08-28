@@ -243,6 +243,13 @@ export function RepoDetailView({
         staged: workingSelection.active.source === "index",
       }
     : null;
+  const patchExportDisabledTarget = openWorkingDiffWhitespace
+    && openWorkingDiffWhitespace.mode !== "show"
+    ? {
+        path: openWorkingDiffWhitespace.path,
+        source: openWorkingDiffWhitespace.staged ? "index" as const : "worktree" as const,
+      }
+    : undefined;
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
   const [workingFileMenu, setWorkingFileMenu] = useState<WorkingFileMenuState | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
@@ -355,6 +362,7 @@ export function RepoDetailView({
       onStage={onStage}
       onUnstage={onUnstage}
       onSelectionAction={handleWorkingFileAction}
+      patchExportDisabledTarget={patchExportDisabledTarget}
       stashFileDisabledReason={stashFileDisabledReason}
       onFileContextMenu={(file, target, position) => {
         setWorkingFileMenu({ file, target, position });
@@ -666,10 +674,14 @@ export function RepoDetailView({
           selection={selectedWorkingEntries}
           busy={!actionsValidated || actionPending !== null}
           patchExportDisabledReason={
-            openWorkingDiffWhitespace
-              && openWorkingDiffWhitespace.mode !== "show"
-              && openWorkingDiffWhitespace.path === workingFileMenu.target.path
-              && openWorkingDiffWhitespace.staged === (workingFileMenu.target.source === "index")
+            patchExportDisabledTarget
+              && (selectedWorkingEntries.length > 0
+                ? selectedWorkingEntries.some((entry) => (
+                    entry.target.path === patchExportDisabledTarget.path
+                    && entry.target.source === patchExportDisabledTarget.source
+                  ))
+                : workingFileMenu.target.path === patchExportDisabledTarget.path
+                  && workingFileMenu.target.source === patchExportDisabledTarget.source)
               ? t("workingFile.disabled.whitespaceMode")
               : undefined
           }
