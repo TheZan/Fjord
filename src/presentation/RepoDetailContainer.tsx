@@ -16,19 +16,23 @@ import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
 import { useWorkingFileActions } from "@/application/useWorkingFileActions";
+import { useStashes } from "@/application/useStashes";
+import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, DestructiveAction, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashId, WorkingFileTarget } from "@/domain/git";
+import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
   addIgnoreRule,
+  applyStash,
   checkoutBranch,
   cherryPick,
   commitRepo,
   createStash,
   createBranch,
   createBranchAt,
+  createBranchFromStash,
   createTag,
   discardPatch,
   getAmendInfo,
@@ -109,6 +113,7 @@ export function RepoDetailContainer({
     snapshot.ready,
   );
   const { commits, loading: commitsLoading } = useCommitLog(repo.id, snapshot.ready);
+  const { stashes } = useStashes(repo.id);
   const {
     changes,
     loading: changesLoading,
@@ -129,6 +134,10 @@ export function RepoDetailContainer({
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
+  const [stashActionRequest, setStashActionRequest] = useState<
+    { id: number; action: StashAction; stash: StashEntry } | null
+  >(null);
+  const stashActionSequence = useRef(0);
   const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
   const [stashDialog, setStashDialog] = useState<
@@ -286,6 +295,7 @@ export function RepoDetailContainer({
     setRecoveryCenterOpen(false);
     setMergeSource(null);
     setStashDialog(null);
+    setStashActionRequest(null);
   }, [repo.id]);
 
   useEffect(() => {
@@ -318,7 +328,7 @@ export function RepoDetailContainer({
       return;
     }
     if (action === "stash-pop") {
-      setDestructiveAction({ kind: "stashPop", index: 0 });
+      requestTopStashAction("pop");
       return;
     }
     if (action === "stash") {
@@ -330,6 +340,75 @@ export function RepoDetailContainer({
       return;
     }
     executeAction(action);
+  }
+
+  function requestTopStashAction(action: StashAction) {
+    const stash = stashes[0];
+    if (!stash) {
+      setActionError(t("stash.error.empty"));
+      return;
+    }
+    setSelectedStashId(stash.id);
+    stashActionSequence.current += 1;
+    setStashActionRequest({ id: stashActionSequence.current, action, stash });
+  }
+
+  async function onApplyStash(stash: StashEntry, restoreIndex: boolean) {
+    await runRepoAction(
+      "stash-apply",
+      async () => describeStashApplyResult(await applyStash(repo.id, stash.id, restoreIndex)),
+      ["status", "working"],
+      undefined,
+      true,
+    );
+  }
+
+  async function onCreateBranchFromStash(stash: StashEntry, name: string, apply: boolean) {
+    await runRepoAction(
+      "stash-create-branch",
+      async () => describeCreateBranchResult(await createBranchFromStash(repo.id, stash.id, name, apply)),
+      ["status", "working", "refs", "history", "stashes"],
+      undefined,
+      true,
+    );
+  }
+
+  function describeStashApplyResult(result: StashApplyResult) {
+    setActionSuccess(t(
+      result.outcome.kind === "conflicted" ? "stash.notice.applyConflicted" : "stash.notice.applied",
+      result.outcome.kind === "conflicted" ? { count: result.outcome.paths.length } : undefined,
+    ));
+  }
+
+  function describeCreateBranchResult(result: CreateBranchFromStashResult) {
+    setActionSuccess(t(
+      result.outcome?.kind === "conflicted" ? "stash.notice.branchConflicted" : "stash.notice.branchCreated",
+      result.outcome?.kind === "conflicted"
+        ? { branch: result.branch, count: result.outcome.paths.length }
+        : { branch: result.branch },
+    ));
+  }
+
+  function handleDestructiveResult(action: DestructiveAction, result: DestructiveExecutionResult) {
+    if (result.kind === "operationState") {
+      queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.state);
+      return;
+    }
+    if (result.kind === "stashApply") {
+      setActionSuccess(t(
+        result.result.outcome.kind === "conflicted"
+          ? "stash.notice.popConflicted"
+          : "stash.notice.popped",
+        result.result.outcome.kind === "conflicted"
+          ? { count: result.result.outcome.paths.length }
+          : undefined,
+      ));
+      if (result.result.entryRemoved && action.kind === "stashPop") {
+        setSelectedStashId((selected) => selected === action.id ? null : selected);
+      }
+      return;
+    }
+    if (action.kind === "stashDrop") setActionSuccess(t("stash.notice.dropped"));
   }
 
   function executeAction(action: RepoAction) {
@@ -857,7 +936,7 @@ export function RepoDetailContainer({
       actionPending={actionPending}
       actionSuccess={actionSuccess}
       actionNoticeSuppressed={actionNoticeSuppressed}
-      onPopRetainedStash={() => setDestructiveAction({ kind: "stashPop", index: 0 })}
+      onPopRetainedStash={() => requestTopStashAction("pop")}
       actionError={actionError}
       operationProgress={toToolbarProgress(activeOperation)}
       branchScrollRequest={branchScrollRequest}
@@ -892,6 +971,10 @@ export function RepoDetailContainer({
       onMergeBranch={onMergeBranch}
       onSquashMergeBranch={onSquashMergeBranch}
       onPreflightAction={setDestructiveAction}
+      onApplyStash={onApplyStash}
+      onCreateBranchFromStash={onCreateBranchFromStash}
+      onStashError={(error) => setActionError(userErrorMessage(error))}
+      stashActionRequest={stashActionRequest}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
       onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
@@ -1035,16 +1118,19 @@ export function RepoDetailContainer({
                 confirmationToken,
               );
               setActionOperationId(task.operationId);
-              const nextState = await task.promise;
-              if (nextState) {
-                queryClient.setQueryData(queryKeys.repos.operationState(repo.id), nextState);
-              }
+              const result = await task.promise;
+              handleDestructiveResult(action, result);
             },
             scopesForDestructiveAction(action),
             undefined,
             action.kind === "abortOperation" || action.kind === "stashPop",
           );
-          if (ok) setDestructiveAction(null);
+          if (ok) {
+            if (action.kind === "stashDrop") {
+              setSelectedStashId((selected) => selected === action.id ? null : selected);
+            }
+            setDestructiveAction(null);
+          }
         }}
       />
     ) : null}
@@ -1112,6 +1198,8 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
       return ["status", "history", "refs"];
     case "stashPop":
       return ["status", "working", "stashes"];
+    case "stashDrop":
+      return ["stashes"];
     case "reset":
     case "checkoutDiscard":
     case "recoveryRestore":

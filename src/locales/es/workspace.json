@@ -483,6 +483,10 @@
       "title": "¿Aplicar y eliminar este stash?",
       "confirm": "Aplicar stash"
     },
+    "stashDrop": {
+      "title": "¿Eliminar este stash?",
+      "confirm": "Eliminar stash"
+    },
     "checkoutDiscard": {
       "title": "¿Descartar cambios y cambiar de rama?",
       "confirm": "Descartar y cambiar"
@@ -530,7 +534,8 @@
       "branchDeleted": "Eliminar la rama {{name}}.",
       "branchDeletedUnmerged": "Eliminar la rama {{name}}, que no está fusionada en {{unmergedInto}}.",
       "tagDeleted": "Eliminar la etiqueta {{name}}.",
-      "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
+      "stashEntryPopped": "Aplicar «{{title}}» ({{refName}}) a la rama actual, cambiar {{filesChanged}} archivos y eliminarlo solo si la aplicación termina correctamente. Creado desde {{branch}} en {{base}}.",
+      "stashEntryDropped": "Eliminar definitivamente «{{title}}» ({{refName}}), con {{filesChanged}} archivos modificados. Creado desde {{branch}} en {{base}}.",
       "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos.",
       "fileRemovedTracked": "Quitar {{path}} del árbol de trabajo; aparecerá como una eliminación de Git.",
       "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo."
@@ -618,7 +623,47 @@
     "empty": "No hay stashes.",
     "markerLabel": "Stash {{title}}, {{ref}}",
     "action": {
-      "revealInGraph": "Mostrar en el gráfico"
+      "apply": "Aplicar stash",
+      "pop": "Aplicar y eliminar stash…",
+      "createBranch": "Crear rama desde el stash…",
+      "copyRef": "Copiar referencia del stash",
+      "copySha": "Copiar SHA del stash",
+      "copyBaseSha": "Copiar SHA del commit base",
+      "revealInGraph": "Mostrar en el gráfico",
+      "drop": "Eliminar stash…",
+      "more": "Más acciones del stash"
+    },
+    "options": {
+      "applyTitle": "Aplicar stash",
+      "popTitle": "Aplicar y eliminar stash",
+      "applyDescription": "Aplicar «{{title}}» a la rama actual y conservarlo en el stash.",
+      "popDescription": "Aplicar «{{title}}» a la rama actual y eliminarlo si termina correctamente.",
+      "restoreIndex": "Restaurar estado preparado",
+      "restoreIndexUnavailable": "Este stash no contiene un estado preparado guardado.",
+      "cancel": "Cancelar",
+      "applyConfirm": "Aplicar",
+      "popConfirm": "Continuar"
+    },
+    "branch": {
+      "title": "Crear rama desde el stash",
+      "description": "Crear y cambiar a una rama en la base del stash {{base}}.",
+      "name": "Nombre de rama",
+      "confirm": "Crear",
+      "base": "Base: {{base}}",
+      "applyAfterCheckout": "Aplicar stash después del cambio",
+      "kept": "El stash se conserva. Puedes eliminarlo después."
+    },
+    "notice": {
+      "applied": "El stash se aplicó y se conservó.",
+      "applyConflicted": "El stash se aplicó con conflictos en {{count}} archivos y se conservó. Resuélvelos en Cambios de trabajo o con la herramienta de fusión.",
+      "popped": "El stash se aplicó y se eliminó.",
+      "popConflicted": "El stash se aplicó con conflictos en {{count}} archivos y se conservó. Resuélvelos en Cambios de trabajo o con la herramienta de fusión.",
+      "dropped": "El stash se eliminó.",
+      "branchCreated": "La rama {{branch}} se creó y se activó. El stash se conservó.",
+      "branchConflicted": "La rama {{branch}} se creó y se activó. La aplicación produjo conflictos en {{count}} archivos; el stash se conservó."
+    },
+    "error": {
+      "empty": "No hay stashes que aplicar."
     },
     "revealNotFound": "El commit desde el que se creó este stash no está en este historial.",
     "inspector": {

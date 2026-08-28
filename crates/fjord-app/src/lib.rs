@@ -136,6 +136,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_stash_files,
             commands::get_stash_file_diff,
             commands::create_stash,
+            commands::apply_stash,
+            commands::create_branch_from_stash,
             commands::stash_paths_supported,
             commands::open_terminal,
             commands::resolve_repository_file_path,

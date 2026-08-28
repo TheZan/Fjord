@@ -483,6 +483,10 @@
       "title": "Применить и удалить этот stash?",
       "confirm": "Применить stash"
     },
+    "stashDrop": {
+      "title": "Удалить этот stash?",
+      "confirm": "Удалить stash"
+    },
     "checkoutDiscard": {
       "title": "Отменить изменения и переключиться?",
       "confirm": "Отменить и переключиться"
@@ -538,7 +542,8 @@
       "branchDeleted": "Удалить ветку {{name}}.",
       "branchDeletedUnmerged": "Удалить ветку {{name}}, не слитую с {{unmergedInto}}.",
       "tagDeleted": "Удалить тег {{name}}.",
-      "stashEntryConsumed": "Применить и удалить stash {{index}}: {{message}}.",
+      "stashEntryPopped": "Применить «{{title}}» ({{refName}}) к текущей ветке, изменив {{filesChanged}} файлов, и удалить запись только при успешном применении. Создан из {{branch}} на {{base}}.",
+      "stashEntryDropped": "Безвозвратно удалить «{{title}}» ({{refName}}), содержащий изменения в {{filesChanged}} файлах. Создан из {{branch}} на {{base}}.",
       "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}.",
       "fileRemovedTracked": "Удалить {{path}} из рабочей директории; это будет выглядеть как удаление в Git.",
       "fileRemovedUntracked": "Удалить {{path}}. У Git нет копии этого файла."
@@ -626,7 +631,47 @@
     "empty": "Нет stash.",
     "markerLabel": "Stash {{title}}, {{ref}}",
     "action": {
-      "revealInGraph": "Показать в графе"
+      "apply": "Применить stash",
+      "pop": "Применить и удалить stash…",
+      "createBranch": "Создать ветку из stash…",
+      "copyRef": "Копировать ссылку stash",
+      "copySha": "Копировать SHA stash",
+      "copyBaseSha": "Копировать SHA базового commit",
+      "revealInGraph": "Показать в графе",
+      "drop": "Удалить stash…",
+      "more": "Другие действия со stash"
+    },
+    "options": {
+      "applyTitle": "Применить stash",
+      "popTitle": "Применить и удалить stash",
+      "applyDescription": "Применить «{{title}}» к текущей ветке и сохранить запись stash.",
+      "popDescription": "Применить «{{title}}» к текущей ветке и удалить запись при успехе.",
+      "restoreIndex": "Восстановить подготовленное состояние",
+      "restoreIndexUnavailable": "В этом stash нет сохранённого подготовленного состояния.",
+      "cancel": "Отмена",
+      "applyConfirm": "Применить",
+      "popConfirm": "Продолжить"
+    },
+    "branch": {
+      "title": "Создать ветку из stash",
+      "description": "Создать и переключиться на ветку от базы stash {{base}}.",
+      "name": "Имя ветки",
+      "confirm": "Создать",
+      "base": "База: {{base}}",
+      "applyAfterCheckout": "Применить stash после переключения",
+      "kept": "Stash будет сохранён. Позже его можно удалить."
+    },
+    "notice": {
+      "applied": "Stash применён и сохранён.",
+      "applyConflicted": "Stash применён с конфликтами в {{count}} файлах и сохранён. Разрешите их в рабочих изменениях или внешнем инструменте слияния.",
+      "popped": "Stash применён и удалён.",
+      "popConflicted": "Stash применён с конфликтами в {{count}} файлах и сохранён. Разрешите их в рабочих изменениях или внешнем инструменте слияния.",
+      "dropped": "Stash удалён.",
+      "branchCreated": "Ветка {{branch}} создана и выбрана. Stash сохранён.",
+      "branchConflicted": "Ветка {{branch}} создана и выбрана. При применении возникли конфликты в {{count}} файлах; stash сохранён."
+    },
+    "error": {
+      "empty": "Нет stash для применения."
     },
     "revealNotFound": "Commit, на основе которого создан этот stash, отсутствует в этой истории.",
     "inspector": {

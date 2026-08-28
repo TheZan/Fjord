@@ -65,19 +65,19 @@ The one sentence the rest of the document exists to make true:
 | Capability | State |
 |---|---|
 | Stash list | ✅ `get_stashes` returns the rich repository-derived `StashEntry` of §1, in exact Git stack order and cached against the `stash` generation. |
-| Stash identity | ✅ `StashId` is the stash commit OID. The backend resolver maps it to the current position and fails closed when it is missing or ambiguous; mutation adoption remains owned by `P10-STASH-06`. |
+| Stash identity | ✅ `StashId` is the stash commit OID. Every mutation re-resolves it to the current position under the repository write lock and fails closed when it is missing or ambiguous. |
 | Create stash (all) | ✅ `create_stash { scope: All }` runs ordinary system Git `stash push [-u] -m …`; the toolbar uses the shared required-name dialog. |
 | Create stash (one path) | ✅ `Stash file…` is `create_stash { scope: Paths { paths: [p] } }`, using the same exact object construction as any larger set. Both §2.3 invariants are covered by real-Git creation and apply/pop fixtures. |
 | Create stash (many paths) | ✅ The backend/IPC accepts `Paths { paths }` for N paths and constructs a normal exact-scope stash. The Working Changes multi-selection entry point remains `P10-WC-MULTI-02`. |
-| Apply | 🚧 Absent. There is no apply-without-consuming anywhere in the product. |
-| Pop | ⚠️ Already on the confirmed destructive path — there is no `stash_pop` IPC command, and `execute_destructive_action`'s `StashPop { index }` arm already builds `stash pop stash@{index}` for an **arbitrary** index. The limitation is entirely in the frontend, which hard-codes `index: 0` at both dispatch sites in `RepoDetailContainer.tsx`, and in the action's index-keyed identity. Separately, `GitBackend::stash_pop` / `mutations::stash_pop` (`git2`, always index 0) is **dead production code** reached only by tests. |
-| Drop | 🚧 Absent. |
-| Create branch from stash | 🚧 Absent. |
+| Apply | ✅ `apply_stash` applies any stable-id entry to the current branch, optionally restores its saved index state, keeps the entry, classifies overwrite/index refusal errors, and reports fresh-index conflicts as a typed successful outcome without creating operation state. |
+| Pop | ✅ `StashPop { id, restore_index }` runs only through the shared destructive preflight/token/executor path. It removes the exact selected entry only after successful Apply and keeps it on conflicts. The dead libgit2/port path is removed. |
+| Drop | ✅ `StashDrop { id }` runs only through the shared destructive preflight/token/executor path, reports stable bounded entry facts, and is always `NotRecoverable`. |
+| Create branch from stash | ✅ `create_branch_from_stash` safely creates/checks out at immutable `stash.base`, optionally applies, and always keeps the stash. Checkout refusal leaves no partially created branch; a later Apply conflict leaves the created branch checked out. |
 | Stash in the repository tree | ✅ `RepoTree.tsx` renders Stashes after Tags in backend stack order, including the zero-entry state; filtering, virtualization, keyboard navigation, selection, and context-menu invocation all retain `StashId` as logical identity. The typed selection/menu seams are ready for `P10-STASH-04`/`06` without pulling their inspector or actions forward. |
 | Stash in the commit graph | ✅ `CommitGraph.tsx` memoizes the `useStashes` list into base-commit groups and joins them only to already-loaded log rows. Stash markers reuse the ref-badge row and its overflow flyout, retain `StashId` through selection and context-menu dispatch, and do not affect lanes, edges, row height, or paging. Tree and inspector entry points expose **Reveal in graph** through the existing `loadUntilCommit` seek with an explicit localized not-found result. |
 | Stash inspector / diff | ✅ `StashInspector.tsx` occupies the repository-detail slot and reuses the shared file list/tree and `FileDiffView`. `get_stash_files` reconstructs base→index, index→stash, and empty→untracked groups by stable `StashId`; `get_stash_file_diff` serves the selected tree pair through the existing bounded diff window and stash-scoped query hierarchy. Both reads take the repository read lock and never mutate or bump generations. |
-| Destructive coverage | ⚠️ `DestructiveAction::StashPop { index }` exists with `StashEntryConsumed { index, message }` facts and `NotRecoverable`, keyed on the unstable index. There is no `StashDrop`. |
-| Generations | ✅ `MutationKind::StashPush` / `StashPop` both map to `WORKING_STASH`, and the watcher's `stashes` change set maps to `stash` ([`performance.md`](performance.md) §5). |
+| Destructive coverage | ✅ Pop and Drop use exact `StashId` actions, stable `StashEntryConsumed` facts, one-use action-bound tokens, and `NotRecoverable`. |
+| Generations | ✅ Apply maps to `WORKING_TREE`, Pop to `WORKING_STASH`, Drop to `STASH`, and create-branch-from-stash to `WORKING_REFS_HISTORY`; the exact mask table is tested. |
 
 ### Contradictions this spec resolves
 

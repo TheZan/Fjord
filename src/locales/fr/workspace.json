@@ -483,6 +483,10 @@
       "title": "Appliquer et retirer ce stash ?",
       "confirm": "Appliquer le stash"
     },
+    "stashDrop": {
+      "title": "Supprimer ce stash ?",
+      "confirm": "Supprimer le stash"
+    },
     "checkoutDiscard": {
       "title": "Abandonner les modifications et changer de branche ?",
       "confirm": "Abandonner et changer"
@@ -530,7 +534,8 @@
       "branchDeleted": "Supprimer la branche {{name}}.",
       "branchDeletedUnmerged": "Supprimer la branche {{name}}, qui n’est pas fusionnée dans {{unmergedInto}}.",
       "tagDeleted": "Supprimer le tag {{name}}.",
-      "stashEntryConsumed": "Appliquer et consommer le stash {{index}} : {{message}}.",
+      "stashEntryPopped": "Appliquer « {{title}} » ({{refName}}) à la branche actuelle, modifier {{filesChanged}} fichiers, puis le supprimer seulement si l’application réussit. Créé depuis {{branch}} à {{base}}.",
+      "stashEntryDropped": "Supprimer définitivement « {{title}} » ({{refName}}), contenant {{filesChanged}} fichiers modifiés. Créé depuis {{branch}} à {{base}}.",
       "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants.",
       "fileRemovedTracked": "Retirer {{path}} de l’arbre de travail ; il apparaîtra comme une suppression Git.",
       "fileRemovedUntracked": "Supprimer {{path}}. Git n’a aucune copie de ce fichier."
@@ -618,7 +623,47 @@
     "empty": "Aucun stash.",
     "markerLabel": "Stash {{title}}, {{ref}}",
     "action": {
-      "revealInGraph": "Afficher dans le graphe"
+      "apply": "Appliquer le stash",
+      "pop": "Appliquer et supprimer le stash…",
+      "createBranch": "Créer une branche depuis le stash…",
+      "copyRef": "Copier la référence du stash",
+      "copySha": "Copier le SHA du stash",
+      "copyBaseSha": "Copier le SHA du commit de base",
+      "revealInGraph": "Afficher dans le graphe",
+      "drop": "Supprimer le stash…",
+      "more": "Autres actions du stash"
+    },
+    "options": {
+      "applyTitle": "Appliquer le stash",
+      "popTitle": "Appliquer et supprimer le stash",
+      "applyDescription": "Appliquer « {{title}} » à la branche actuelle et le conserver dans le stash.",
+      "popDescription": "Appliquer « {{title}} » à la branche actuelle, puis le supprimer en cas de réussite.",
+      "restoreIndex": "Restaurer l’état indexé",
+      "restoreIndexUnavailable": "Ce stash ne contient aucun état indexé à restaurer.",
+      "cancel": "Annuler",
+      "applyConfirm": "Appliquer",
+      "popConfirm": "Continuer"
+    },
+    "branch": {
+      "title": "Créer une branche depuis le stash",
+      "description": "Créer et extraire une branche à la base du stash {{base}}.",
+      "name": "Nom de la branche",
+      "confirm": "Créer",
+      "base": "Base : {{base}}",
+      "applyAfterCheckout": "Appliquer le stash après l’extraction",
+      "kept": "Le stash est conservé. Vous pourrez le supprimer ensuite."
+    },
+    "notice": {
+      "applied": "Le stash a été appliqué et conservé.",
+      "applyConflicted": "Le stash a été appliqué avec des conflits dans {{count}} fichiers et conservé. Résolvez-les dans les modifications de travail ou avec l’outil de fusion.",
+      "popped": "Le stash a été appliqué et supprimé.",
+      "popConflicted": "Le stash a été appliqué avec des conflits dans {{count}} fichiers et conservé. Résolvez-les dans les modifications de travail ou avec l’outil de fusion.",
+      "dropped": "Le stash a été supprimé.",
+      "branchCreated": "La branche {{branch}} a été créée et extraite. Le stash a été conservé.",
+      "branchConflicted": "La branche {{branch}} a été créée et extraite. L’application a produit des conflits dans {{count}} fichiers ; le stash a été conservé."
+    },
+    "error": {
+      "empty": "Il n’y a aucun stash à appliquer."
     },
     "revealNotFound": "Le commit à partir duquel ce stash a été créé ne figure pas dans cet historique.",
     "inspector": {

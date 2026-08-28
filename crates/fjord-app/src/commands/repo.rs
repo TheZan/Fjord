@@ -1,12 +1,13 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, CreateStashRequest,
-    CreateStashResult, DestructiveAction, DestructivePreflight, FileDiff, FileDiffWindow,
-    GenerationSet, GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
+    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary,
+    CreateBranchFromStashResult, CreateStashRequest, CreateStashResult, DestructiveAction,
+    DestructiveExecutionResult, DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet,
+    GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
     IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
     MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
     RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
-    SquashMergeResult, StashEntry, StashFileGroup, StashFiles, StashId, StoredRepositorySnapshot,
-    TagInfo, WorkingChanges, WorkspaceId,
+    SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -456,7 +457,7 @@ pub async fn execute_destructive_action(
     expected_generations: GenerationSet,
     confirmation_token: String,
     operation_id: Option<String>,
-) -> Result<Option<RepoOperationState>, AppError> {
+) -> Result<DestructiveExecutionResult, AppError> {
     run_repo_operation(
         &app,
         &state,
@@ -620,6 +621,34 @@ pub async fn create_stash(
     request: CreateStashRequest,
 ) -> Result<CreateStashResult, AppError> {
     Ok(state.repos.create_stash(repo_id, request).await?)
+}
+
+#[tauri::command]
+pub async fn apply_stash(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    restore_index: bool,
+) -> Result<StashApplyResult, AppError> {
+    Ok(state
+        .repos
+        .apply_stash(repo_id, &stash_id, restore_index)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn create_branch_from_stash(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    name: String,
+    apply: bool,
+    keep: bool,
+) -> Result<CreateBranchFromStashResult, AppError> {
+    Ok(state
+        .repos
+        .create_branch_from_stash(repo_id, &stash_id, &name, apply, keep)
+        .await?)
 }
 
 #[tauri::command]

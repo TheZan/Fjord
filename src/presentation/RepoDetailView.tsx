@@ -7,6 +7,8 @@ import type {
   WorkingFileActionContext,
 } from "@/application/useWorkingFileActions";
 import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
+import { useStashActions } from "@/application/useStashActions";
+import type { StashAction } from "@/application/stashActions";
 import { useStashes } from "@/application/useStashes";
 import {
   CommitGraph,
@@ -27,6 +29,8 @@ import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
 import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
+import { StashApplyOptionsDialog } from "@/presentation/StashApplyOptionsDialog";
+import { CreateBranchFromStashDialog } from "@/presentation/CreateBranchFromStashDialog";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
@@ -96,6 +100,10 @@ export function RepoDetailView({
   onMergeBranch,
   onSquashMergeBranch,
   onPreflightAction,
+  onApplyStash,
+  onCreateBranchFromStash,
+  onStashError,
+  stashActionRequest,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
   onPublishBranch,
@@ -167,6 +175,14 @@ export function RepoDetailView({
   onMergeBranch: (source: MergeSource) => void;
   onSquashMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
+  onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void | Promise<void>;
+  onCreateBranchFromStash: (
+    stash: import("@/domain/git").StashEntry,
+    name: string,
+    apply: boolean,
+  ) => void | Promise<void>;
+  onStashError: (error: unknown) => void;
+  stashActionRequest?: { id: number; action: StashAction; stash: import("@/domain/git").StashEntry } | null;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
   onPublishBranch: (branch: string) => void;
@@ -235,6 +251,27 @@ export function RepoDetailView({
   const [stashRevealRequest, setStashRevealRequest] = useState<StashGraphRevealRequest | null>(null);
   const stashRevealSequence = useRef(0);
   const previousPendingAction = useRef<string | null>(null);
+  const stashActions = useStashActions({
+    onApply: onApplyStash,
+    onDestructive: (action) => onPreflightAction(action),
+    onCreateBranch: onCreateBranchFromStash,
+    onRevealInGraph: (stash) => requestRevealStashInGraph(stash.id),
+    onError: onStashError,
+  });
+
+  useEffect(() => {
+    if (!stashActionRequest) return;
+    dispatchFreshStashAction(stashActionRequest.action, stashActionRequest.stash);
+  }, [stashActionRequest?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function dispatchFreshStashAction(action: StashAction, requested: import("@/domain/git").StashEntry) {
+    const current = stashes.find((stash) => stash.id === requested.id);
+    if (!current) {
+      onStashError({ code: "stash_not_found" });
+      return;
+    }
+    void stashActions.dispatch(action, current);
+  }
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -333,7 +370,8 @@ export function RepoDetailView({
       stash={selectedStash}
       selectedFile={selectedStashFile}
       onSelectFile={setSelectedStashFile}
-      onRevealInGraph={() => requestRevealStashInGraph(selectedStash.id)}
+      canRevealInGraph
+      onStashAction={dispatchFreshStashAction}
     />
   ) : selectedStashId && stashesLoading ? (
     <Muted className="text-[12px]">{t("commits.loading")}</Muted>
@@ -433,6 +471,7 @@ export function RepoDetailView({
               onSelectStash={handleSelectStash}
               onStashContextMenu={handleSelectStash}
               onRevealStashInGraph={requestRevealStashInGraph}
+              onStashAction={dispatchFreshStashAction}
               onCheckout={onCheckout}
               checkoutDisabledReason={
                 operationInProgress ? t("operationBanner.blockedActions") : undefined
@@ -488,6 +527,7 @@ export function RepoDetailView({
                 selectedStashId={selectedStashId}
                 onSelectStash={handleSelectStash}
                 onStashContextMenu={handleSelectStash}
+                onStashAction={dispatchFreshStashAction}
                 revealStashRequest={stashRevealRequest}
                 onRevealStashNotFound={() => {
                   setNotice({
@@ -506,6 +546,22 @@ export function RepoDetailView({
           </div>
         }
       />
+      {stashActions.options ? (
+        <StashApplyOptionsDialog
+          action={stashActions.options.action}
+          stash={stashActions.options.stash}
+          pending={actionPending !== null}
+          onClose={stashActions.closeOptions}
+          onConfirm={(restoreIndex) => void stashActions.confirmOptions(restoreIndex)}
+        />
+      ) : null}
+      {stashActions.branch ? (
+        <CreateBranchFromStashDialog
+          stash={stashActions.branch.stash}
+          onClose={stashActions.closeBranch}
+          onConfirm={(name, apply) => void stashActions.confirmBranch(name, apply)}
+        />
+      ) : null}
       {dialog?.kind === "createBranch" && (
         <TextActionDialog
           title={t("context.createBranchHere")}

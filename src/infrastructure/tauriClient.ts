@@ -7,9 +7,11 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AmendInfo,
+  CreateBranchFromStashResult,
   CreateStashRequest,
   CreateStashResult,
   DestructiveAction,
+  DestructiveExecutionResult,
   DestructivePreflight,
   DiffWhitespaceMode,
   GenerationSet,
@@ -29,6 +31,7 @@ import type {
   RepoOperationState,
   SnapshotRevalidation,
   SquashMergeResult,
+  StashApplyResult,
   StoredRepositorySnapshot,
   UiState,
   UiStatePatch,
@@ -690,7 +693,7 @@ export function executeDestructiveAction(
   expectedGenerations: GenerationSet,
   confirmationToken: string,
   operationId: string | null = null,
-): Promise<RepoOperationState | null> {
+): Promise<DestructiveExecutionResult> {
   return invoke("execute_destructive_action", {
     repoId,
     action,
@@ -705,7 +708,7 @@ export function runExecuteDestructiveAction(
   action: DestructiveAction,
   expectedGenerations: GenerationSet,
   confirmationToken: string,
-): OperationTask<RepoOperationState | null> {
+): OperationTask<DestructiveExecutionResult> {
   return invokeOperation("destructive-action", "execute_destructive_action", {
     repoId,
     action,
@@ -778,6 +781,23 @@ export function unsetBranchUpstream(repoId: string, branch: string): Promise<voi
 
 export function createStash(repoId: string, request: CreateStashRequest): Promise<CreateStashResult> {
   return invoke("create_stash", { repoId, request });
+}
+
+export function applyStash(
+  repoId: string,
+  stashId: StashId,
+  restoreIndex: boolean,
+): Promise<StashApplyResult> {
+  return invoke("apply_stash", { repoId, stashId, restoreIndex });
+}
+
+export function createBranchFromStash(
+  repoId: string,
+  stashId: StashId,
+  name: string,
+  apply: boolean,
+): Promise<CreateBranchFromStashResult> {
+  return invoke("create_branch_from_stash", { repoId, stashId, name, apply, keep: true });
 }
 
 export function stashPathsSupported(): Promise<boolean> {

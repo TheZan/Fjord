@@ -564,6 +564,41 @@ pub struct CreateStashResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StashApplyOutcome {
+    Applied,
+    Conflicted { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct StashApplyResult {
+    pub outcome: StashApplyOutcome,
+    pub entry_removed: bool,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateBranchFromStashResult {
+    pub branch: String,
+    pub outcome: Option<StashApplyOutcome>,
+    pub stash_kept: bool,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct CommitId(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -865,7 +900,8 @@ pub enum DestructiveAction {
     DeleteBranch { name: String },
     DeleteRemoteBranch { remote: String, branch: String },
     DeleteTag { name: String },
-    StashPop { index: u32 },
+    StashPop { id: StashId, restore_index: bool },
+    StashDrop { id: StashId },
     CheckoutDiscard { branch: String },
     AbortOperation,
     RecoveryRestore { commit_id: String },
@@ -938,8 +974,12 @@ pub enum Consequence {
         target_commit_id: Option<CommitId>,
     },
     StashEntryConsumed {
-        index: u32,
-        message: String,
+        id: StashId,
+        ref_name: String,
+        title: String,
+        files_changed: u32,
+        base: CommitId,
+        branch: Option<String>,
     },
     RemoteRefUpdated {
         remote: String,
@@ -969,6 +1009,26 @@ pub struct DestructivePreflight {
     // Backend-issued bearer proof for this exact destructive scope. Blocked
     // preflights do not receive a confirmation.
     pub confirmation_token: Option<String>,
+}
+
+/// Typed result of the shared destructive executor. Most actions simply
+/// complete; operation abort returns the freshly detected state, while stash
+/// Pop returns its apply/conflict outcome without inventing a Git operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DestructiveExecutionResult {
+    Completed,
+    OperationState { state: RepoOperationState },
+    StashApply { result: StashApplyResult },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

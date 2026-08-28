@@ -3,17 +3,18 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
-    CommitSummary, Consequence, CreateRepositoryRequest, CreateRepositoryResult,
-    CreateStashRequest, CreateStashResult, DestructiveAction, DestructivePreflight, DiffHunk,
-    DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
-    FileDiffWindow, ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult,
-    GitEnvironmentInfo, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview,
-    LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
+    CommitSummary, Consequence, CreateBranchFromStashResult, CreateRepositoryRequest,
+    CreateRepositoryResult, CreateStashRequest, CreateStashResult, DestructiveAction,
+    DestructiveExecutionResult, DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode,
+    DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
+    GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
     PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo, RemotePushResult,
     RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult, StashEntry,
-    StashFileGroup, StashFiles, StashId, StashScope, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId,
+    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
+    StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, StashScope,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -1300,6 +1301,7 @@ impl RepoService {
                 | DestructiveAction::DeleteRemoteBranch { .. }
                 | DestructiveAction::DeleteTag { .. }
                 | DestructiveAction::StashPop { .. }
+                | DestructiveAction::StashDrop { .. }
                 | DestructiveAction::CheckoutDiscard { .. }
                 | DestructiveAction::AbortOperation
                 | DestructiveAction::RecoveryRestore { .. }
@@ -1380,7 +1382,7 @@ impl RepoService {
         expected_generations: GenerationSet,
         confirmation_token: &str,
         context: GitOperationContext,
-    ) -> Result<Option<RepoOperationState>, RepoError> {
+    ) -> Result<DestructiveExecutionResult, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let path = RepoPath::new(repo.path);
         if let DestructiveAction::DeleteRemoteBranch { remote, branch } = action {
@@ -1401,7 +1403,7 @@ impl RepoService {
                     context.with_git_executable_path(settings.git_executable_path),
                 )
                 .await?;
-            return Ok(None);
+            return Ok(DestructiveExecutionResult::Completed);
         }
         Ok(self
             .git
@@ -1605,6 +1607,34 @@ impl RepoService {
         Ok(self
             .git
             .create_stash(&RepoPath::new(repo.path), &request)
+            .await?)
+    }
+
+    pub async fn apply_stash(
+        &self,
+        repo_id: RepositoryId,
+        stash_id: &StashId,
+        restore_index: bool,
+    ) -> Result<StashApplyResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .apply_stash(&RepoPath::new(repo.path), stash_id, restore_index)
+            .await?)
+    }
+
+    pub async fn create_branch_from_stash(
+        &self,
+        repo_id: RepositoryId,
+        stash_id: &StashId,
+        name: &str,
+        apply: bool,
+        keep: bool,
+    ) -> Result<CreateBranchFromStashResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .create_branch_from_stash(&RepoPath::new(repo.path), stash_id, name, apply, keep)
             .await?)
     }
 
@@ -3099,10 +3129,6 @@ mod tests {
                 generations: GenerationSet::default(),
             })
         }
-        async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
-            *self.seen_path.lock().unwrap() = Some(repo.0.clone());
-            Ok(())
-        }
         async fn stage(&self, repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
             *self.seen_path.lock().unwrap() = Some(repo.0.clone());
             Ok(())
@@ -3177,14 +3203,14 @@ mod tests {
             expected_generations: GenerationSet,
             confirmation_token: &str,
             _context: GitOperationContext,
-        ) -> Result<Option<RepoOperationState>, GitError> {
+        ) -> Result<DestructiveExecutionResult, GitError> {
             *self.destructive_action_call.lock().unwrap() = Some((
                 repo.0.clone(),
                 action.clone(),
                 expected_generations,
                 confirmation_token.to_string(),
             ));
-            Ok(None)
+            Ok(DestructiveExecutionResult::Completed)
         }
 
         async fn discard_patch(
@@ -3620,9 +3646,6 @@ mod tests {
             async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
                 Ok(vec![])
             }
-            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
-                Ok(())
-            }
             async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
                 Ok(())
             }
@@ -3784,9 +3807,6 @@ mod tests {
             }
             async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
                 Ok(vec![])
-            }
-            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
-                Ok(())
             }
             async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
                 Ok(())
@@ -4056,9 +4076,6 @@ mod tests {
             }
             async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
                 Ok(vec![])
-            }
-            async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
-                Ok(())
             }
             async fn stage(&self, _repo: &RepoPath, _paths: &[PathBuf]) -> Result<(), GitError> {
                 Ok(())

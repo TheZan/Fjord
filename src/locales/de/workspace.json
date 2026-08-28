@@ -483,6 +483,10 @@
       "title": "Diesen Stash anwenden und entfernen?",
       "confirm": "Stash anwenden"
     },
+    "stashDrop": {
+      "title": "Diesen Stash verwerfen?",
+      "confirm": "Stash verwerfen"
+    },
     "checkoutDiscard": {
       "title": "Änderungen verwerfen und wechseln?",
       "confirm": "Verwerfen und wechseln"
@@ -530,7 +534,8 @@
       "branchDeleted": "Branch {{name}} löschen.",
       "branchDeletedUnmerged": "Branch {{name}} löschen, der nicht in {{unmergedInto}} zusammengeführt ist.",
       "tagDeleted": "Tag {{name}} löschen.",
-      "stashEntryConsumed": "Stash {{index}} anwenden und verbrauchen: {{message}}.",
+      "stashEntryPopped": "„{{title}}“ ({{refName}}) auf den aktuellen Branch anwenden, {{filesChanged}} Dateien ändern und nur bei erfolgreicher Anwendung entfernen. Erstellt aus {{branch}} bei {{base}}.",
+      "stashEntryDropped": "„{{title}}“ ({{refName}}) mit {{filesChanged}} geänderten Dateien dauerhaft verwerfen. Erstellt aus {{branch}} bei {{base}}.",
       "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen.",
       "fileRemovedTracked": "{{path}} aus dem Arbeitsverzeichnis entfernen; es erscheint als Git-Löschung.",
       "fileRemovedUntracked": "{{path}} löschen. Git besitzt keine Kopie dieser Datei."
@@ -618,7 +623,47 @@
     "empty": "Keine Stashes.",
     "markerLabel": "Stash {{title}}, {{ref}}",
     "action": {
-      "revealInGraph": "Im Graphen anzeigen"
+      "apply": "Stash anwenden",
+      "pop": "Stash anwenden und entfernen…",
+      "createBranch": "Branch aus Stash erstellen…",
+      "copyRef": "Stash-Referenz kopieren",
+      "copySha": "Stash-SHA kopieren",
+      "copyBaseSha": "Basis-Commit-SHA kopieren",
+      "revealInGraph": "Im Graphen anzeigen",
+      "drop": "Stash verwerfen…",
+      "more": "Weitere Stash-Aktionen"
+    },
+    "options": {
+      "applyTitle": "Stash anwenden",
+      "popTitle": "Stash anwenden und entfernen",
+      "applyDescription": "„{{title}}“ auf den aktuellen Branch anwenden und im Stash behalten.",
+      "popDescription": "„{{title}}“ auf den aktuellen Branch anwenden und bei Erfolg entfernen.",
+      "restoreIndex": "Bereitgestellten Zustand wiederherstellen",
+      "restoreIndexUnavailable": "Dieser Stash enthält keinen gespeicherten bereitgestellten Zustand.",
+      "cancel": "Abbrechen",
+      "applyConfirm": "Anwenden",
+      "popConfirm": "Weiter"
+    },
+    "branch": {
+      "title": "Branch aus Stash erstellen",
+      "description": "Branch an der Stash-Basis {{base}} erstellen und auschecken.",
+      "name": "Branch-Name",
+      "confirm": "Erstellen",
+      "base": "Basis: {{base}}",
+      "applyAfterCheckout": "Stash nach dem Checkout anwenden",
+      "kept": "Der Stash bleibt erhalten und kann anschließend verworfen werden."
+    },
+    "notice": {
+      "applied": "Stash wurde angewendet und behalten.",
+      "applyConflicted": "Stash wurde mit Konflikten in {{count}} Dateien angewendet und behalten. Lösen Sie sie in den Arbeitsänderungen oder im Merge-Tool.",
+      "popped": "Stash wurde angewendet und entfernt.",
+      "popConflicted": "Stash wurde mit Konflikten in {{count}} Dateien angewendet und behalten. Lösen Sie sie in den Arbeitsänderungen oder im Merge-Tool.",
+      "dropped": "Stash wurde verworfen.",
+      "branchCreated": "Branch {{branch}} wurde erstellt und ausgecheckt. Der Stash wurde behalten.",
+      "branchConflicted": "Branch {{branch}} wurde erstellt und ausgecheckt. Beim Anwenden entstanden Konflikte in {{count}} Dateien; der Stash wurde behalten."
+    },
+    "error": {
+      "empty": "Es gibt keine Stashes zum Anwenden."
     },
     "revealNotFound": "Der Commit, aus dem dieser Stash erstellt wurde, ist in diesem Verlauf nicht enthalten.",
     "inspector": {

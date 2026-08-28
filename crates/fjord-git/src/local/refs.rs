@@ -73,7 +73,15 @@ impl LocalGitBackend {
             .map_err(Self::map_git2_error)?
             .peel(git2::ObjectType::Commit)
             .map_err(Self::map_git2_error)?;
-        let target_tree = target.peel_to_tree().map_err(Self::map_git2_error)?;
+        let target = target.peel_to_commit().map_err(Self::map_git2_error)?;
+        Self::checkout_overwrite_paths_to_commit_inner(git, &target)
+    }
+
+    pub(super) fn checkout_overwrite_paths_to_commit_inner(
+        git: &git2::Repository,
+        target: &git2::Commit<'_>,
+    ) -> Result<Vec<String>, GitError> {
+        let target_tree = target.tree().map_err(Self::map_git2_error)?;
         let head_tree = git
             .head()
             .map_err(Self::map_git2_error)?

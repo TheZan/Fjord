@@ -4,9 +4,10 @@
 use super::*;
 use crate::GenerationSet;
 use fjord_domain::{
-    Consequence, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy, MergeMode, MergeOutcome,
-    MergePrediction, MergeSource, MergeSourceKind, OperationControl, RebaseKind, Recoverability,
-    RepoOperation, RepoOperationState, ResetMode, SquashMergeOutcome,
+    Consequence, DestructiveExecutionResult, IgnoreRuleKind, IgnoreRuleOutcome, MergeDirtyPolicy,
+    MergeMode, MergeOutcome, MergePrediction, MergeSource, MergeSourceKind, OperationControl,
+    RebaseKind, Recoverability, RepoOperation, RepoOperationState, ResetMode, SquashMergeOutcome,
+    StashApplyOutcome,
 };
 use fjord_ports::GitOperationContext;
 use git2::{BranchType, Oid, Repository, RepositoryInitOptions, Status};
@@ -459,6 +460,24 @@ fn cli_stash_rows(backend: &LocalGitBackend, repo: &RepoPath) -> Vec<(String, St
         )
     })
     .collect()
+}
+
+async fn execute_stash_destructive(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+    action: &DestructiveAction,
+) -> Result<DestructiveExecutionResult, GitError> {
+    let (generations, token) =
+        safety_preflight(backend, repo, action, Recoverability::NotRecoverable).await;
+    backend
+        .execute_confirmed_destructive_action(
+            repo,
+            action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
 }
 
 fn assert_patch_applies_without_mutation(backend: &LocalGitBackend, repo: &RepoPath, patch: &[u8]) {
@@ -4508,13 +4527,22 @@ async fn stash_pop_preflight_reports_the_consumed_entry() {
         .await
         .unwrap();
 
+    let entry = backend.stashes(&repo_path).await.unwrap().remove(0);
     let facts = backend
-        .destructive_action_facts(&repo_path, &DestructiveAction::StashPop { index: 0 }, 5)
+        .destructive_action_facts(
+            &repo_path,
+            &DestructiveAction::StashPop {
+                id: entry.id.clone(),
+                restore_index: false,
+            },
+            5,
+        )
         .await
         .unwrap();
     assert!(facts.consequences.iter().any(|consequence| matches!(
         consequence,
-        Consequence::StashEntryConsumed { index: 0, message } if message.contains("P9 stash")
+        Consequence::StashEntryConsumed { id, title, ref_name, .. }
+            if id == &entry.id && title == "P9 stash" && ref_name == "stash@{0}"
     )));
     assert_eq!(facts.recoverable, Recoverability::NotRecoverable);
 }
@@ -4979,7 +5007,11 @@ async fn safety_regression_stash_pop_is_preflight_bound_and_consumption_is_not_r
         .create_stash(&repo, &all_stash_request("safety fixture"))
         .await
         .unwrap();
-    let action = DestructiveAction::StashPop { index: 0 };
+    let id = backend.stashes(&repo).await.unwrap().remove(0).id;
+    let action = DestructiveAction::StashPop {
+        id,
+        restore_index: false,
+    };
     let (generations, token) =
         safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
     backend
@@ -5058,7 +5090,7 @@ async fn safety_regression_operation_abort_is_preflight_bound_and_not_promised_r
     let action = DestructiveAction::AbortOperation;
     let (generations, token) =
         safety_preflight(&backend, &repo, &action, Recoverability::NotRecoverable).await;
-    let state = backend
+    let result = backend
         .execute_confirmed_destructive_action(
             &repo,
             &action,
@@ -5067,8 +5099,10 @@ async fn safety_regression_operation_abort_is_preflight_bound_and_not_promised_r
             GitOperationContext::default(),
         )
         .await
-        .unwrap()
         .unwrap();
+    let fjord_domain::DestructiveExecutionResult::OperationState { state } = result else {
+        panic!("abort should return the fresh operation state");
+    };
     assert_eq!(state.operation, RepoOperation::Normal);
 }
 
@@ -6058,6 +6092,443 @@ async fn duplicate_stash_oid_is_ambiguous_instead_of_picking_a_position() {
 }
 
 #[tokio::test]
+async fn stash_actions_case_17_apply_non_top_by_stable_identity() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "stash A", "A\n");
+    push_named_stash(&backend, &repo, "stash B", "B\n");
+    push_named_stash(&backend, &repo, "stash C", "C\n");
+    let entries = backend.stashes(&repo).await.unwrap();
+    let selected = entries
+        .iter()
+        .find(|entry| entry.title == "stash A")
+        .unwrap()
+        .clone();
+
+    let result = backend
+        .apply_stash(&repo, &selected.id, false)
+        .await
+        .unwrap();
+
+    assert_eq!(result.outcome, StashApplyOutcome::Applied);
+    assert!(!result.entry_removed);
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("tracked.txt")).unwrap(),
+        "A\n"
+    );
+    let after = backend.stashes(&repo).await.unwrap();
+    assert_eq!(after.len(), 3);
+    assert!(after.iter().any(|entry| entry.id == selected.id));
+}
+
+#[tokio::test]
+async fn stash_actions_case_18_restore_index_and_refusal_without_fallback() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    write_file(&repo, "tracked.txt", "staged\n");
+    backend
+        .stage(&repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    run_git_success(&backend, &repo, &["stash", "push", "-m", "staged state"]);
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+
+    backend
+        .apply_stash(&repo, &selected.id, true)
+        .await
+        .unwrap();
+    assert_eq!(index_blob(&repo, "tracked.txt").unwrap(), b"staged\n");
+    assert!(git_output(&backend, &repo, &["diff"]).is_empty());
+    assert!(!git_output(&backend, &repo, &["diff", "--cached"]).is_empty());
+
+    let (_directory, refused_repo, refused_backend) = initialized_stash_repo().await;
+    write_file(&refused_repo, "tracked.txt", "staged stash\n");
+    refused_backend
+        .stage(&refused_repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    write_file(&refused_repo, "tracked.txt", "worktree stash\n");
+    run_git_success(
+        &refused_backend,
+        &refused_repo,
+        &["stash", "push", "-m", "split state"],
+    );
+    let refused = refused_backend
+        .stashes(&refused_repo)
+        .await
+        .unwrap()
+        .remove(0);
+    write_file(&refused_repo, "tracked.txt", "current staged\n");
+    refused_backend
+        .stage(&refused_repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    let before = patch_state(&refused_backend, &refused_repo);
+
+    assert!(matches!(
+        refused_backend
+            .apply_stash(&refused_repo, &refused.id, true)
+            .await,
+        Err(GitError::StashApplyIndexRefused)
+    ));
+    assert_eq!(patch_state(&refused_backend, &refused_repo), before);
+    assert_eq!(
+        std::fs::read_to_string(refused_repo.0.join("tracked.txt")).unwrap(),
+        "current staged\n"
+    );
+}
+
+#[tokio::test]
+async fn stash_actions_case_19_overwrite_refusal_is_bounded_and_atomic() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "overlap", "stashed\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    write_file(&repo, "tracked.txt", "local\n");
+    let before = patch_state(&backend, &repo);
+
+    let error = backend
+        .apply_stash(&repo, &selected.id, false)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        GitError::StashApplyWouldOverwrite { ref paths }
+            if paths == &["tracked.txt".to_string()]
+    ));
+    assert_eq!(patch_state(&backend, &repo), before);
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("tracked.txt")).unwrap(),
+        "local\n"
+    );
+}
+
+#[tokio::test]
+async fn stash_actions_case_20_pop_non_top_removes_only_selected_identity() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "stash A", "A\n");
+    push_named_stash(&backend, &repo, "stash B", "B\n");
+    push_named_stash(&backend, &repo, "stash C", "C\n");
+    let before = backend.stashes(&repo).await.unwrap();
+    let selected = before
+        .iter()
+        .find(|entry| entry.title == "stash B")
+        .unwrap()
+        .clone();
+    let expected_remaining = before
+        .iter()
+        .filter(|entry| entry.id != selected.id)
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    let action = DestructiveAction::StashPop {
+        id: selected.id.clone(),
+        restore_index: false,
+    };
+
+    let result = execute_stash_destructive(&backend, &repo, &action)
+        .await
+        .unwrap();
+    assert!(matches!(
+        result,
+        DestructiveExecutionResult::StashApply { result }
+            if result.outcome == StashApplyOutcome::Applied && result.entry_removed
+    ));
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("tracked.txt")).unwrap(),
+        "B\n"
+    );
+    assert_eq!(
+        backend
+            .stashes(&repo)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        expected_remaining
+    );
+}
+
+#[tokio::test]
+async fn stash_actions_case_21_conflicted_pop_keeps_stash_and_normal_state() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "conflicting", "stash side\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    write_file(&repo, "tracked.txt", "branch side\n");
+    backend
+        .stage(&repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo, "Branch side").await.unwrap();
+    let action = DestructiveAction::StashPop {
+        id: selected.id.clone(),
+        restore_index: false,
+    };
+
+    let result = execute_stash_destructive(&backend, &repo, &action)
+        .await
+        .unwrap();
+    assert!(matches!(
+        result,
+        DestructiveExecutionResult::StashApply { result }
+            if matches!(result.outcome, StashApplyOutcome::Conflicted { ref paths } if paths == &["tracked.txt".to_string()])
+                && !result.entry_removed
+    ));
+    assert!(backend
+        .stashes(&repo)
+        .await
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == selected.id));
+    assert!(matches!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Normal
+    ));
+    assert!(!repo.0.join(".git/MERGE_HEAD").exists());
+}
+
+#[tokio::test]
+async fn stash_actions_case_22_drop_follows_identity_after_stack_shift() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "captured", "captured\n");
+    let captured = backend.stashes(&repo).await.unwrap().remove(0);
+    push_named_stash(&backend, &repo, "new top", "new\n");
+    let action = DestructiveAction::StashDrop {
+        id: captured.id.clone(),
+    };
+
+    execute_stash_destructive(&backend, &repo, &action)
+        .await
+        .unwrap();
+    let remaining = backend.stashes(&repo).await.unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].title, "new top");
+    assert_ne!(remaining[0].id, captured.id);
+}
+
+#[tokio::test]
+async fn stash_actions_case_23_stale_identity_fails_closed_for_every_action() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "stale", "stale\n");
+    let stale = backend.stashes(&repo).await.unwrap().remove(0);
+    run_git_success(&backend, &repo, &["stash", "drop", "stash@{0}"]);
+    let unchanged = safety_fingerprint(&backend, &repo).await;
+
+    assert!(matches!(
+        backend.apply_stash(&repo, &stale.id, false).await,
+        Err(GitError::StashNotFound)
+    ));
+    assert_eq!(safety_fingerprint(&backend, &repo).await, unchanged);
+    for action in [
+        DestructiveAction::StashPop {
+            id: stale.id.clone(),
+            restore_index: false,
+        },
+        DestructiveAction::StashDrop {
+            id: stale.id.clone(),
+        },
+    ] {
+        assert!(matches!(
+            backend.destructive_action_facts(&repo, &action, 5).await,
+            Err(GitError::StashNotFound)
+        ));
+        assert_eq!(safety_fingerprint(&backend, &repo).await, unchanged);
+    }
+    assert!(matches!(
+        backend
+            .create_branch_from_stash(&repo, &stale.id, "stale-branch", true, true)
+            .await,
+        Err(GitError::StashNotFound)
+    ));
+    assert_eq!(safety_fingerprint(&backend, &repo).await, unchanged);
+    assert!(Repository::open(&repo.0)
+        .unwrap()
+        .find_branch("stale-branch", BranchType::Local)
+        .is_err());
+}
+
+#[tokio::test]
+async fn stash_actions_case_24_create_branch_uses_base_applies_and_keeps_stash() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "branch work", "stash work\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    write_file(&repo, "later.txt", "later\n");
+    backend
+        .stage(&repo, &[PathBuf::from("later.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo, "Later").await.unwrap();
+
+    let result = backend
+        .create_branch_from_stash(&repo, &selected.id, "from-stash", true, true)
+        .await
+        .unwrap();
+    assert_eq!(result.branch, "from-stash");
+    assert_eq!(result.outcome, Some(StashApplyOutcome::Applied));
+    assert!(result.stash_kept);
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        selected.base.0
+    );
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["branch", "--show-current"]))
+            .unwrap()
+            .trim(),
+        "from-stash"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("tracked.txt")).unwrap(),
+        "stash work\n"
+    );
+    assert!(backend
+        .stashes(&repo)
+        .await
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == selected.id));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stash_actions_case_24_conflict_after_branch_creation_keeps_branch_and_stash() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "branch conflict", "stash side\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    let wrapper = repo.0.join("git-conflict-wrapper");
+    std::fs::write(
+        &wrapper,
+        "#!/bin/sh\nif [ \"$1\" = stash ] && [ \"$2\" = apply ]; then\n  printf 'branch side\\n' > tracked.txt\n  git add tracked.txt\n  git commit -qm 'Concurrent branch change'\nfi\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&wrapper).unwrap().permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(&wrapper, permissions).unwrap();
+    backend.set_git_executable(GitExecutableResolution::Resolved(wrapper));
+
+    let result = backend
+        .create_branch_from_stash(&repo, &selected.id, "conflicted-stash", true, true)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        result.outcome,
+        Some(StashApplyOutcome::Conflicted { ref paths })
+            if paths == &["tracked.txt".to_string()]
+    ));
+    assert!(result.stash_kept);
+    let git = Repository::open(&repo.0).unwrap();
+    assert!(git
+        .find_branch("conflicted-stash", BranchType::Local)
+        .is_ok());
+    assert_eq!(
+        git.head().unwrap().name().unwrap(),
+        "refs/heads/conflicted-stash"
+    );
+    drop(git);
+    assert!(backend
+        .stashes(&repo)
+        .await
+        .unwrap()
+        .iter()
+        .any(|entry| entry.id == selected.id));
+}
+
+#[tokio::test]
+async fn stash_actions_case_25_unsafe_checkout_does_not_create_branch() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "branch work", "stash work\n");
+    let selected = backend.stashes(&repo).await.unwrap().remove(0);
+    write_file(&repo, "tracked.txt", "later committed\n");
+    backend
+        .stage(&repo, &[PathBuf::from("tracked.txt")])
+        .await
+        .unwrap();
+    backend.commit(&repo, "Later").await.unwrap();
+    write_file(&repo, "tracked.txt", "local work\n");
+    let before = safety_fingerprint(&backend, &repo).await;
+
+    assert!(matches!(
+        backend.create_branch_from_stash(&repo, &selected.id, "unsafe-stash", true, true).await,
+        Err(GitError::CheckoutWouldOverwrite { ref paths }) if paths.contains(&"tracked.txt".to_string())
+    ));
+    assert_eq!(safety_fingerprint(&backend, &repo).await, before);
+    assert!(Repository::open(&repo.0)
+        .unwrap()
+        .find_branch("unsafe-stash", BranchType::Local)
+        .is_err());
+}
+
+#[tokio::test]
+async fn stash_actions_case_27_confirmation_binds_id_kind_restore_index_and_replay() {
+    let (_directory, repo, backend) = initialized_stash_repo().await;
+    push_named_stash(&backend, &repo, "A", "A\n");
+    push_named_stash(&backend, &repo, "B", "B\n");
+    let entries = backend.stashes(&repo).await.unwrap();
+    let a = entries
+        .iter()
+        .find(|entry| entry.title == "A")
+        .unwrap()
+        .id
+        .clone();
+    let b = entries
+        .iter()
+        .find(|entry| entry.title == "B")
+        .unwrap()
+        .id
+        .clone();
+    let original = DestructiveAction::StashPop {
+        id: a.clone(),
+        restore_index: false,
+    };
+    let generations = backend.generations(&repo).unwrap();
+    let unchanged = safety_fingerprint(&backend, &repo).await;
+
+    for mismatched in [
+        DestructiveAction::StashPop {
+            id: b,
+            restore_index: false,
+        },
+        DestructiveAction::StashDrop { id: a.clone() },
+        DestructiveAction::StashPop {
+            id: a.clone(),
+            restore_index: true,
+        },
+    ] {
+        let token = backend
+            .issue_action_confirmation(&repo, &original, generations)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .execute_confirmed_destructive_action(
+                    &repo,
+                    &mismatched,
+                    generations,
+                    &token,
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(GitError::PreflightStale)
+        ));
+        assert_eq!(safety_fingerprint(&backend, &repo).await, unchanged);
+        assert!(matches!(
+            backend
+                .execute_confirmed_destructive_action(
+                    &repo,
+                    &original,
+                    generations,
+                    &token,
+                    GitOperationContext::default(),
+                )
+                .await,
+            Err(GitError::PreflightStale)
+        ));
+        assert_eq!(safety_fingerprint(&backend, &repo).await, unchanged);
+    }
+}
+
+#[tokio::test]
 async fn malformed_stash_reflog_entry_fails_explicitly() {
     let (_directory, repo, backend) = initialized_stash_repo().await;
     run_git_success(
@@ -6106,7 +6577,27 @@ async fn stash_push_then_pop_round_trips_a_dirty_worktree() {
     assert_eq!(stashes[0].index, 0);
     assert!(stashes[0].message.contains("wip"));
 
-    backend.stash_pop(&repo_path).await.unwrap();
+    let action = DestructiveAction::StashPop {
+        id: stashes[0].id.clone(),
+        restore_index: false,
+    };
+    let (generations, token) = safety_preflight(
+        &backend,
+        &repo_path,
+        &action,
+        Recoverability::NotRecoverable,
+    )
+    .await;
+    backend
+        .execute_confirmed_destructive_action(
+            &repo_path,
+            &action,
+            generations,
+            &token,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
 
     assert_eq!(
         std::fs::read_to_string(repo_path.0.join("README.md")).unwrap(),
@@ -6134,7 +6625,7 @@ async fn stash_push_on_a_clean_worktree_reports_nothing_to_stash() {
 }
 
 #[tokio::test]
-async fn stash_pop_on_an_empty_stack_reports_stash_empty() {
+async fn stash_apply_on_an_empty_stack_reports_stash_not_found() {
     let (_dir, repo_path) = empty_repo();
     let backend = LocalGitBackend::new();
     write_file(&repo_path, "README.md", "committed\n");
@@ -6144,9 +6635,15 @@ async fn stash_pop_on_an_empty_stack_reports_stash_empty() {
         .unwrap();
     backend.commit(&repo_path, "Initial commit").await.unwrap();
 
-    let result = backend.stash_pop(&repo_path).await;
+    let result = backend
+        .apply_stash(
+            &repo_path,
+            &StashId("0000000000000000000000000000000000000000".into()),
+            false,
+        )
+        .await;
 
-    assert!(matches!(result, Err(GitError::StashEmpty)));
+    assert!(matches!(result, Err(GitError::StashNotFound)));
 }
 
 #[tokio::test]
