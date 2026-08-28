@@ -96,7 +96,8 @@ describe("DestructivePreflightDialog", () => {
     [{ kind: "deleteBranch", name: "topic" }, { kind: "branchDeleted", name: "topic", unmergedInto: "main" }],
     [{ kind: "deleteRemoteBranch", remote: "origin", branch: "topic" }, { kind: "remoteRefUpdated", remote: "origin", refName: "refs/heads/topic", droppedCommits: 1 }],
     [{ kind: "deleteTag", name: "v1" }, { kind: "tagDeleted", name: "v1", targetCommitId: "abc" }],
-    [{ kind: "stashPop", index: 0 }, { kind: "stashEntryConsumed", index: 0, message: "WIP" }],
+    [{ kind: "stashPop", id: "stash-id", restoreIndex: false }, { kind: "stashEntryConsumed", id: "stash-id", refName: "stash@{0}", title: "WIP", filesChanged: 2, base: "abc", branch: "main" }],
+    [{ kind: "stashDrop", id: "stash-id" }, { kind: "stashEntryConsumed", id: "stash-id", refName: "stash@{0}", title: "WIP", filesChanged: 2, base: "abc", branch: "main" }],
     [{ kind: "checkoutDiscard", branch: "topic" }, { kind: "modifiedFilesDiscarded", count: 1, sample: ["a.txt"] }],
     [{ kind: "abortOperation" }, { kind: "stagedChangesDiscarded", count: 1 }],
     [{ kind: "recoveryRestore", commitId: "abc" }, { kind: "commitsUnreachable", count: 1, sample: [] }],
@@ -117,7 +118,9 @@ describe("DestructivePreflightDialog", () => {
     expect(screen.getByRole("button", { name: `preflight.${requestedAction.kind}.confirm` })).toBeEnabled();
     const consequenceKey = consequence.kind === "branchDeleted" && consequence.unmergedInto
       ? "branchDeletedUnmerged"
-      : consequence.kind;
+      : consequence.kind === "stashEntryConsumed"
+        ? requestedAction.kind === "stashDrop" ? "stashEntryDropped" : "stashEntryPopped"
+        : consequence.kind;
     expect(screen.getByText(`preflight.consequences.${consequenceKey}${"count" in consequence ? `:${consequence.count}` : ""}`)).toBeInTheDocument();
   });
 

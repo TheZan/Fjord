@@ -116,7 +116,7 @@ export function DestructivePreflightDialog({
           <div className="mt-4 flex flex-col gap-3 text-[13px]">
             <ul className="flex list-disc flex-col gap-2 pl-5">
               {preflight.consequences.map((consequence, index) => (
-                <ConsequenceItem key={`${consequence.kind}-${index}`} consequence={consequence} />
+                <ConsequenceItem key={`${consequence.kind}-${index}`} consequence={consequence} action={action} />
               ))}
             </ul>
 
@@ -168,7 +168,7 @@ export function DestructivePreflightDialog({
   );
 }
 
-function ConsequenceItem({ consequence }: { consequence: Consequence }) {
+function ConsequenceItem({ consequence, action }: { consequence: Consequence; action: DestructiveAction }) {
   const { t } = useTranslation("workspace");
   switch (consequence.kind) {
     case "modifiedFilesDiscarded":
@@ -202,7 +202,12 @@ function ConsequenceItem({ consequence }: { consequence: Consequence }) {
     case "tagDeleted":
       return <li>{t("preflight.consequences.tagDeleted", consequence)}</li>;
     case "stashEntryConsumed":
-      return <li>{t("preflight.consequences.stashEntryConsumed", consequence)}</li>;
+      return <li>{t(
+        action.kind === "stashDrop"
+          ? "preflight.consequences.stashEntryDropped"
+          : "preflight.consequences.stashEntryPopped",
+        { ...consequence, branch: consequence.branch ?? t("stash.inspector.createdDetached") },
+      )}</li>;
     case "remoteRefUpdated":
       return <li>{t("preflight.consequences.remoteRefUpdated", consequence)}</li>;
     case "fileRemoved":

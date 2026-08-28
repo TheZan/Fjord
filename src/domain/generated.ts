@@ -102,6 +102,12 @@ export type CreateStashRequest = { scope: StashScope, message: string, includeUn
 
 export type CreateStashResult = { entry: StashEntry, generations: GenerationSet, };
 
+export type StashApplyOutcome = { "kind": "applied" } | { "kind": "conflicted", paths: Array<string>, };
+
+export type StashApplyResult = { outcome: StashApplyOutcome, entryRemoved: boolean, generations: GenerationSet, };
+
+export type CreateBranchFromStashResult = { branch: string, outcome: StashApplyOutcome | null, stashKept: boolean, generations: GenerationSet, };
+
 export type CommitId = string;
 
 export type CommitSummary = { id: CommitId, parentIds: Array<CommitId>, message: string, authorName: string, authorEmail: string, authoredAt: string, refs: Array<string>, };
@@ -169,13 +175,15 @@ export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hu
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", index: number, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
+
+export type DestructiveExecutionResult = { "kind": "completed" } | { "kind": "operationState", state: RepoOperationState, } | { "kind": "stashApply", result: StashApplyResult, };
 
 export type ForceWithLeaseDetails = { remote: string, refName: string, expectedOid: CommitId, };
 
 export type Recoverability = "reflog" | "stash" | "notRecoverable" | "committed";
 
-export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, };
+export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", id: StashId, refName: string, title: string, filesChanged: number, base: CommitId, branch: string | null, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, };
 
 export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, forceWithLease: ForceWithLeaseDetails | null, confirmationToken: string | null, };
 

@@ -8,6 +8,7 @@ import { useTags } from "@/application/useTags";
 import { Input, Surface } from "@/presentation/ui";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import { StashContextMenu } from "@/presentation/StashContextMenu";
+import type { StashAction } from "@/application/stashActions";
 import { formatRelativeTime } from "@/presentation/formatRelativeTime";
 import type { BranchInfo, StashEntry, StashId, TagInfo } from "@/domain/git";
 
@@ -33,6 +34,7 @@ export function RepoTree({
   onSelectStash,
   onStashContextMenu,
   onRevealStashInGraph,
+  onStashAction,
 }: {
   repoId: string;
   focusedBranch?: string | null;
@@ -46,6 +48,7 @@ export function RepoTree({
   onSelectStash?: (stashId: StashId) => void;
   onStashContextMenu?: (stashId: StashId) => void;
   onRevealStashInGraph?: (stashId: StashId) => void;
+  onStashAction?: (action: StashAction, stash: StashEntry) => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
@@ -62,7 +65,7 @@ export function RepoTree({
   const [menu, setMenu] = useState<
     | { kind: "branch"; branch: BranchInfo; x: number; y: number }
     | { kind: "tag"; tag: TagInfo; x: number; y: number }
-    | { kind: "stash"; stashId: StashId; x: number; y: number }
+    | { kind: "stash"; stash: StashEntry; x: number; y: number }
     | null
   >(null);
 
@@ -238,7 +241,7 @@ export function RepoTree({
                     onContextMenu={(position, invoker) => {
                       invoker.focus();
                       onStashContextMenu?.(entry.id);
-                      setMenu({ kind: "stash", stashId: entry.id, ...position });
+                      setMenu({ kind: "stash", stash: entry, ...position });
                     }}
                   />
                 );
@@ -251,7 +254,11 @@ export function RepoTree({
         <StashContextMenu
           state={menu}
           onClose={() => setMenu(null)}
-          onRevealInGraph={onRevealStashInGraph}
+          canRevealInGraph={Boolean(onRevealStashInGraph)}
+          onAction={(action, stash) => {
+            if (onStashAction) onStashAction(action, stash);
+            else if (action === "revealInGraph") onRevealStashInGraph?.(stash.id);
+          }}
         />
       ) : menu ? (
         <ContextMenu

@@ -529,6 +529,10 @@
       "title": "Apply and remove this stash?",
       "confirm": "Pop stash"
     },
+    "stashDrop": {
+      "title": "Drop this stash?",
+      "confirm": "Drop stash"
+    },
     "checkoutDiscard": {
       "title": "Discard changes and check out?",
       "confirm": "Discard and check out"
@@ -576,7 +580,8 @@
       "branchDeleted": "Delete branch {{name}}.",
       "branchDeletedUnmerged": "Delete branch {{name}}, which is not merged into {{unmergedInto}}.",
       "tagDeleted": "Delete tag {{name}}.",
-      "stashEntryConsumed": "Apply and consume stash {{index}}: {{message}}.",
+      "stashEntryPopped": "Apply “{{title}}” ({{refName}}) to the current branch, changing {{filesChanged}} files, then remove it only if apply succeeds. Created from {{branch}} at {{base}}.",
+      "stashEntryDropped": "Permanently drop “{{title}}” ({{refName}}), containing {{filesChanged}} changed files. Created from {{branch}} at {{base}}.",
       "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits.",
       "fileRemovedTracked": "Remove {{path}} from the working tree; it will appear as a Git deletion.",
       "fileRemovedUntracked": "Delete {{path}}. Git has no copy of this file."
@@ -664,7 +669,47 @@
     "empty": "No stashes.",
     "markerLabel": "Stash {{title}}, {{ref}}",
     "action": {
-      "revealInGraph": "Reveal in graph"
+      "apply": "Apply stash",
+      "pop": "Pop stash…",
+      "createBranch": "Create branch from stash…",
+      "copyRef": "Copy stash reference",
+      "copySha": "Copy stash SHA",
+      "copyBaseSha": "Copy base commit SHA",
+      "revealInGraph": "Reveal in graph",
+      "drop": "Drop stash…",
+      "more": "More stash actions"
+    },
+    "options": {
+      "applyTitle": "Apply stash",
+      "popTitle": "Pop stash",
+      "applyDescription": "Apply “{{title}}” to the current branch and keep it in the stash.",
+      "popDescription": "Apply “{{title}}” to the current branch, then remove it if apply succeeds.",
+      "restoreIndex": "Restore staged state",
+      "restoreIndexUnavailable": "This stash has no saved staged state to restore.",
+      "cancel": "Cancel",
+      "applyConfirm": "Apply",
+      "popConfirm": "Continue"
+    },
+    "branch": {
+      "title": "Create branch from stash",
+      "description": "Create and check out a branch at stash base {{base}}.",
+      "name": "Branch name",
+      "confirm": "Create",
+      "base": "Base: {{base}}",
+      "applyAfterCheckout": "Apply stash after checkout",
+      "kept": "The stash is kept. You can drop it afterwards."
+    },
+    "notice": {
+      "applied": "Stash applied and kept.",
+      "applyConflicted": "Stash applied with conflicts in {{count}} files. The stash was kept; resolve them in Working Changes or your merge tool.",
+      "popped": "Stash applied and removed.",
+      "popConflicted": "Stash applied with conflicts in {{count}} files. The stash was kept; resolve them in Working Changes or your merge tool.",
+      "dropped": "Stash dropped.",
+      "branchCreated": "Branch {{branch}} was created and checked out. The stash was kept.",
+      "branchConflicted": "Branch {{branch}} was created and checked out. Applying the stash produced conflicts in {{count}} files; the stash was kept."
+    },
+    "error": {
+      "empty": "There are no stashes to pop."
     },
     "revealNotFound": "The commit this stash was created from is not in this history.",
     "inspector": {

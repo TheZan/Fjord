@@ -21,6 +21,7 @@ impl GenerationMask {
     pub const WORKING_REFS: Self = Self::new(true, true, false, false, false);
     pub const WORKING_REFS_HISTORY: Self = Self::new(true, true, true, false, false);
     pub const WORKING_STASH: Self = Self::new(true, false, false, true, false);
+    pub const STASH: Self = Self::new(false, false, false, true, false);
     pub const CONFIG: Self = Self::new(false, false, false, false, true);
     pub const REFS_CONFIG: Self = Self::new(false, true, false, false, true);
     pub const REFS_HISTORY_CONFIG: Self = Self::new(false, true, true, false, true);
@@ -131,7 +132,10 @@ pub(crate) enum MutationKind {
     Revert,
     Reset { touches_working_tree: bool },
     StashPush,
+    StashApply,
     StashPop,
+    StashDrop,
+    CreateBranchFromStash,
     Stage,
     Unstage,
     Discard,
@@ -178,6 +182,9 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             touches_working_tree: true,
         } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::StashPush | MutationKind::StashPop => GenerationMask::WORKING_STASH,
+        MutationKind::StashApply => GenerationMask::WORKING_TREE,
+        MutationKind::StashDrop => GenerationMask::STASH,
+        MutationKind::CreateBranchFromStash => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::Stage
         | MutationKind::Unstage
         | MutationKind::Discard
@@ -239,7 +246,13 @@ mod tests {
                 GenerationMask::WORKING_REFS_HISTORY,
             ),
             (MutationKind::StashPush, GenerationMask::WORKING_STASH),
+            (MutationKind::StashApply, GenerationMask::WORKING_TREE),
             (MutationKind::StashPop, GenerationMask::WORKING_STASH),
+            (MutationKind::StashDrop, GenerationMask::STASH),
+            (
+                MutationKind::CreateBranchFromStash,
+                GenerationMask::WORKING_REFS_HISTORY,
+            ),
             (MutationKind::Stage, GenerationMask::WORKING_TREE),
             (MutationKind::Unstage, GenerationMask::WORKING_TREE),
             (MutationKind::Discard, GenerationMask::WORKING_TREE),

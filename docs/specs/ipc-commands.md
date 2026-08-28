@@ -87,7 +87,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
 | `preview_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRulePreview` | Returns the exact root-`.gitignore` rule and duplicate state without writing; refuses tracked files and non-UTF-8 `.gitignore` bytes |
 | `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Bounded consequences for all destructive actions. Returns a short-lived token bound to repository, exact action/scope, authoritative facts, and coherent generation stamp. |
-| `execute_destructive_action` | `{ repo_id, action, expected_generations, confirmation_token, operation_id? }` | `RepoOperationState?` | Atomically consumes the exact P9 confirmation before local execution; remote deletion consumes it before transport. Returns the new state for operation abort and `null` otherwise. |
+| `execute_destructive_action` | `{ repo_id, action, expected_generations, confirmation_token, operation_id? }` | `DestructiveExecutionResult` | Atomically consumes the exact confirmation before execution. Returns `OperationState` for abort, `StashApply` for Pop (including typed conflict paths and whether the entry was removed), and `Completed` otherwise. `StashPop { id, restore_index }` and `StashDrop { id }` are bound by exact stable identity and have no standalone mutation commands. |
 
 ### Repository mutations (local)
 
@@ -115,6 +115,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `cherry_pick` | `{ repo_id, commit_id }` | — | |
 | `revert_commit` | `{ repo_id, commit_id }` | — | |
 | `create_stash` | `{ repo_id, request: { scope, message, include_untracked } }` | `CreateStashResult` | The only interactive creation command. `All` delegates to `git stash push [-u] -m`; `Paths` constructs exact base/index/worktree/untracked trees through private indexes, uses `write-tree` and `commit-tree` to build the stash object graph, and publishes `refs/stash` via `update-ref` with expected-OID CAS validation. A failed publication independently attempts selected tracked-worktree, selected-untracked, and original-index recovery; complete recovery preserves the primary error, while incomplete recovery returns `stash_recovery_failed` (`P10-STASH-02`) |
+| `apply_stash` | `{ repo_id, stash_id, restore_index }` | `StashApplyResult` | Re-resolves immutable `StashId` under the repository write lock and runs system-Git Apply on the current branch. Keeps the entry, returns typed conflict paths from the fresh index, and advances only `working_tree`. |
+| `create_branch_from_stash` | `{ repo_id, stash_id, name, apply, keep }` | `CreateBranchFromStashResult` | Requires `keep = true`; safely creates/checks out a local branch at the stash's immutable `base`, optionally applies the selected entry, and always keeps it. Advances `working_tree`, `refs`, and `history`, never `stash`. |
 | `stash_paths_supported` | — | `boolean` | Whether the resolved Git supports exact scoped stash creation (Git >= 2.23). Global and non-repo-scoped; `All` is not gated |
 | `open_merge_tool` | `{ repo_id }` | — | `git mergetool --no-prompt`; the configured external tool owns resolution |
 | `diff_tool_availability` | `{ repo_id }` | `boolean` | Whether `Settings.diff_tool` (or, if unset, Git's own `diff.tool`) currently resolves to something Git can run (`P10-WC-06`) |
@@ -169,8 +171,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
-| `apply_stash` | `{ repo_id, stash_id, restore_index }` | `StashApplyResult` | [`stash-management.md`](stash-management.md) §6.2 | `P10-STASH-06` |
-| `create_branch_from_stash` | `{ repo_id, stash_id, name, apply, keep }` | `CreateBranchFromStashResult` | [`stash-management.md`](stash-management.md) §6.6 | `P10-STASH-06` |
 | `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12 | `P10-WC-MULTI-03` |
 | `export_patch` / `get_patch_text` *(widened to `selections`)* | `{ repo_id, selections, destination? }` | — / `string` | [`working-tree-and-diff.md`](working-tree-and-diff.md) §7.13 | `P10-WC-MULTI-03` |
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
@@ -182,9 +182,9 @@ One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained
 the `DeleteFile { path }` action through the existing enum and executor
 ([`repository-safety.md`](repository-safety.md) §3, `P10-WC-04`).
-`P10-STASH-06` extends the same enum and executor again — `StashPop { id,
-restore_index }` (replacing the index-keyed variant) and the new
-`StashDrop { id }` — and adds no destructive command of its own.
+`P10-STASH-06` extended the same enum and executor again — `StashPop { id,
+restore_index }` replaced the index-keyed variant and `StashDrop { id }` was
+added — without adding a destructive command of its own.
 `P10-WC-MULTI-03` adds `DiscardFiles { paths }` to the same enum. It needs one
 new command, `discard_patches`, only because discard carries a `PatchSelection`
 payload that the shared `execute_destructive_action` signature does not — exactly
@@ -194,9 +194,9 @@ the reason the shipped single-file `discard_patch` already exists
 Three former commands were **removed** by `P10-STASH-02` rather than kept
 alongside their replacements: `stash_push` and `stash_file` folded into
 `create_stash`, and `stash_file_supported` became `stash_paths_supported`.
-Pop needs no command change — it has never had an IPC command and already runs
-through `execute_destructive_action`; `P10-STASH-06` only retypes its action on
-`StashId` and deletes the dead, test-only `GitBackend::stash_pop` port method.
+Pop needed no standalone command — it has always run through
+`execute_destructive_action`. `P10-STASH-06` retyped its action on `StashId` and
+deleted the dead, test-only `GitBackend::stash_pop` port method.
 
 Every planned command above takes a **repository-relative** path and never a
 command line, an executable name, or a shell string; the backend canonicalizes

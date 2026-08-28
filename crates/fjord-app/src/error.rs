@@ -174,6 +174,26 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 tool: None,
             };
         }
+        GitError::StashApplyWouldOverwrite { paths } => {
+            return AppError {
+                code: "stash_apply_would_overwrite".to_string(),
+                message: "stash apply would overwrite local changes".to_string(),
+                diagnostics: None,
+                paths: boxed(paths),
+                stash_ref: None,
+                tool: None,
+            };
+        }
+        GitError::StashApplyFailed(diagnostics) => {
+            return AppError {
+                code: "stash_apply_failed".to_string(),
+                message: "stash apply failed".to_string(),
+                diagnostics: boxed(diagnostics),
+                paths: None,
+                stash_ref: None,
+                tool: None,
+            };
+        }
         GitError::MergeWouldOverwrite { paths } => {
             return AppError {
                 code: "merge_would_overwrite".to_string(),
@@ -240,9 +260,11 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::RemoteAlreadyExists(_) => "remote_name_exists",
         GitError::InvalidRemote(_) => "remote_request_invalid",
         GitError::NothingToStash => "nothing_to_stash",
-        GitError::StashEmpty => "stash_empty",
         GitError::StashNotFound => "stash_not_found",
         GitError::StashAmbiguous => "stash_ambiguous",
+        GitError::StashApplyWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::StashApplyIndexRefused => "stash_apply_index_refused",
+        GitError::StashApplyFailed(_) => unreachable!("handled above"),
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
         GitError::MergeSourceNotFound => "merge_source_not_found",
         GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",

@@ -57,7 +57,7 @@ describe("StashInspector", () => {
   });
 
   it("renders stash metadata and all non-empty recorded groups", () => {
-    render(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} />);
+    render(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} onStashAction={vi.fn()} />);
 
     expect(screen.getByText("Payment validation WIP")).toBeInTheDocument();
     expect(screen.getByText("stash@{2}")).toBeInTheDocument();
@@ -71,24 +71,44 @@ describe("StashInspector", () => {
   });
 
   it("exposes Reveal in graph from the inspector", () => {
-    const onRevealInGraph = vi.fn();
+    const onStashAction = vi.fn();
     render(
       <StashInspector
         repoId="repo-1"
         stash={stash}
         selectedFile={null}
         onSelectFile={vi.fn()}
-        onRevealInGraph={onRevealInGraph}
+        canRevealInGraph
+        onStashAction={onStashAction}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "stash.action.revealInGraph" }));
-    expect(onRevealInGraph).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "stash.action.more" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.revealInGraph" }));
+    expect(onStashAction).toHaveBeenCalledWith("revealInGraph", stash);
+  });
+
+  it("routes promoted Apply and Pop actions through the same stash dispatcher", () => {
+    const onStashAction = vi.fn();
+    render(
+      <StashInspector
+        repoId="repo-1"
+        stash={stash}
+        selectedFile={null}
+        onSelectFile={vi.fn()}
+        onStashAction={onStashAction}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "stash.action.apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "stash.action.pop" }));
+    expect(onStashAction).toHaveBeenNthCalledWith(1, "apply", stash);
+    expect(onStashAction).toHaveBeenNthCalledWith(2, "pop", stash);
   });
 
   it("keys duplicate paths by group when selecting their distinct rows", () => {
     const onSelectFile = vi.fn();
-    render(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={onSelectFile} />);
+    render(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={onSelectFile} onStashAction={vi.fn()} />);
     const duplicateRows = screen.getAllByTitle("both.txt");
 
     fireEvent.click(duplicateRows[0]);
@@ -105,6 +125,7 @@ describe("StashInspector", () => {
         stash={stash}
         selectedFile={{ stashId: stash.id, group: "index", path: "both.txt" }}
         onSelectFile={vi.fn()}
+        onStashAction={vi.fn()}
       />,
     );
     expect(screen.getAllByTitle("both.txt")[0]).toHaveAttribute("aria-selected", "true");
@@ -115,6 +136,7 @@ describe("StashInspector", () => {
         stash={{ ...stash, id: "other-stash", refName: "stash@{1}" }}
         selectedFile={{ stashId: stash.id, group: "index", path: "both.txt" }}
         onSelectFile={vi.fn()}
+        onStashAction={vi.fn()}
       />,
     );
 
@@ -138,6 +160,7 @@ describe("StashInspector", () => {
         stash={{ ...stash, branch: null }}
         selectedFile={null}
         onSelectFile={vi.fn()}
+        onStashAction={vi.fn()}
       />,
     );
 
@@ -154,7 +177,7 @@ describe("StashInspector", () => {
       error: null,
     });
     const view = render(
-      <StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} />,
+      <StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} onStashAction={vi.fn()} />,
     );
     expect(screen.getByText("commits.loading")).toBeInTheDocument();
 
@@ -163,7 +186,7 @@ describe("StashInspector", () => {
       loading: false,
       error: "read failed",
     });
-    view.rerender(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} />);
+    view.rerender(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} onStashAction={vi.fn()} />);
     expect(screen.getByText("read failed")).toBeInTheDocument();
 
     vi.mocked(useStashFiles).mockReturnValue({
@@ -171,7 +194,7 @@ describe("StashInspector", () => {
       loading: false,
       error: null,
     });
-    view.rerender(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} />);
+    view.rerender(<StashInspector repoId="repo-1" stash={stash} selectedFile={null} onSelectFile={vi.fn()} onStashAction={vi.fn()} />);
     expect(screen.getByText("stash.inspector.empty")).toBeInTheDocument();
     expect(screen.getByText("stash.inspector.truncated")).toBeInTheDocument();
   });

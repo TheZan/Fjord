@@ -3,24 +3,26 @@ use std::path::Path;
 
 use fjord_domain::{
     AmendInfo, BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
-    CommitPage, CommitPushResult, CommitSummary, Consequence, CreateRepositoryRequest,
-    CreateRepositoryResult, CreateStashRequest, CreateStashResult, CredentialHelperInfo,
-    DestructiveAction, DestructivePreflight, DiffHunk, DiffLine, DiffLineEnding, DiffLineKind,
-    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
-    ForceWithLeaseDetails, GenerationSet, GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol,
-    GitConnectionTestResult, GitEnvironmentInfo, GitExecutable, GitExecutableSource,
-    GlobalSearchResult, HunkSelection, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview,
-    InteractionSpan, InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode,
-    MergeOutcome, MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind,
-    OpenTarget, OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection,
-    PatchSource, RebaseKind, Recoverability, ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult,
-    RemoteRef, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
-    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
-    SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult, StashEntry,
-    StashFileGroup, StashFiles, StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme,
-    UiDiffMode, UiFileViewMode, UiOverviewFilter, UiState, UiStatePatch, WorkingChanges,
-    WorkingFile, WorkingFileTarget, Workspace, WorkspaceId,
+    CommitPage, CommitPushResult, CommitSummary, Consequence, CreateBranchFromStashResult,
+    CreateRepositoryRequest, CreateRepositoryResult, CreateStashRequest, CreateStashResult,
+    CredentialHelperInfo, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
+    DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
+    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
+    GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
+    GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, InteractionSpan, InteractionTrace,
+    LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome, MergePrediction,
+    MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget, OperationControl,
+    OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability,
+    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoOperation,
+    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
+    RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, ResetMode,
+    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult,
+    StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
+    StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -94,6 +96,9 @@ fn generated_types() -> String {
     push_without_trailing_whitespace::<StashScope>(&mut output, &config);
     push::<CreateStashRequest>(&mut output, &config);
     push::<CreateStashResult>(&mut output, &config);
+    push_without_trailing_whitespace::<StashApplyOutcome>(&mut output, &config);
+    push::<StashApplyResult>(&mut output, &config);
+    push::<CreateBranchFromStashResult>(&mut output, &config);
     push::<CommitId>(&mut output, &config);
     push::<CommitSummary>(&mut output, &config);
     push::<LogCursor>(&mut output, &config);
@@ -118,6 +123,7 @@ fn generated_types() -> String {
     push::<DiscardSelection>(&mut output, &config);
     push::<ResetMode>(&mut output, &config);
     push::<DestructiveAction>(&mut output, &config);
+    push_without_trailing_whitespace::<DestructiveExecutionResult>(&mut output, &config);
     push::<ForceWithLeaseDetails>(&mut output, &config);
     push::<Recoverability>(&mut output, &config);
     push::<Consequence>(&mut output, &config);

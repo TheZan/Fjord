@@ -146,7 +146,7 @@ describe("RepoTree", () => {
 
     fireEvent.contextMenu(row, { clientX: 12, clientY: 34 });
     expect(onStashContextMenu).toHaveBeenLastCalledWith("stash-oid-detached");
-    expect(screen.queryAllByRole("menuitem")).toHaveLength(0);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(7);
     fireEvent.keyDown(screen.getByRole("menu", { name: "tree.stashes" }), { key: "Escape" });
     expect(row).toHaveFocus();
 
@@ -173,6 +173,18 @@ describe("RepoTree", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.revealInGraph" }));
 
     expect(onRevealStashInGraph).toHaveBeenCalledWith("stash-oid-detached");
+  });
+
+  it("dispatches Apply from the shared menu with the exact fresh stash entry", () => {
+    const onStashAction = vi.fn();
+    const { container } = render(<RepoTree repoId="repo-1" onStashAction={onStashAction} />);
+    fireEvent.click(screen.getByRole("button", { name: /tree.stashes/ }));
+    fireEvent.contextMenu(
+      container.querySelector<HTMLButtonElement>("[data-stash-id='stash-oid-similar-title']")!,
+      { clientX: 12, clientY: 34 },
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.apply" }));
+    expect(onStashAction).toHaveBeenCalledWith("apply", stashes[2]);
   });
 
   it("filters stashes by title or full message without reordering them", () => {

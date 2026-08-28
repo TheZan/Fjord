@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, checkoutBranch, createBranchAt, createStash, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -78,6 +78,25 @@ vi.mock("@/application/useDiffToolAvailability", () => ({
 vi.mock("@/application/useStashPathsSupported", () => ({
   useStashPathsSupported: () => true,
 }));
+vi.mock("@/application/useStashes", () => ({
+  useStashes: () => ({
+    stashes: [{
+      id: "stash-id",
+      index: 0,
+      refName: "stash@{0}",
+      message: "On main: test",
+      title: "test",
+      base: "base-id",
+      branch: "main",
+      createdAt: "2026-08-24T00:00:00Z",
+      filesChanged: 1,
+      hasIndexState: false,
+      hasUntracked: false,
+    }],
+    loading: false,
+    error: null,
+  }),
+}));
 vi.mock("@/application/invalidateRepoData", () => ({
   invalidateRepoData: vi.fn(async () => undefined),
 }));
@@ -110,6 +129,11 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     },
     generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
   })),
+  applyStash: vi.fn(async () => ({
+    outcome: { kind: "applied" as const },
+    entryRemoved: false,
+    generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
+  })),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
   runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
   runPushBranchToRemotes: vi.fn(() => ({
@@ -130,7 +154,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   })),
   runExecuteDestructiveAction: vi.fn(() => ({
     operationId: "operation-destructive",
-    promise: Promise.resolve(null),
+    promise: Promise.resolve({ kind: "completed" as const }),
   })),
   runStashAndCheckout: vi.fn(() => ({
     operationId: "operation-stash-checkout",
@@ -232,6 +256,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     selectedStashId,
     onSelectStash,
     workingSelected,
+    stashActionRequest,
+    onPreflightAction,
+    onApplyStash,
   }: {
     actionConfirmation: { kind: string; branch?: string } | null;
     onAction: (action: "push" | "stash" | "stash-pop") => void;
@@ -263,6 +290,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     selectedStashId: import("@/domain/git").StashId | null;
     onSelectStash: (stashId: import("@/domain/git").StashId) => void;
     workingSelected: boolean;
+    stashActionRequest?: { action: import("@/application/stashActions").StashAction; stash: import("@/domain/git").StashEntry } | null;
+    onPreflightAction: (action: import("@/domain/git").DestructiveAction) => void;
+    onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void;
   }) => (
     <div>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
@@ -278,7 +308,15 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
+      {stashActionRequest?.action === "pop" ? (
+        <button type="button" onClick={() => onPreflightAction({ kind: "stashPop", id: stashActionRequest.stash.id, restoreIndex: false })}>
+          confirm pop options
+        </button>
+      ) : null}
       <button type="button" onClick={() => onSelectStash("exact-stash-oid")}>select stash</button>
+      <button type="button" onClick={() => onSelectStash("stash-id")}>select top stash</button>
+      <button type="button" onClick={() => onApplyStash({ id: "stash-id", index: 0, refName: "stash@{0}", message: "On main: test", title: "test", base: "base-id", branch: "main", createdAt: "2026-08-24T00:00:00Z", filesChanged: 1, hasIndexState: false, hasUntracked: false }, false)}>apply top stash</button>
+      <button type="button" onClick={() => onPreflightAction({ kind: "stashDrop", id: "stash-id" })}>drop top stash</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
@@ -362,6 +400,12 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(addIgnoreRule).mockResolvedValue("added");
     vi.mocked(createBranchAt).mockClear();
     vi.mocked(createStash).mockClear();
+    vi.mocked(applyStash).mockReset();
+    vi.mocked(applyStash).mockResolvedValue({
+      outcome: { kind: "applied" },
+      entryRemoved: false,
+      generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
+    });
     vi.mocked(runPushRepo).mockClear();
     vi.mocked(runPublishBranch).mockReset();
     vi.mocked(runPublishBranch).mockReturnValue({
@@ -385,7 +429,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
     vi.mocked(runExecuteDestructiveAction).mockReset();
     vi.mocked(runExecuteDestructiveAction).mockReturnValue({
       operationId: "operation-destructive",
-      promise: Promise.resolve(null),
+      promise: Promise.resolve({ kind: "completed" }),
     });
     vi.mocked(runCommitAndPushRepo).mockReset();
     vi.mocked(runCommitAndPushRepo).mockReturnValue({
@@ -632,13 +676,14 @@ describe("RepoDetailContainer checkout confirmation", () => {
   });
 
   it("routes stash pop through fresh shared preflight facts and the bound executor", async () => {
-    const action = { kind: "stashPop" as const, index: 0 };
+    const action = { kind: "stashPop" as const, id: "stash-id", restoreIndex: false };
     vi.mocked(preflightDestructiveAction)
       .mockResolvedValueOnce(actionPreflight(action, "stash-token-1"))
       .mockResolvedValueOnce(actionPreflight(action, "stash-token-2"));
     renderContainer();
 
     fireEvent.click(screen.getByRole("button", { name: "stash pop" }));
+    fireEvent.click(await screen.findByRole("button", { name: "confirm pop options" }));
     expect(await screen.findByText("preflight.stashPop.title")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "preflight.stashPop.confirm" }));
 
@@ -653,6 +698,78 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "repo-1",
       "workspace-1",
       ["status", "working", "stashes"],
+    );
+  });
+
+  it("reports conflicted Apply as a kept-stash success and refreshes only status/working", async () => {
+    vi.mocked(applyStash).mockResolvedValueOnce({
+      outcome: { kind: "conflicted", paths: ["tracked.txt"] },
+      entryRemoved: false,
+      generations: { workingTree: 2, refs: 1, history: 1, stash: 0, config: 0 },
+    });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "apply top stash" }));
+
+    await waitFor(() => expect(screen.getByTestId("action-success")).toHaveTextContent("stash.notice.applyConflicted"));
+    expect(applyStash).toHaveBeenCalledWith("repo-1", "stash-id", false);
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "workspace-1", ["status", "working"],
+    );
+  });
+
+  it("keeps the selected inspector after conflicted Pop and clears it after successful Pop", async () => {
+    const action = { kind: "stashPop" as const, id: "stash-id", restoreIndex: false };
+    vi.mocked(preflightDestructiveAction).mockResolvedValue(actionPreflight(action, "stash-token"));
+    vi.mocked(runExecuteDestructiveAction).mockReturnValueOnce({
+      operationId: "pop-conflict",
+      promise: Promise.resolve({
+        kind: "stashApply",
+        result: {
+          outcome: { kind: "conflicted", paths: ["tracked.txt"] },
+          entryRemoved: false,
+          generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
+        },
+      }),
+    });
+    const view = renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "select top stash" }));
+    fireEvent.click(screen.getByRole("button", { name: "stash pop" }));
+    fireEvent.click(await screen.findByRole("button", { name: "confirm pop options" }));
+    fireEvent.click(await screen.findByRole("button", { name: "preflight.stashPop.confirm" }));
+    await waitFor(() => expect(screen.getByTestId("action-success")).toHaveTextContent("stash.notice.popConflicted"));
+    expect(screen.getByTestId("selected-stash-id")).toHaveTextContent("stash-id");
+
+    vi.mocked(runExecuteDestructiveAction).mockReturnValueOnce({
+      operationId: "pop-success",
+      promise: Promise.resolve({
+        kind: "stashApply",
+        result: {
+          outcome: { kind: "applied" },
+          entryRemoved: true,
+          generations: { workingTree: 3, refs: 1, history: 1, stash: 2, config: 0 },
+        },
+      }),
+    });
+    vi.mocked(preflightDestructiveAction).mockResolvedValue(actionPreflight(action, "stash-token-2"));
+    fireEvent.click(screen.getByRole("button", { name: "stash pop" }));
+    fireEvent.click(await screen.findByRole("button", { name: "confirm pop options" }));
+    fireEvent.click(await screen.findByRole("button", { name: "preflight.stashPop.confirm" }));
+    await waitFor(() => expect(screen.getByTestId("selected-stash-id")).toHaveTextContent(""));
+    view.unmount();
+  });
+
+  it("clears an active dropped stash and invalidates only stashes", async () => {
+    const action = { kind: "stashDrop" as const, id: "stash-id" };
+    vi.mocked(preflightDestructiveAction).mockResolvedValue(actionPreflight(action, "drop-token"));
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "select top stash" }));
+    fireEvent.click(screen.getByRole("button", { name: "drop top stash" }));
+    fireEvent.click(await screen.findByRole("button", { name: "preflight.stashDrop.confirm" }));
+
+    await waitFor(() => expect(screen.getByTestId("selected-stash-id")).toHaveTextContent(""));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      expect.anything(), "repo-1", "workspace-1", ["stashes"],
     );
   });
 

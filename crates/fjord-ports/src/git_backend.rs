@@ -7,12 +7,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, CreateStashRequest,
-    CreateStashResult, DestructiveAction, DiffWhitespaceMode, FileDiff, FileDiffDetail,
-    FileDiffWindow, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
-    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
-    PatchSource, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
-    SquashMergeResult, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, CreateBranchFromStashResult,
+    CreateStashRequest, CreateStashResult, DestructiveAction, DestructiveExecutionResult,
+    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
+    RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult, StashEntry,
+    StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -214,12 +215,16 @@ pub enum GitError {
     InvalidRemote(String),
     #[error("nothing to stash")]
     NothingToStash,
-    #[error("stash is empty")]
-    StashEmpty,
     #[error("the selected stash no longer exists")]
     StashNotFound,
     #[error("more than one stash entry points at the selected stash commit")]
     StashAmbiguous,
+    #[error("stash apply would overwrite local changes in {paths:?}")]
+    StashApplyWouldOverwrite { paths: Vec<String> },
+    #[error("Git refused to restore the stash's staged state")]
+    StashApplyIndexRefused,
+    #[error("stash apply failed: {0}")]
+    StashApplyFailed(String),
     #[error("checkout would overwrite local changes in {paths:?}")]
     CheckoutWouldOverwrite { paths: Vec<String> },
     #[error("merge source was not found")]
@@ -638,8 +643,24 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<CreateStashResult, GitError> {
         Err(GitError::NotImplemented("create_stash"))
     }
-    /// Applies and drops `stash@{0}`, the most recent entry.
-    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
+    async fn apply_stash(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _restore_index: bool,
+    ) -> Result<StashApplyResult, GitError> {
+        Err(GitError::NotImplemented("apply_stash"))
+    }
+    async fn create_branch_from_stash(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _name: &str,
+        _apply: bool,
+        _keep: bool,
+    ) -> Result<CreateBranchFromStashResult, GitError> {
+        Err(GitError::NotImplemented("create_branch_from_stash"))
+    }
     /// Whether the resolved Git executable supports exact scoped stash
     /// construction (currently Git >= 2.23).
     async fn stash_paths_supported(&self) -> Result<bool, GitError> {
@@ -708,7 +729,7 @@ pub trait GitBackend: Send + Sync {
         _expected_generations: GenerationSet,
         _confirmation_token: &str,
         _context: GitOperationContext,
-    ) -> Result<Option<RepoOperationState>, GitError> {
+    ) -> Result<DestructiveExecutionResult, GitError> {
         Err(GitError::NotImplemented(
             "execute_confirmed_destructive_action",
         ))

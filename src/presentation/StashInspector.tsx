@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { StashAction } from "@/application/stashActions";
 import { useStashFiles } from "@/application/useStashFiles";
 import type { FileDiff, StashEntry, StashFileGroup, StashId } from "@/domain/git";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
@@ -13,6 +14,7 @@ import {
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { formatDateTime } from "@/presentation/formatDateTime";
 import { Button } from "@/presentation/ui";
+import { StashContextMenu } from "@/presentation/StashContextMenu";
 
 export interface StashFileSelection {
   stashId: StashId;
@@ -25,17 +27,20 @@ export function StashInspector({
   stash,
   selectedFile,
   onSelectFile,
-  onRevealInGraph,
+  canRevealInGraph = false,
+  onStashAction,
 }: {
   repoId: string;
   stash: StashEntry;
   selectedFile: StashFileSelection | null;
   onSelectFile: (selection: StashFileSelection) => void;
-  onRevealInGraph?: () => void;
+  canRevealInGraph?: boolean;
+  onStashAction: (action: StashAction, stash: StashEntry) => void;
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { files, loading, error } = useStashFiles(repoId, stash.id);
   const [viewMode, setViewMode] = useState<FileViewMode>("path");
+  const [menu, setMenu] = useState<{ stash: StashEntry; x: number; y: number } | null>(null);
   const allFiles = useMemo(
     () => [...files.staged, ...files.worktree, ...files.untracked],
     [files.staged, files.untracked, files.worktree],
@@ -71,17 +76,32 @@ export function StashInspector({
         <p className="mt-2 text-[11px]" style={{ color: "var(--slate)" }}>
           {t("stash.inspector.applyIsUnstaged")}
         </p>
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" onClick={() => onStashAction("apply", stash)}>
+            {t("stash.action.apply")}
+          </Button>
+          <Button size="sm" onClick={() => onStashAction("pop", stash)}>
+            {t("stash.action.pop")}
+          </Button>
+          <span className="flex-1" />
+          <Button
+            size="sm"
+            aria-label={t("stash.action.more")}
+            onClick={(event) => {
+              const bounds = event.currentTarget.getBoundingClientRect();
+              setMenu({ stash, x: bounds.right, y: bounds.bottom });
+            }}
+          >
+            ⋯
+          </Button>
+        </div>
       </div>
 
       <div
         className="flex min-w-0 shrink-0 items-center justify-between gap-2 border-b px-3 py-1.5"
         style={{ borderColor: "var(--hairline)" }}
       >
-        {onRevealInGraph ? (
-          <Button size="sm" onClick={onRevealInGraph}>
-            {t("stash.action.revealInGraph")}
-          </Button>
-        ) : <span />}
+        <span />
         <span className="flex items-center gap-1">
           {viewMode === "tree" && <FileTreeControls collapse={collapse} />}
           <FileViewTabs mode={viewMode} onChange={setViewMode} />
@@ -134,6 +154,14 @@ export function StashInspector({
           </p>
         ) : null}
       </div>
+      {menu ? (
+        <StashContextMenu
+          state={menu}
+          canRevealInGraph={canRevealInGraph}
+          onClose={() => setMenu(null)}
+          onAction={onStashAction}
+        />
+      ) : null}
     </div>
   );
 }

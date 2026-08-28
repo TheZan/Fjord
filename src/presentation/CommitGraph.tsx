@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { isPrimaryShortcut } from "@/application/keyboardShortcut";
+import type { StashAction } from "@/application/stashActions";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useCommitLog } from "@/application/useCommitLog";
@@ -80,6 +81,7 @@ export function CommitGraph({
   selectedStashId,
   onSelectStash,
   onStashContextMenu,
+  onStashAction,
   revealStashRequest,
   onRevealStashNotFound,
   workingFileCount = 0,
@@ -100,6 +102,7 @@ export function CommitGraph({
   selectedStashId?: StashId | null;
   onSelectStash?: (stashId: StashId) => void;
   onStashContextMenu?: (stashId: StashId) => void;
+  onStashAction?: (action: StashAction, stash: StashEntry) => void;
   revealStashRequest?: StashGraphRevealRequest | null;
   onRevealStashNotFound?: (stashId: StashId) => void;
   /** Uncommitted files; when non-zero a WIP row is pinned above the history. */
@@ -113,7 +116,7 @@ export function CommitGraph({
   const [pendingSearchRevealId, setPendingSearchRevealId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ commit: CommitSummary; x: number; y: number } | null>(null);
   const [refMenu, setRefMenu] = useState<{ refInfo: CommitRef; x: number; y: number } | null>(null);
-  const [stashMenu, setStashMenu] = useState<{ stashId: StashId; x: number; y: number } | null>(null);
+  const [stashMenu, setStashMenu] = useState<{ stash: StashEntry; x: number; y: number } | null>(null);
   const [refFlyout, setRefFlyout] = useState<{ anchorRect: DOMRect; badges: CommitBadge[] } | null>(null);
   const refFlyoutCloseTimeout = useRef<number | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, SEARCH_DEBOUNCE_MS);
@@ -487,7 +490,8 @@ export function CommitGraph({
                   onSelectStash={onSelectStash}
                   onStashContextMenu={(stashId, position) => {
                     onStashContextMenu?.(stashId);
-                    setStashMenu({ stashId, ...position });
+                    const stash = stashes.find((entry) => entry.id === stashId);
+                    if (stash) setStashMenu({ stash, ...position });
                   }}
                   onContextMenu={(event, commit) => setMenu({ commit, x: event.clientX, y: event.clientY })}
                   onOpenRefFlyout={openRefFlyout}
@@ -531,7 +535,8 @@ export function CommitGraph({
           onSelectStash={onSelectStash}
           onStashContextMenu={(stashId, position) => {
             onStashContextMenu?.(stashId);
-            setStashMenu({ stashId, ...position });
+            const stash = stashes.find((entry) => entry.id === stashId);
+            if (stash) setStashMenu({ stash, ...position });
           }}
           onMouseEnter={cancelRefFlyoutClose}
           onMouseLeave={scheduleRefFlyoutClose}
@@ -577,7 +582,11 @@ export function CommitGraph({
         />
       )}
       {stashMenu && (
-        <StashContextMenu state={stashMenu} onClose={() => setStashMenu(null)} />
+        <StashContextMenu
+          state={stashMenu}
+          onClose={() => setStashMenu(null)}
+          onAction={(action, stash) => onStashAction?.(action, stash)}
+        />
       )}
     </div>
   );

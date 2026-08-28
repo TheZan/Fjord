@@ -17,13 +17,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    BranchInfo, CommitId, CommitPage, CommitSummary, CreateStashRequest, CreateStashResult,
-    DestructiveAction, DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, DiffWhitespaceMode,
-    DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, HunkSelection,
-    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
-    MergePreflight, MergeResult, MergeSource, PatchSelection, PatchSource, ReflogEntry, ReflogPage,
-    RemoteInfo, RepoStatus, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo,
-    WorkingChanges, WorkingFile,
+    BranchInfo, CommitId, CommitPage, CommitSummary, CreateBranchFromStashResult,
+    CreateStashRequest, CreateStashResult, DestructiveAction, DiffHunk, DiffLine, DiffLineEnding,
+    DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
+    FileDiffWindow, HunkSelection, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
+    PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RepoStatus, StashApplyResult, StashEntry,
+    StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges, WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -613,10 +613,24 @@ impl GitBackend for LocalGitBackend {
         stash::paths_supported(&self.commands).await
     }
 
-    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError> {
-        mutations::stash_pop(repo).await?;
-        runtime::bump_mutation(repo, MutationKind::StashPop);
-        Ok(())
+    async fn apply_stash(
+        &self,
+        repo: &RepoPath,
+        stash_id: &StashId,
+        restore_index: bool,
+    ) -> Result<StashApplyResult, GitError> {
+        stash::apply(&self.commands, repo, stash_id, restore_index).await
+    }
+
+    async fn create_branch_from_stash(
+        &self,
+        repo: &RepoPath,
+        stash_id: &StashId,
+        name: &str,
+        apply: bool,
+        keep: bool,
+    ) -> Result<CreateBranchFromStashResult, GitError> {
+        stash::create_branch_from_stash(&self.commands, repo, stash_id, name, apply, keep).await
     }
 
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {
@@ -704,7 +718,7 @@ impl GitBackend for LocalGitBackend {
         expected_generations: crate::GenerationSet,
         confirmation_token: &str,
         context: fjord_ports::GitOperationContext,
-    ) -> Result<Option<fjord_domain::RepoOperationState>, GitError> {
+    ) -> Result<fjord_domain::DestructiveExecutionResult, GitError> {
         destructive_execution::execute(
             destructive_execution::ExecutionDependencies {
                 commands: &self.commands,

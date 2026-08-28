@@ -7,8 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use fjord_domain::{
-    CommitId, CreateStashRequest, DiffWhitespaceMode, FileDiff, FileDiffWindow, StashEntry,
-    StashFileGroup, StashFiles, StashId, StashScope,
+    CommitId, CreateBranchFromStashResult, CreateStashRequest, DiffWhitespaceMode, FileDiff,
+    FileDiffWindow, StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
+    StashId, StashScope,
 };
 use fjord_ports::{GitError, RepoPath};
 use git2::{ErrorCode, ObjectType, Oid, Repository, Tree};
@@ -19,11 +20,296 @@ use uuid::Uuid;
 use super::patch_transaction;
 use super::LocalGitBackend;
 use crate::executable::GitCommandFactory;
+use crate::generation::MutationKind;
+use crate::remote::errors::sanitize_diagnostics;
 
 const STASH_REF: &str = "refs/stash";
 /// `git restore` is used to reset only the selected tracked paths after the
 /// exact stash object has been built. It was introduced in Git 2.23.
 const MINIMUM_PATHS_VERSION: (u32, u32) = (2, 23);
+const STASH_FAILURE_DIAGNOSTIC_LIMIT: usize = 64 * 1024;
+const STASH_FAILURE_PATH_LIMIT: usize = 100;
+
+#[derive(Clone, Copy)]
+pub(super) enum ApplyMode {
+    Apply,
+    Pop,
+}
+
+pub(super) struct ApplyResult {
+    pub(super) outcome: StashApplyOutcome,
+    pub(super) entry_removed: bool,
+}
+
+pub(super) async fn apply(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_id: &StashId,
+    restore_index: bool,
+) -> Result<StashApplyResult, GitError> {
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let stash_id = stash_id.clone();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+    let applied = tokio::task::spawn_blocking({
+        let repo = repo.clone();
+        move || apply_locked(&commands, &repo, &stash_id, restore_index, ApplyMode::Apply)
+    })
+    .await
+    .map_err(join_error)??;
+    super::runtime::bump_mutation(&repo, MutationKind::StashApply);
+    Ok(StashApplyResult {
+        outcome: applied.outcome,
+        entry_removed: false,
+        generations: super::runtime::generations(&repo)?,
+    })
+}
+
+pub(super) async fn create_branch_from_stash(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_id: &StashId,
+    name: &str,
+    apply: bool,
+    keep: bool,
+) -> Result<CreateBranchFromStashResult, GitError> {
+    if !keep {
+        return Err(GitError::Git2(
+            "create branch from stash requires keep=true".to_string(),
+        ));
+    }
+    let commands = commands.clone();
+    let repo = repo.clone();
+    let stash_id = stash_id.clone();
+    let name = name.to_string();
+    let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
+
+    tokio::task::spawn_blocking({
+        let repo = repo.clone();
+        let stash_id = stash_id.clone();
+        let name = name.clone();
+        move || create_branch_locked(&repo, &stash_id, &name)
+    })
+    .await
+    .map_err(join_error)??;
+
+    // The branch and checkout are now observable even if the optional apply
+    // later refuses or fails, so publish their exact combined mask now while
+    // the write lock is still held.
+    super::runtime::bump_mutation(&repo, MutationKind::CreateBranchFromStash);
+
+    let outcome = if apply {
+        let applied = tokio::task::spawn_blocking({
+            let repo = repo.clone();
+            let stash_id = stash_id.clone();
+            move || apply_locked(&commands, &repo, &stash_id, false, ApplyMode::Apply)
+        })
+        .await
+        .map_err(join_error)??;
+        Some(applied.outcome)
+    } else {
+        None
+    };
+
+    Ok(CreateBranchFromStashResult {
+        branch: name,
+        outcome,
+        stash_kept: true,
+        generations: super::runtime::generations(&repo)?,
+    })
+}
+
+fn create_branch_locked(repo: &RepoPath, stash_id: &StashId, name: &str) -> Result<(), GitError> {
+    LocalGitBackend::with_runtime_git2(repo, |git| {
+        ensure_no_active_operation(git)?;
+        let entry = current_entry(git, stash_id)?;
+        let base_oid = Oid::from_str(&entry.base.0).map_err(LocalGitBackend::map_git2_error)?;
+        let base = git
+            .find_commit(base_oid)
+            .map_err(LocalGitBackend::map_git2_error)?;
+        let paths = LocalGitBackend::checkout_overwrite_paths_to_commit_inner(git, &base)?;
+        if !paths.is_empty() {
+            return Err(GitError::CheckoutWouldOverwrite { paths });
+        }
+        git.branch(name, &base, false)
+            .map_err(|error| match error.code() {
+                ErrorCode::Exists => GitError::BranchExists(name.to_string()),
+                _ => LocalGitBackend::map_git2_error(error),
+            })?;
+        LocalGitBackend::checkout_refname(git, &format!("refs/heads/{name}"))
+    })
+}
+
+pub(super) fn apply_locked(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_id: &StashId,
+    restore_index: bool,
+    mode: ApplyMode,
+) -> Result<ApplyResult, GitError> {
+    let resolved = LocalGitBackend::with_runtime_git2(repo, |git| {
+        ensure_no_active_operation(git)?;
+        resolve_stash(git, stash_id)
+    })?;
+    let verb = match mode {
+        ApplyMode::Apply => "apply",
+        ApplyMode::Pop => "pop",
+    };
+    let mut command = commands.command()?;
+    command.current_dir(&repo.0).args(["stash", verb]);
+    if restore_index {
+        command.arg("--index");
+    }
+    let output = command
+        .arg(&resolved.ref_name)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .output()
+        .map_err(io_error)?;
+
+    let conflicts = LocalGitBackend::with_runtime_git2(repo, |git| {
+        Ok(LocalGitBackend::conflict_paths(
+            &LocalGitBackend::fresh_index(git)?,
+        ))
+    })?;
+    if !conflicts.is_empty() {
+        return Ok(ApplyResult {
+            outcome: StashApplyOutcome::Conflicted { paths: conflicts },
+            entry_removed: false,
+        });
+    }
+
+    if !output.status.success() {
+        return Err(classify_apply_failure(&output, restore_index));
+    }
+
+    let entry_removed = if matches!(mode, ApplyMode::Pop) {
+        LocalGitBackend::with_runtime_git2(repo, |git| match resolve_stash(git, stash_id) {
+            Err(GitError::StashNotFound) => Ok(true),
+            Ok(_) | Err(GitError::StashAmbiguous) => Ok(false),
+            Err(error) => Err(error),
+        })?
+    } else {
+        false
+    };
+    if matches!(mode, ApplyMode::Pop) && !entry_removed {
+        return Err(GitError::StashApplyFailed(
+            "Git reported a successful pop but the stash entry remains".to_string(),
+        ));
+    }
+
+    Ok(ApplyResult {
+        outcome: StashApplyOutcome::Applied,
+        entry_removed,
+    })
+}
+
+pub(super) fn drop_locked(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    stash_id: &StashId,
+) -> Result<(), GitError> {
+    let resolved = LocalGitBackend::with_runtime_git2(repo, |git| resolve_stash(git, stash_id))?;
+    let output = commands
+        .command()?
+        .current_dir(&repo.0)
+        .args(["stash", "drop", &resolved.ref_name])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .map_err(io_error)?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(GitError::StashApplyFailed(bounded_diagnostics(&output)))
+    }
+}
+
+fn ensure_no_active_operation(git: &git2::Repository) -> Result<(), GitError> {
+    if git.state() != git2::RepositoryState::Clean || git.path().join("BISECT_LOG").exists() {
+        Err(GitError::OperationAlreadyInProgress)
+    } else {
+        Ok(())
+    }
+}
+
+fn classify_apply_failure(output: &Output, restore_index: bool) -> GitError {
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let lowered = combined.to_ascii_lowercase();
+    if restore_index
+        && [
+            "index was not unstashed",
+            "conflicts in index. try without --index",
+            "could not restore untracked files from stash",
+        ]
+        .iter()
+        .any(|pattern| lowered.contains(pattern))
+    {
+        return GitError::StashApplyIndexRefused;
+    }
+    if lowered.contains("would be overwritten by merge")
+        || lowered.contains("would be overwritten by checkout")
+    {
+        return GitError::StashApplyWouldOverwrite {
+            paths: overwrite_paths(&combined),
+        };
+    }
+    GitError::StashApplyFailed(bounded_text(&combined))
+}
+
+fn overwrite_paths(value: &str) -> Vec<String> {
+    let mut collecting = false;
+    let mut paths = BTreeSet::new();
+    for line in value.lines() {
+        let trimmed = line.trim();
+        let lowered = trimmed.to_ascii_lowercase();
+        if lowered.contains("files would be overwritten by") {
+            collecting = true;
+            continue;
+        }
+        if collecting
+            && (trimmed.is_empty()
+                || lowered.starts_with("please ")
+                || lowered == "aborting"
+                || lowered.starts_with("error:"))
+        {
+            if !paths.is_empty() {
+                break;
+            }
+            continue;
+        }
+        if collecting && !trimmed.is_empty() && !trimmed.contains(':') {
+            paths.insert(trimmed.to_string());
+            if paths.len() == STASH_FAILURE_PATH_LIMIT {
+                break;
+            }
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn bounded_diagnostics(output: &Output) -> String {
+    bounded_text(&format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    ))
+}
+
+fn bounded_text(value: &str) -> String {
+    let sanitized = sanitize_diagnostics(value.trim());
+    if sanitized.is_empty() {
+        return "Git exited without diagnostics".to_string();
+    }
+    sanitized
+        .chars()
+        .take(STASH_FAILURE_DIAGNOSTIC_LIMIT)
+        .collect()
+}
 
 struct TemporaryIndex {
     path: PathBuf,
@@ -1617,6 +1903,20 @@ pub(super) fn resolve_stash(git: &Repository, id: &StashId) -> Result<ResolvedSt
         index,
         ref_name: stash_ref_name(index),
     })
+}
+
+pub(super) fn current_entry(git: &Repository, id: &StashId) -> Result<StashEntry, GitError> {
+    let resolved = resolve_stash(git, id)?;
+    let reflog = stash_reflog(git)?.ok_or(GitError::StashNotFound)?;
+    let reflog_entry = reflog
+        .get(resolved.index as usize)
+        .ok_or(GitError::StashNotFound)?;
+    let message = reflog_entry
+        .message()
+        .map_err(LocalGitBackend::map_git2_error)?
+        .ok_or_else(|| malformed("stash reflog entry has no message"))?
+        .to_string();
+    build_entry(git, resolved.index as usize, reflog_entry.id_new(), message)
 }
 
 fn stash_reflog(git: &Repository) -> Result<Option<git2::Reflog>, GitError> {

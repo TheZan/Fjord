@@ -182,6 +182,18 @@ describe("CommitGraph", () => {
     expect(onStashContextMenu).not.toHaveBeenCalledWith("stash-first");
   });
 
+  it("dispatches graph-marker Apply with the exact stable stash entry and omits Reveal", () => {
+    const onStashAction = vi.fn();
+    graphState.commits = [commit("commit-b", "Commit B")];
+    graphState.stashes = [stash("stash-selected", "commit-b", "Same title", 2)];
+    const { container } = render(<CommitGraph repoId="repo-1" onStashAction={onStashAction} />);
+
+    fireEvent.contextMenu(container.querySelector("[data-stash-id='stash-selected']")!, { clientX: 10, clientY: 20 });
+    expect(screen.queryByRole("menuitem", { name: "stash.action.revealInGraph" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.apply" }));
+    expect(onStashAction).toHaveBeenCalledWith("apply", graphState.stashes[0]);
+  });
+
   it("does not render or seek an unloaded stash base until Reveal in graph is requested", async () => {
     const onRevealStashNotFound = vi.fn();
     graphState.commits = [commit("commit-a", "Commit A")];

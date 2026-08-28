@@ -519,9 +519,6 @@ mod tests {
         async fn stashes(&self, _repo: &RepoPath) -> Result<Vec<StashEntry>, GitError> {
             Ok(vec![])
         }
-        async fn stash_pop(&self, _repo: &RepoPath) -> Result<(), GitError> {
-            Ok(())
-        }
         async fn stage(&self, _repo: &RepoPath, _paths: &[StdPathBuf]) -> Result<(), GitError> {
             Ok(())
         }
