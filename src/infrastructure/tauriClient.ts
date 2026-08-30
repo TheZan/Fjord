@@ -308,6 +308,18 @@ export function renameWorkspace(id: string, name: string): Promise<Workspace> {
   return invoke("rename_workspace", { id, name });
 }
 
+/**
+ * Persists a workspace's expected branch. Configuration only — the backend
+ * trims, validates, and stores a literal branch name; no Git command runs and
+ * nothing is checked out (docs/specs/workspace-workflows.md §5).
+ */
+export function setWorkspaceExpectedBranch(
+  id: string,
+  expectedBranch: string | null,
+): Promise<Workspace> {
+  return invoke("set_workspace_expected_branch", { id, expectedBranch });
+}
+
 export function reorderWorkspaces(ids: string[]): Promise<void> {
   return invoke("reorder_workspaces", { ids });
 }

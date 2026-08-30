@@ -5,7 +5,8 @@ import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
 import { RepoCard } from "@/presentation/RepoCard";
 import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
-import { repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
+import { countOnExpectedBranch, repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
+import type { ExpectedBranchSummary } from "@/application/repoHealth";
 import type { RepoHealth, RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 interface OverviewProps {
@@ -63,6 +64,13 @@ export function OverviewView({
       .then((state) => setActiveFilters(new Set(state.overview.filters)))
       .catch(() => undefined);
   }, []);
+  // Computed from the health set that is already loaded for this screen — the
+  // expected-branch summary never costs an extra backend request.
+  const expectedBranchSummary = useMemo(
+    () =>
+      workspace?.expectedBranch ? countOnExpectedBranch(repositories, healthByRepo) : null,
+    [healthByRepo, repositories, workspace?.expectedBranch],
+  );
   const filteredRepositories = useMemo(() => {
     const attentionActive = metrics.attention > 0 && activeFilters.has("attention");
     const behindActive = metrics.behind > 0 && activeFilters.has("behind");
@@ -125,6 +133,8 @@ export function OverviewView({
 
       <SummaryLine
         metrics={metrics}
+        expectedBranch={workspace?.expectedBranch ?? null}
+        expectedBranchSummary={expectedBranchSummary}
         attentionActive={metrics.attention > 0 && activeFilters.has("attention")}
         behindActive={metrics.behind > 0 && activeFilters.has("behind")}
         onToggle={toggleFilter}
@@ -285,18 +295,25 @@ function VirtualRepoGrid({
 
 function SummaryLine({
   metrics,
+  expectedBranch,
+  expectedBranchSummary,
   attentionActive,
   behindActive,
   onToggle,
 }: {
   metrics: { total: number; attention: number; behind: number };
+  expectedBranch: string | null;
+  expectedBranchSummary: ExpectedBranchSummary | null;
   attentionActive: boolean;
   behindActive: boolean;
   onToggle: (filter: OverviewFilter) => void;
 }) {
   const { t } = useTranslation("workspace");
   return (
-    <div className={`flex min-h-7 items-center gap-2 ${TYPOGRAPHY.body}`} style={{ color: "var(--slate)" }}>
+    <div
+      className={`flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 ${TYPOGRAPHY.body}`}
+      style={{ color: "var(--slate)" }}
+    >
       <span className="font-medium tabular-nums" style={{ color: "var(--ink)" }}>
         {t("dashboard.repoCountValue", { count: metrics.total })}
       </span>
@@ -314,6 +331,29 @@ function SummaryLine({
           <SummaryFilter active={behindActive} onClick={() => onToggle("behind")}>
             {t("dashboard.behindOriginValue", { count: metrics.behind })}
           </SummaryFilter>
+        </>
+      ) : null}
+      {expectedBranch && expectedBranchSummary ? (
+        <>
+          <span aria-hidden="true">·</span>
+          {/*
+            Compact non-interactive text. Making this segment a filter is
+            P10-10's job (workspace filter chips, including *wrong branch*);
+            wiring it here would prejudge that composition model.
+          */}
+          <span className="min-w-0 max-w-full truncate font-medium tabular-nums">
+            {expectedBranchSummary.known === expectedBranchSummary.total
+              ? t("dashboard.onExpectedBranchValue", {
+                  count: expectedBranchSummary.onExpected,
+                  total: expectedBranchSummary.total,
+                  branch: expectedBranch,
+                })
+              : t("dashboard.onExpectedBranchKnownValue", {
+                  count: expectedBranchSummary.onExpected,
+                  total: expectedBranchSummary.known,
+                  branch: expectedBranch,
+                })}
+          </span>
         </>
       ) : null}
     </div>

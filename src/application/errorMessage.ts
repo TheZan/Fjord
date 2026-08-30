@@ -14,6 +14,7 @@ const USER_ERROR_CODES = new Set([
   "database_error",
   "diff_tool_name_invalid",
   "diff_tool_not_configured",
+  "expected_branch_invalid",
   "git_error",
   "git_auth_failed",
   "git_auth_required",

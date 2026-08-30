@@ -279,6 +279,8 @@
     "repoCountValue": "{{count}} repos",
     "needAttentionValue": "{{count}} need attention",
     "behindOriginValue": "{{count}} behind",
+    "onExpectedBranchValue": "{{count}} of {{total}} on {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} of {{total}} known on {{branch}}",
     "noFilterMatches": "No repositories match the active summary filters.",
     "branch": "Branch",
     "dirty": "Dirty",
@@ -850,6 +852,14 @@
     "selectionActions_one": "Actions for {{count}} selected file",
     "selectionActions_other": "Actions for {{count}} selected files",
     "clearSelection": "Clear"
+  },
+  "workspaceSettings": {
+    "title": "Workspace settings",
+    "forWorkspace": "Settings for {{workspace}}.",
+    "expectedBranch": "Expected branch",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Repositories in this workspace are expected to be on this branch.",
+    "expectedBranchEmpty": "Leave empty to disable branch checking."
   },
   "workspaces": {
     "label": "Workspaces",

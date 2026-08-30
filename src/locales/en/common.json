@@ -34,6 +34,7 @@
     "database_error": "Fjord could not save its data. Try again or restart the app if the problem continues.",
     "diff_tool_name_invalid": "Enter a Git difftool name, such as meld — not a path or a command.",
     "diff_tool_not_configured": "Git could not resolve the difftool {{tool}}.",
+    "expected_branch_invalid": "Enter a valid Git branch name, such as develop or release/2026.08.",
     "git_error": "Git could not complete the operation. Check the repository state and try again.",
     "git_auth_failed": "Git authentication failed. Check your credential helper, token, or SSH key.",
     "git_auth_required": "Git needs authentication. Complete the credential prompt and try again.",

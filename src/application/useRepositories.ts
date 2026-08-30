@@ -18,6 +18,7 @@ import {
   removeRepository as removeRepositoryCommand,
   renameWorkspace as renameWorkspaceCommand,
   reorderWorkspaces,
+  setWorkspaceExpectedBranch as setWorkspaceExpectedBranchCommand,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import type {
@@ -59,6 +60,7 @@ export interface UseRepositoriesResult {
   selectWorkspace: (id: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
+  setWorkspaceExpectedBranch: (id: string, expectedBranch: string | null) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
   moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
@@ -164,6 +166,10 @@ export function useRepositories(): UseRepositoriesResult {
   const deleteWorkspaceMutation = useMutation({
     mutationFn: (id: string) => deleteWorkspaceCommand(id),
   });
+  const setWorkspaceExpectedBranchMutation = useMutation({
+    mutationFn: ({ id, expectedBranch }: { id: string; expectedBranch: string | null }) =>
+      setWorkspaceExpectedBranchCommand(id, expectedBranch),
+  });
   const reorderWorkspacesMutation = useMutation({
     mutationFn: (ids: string[]) => reorderWorkspaces(ids),
   });
@@ -239,6 +245,34 @@ export function useRepositories(): UseRepositoriesResult {
       }
     },
     [queryClient, renameWorkspaceMutation],
+  );
+
+  /**
+   * Expected branch is a workspace-level input to the backend health
+   * projection, so the only queries that can change are the workspace row
+   * itself and that workspace's health — repository lists, statuses, and
+   * per-repository data are untouched. Errors are rethrown so the settings
+   * dialog can surface backend validation in place instead of the app-level
+   * error strip.
+   */
+  const setWorkspaceExpectedBranch = useCallback(
+    async (id: string, expectedBranch: string | null) => {
+      setLocalError(null);
+      setWorkspaceActionPending(id);
+      try {
+        const updated = await setWorkspaceExpectedBranchMutation.mutateAsync({
+          id,
+          expectedBranch,
+        });
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), (current = []) =>
+          sortWorkspaces(current.map((workspace) => (workspace.id === id ? updated : workspace))),
+        );
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.health(id) });
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [queryClient, setWorkspaceExpectedBranchMutation],
   );
 
   const deleteWorkspace = useCallback(
@@ -455,6 +489,7 @@ export function useRepositories(): UseRepositoriesResult {
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
+    setWorkspaceExpectedBranch,
     deleteWorkspace,
     moveWorkspace,
     moveWorkspaceTo,

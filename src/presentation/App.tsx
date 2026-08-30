@@ -55,6 +55,7 @@ import { ResizableSidebar } from "@/presentation/ResizableSidebar";
 import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
 import { RepositoryOnboardingDialog } from "@/presentation/RepositoryOnboardingDialog";
 import { Sidebar } from "@/presentation/Sidebar";
+import { WorkspaceSettingsDialog } from "@/presentation/WorkspaceSettingsDialog";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
 import type { View } from "@/presentation/view";
@@ -86,6 +87,7 @@ export function App() {
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
+    setWorkspaceExpectedBranch,
     deleteWorkspace,
     moveWorkspace,
     moveWorkspaceTo,
@@ -100,6 +102,7 @@ export function App() {
   const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
   const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<
     "choices" | "clone" | "create" | null
   >(null);
@@ -180,6 +183,11 @@ export function App() {
         : [],
   );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
+  // The SQLite-backed workspace row is the single source of truth for the
+  // expected branch; the dialog reads it from here rather than keeping its own
+  // copy of the preference.
+  const workspaceSettingsWorkspace =
+    workspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
   const isFirstRun = !loading && workspaces.length === 0;
   const activeBulkOperation = bulkOperationId ? (operations[bulkOperationId] ?? null) : null;
 
@@ -494,6 +502,7 @@ export function App() {
         }}
         onCreateWorkspace={(name) => void createWorkspace(name)}
         onRenameWorkspace={(id, name) => void renameWorkspace(id, name)}
+        onOpenWorkspaceSettings={setWorkspaceSettingsId}
         onDeleteWorkspace={(id) => void deleteWorkspace(id)}
         onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
         onMoveWorkspaceTo={(id, targetId) => void moveWorkspaceTo(id, targetId)}
@@ -634,6 +643,16 @@ export function App() {
           onSettingsChange={(settings) => {
             setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
           }}
+        />
+      )}
+
+      {workspaceSettingsWorkspace && (
+        <WorkspaceSettingsDialog
+          workspace={workspaceSettingsWorkspace}
+          onSave={(expectedBranch) =>
+            setWorkspaceExpectedBranch(workspaceSettingsWorkspace.id, expectedBranch)
+          }
+          onClose={() => setWorkspaceSettingsId(null)}
         />
       )}
 
