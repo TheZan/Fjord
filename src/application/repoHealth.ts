@@ -1,4 +1,14 @@
 import type { RepoCondition, RepoHealth } from "@/domain/workspace";
+import type { UiOverviewFilter } from "@/domain/generated";
+
+export const HEALTH_FILTER_ORDER: readonly UiOverviewFilter[] = [
+  "attention",
+  "dirty",
+  "ahead",
+  "behind",
+  "conflicts",
+  "wrongBranch",
+];
 
 export function primaryRepoCondition(health: RepoHealth | undefined): RepoCondition | undefined {
   return health?.conditions[0];
@@ -17,6 +27,79 @@ export function repoHasCondition(
 
 export function repoIsBehind(health: RepoHealth | undefined): boolean {
   return repoHasCondition(health, "behind", "diverged");
+}
+
+export function repoMatchesHealthFilter(
+  health: RepoHealth | undefined,
+  filter: UiOverviewFilter,
+): boolean {
+  if (!health) return false;
+  switch (filter) {
+    case "attention":
+      return health.needsAttention;
+    case "dirty":
+      return repoHasCondition(health, "dirty");
+    case "ahead":
+      return repoHasCondition(health, "ahead", "diverged");
+    case "behind":
+      return repoIsBehind(health);
+    case "conflicts":
+      return repoHasCondition(health, "conflict");
+    case "wrongBranch":
+      return repoHasCondition(health, "wrongBranch");
+  }
+}
+
+/** Health chips compose as an OR-set. An empty set deliberately matches all. */
+export function repoMatchesHealthFilters(
+  health: RepoHealth | undefined,
+  filters: ReadonlySet<UiOverviewFilter>,
+): boolean {
+  if (filters.size === 0) return true;
+  for (const filter of filters) {
+    if (repoMatchesHealthFilter(health, filter)) return true;
+  }
+  return false;
+}
+
+export function filterRepositoriesByHealth<T extends { id: string }>(
+  repositories: readonly T[],
+  healthByRepo: Readonly<Record<string, RepoHealth>>,
+  filters: ReadonlySet<UiOverviewFilter>,
+): T[] {
+  if (filters.size === 0) return [...repositories];
+  return repositories.filter((repository) =>
+    repoMatchesHealthFilters(healthByRepo[repository.id], filters),
+  );
+}
+
+export interface RepositoryFilterRow {
+  workspace: { name: string };
+  repo: { id: string; name: string; path: string };
+}
+
+/** All Repositories text search composes with the health OR-set using AND. */
+export function filterRepositoryRows<T extends RepositoryFilterRow>(
+  rows: readonly T[],
+  healthByRepo: Readonly<Record<string, RepoHealth>>,
+  filters: ReadonlySet<UiOverviewFilter>,
+  query: string,
+): T[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return rows.filter(({ workspace, repo }) => {
+    const textMatches =
+      normalizedQuery.length === 0 ||
+      [repo.name, repo.path, workspace.name].some((value) =>
+        value.toLocaleLowerCase().includes(normalizedQuery),
+      );
+    return textMatches && repoMatchesHealthFilters(healthByRepo[repo.id], filters);
+  });
+}
+
+export function serializeHealthFilters(
+  filters: ReadonlySet<UiOverviewFilter>,
+): UiOverviewFilter[] {
+  return HEALTH_FILTER_ORDER.filter((filter) => filters.has(filter));
 }
 
 export interface ExpectedBranchSummary {

@@ -1482,7 +1482,11 @@ pub enum UiFileViewMode {
 #[ts(rename_all = "camelCase")]
 pub enum UiOverviewFilter {
     Attention,
+    Dirty,
+    Ahead,
     Behind,
+    Conflicts,
+    WrongBranch,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -1628,6 +1632,78 @@ pub struct InteractionTrace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overview_filters_round_trip_with_stable_camel_case_ids() {
+        let filters = [
+            UiOverviewFilter::Attention,
+            UiOverviewFilter::Dirty,
+            UiOverviewFilter::Ahead,
+            UiOverviewFilter::Behind,
+            UiOverviewFilter::Conflicts,
+            UiOverviewFilter::WrongBranch,
+        ];
+
+        assert_eq!(
+            serde_json::to_value(filters).unwrap(),
+            serde_json::json!([
+                "attention",
+                "dirty",
+                "ahead",
+                "behind",
+                "conflicts",
+                "wrongBranch"
+            ])
+        );
+        assert_eq!(
+            serde_json::from_value::<Vec<UiOverviewFilter>>(serde_json::json!([
+                "attention",
+                "dirty",
+                "ahead",
+                "behind",
+                "conflicts",
+                "wrongBranch"
+            ]))
+            .unwrap(),
+            filters
+        );
+    }
+
+    #[test]
+    fn legacy_overview_filters_remain_compatible() {
+        let state: UiState = serde_json::from_value(serde_json::json!({
+            "version": UI_STATE_VERSION,
+            "overview": { "filters": ["attention", "behind"] }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            state.overview.filters,
+            vec![UiOverviewFilter::Attention, UiOverviewFilter::Behind]
+        );
+    }
+
+    #[test]
+    fn overview_filter_patch_accepts_the_expanded_set() {
+        let mut state = UiState::default();
+        let filters = vec![
+            UiOverviewFilter::Attention,
+            UiOverviewFilter::Dirty,
+            UiOverviewFilter::Ahead,
+            UiOverviewFilter::Behind,
+            UiOverviewFilter::Conflicts,
+            UiOverviewFilter::WrongBranch,
+        ];
+
+        state.apply(UiStatePatch {
+            overview: Some(OverviewUiStatePatch {
+                filters: Some(filters.clone()),
+            }),
+            ..UiStatePatch::default()
+        });
+
+        assert_eq!(state.overview.filters, filters);
+    }
 
     #[test]
     fn commit_summary_serializes_authored_at_as_rfc3339() {
