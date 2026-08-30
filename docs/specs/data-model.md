@@ -27,7 +27,8 @@ CREATE TABLE workspaces (
     id              TEXT PRIMARY KEY,   -- UUID
     name            TEXT NOT NULL,
     sort_order      INTEGER NOT NULL,
-    created_at      TEXT NOT NULL
+    created_at      TEXT NOT NULL,
+    expected_branch TEXT                 -- literal local branch name; see below
 );
 
 CREATE TABLE repositories (
@@ -77,7 +78,8 @@ does not enable background network activity in the current product.
 
 Applied migrations beyond `0001_init.sql`: `0002_auto_fetch.sql`,
 `0003_git_executable_path.sql`, `0004_performance_diagnostics.sql`,
-`0005_repo_snapshot.sql`, `0006_ui_state.sql`, and `0007_diff_tool.sql`.
+`0005_repo_snapshot.sql`, `0006_ui_state.sql`, `0007_diff_tool.sql`, and
+`0008_expected_branch.sql`.
 
 `0007_diff_tool.sql` (`P10-WC-06`) adds `settings.diff_tool`, holding a Git
 difftool **name** and nothing else:
@@ -94,19 +96,34 @@ rejected at the settings boundary (`diff_tool_name_invalid`), so this column
 can never become a launch vector. The tool's actual command line stays in the
 user's own Git configuration. See [`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4.
 
+`0008_expected_branch.sql` (`P10-09`) adds `workspaces.expected_branch`, one
+optional literal branch name per workspace:
+
+```sql
+-- NULL      -> the workspace has no expected-branch convention
+-- 'develop' -> literal local branch name, compared exactly
+ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
+```
+
+Nullable by design, and forward-only: every workspace that existed before the
+migration keeps `NULL`, so no repository changes health because the app was
+updated. The value is trimmed at the service boundary, an empty string is
+stored as `NULL`, and anything else must be a valid local branch name
+(`expected_branch_invalid`). It is not a pattern, not a remote-tracking name,
+and not per repository — there is exactly one literal per workspace, and it is
+the only input `WorkspaceService` needs to derive `RepoCondition::WrongBranch`
+(the projection itself is never persisted). See
+[`workspace-workflows.md`](workspace-workflows.md) §4–§5.
+
 ## Planned additions
 
 Designed but not migrated yet. Each is forward-only and owned by a spec.
 
-```sql
--- Phase 10 (P10-09). Nullable: a workspace without a convention has none.
--- See specs/workspace-workflows.md §5.
-ALTER TABLE workspaces ADD COLUMN expected_branch TEXT;
-```
-
-Neither the merge workflow ([`branch-merge.md`](branch-merge.md)) nor the Working
-Changes file context menu ([`working-tree-and-diff.md`](working-tree-and-diff.md)
-§6) adds any other persisted state: merge state lives in Git's own directory and
+Nothing is pending: `expected_branch` was the last designed-but-unmigrated
+column, and it shipped with `0008`. Neither the merge workflow
+([`branch-merge.md`](branch-merge.md)) nor the Working Changes file context menu
+([`working-tree-and-diff.md`](working-tree-and-diff.md) §6) adds any other
+persisted state: merge state lives in Git's own directory and
 is read live, and the context menu is transient UI state, not a preference.
 
 **Stash management ([`stash-management.md`](stash-management.md)) adds no

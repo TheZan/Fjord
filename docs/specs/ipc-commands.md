@@ -42,6 +42,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `list_workspaces` | — | `Workspace[]` | Ordered by `sort_order` |
 | `create_workspace` | `{ name }` | `Workspace` | |
 | `rename_workspace` | `{ id, name }` | `Workspace` | |
+| `set_workspace_expected_branch` | `{ id, expected_branch }` | `Workspace` | Configuration only: trims the value, treats empty as `null`, validates it as a local branch name (`expected_branch_invalid`), and persists it. Runs no Git command, checks nothing out, and bumps no repository generation; only the derived `RepoHealth` changes |
 | `reorder_workspaces` | `{ ids }` | — | Full new order, not a delta |
 | `delete_workspace` | `{ id }` | — | Cascades to its `repositories` rows (not the repos on disk) |
 | `list_repositories` | `{ workspace_id }` | `RepositoryEntry[]` | |
