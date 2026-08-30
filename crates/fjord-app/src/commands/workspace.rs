@@ -39,6 +39,22 @@ pub async fn rename_workspace(
     Ok(state.workspaces.rename_workspace(id, &name).await?)
 }
 
+/// Configuration only: persists the workspace's expected branch and returns
+/// the updated row. No Git process runs, nothing is checked out, and no
+/// repository generation is bumped — only the derived `RepoHealth` projection
+/// changes (docs/specs/workspace-workflows.md §5).
+#[tauri::command]
+pub async fn set_workspace_expected_branch(
+    state: State<'_, AppState>,
+    id: WorkspaceId,
+    expected_branch: Option<String>,
+) -> Result<Workspace, AppError> {
+    Ok(state
+        .workspaces
+        .set_workspace_expected_branch(id, expected_branch.as_deref())
+        .await?)
+}
+
 #[tauri::command]
 pub async fn reorder_workspaces(
     state: State<'_, AppState>,

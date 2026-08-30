@@ -5,7 +5,14 @@ export type WorkspaceId = string;
 
 export type RepositoryId = string;
 
-export type Workspace = { id: WorkspaceId, name: string, sortOrder: number, };
+export type Workspace = { id: WorkspaceId, name: string, sortOrder: number, 
+/**
+ * Optional literal branch name every repository in this workspace is
+ * expected to be on (`workspaces.expected_branch`, P10-09). `None` means
+ * the workspace has no convention and no `WrongBranch` condition is ever
+ * derived for it — see docs/specs/workspace-workflows.md §5.
+ */
+expectedBranch: string | null, };
 
 export type RepositoryEntry = { id: RepositoryId, workspaceId: WorkspaceId, name: string, 
 /**

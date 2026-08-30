@@ -50,7 +50,12 @@ vi.mock("@/presentation/RepoCard", () => ({
   ),
 }));
 
-const workspace: Workspace = { id: "workspace-1", name: "Workspace", sortOrder: 0 };
+const workspace: Workspace = {
+  id: "workspace-1",
+  name: "Workspace",
+  sortOrder: 0,
+  expectedBranch: null,
+};
 
 function repository(index: number): RepositoryEntry {
   return {

@@ -81,7 +81,7 @@ most are the ones still missing:
 | Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
-| Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |
+| Expected branch | ✅ `workspaces.expected_branch` (nullable, `0008_expected_branch.sql`) is set per workspace in a small Workspace settings dialog and feeds the existing `RepoHealth` derivation, so an off-branch repository reports `WrongBranch` and the Overview summary line shows `28 of 31 on develop`. Matching is literal; nothing is ever checked out. |
 
 ## Proposed design
 
@@ -255,9 +255,10 @@ attention filter, and any future surface agree by consuming that projection.
 operation observation (in-memory when available, otherwise the persisted
 repository snapshot). A never-refreshed row uses `UNIX_EPOCH` and carries the
 stable `status_unavailable` unreadable reason rather than pretending to be
-fresh. Expected-branch persistence and settings remain intentionally unconnected
-until P10-09; `WorkspaceService` already accepts `Option<&str>` at the derivation
-seam.
+fresh. The expected branch is now persisted and connected (P10-09):
+`get_workspace_health` reads `workspaces.expected_branch` once per request and
+feeds it to the single `derive_repo_health` rule through the `Option<&str>`
+seam, so the projection stays O(repositories) over cached data.
 
 Severity order for display: `Conflict` > `OperationInProgress` > `Unreadable` >
 `WrongBranch` > `Diverged` > `Behind` > `Ahead` > `Dirty` > `Clean`. A repository
@@ -271,14 +272,24 @@ progress. This is a deliberate behavior change and is called out in the task.
 
 ### 5. Expected branch
 
-`workspaces` gains a nullable `expected_branch TEXT` column (forward-only
-migration, per [`data-model.md`](data-model.md)). It is set in workspace settings,
-empty by default, and matched literally against the repository's current branch.
+`workspaces` has a nullable `expected_branch TEXT` column (`0008_expected_branch.sql`,
+forward-only, per [`data-model.md`](data-model.md)). It is set in a compact
+**Workspace settings** dialog reached from the workspace's overflow menu, empty by
+default, and matched literally against the repository's current branch — no case
+folding, no glob, no remote-name interpretation, and no `refs/heads/` prefixing.
+The input is trimmed and an empty value clears the convention; anything else must
+be a valid local branch name (`expected_branch_invalid`), validated in the
+backend, which is authoritative.
 
-Display: the workspace header shows `28 of 31 on develop`, and the three
-off-branch repositories are one click away through the `WrongBranch` filter. A
-repository in a detached HEAD or unborn state reports `WrongBranch` with
-`actual: None`.
+Display: the Overview summary line shows `28 of 31 on develop` as compact,
+non-interactive text, counted from the already-loaded `RepoHealth` projection —
+never from an independent comparison of `RepoStatus.branch` in the frontend. A
+repository whose health is `Unreadable` has no trustworthy branch state and is
+counted as neither on nor off the branch; the summary then reads
+`28 of 30 known on develop` rather than claiming a match it cannot establish.
+The off-branch repositories become one click away once the `WrongBranch` filter
+lands with P10-10. A repository in a detached HEAD or unborn state reports
+`WrongBranch` with `actual: None`, and never `OperationInProgress`.
 
 No automatic checkout is offered from the summary. A bulk "check out the expected
 branch" action is possible later, but only behind the safe-checkout preflight for

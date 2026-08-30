@@ -84,6 +84,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::list_workspaces,
             commands::create_workspace,
             commands::rename_workspace,
+            commands::set_workspace_expected_branch,
             commands::reorder_workspaces,
             commands::delete_workspace,
             commands::list_repositories,

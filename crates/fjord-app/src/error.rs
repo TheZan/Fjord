@@ -452,6 +452,19 @@ mod tests {
         );
     }
 
+    /// P10-09 surfaces backend branch-name validation through the same stable
+    /// `InvalidSetting` channel the difftool name uses, so the frontend can
+    /// localize it without parsing a message.
+    #[test]
+    fn invalid_expected_branch_has_a_stable_error_code() {
+        let error: AppError = fjord_services::WorkspaceError::Store(StoreError::InvalidSetting(
+            "expected_branch_invalid",
+        ))
+        .into();
+
+        assert_eq!(error.code, "expected_branch_invalid");
+    }
+
     #[test]
     fn checkout_overwrite_error_exposes_paths() {
         let error = git_error_to_app_error(GitError::CheckoutWouldOverwrite {

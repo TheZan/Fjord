@@ -2511,10 +2511,20 @@ mod tests {
         async fn create_workspace(&self, _name: &str) -> Result<Workspace, StoreError> {
             unimplemented!()
         }
+        async fn get_workspace(&self, _id: WorkspaceId) -> Result<Workspace, StoreError> {
+            unimplemented!()
+        }
         async fn rename_workspace(
             &self,
             _id: WorkspaceId,
             _name: &str,
+        ) -> Result<Workspace, StoreError> {
+            unimplemented!()
+        }
+        async fn set_workspace_expected_branch(
+            &self,
+            _id: WorkspaceId,
+            _expected_branch: Option<&str>,
         ) -> Result<Workspace, StoreError> {
             unimplemented!()
         }

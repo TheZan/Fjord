@@ -34,6 +34,7 @@
     "database_error": "Fjord n'a pas pu enregistrer ses données. Réessayez ou redémarrez l'application.",
     "diff_tool_name_invalid": "Saisissez un nom d'outil difftool Git, comme meld — pas un chemin ni une commande.",
     "diff_tool_not_configured": "Git n'a pas pu résoudre l'outil de diff {{tool}}.",
+    "expected_branch_invalid": "Saisissez un nom de branche Git valide, par exemple develop ou release/2026.08.",
     "git_error": "Git n’a pas pu terminer l’opération. Vérifiez l’état du dépôt et réessayez.",
     "git_auth_failed": "L’authentification Git a échoué. Vérifiez le gestionnaire d’identifiants, le jeton ou la clé SSH.",
     "git_auth_required": "Git nécessite une authentification.",

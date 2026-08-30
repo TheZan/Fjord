@@ -233,6 +233,8 @@
     "repoCountValue": "{{count}} repos",
     "needAttentionValue": "{{count}} requieren atención",
     "behindOriginValue": "{{count}} detrás",
+    "onExpectedBranchValue": "{{count}} de {{total}} en {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} de {{total}} conocidos en {{branch}}",
     "noFilterMatches": "Ningún repositorio coincide con los filtros activos.",
     "branch": "Rama",
     "dirty": "Cambios",
@@ -804,6 +806,14 @@
     "selectionActions_one": "Acciones para {{count}} archivo seleccionado",
     "selectionActions_other": "Acciones para {{count}} archivos seleccionados",
     "clearSelection": "Limpiar"
+  },
+  "workspaceSettings": {
+    "title": "Ajustes del workspace",
+    "forWorkspace": "Ajustes de {{workspace}}.",
+    "expectedBranch": "Rama esperada",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Se espera que los repositorios de este workspace estén en esta rama.",
+    "expectedBranchEmpty": "Déjalo vacío para desactivar la comprobación de rama."
   },
   "workspaces": {
     "label": "Workspaces",

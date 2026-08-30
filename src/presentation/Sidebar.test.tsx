@@ -19,8 +19,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 const workspaces: Workspace[] = [
-  { id: "one", name: "One", sortOrder: 0 },
-  { id: "two", name: "Two", sortOrder: 1 },
+  { id: "one", name: "One", sortOrder: 0, expectedBranch: null },
+  { id: "two", name: "Two", sortOrder: 1, expectedBranch: null },
 ];
 const repo: RepositoryEntry = {
   id: "repo-1",
@@ -58,6 +58,7 @@ function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     onWarmRepository: vi.fn(),
     onCreateWorkspace: vi.fn(),
     onRenameWorkspace: vi.fn(),
+    onOpenWorkspaceSettings: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onMoveWorkspace: vi.fn(),
     onMoveWorkspaceTo: vi.fn(),
@@ -165,5 +166,15 @@ describe("Sidebar", () => {
     fireEvent.click(menuButton);
     fireEvent.mouseDown(screen.getByText("workspaces.moveUp"));
     expect(screen.getByText("workspaces.rename")).toBeInTheDocument();
+  });
+  it("opens workspace settings from the workspace overflow menu", () => {
+    const sidebarProps = props();
+    render(<Sidebar {...sidebarProps} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "workspaces.rename" })[0]);
+    fireEvent.click(screen.getByText("workspaceSettings.title"));
+
+    expect(sidebarProps.onOpenWorkspaceSettings).toHaveBeenCalledExactlyOnceWith("one");
+    expect(screen.queryByText("workspaceSettings.title")).not.toBeInTheDocument();
   });
 });

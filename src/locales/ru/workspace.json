@@ -233,6 +233,8 @@
     "repoCountValue": "{{count}} реп.",
     "needAttentionValue": "Требуют внимания: {{count}}",
     "behindOriginValue": "Отстают: {{count}}",
+    "onExpectedBranchValue": "{{count}} из {{total}} на {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} из {{total}} известных на {{branch}}",
     "noFilterMatches": "Нет репозиториев, подходящих под активные фильтры.",
     "branch": "Ветка",
     "dirty": "Изменения",
@@ -840,6 +842,14 @@
     "selectionActions_many": "Действия для {{count}} выбранных файлов",
     "selectionActions_other": "Действия для {{count}} выбранного файла",
     "clearSelection": "Очистить"
+  },
+  "workspaceSettings": {
+    "title": "Настройки рабочего пространства",
+    "forWorkspace": "Настройки рабочего пространства «{{workspace}}».",
+    "expectedBranch": "Ожидаемая ветка",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Репозитории этого рабочего пространства должны находиться на этой ветке.",
+    "expectedBranchEmpty": "Оставьте пустым, чтобы отключить проверку ветки."
   },
   "workspaces": {
     "label": "Рабочие пространства",

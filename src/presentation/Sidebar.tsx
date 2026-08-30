@@ -22,6 +22,7 @@ interface SidebarProps {
   onWarmRepository: (repoId: string) => void;
   onCreateWorkspace: (name: string) => void;
   onRenameWorkspace: (id: string, name: string) => void;
+  onOpenWorkspaceSettings: (id: string) => void;
   onDeleteWorkspace: (id: string) => void;
   onMoveWorkspace: (id: string, direction: -1 | 1) => void;
   onMoveWorkspaceTo: (id: string, targetId: string) => void;
@@ -44,6 +45,7 @@ export function Sidebar({
   onWarmRepository,
   onCreateWorkspace,
   onRenameWorkspace,
+  onOpenWorkspaceSettings,
   onDeleteWorkspace,
   onMoveWorkspace,
   onMoveWorkspaceTo,
@@ -321,6 +323,14 @@ export function Sidebar({
                       }}
                     >
                       {tw("workspaces.rename")}
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        onOpenWorkspaceSettings(workspace.id);
+                        setMenuId(null);
+                      }}
+                    >
+                      {tw("workspaceSettings.title")}
                     </MenuItem>
                     <MenuItem
                       disabled={pending !== null}

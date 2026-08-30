@@ -233,6 +233,8 @@
     "repoCountValue": "{{count}} dépôts",
     "needAttentionValue": "{{count}} demandent attention",
     "behindOriginValue": "{{count}} en retard",
+    "onExpectedBranchValue": "{{count}} sur {{total}} sur {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} sur {{total}} connus sur {{branch}}",
     "noFilterMatches": "Aucun dépôt ne correspond aux filtres actifs.",
     "branch": "Branche",
     "dirty": "Changements",
@@ -804,6 +806,14 @@
     "selectionActions_one": "Actions pour {{count}} fichier sélectionné",
     "selectionActions_other": "Actions pour {{count}} fichiers sélectionnés",
     "clearSelection": "Effacer"
+  },
+  "workspaceSettings": {
+    "title": "Paramètres du workspace",
+    "forWorkspace": "Paramètres de {{workspace}}.",
+    "expectedBranch": "Branche attendue",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Les dépôts de ce workspace sont censés être sur cette branche.",
+    "expectedBranchEmpty": "Laissez vide pour désactiver la vérification de branche."
   },
   "workspaces": {
     "label": "Workspaces",
