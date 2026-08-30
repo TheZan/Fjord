@@ -481,8 +481,10 @@ owner.
    an overflow menu, plus the two globally-owned utility controls after a visual
    separator.
 6. The Overview summary line renders as a single text line, omits zero-valued
-   segments, and its "needs attention" and "behind" segments filter the repository
-   list.
+   segments, and its "needs attention" and "behind" segments toggle the same
+   persisted filter set as the six compact health chips shared with All
+   Repositories. Health filters compose with OR; All Repositories text search is
+   ANDed with that health result.
 7. No component renders a bordered card inside another bordered card; verified by
    a component test asserting one border level per surface in Overview and the
    repository screen.
