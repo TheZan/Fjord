@@ -37,7 +37,12 @@ vi.mock("@tanstack/react-virtual", () => ({
   }),
 }));
 
-const workspace: Workspace = { id: "workspace-1", name: "Workspace", sortOrder: 0 };
+const workspace: Workspace = {
+  id: "workspace-1",
+  name: "Workspace",
+  sortOrder: 0,
+  expectedBranch: null,
+};
 const repo: RepositoryEntry = {
   id: "repo-1",
   workspaceId: workspace.id,
@@ -74,6 +79,7 @@ function Surfaces({ health }: { health: RepoHealth }) {
         onWarmRepository={vi.fn()}
         onCreateWorkspace={vi.fn()}
         onRenameWorkspace={vi.fn()}
+        onOpenWorkspaceSettings={vi.fn()}
         onDeleteWorkspace={vi.fn()}
         onMoveWorkspace={vi.fn()}
         onMoveWorkspaceTo={vi.fn()}
