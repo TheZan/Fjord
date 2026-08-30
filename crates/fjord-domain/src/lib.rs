@@ -54,6 +54,11 @@ pub struct Workspace {
     pub id: WorkspaceId,
     pub name: String,
     pub sort_order: i32,
+    /// Optional literal branch name every repository in this workspace is
+    /// expected to be on (`workspaces.expected_branch`, P10-09). `None` means
+    /// the workspace has no convention and no `WrongBranch` condition is ever
+    /// derived for it — see docs/specs/workspace-workflows.md §5.
+    pub expected_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1389,6 +1394,37 @@ pub fn is_valid_diff_tool_name(name: &str) -> bool {
         })
 }
 
+/// Whether `name` is a valid **local** Git branch name, following the rules
+/// `git check-ref-format --branch` enforces for `refs/heads/<name>`.
+///
+/// This is the shared branch-name contract for user-entered branch inputs
+/// (P10-09's workspace expected branch is the first one). It is a pure
+/// predicate over the string: no Git process is spawned, so the value is
+/// never interpolated into a command line to find out whether it is legal.
+pub fn is_valid_branch_name(name: &str) -> bool {
+    // `-` would be read as an option by Git's own CLI, and a bare `@` is
+    // reserved. Empty is rejected by the caller too, but not every caller.
+    if name.is_empty() || name.starts_with('-') || name == "@" {
+        return false;
+    }
+    // Path-shaped rules: no leading/trailing separator and no empty component.
+    if name.starts_with('/') || name.ends_with('/') || name.contains("//") {
+        return false;
+    }
+    if name.ends_with('.') || name.contains("..") || name.contains("@{") {
+        return false;
+    }
+    if name.chars().any(|character| {
+        character.is_ascii_control()
+            || matches!(character, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    }) {
+        return false;
+    }
+    name.split('/').all(|component| {
+        !component.is_empty() && !component.starts_with('.') && !component.ends_with(".lock")
+    })
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -1708,5 +1744,51 @@ mod tests {
         assert_eq!(window.offset, 2);
         assert!(window.truncated);
         assert_eq!(window.next_offset, Some(4));
+    }
+
+    #[test]
+    fn branch_names_follow_check_ref_format_branch_rules() {
+        for valid in [
+            "develop",
+            "main",
+            "release/2026.08",
+            "feature/auth",
+            "v1.0.0-rc1",
+            "user/feature/deep/nesting",
+        ] {
+            assert!(
+                is_valid_branch_name(valid),
+                "expected {valid:?} to be valid"
+            );
+        }
+
+        for invalid in [
+            "",
+            " ",
+            "feature branch",
+            "feature..x",
+            "-develop",
+            "/develop",
+            "develop/",
+            "feature//x",
+            "develop.lock",
+            "feature/.hidden",
+            "develop~1",
+            "develop^",
+            "head:name",
+            "what?",
+            "star*",
+            "brack[et",
+            "back\\slash",
+            "@",
+            "ref@{0}",
+            "trailing.",
+            "new\nline",
+        ] {
+            assert!(
+                !is_valid_branch_name(invalid),
+                "expected {invalid:?} to be rejected"
+            );
+        }
     }
 }

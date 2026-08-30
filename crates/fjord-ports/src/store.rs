@@ -26,7 +26,16 @@ pub enum StoreError {
 pub trait WorkspaceStore: Send + Sync {
     async fn list_workspaces(&self) -> Result<Vec<Workspace>, StoreError>;
     async fn create_workspace(&self, name: &str) -> Result<Workspace, StoreError>;
+    async fn get_workspace(&self, id: WorkspaceId) -> Result<Workspace, StoreError>;
     async fn rename_workspace(&self, id: WorkspaceId, name: &str) -> Result<Workspace, StoreError>;
+    /// Persists the workspace's expected branch (P10-09). `None` clears the
+    /// convention. The value is already trimmed and validated by the caller —
+    /// this port stores a literal branch name and nothing else.
+    async fn set_workspace_expected_branch(
+        &self,
+        id: WorkspaceId,
+        expected_branch: Option<&str>,
+    ) -> Result<Workspace, StoreError>;
     async fn reorder_workspaces(&self, ids: &[WorkspaceId]) -> Result<(), StoreError>;
     async fn delete_workspace(&self, id: WorkspaceId) -> Result<(), StoreError>;
 
