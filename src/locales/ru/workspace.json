@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Все репозитории",
     "filterPlaceholder": "Фильтр по repo или workspace",
-    "empty": "По фильтру ничего не найдено."
+    "empty": "Репозиториев пока нет."
+  },
+  "filters": {
+    "label": "Фильтры репозиториев",
+    "attention": "Требуют внимания",
+    "dirty": "С изменениями",
+    "ahead": "Впереди",
+    "behind": "Отстают",
+    "conflicts": "Конфликты",
+    "wrongBranch": "Не та ветка",
+    "clear": "Очистить",
+    "noMatches": "Нет репозиториев, соответствующих текущим фильтрам."
   },
   "branches": {
     "current": "текущая"

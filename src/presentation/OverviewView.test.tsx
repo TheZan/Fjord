@@ -1,18 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import axe from "axe-core";
 import { OverviewView } from "@/presentation/OverviewView";
 import type { RepositoryEntry, Workspace } from "@/domain/workspace";
 
 const virtualization = vi.hoisted(() => ({ count: 0 }));
-const loadUiState = vi.fn();
-const saveOverviewFilters = vi.fn();
-
-vi.mock("@/infrastructure/uiState", () => ({
-  loadUiState: (...args: unknown[]) => loadUiState(...args),
-  saveOverviewFilters: (...args: unknown[]) => saveOverviewFilters(...args),
-}));
-
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, number>) => {
@@ -20,6 +12,13 @@ vi.mock("react-i18next", () => ({
       if (key === "dashboard.needAttentionValue") return `${values?.count} need attention`;
       if (key === "dashboard.behindOriginValue") return `${values?.count} behind`;
       if (key === "operations.progress") return `${values?.completed}/${values?.total}`;
+      if (key === "filters.attention") return "Needs attention";
+      if (key === "filters.dirty") return "Dirty";
+      if (key === "filters.ahead") return "Ahead";
+      if (key === "filters.behind") return "Behind";
+      if (key === "filters.conflicts") return "Conflicts";
+      if (key === "filters.wrongBranch") return "Wrong branch";
+      if (key === "filters.clear") return "Clear";
       return key;
     },
   }),
@@ -67,7 +66,9 @@ function repository(index: number): RepositoryEntry {
   };
 }
 
-function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {}) {
+function props(
+  overrides: Partial<React.ComponentProps<typeof OverviewView>> = {},
+): React.ComponentProps<typeof OverviewView> {
   return {
     workspace,
     repositories: [],
@@ -83,6 +84,9 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
     onSelectRepo: vi.fn(),
     onWarmRepo: vi.fn(),
     onRemoveRepo: vi.fn(),
+    activeFilters: new Set(),
+    onToggleFilter: vi.fn(),
+    onClearFilters: vi.fn(),
     utilities: <div data-testid="shell-utilities" />,
     ...overrides,
   };
@@ -90,14 +94,6 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
 
 describe("OverviewView", () => {
   beforeEach(() => {
-    loadUiState.mockResolvedValue({
-      version: 1,
-      sidebar: { width: null, collapsedWorkspaces: [] },
-      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
-      selection: { workspaceId: null, repositoryId: null },
-      overview: { filters: [] },
-    });
-    saveOverviewFilters.mockResolvedValue(undefined);
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(700);
     vi.stubGlobal("ResizeObserver", class {
       observe() {}
@@ -133,6 +129,15 @@ describe("OverviewView", () => {
   it("passes an automated accessibility scan", async () => {
     const { container } = render(<OverviewView {...props()} />);
     expect((await axe.run(container, { rules: { "color-contrast": { enabled: false } } })).violations).toEqual([]);
+  });
+
+  it("renders the complete compact repository filter group", () => {
+    render(<OverviewView {...props()} />);
+    const group = screen.getByRole("group", { name: "filters.label" });
+    for (const label of ["Needs attention", "Dirty", "Ahead", "Behind", "Conflicts", "Wrong branch"]) {
+      expect(within(group).getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "false");
+    }
+    expect(group).toHaveClass("flex-wrap");
   });
 
   it("limits the header to four controls and keeps secondary actions in overflow", () => {
@@ -172,7 +177,7 @@ describe("OverviewView", () => {
     expect(overviewProps.onRemoveRepo).toHaveBeenCalledWith("repo-3");
   });
 
-  it("omits zero summary segments and filters repositories from non-zero segments", () => {
+  it("keeps summary segments and chips in parity while filtering before virtualization", () => {
     const repositories = [repository(1), repository(2), repository(3)];
     const statusByRepo = {
       "repo-1": {
@@ -211,20 +216,34 @@ describe("OverviewView", () => {
         asOf: "1970-01-01T00:00:00Z",
       },
     };
+    const onToggleFilter = vi.fn();
     const { rerender } = render(
       <OverviewView
-        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 1, behind: 1 } })}
+        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 1, behind: 1 }, onToggleFilter })}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "1 need attention" }));
-    expect(saveOverviewFilters).toHaveBeenCalledWith(["attention"]);
+    expect(onToggleFilter).toHaveBeenCalledWith("attention");
+
+    rerender(
+      <OverviewView
+        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 1, behind: 1 }, activeFilters: new Set(["attention"]), onToggleFilter })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "1 need attention" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Needs attention" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("card-repo-1")).toBeInTheDocument();
     expect(screen.queryByTestId("card-repo-2")).not.toBeInTheDocument();
     expect(screen.queryByTestId("card-repo-3")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "1 need attention" }));
-    fireEvent.click(screen.getByRole("button", { name: "1 behind" }));
+    fireEvent.click(screen.getByRole("button", { name: "Needs attention" }));
+    expect(onToggleFilter).toHaveBeenLastCalledWith("attention");
+    rerender(
+      <OverviewView
+        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 1, behind: 1 }, activeFilters: new Set(["behind"]), onToggleFilter })}
+      />,
+    );
     expect(screen.queryByTestId("card-repo-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
 
@@ -233,48 +252,35 @@ describe("OverviewView", () => {
         {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 0, behind: 0 } })}
       />,
     );
-    expect(screen.queryByRole("button", { name: /need attention/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /behind/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "1 need attention" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "1 behind" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Needs attention" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Behind" })).toBeInTheDocument();
   });
 
-  it("restores active overview filters", async () => {
-    loadUiState.mockResolvedValue({
-      version: 1,
-      sidebar: { width: null, collapsedWorkspaces: [] },
-      repo: { treeWidth: null, inspectorWidth: null, diffMode: "unified", fileViewMode: "path" },
-      selection: { workspaceId: null, repositoryId: null },
-      overview: { filters: ["behind"] },
-    });
+  it("keeps a zero-match active filter visible and offers Clear", () => {
     const repositories = [repository(1), repository(2)];
-    const statusByRepo = {
-      "repo-1": {
-        repoId: "repo-1",
-        status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: false },
-        lastSyncedAt: null,
-      },
-      "repo-2": {
-        repoId: "repo-2",
-        status: { branch: "main", ahead: 0, behind: 1, dirtyCount: 0, hasConflict: false },
-        lastSyncedAt: null,
-      },
-    };
+    const onClearFilters = vi.fn();
 
     render(
       <OverviewView
         {...props({
           repositories,
-          statusByRepo,
           healthByRepo: {
             "repo-1": { repoId: "repo-1", conditions: [{ kind: "clean" }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
-            "repo-2": { repoId: "repo-2", conditions: [{ kind: "behind", count: 1 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+            "repo-2": { repoId: "repo-2", conditions: [{ kind: "dirty", count: 1 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
           },
-          metrics: { total: 2, attention: 0, behind: 1 },
+          metrics: { total: 2, attention: 0, behind: 0 },
+          activeFilters: new Set(["wrongBranch"]),
+          onClearFilters,
         })}
       />,
     );
 
-    await waitFor(() => expect(screen.queryByTestId("card-repo-1")).not.toBeInTheDocument());
-    expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Wrong branch" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("dashboard.noFilterMatches")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onClearFilters).toHaveBeenCalledOnce();
   });
 
   it("disables workspace actions when no workspace is selected", () => {

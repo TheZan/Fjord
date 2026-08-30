@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "All repositories",
     "filterPlaceholder": "Filter by repo or workspace",
-    "empty": "No repositories match the filter."
+    "empty": "No repositories yet."
+  },
+  "filters": {
+    "label": "Repository filters",
+    "attention": "Needs attention",
+    "dirty": "Dirty",
+    "ahead": "Ahead",
+    "behind": "Behind",
+    "conflicts": "Conflicts",
+    "wrongBranch": "Wrong branch",
+    "clear": "Clear",
+    "noMatches": "No repositories match the current filters."
   },
   "branches": {
     "current": "current"

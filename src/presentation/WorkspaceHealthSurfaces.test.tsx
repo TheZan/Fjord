@@ -100,6 +100,9 @@ function Surfaces({ health }: { health: RepoHealth }) {
         onSelectRepo={vi.fn()}
         onWarmRepo={vi.fn()}
         onRemoveRepo={vi.fn()}
+        activeFilters={new Set()}
+        onToggleFilter={vi.fn()}
+        onClearFilters={vi.fn()}
         utilities={<div />}
       />
     </>
