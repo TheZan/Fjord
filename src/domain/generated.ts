@@ -289,7 +289,7 @@ export type UiDiffMode = "unified" | "split";
 
 export type UiFileViewMode = "path" | "tree";
 
-export type UiOverviewFilter = "attention" | "behind";
+export type UiOverviewFilter = "attention" | "dirty" | "ahead" | "behind" | "conflicts" | "wrongBranch";
 
 export type SidebarUiState = { width: number | null, collapsedWorkspaces: Array<WorkspaceId>, };
 

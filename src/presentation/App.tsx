@@ -14,6 +14,7 @@ import { queryKeys } from "@/application/queryKeys";
 import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { useShortcutRegistry } from "@/application/useShortcutRegistry";
+import { useOverviewFilters } from "@/application/useOverviewFilters";
 import { repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
@@ -97,6 +98,11 @@ export function App() {
     importRepositories,
     removeRepository,
   } = useRepositories();
+  const {
+    filters: overviewFilters,
+    toggleFilter: toggleOverviewFilter,
+    clearFilters: clearOverviewFilters,
+  } = useOverviewFilters();
 
   const operations = useOperationProgress();
   const gitAuth = useGitAuthPrompts();
@@ -211,15 +217,6 @@ export function App() {
         repoNeedsAttention(healthByRepo[repo.id]),
       ).length,
     ]),
-  );
-
-  const normalizedFilter = repoFilter.trim().toLocaleLowerCase();
-  const filteredRows = flatRows.filter(({ workspace, repo }) =>
-    !normalizedFilter
-      ? true
-      : [repo.name, repo.path, workspace.name].some((value) =>
-          value.toLocaleLowerCase().includes(normalizedFilter),
-        ),
   );
 
   useEffect(() => {
@@ -573,6 +570,9 @@ export function App() {
             }
             onWarmRepo={queueRepositoryWarm}
             onRemoveRepo={(repoId) => void removeRepository(repoId)}
+            activeFilters={overviewFilters}
+            onToggleFilter={toggleOverviewFilter}
+            onClearFilters={clearOverviewFilters}
             utilities={
               <ShellUtilities
                 searchLabel={tw("toolbar.search")}
@@ -584,11 +584,15 @@ export function App() {
           />
         ) : (
           <AllReposView
-            rows={filteredRows}
+            rows={flatRows}
             statusByRepo={statusByRepo}
+            healthByRepo={healthByRepo}
             selectedRepoId={selectedRepoId}
             filter={repoFilter}
             onFilterChange={setRepoFilter}
+            activeFilters={overviewFilters}
+            onToggleFilter={toggleOverviewFilter}
+            onClearFilters={clearOverviewFilters}
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
             onWarm={(_workspaceId, repoId) => queueRepositoryWarm(repoId)}
             utilities={

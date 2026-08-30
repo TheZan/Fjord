@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Alle Repositorys",
     "filterPlaceholder": "Nach Repo oder Workspace filtern",
-    "empty": "Keine Repositorys entsprechen dem Filter."
+    "empty": "Noch keine Repositorys."
+  },
+  "filters": {
+    "label": "Repository-Filter",
+    "attention": "Benötigt Aufmerksamkeit",
+    "dirty": "Geändert",
+    "ahead": "Voraus",
+    "behind": "Zurück",
+    "conflicts": "Konflikte",
+    "wrongBranch": "Falscher Branch",
+    "clear": "Löschen",
+    "noMatches": "Keine Repositorys entsprechen den aktuellen Filtern."
   },
   "branches": {
     "current": "aktuell"

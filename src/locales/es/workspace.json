@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Todos los repositorios",
     "filterPlaceholder": "Filtrar por repositorio o workspace",
-    "empty": "Ningún repositorio coincide con el filtro."
+    "empty": "Todavía no hay repositorios."
+  },
+  "filters": {
+    "label": "Filtros de repositorios",
+    "attention": "Requiere atención",
+    "dirty": "Con cambios",
+    "ahead": "Adelantado",
+    "behind": "Atrasado",
+    "conflicts": "Conflictos",
+    "wrongBranch": "Rama incorrecta",
+    "clear": "Borrar",
+    "noMatches": "Ningún repositorio coincide con los filtros actuales."
   },
   "branches": {
     "current": "actual"

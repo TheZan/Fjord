@@ -1,8 +1,11 @@
-import { useRef, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { Input, Muted } from "@/presentation/ui";
-import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
+import { HealthFilterBar } from "@/presentation/HealthFilterBar";
+import { filterRepositoryRows } from "@/application/repoHealth";
+import type { UiOverviewFilter } from "@/domain/generated";
+import type { RepoHealth, RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 const ROW_HEIGHT = 58;
 
@@ -15,26 +18,38 @@ const ROW_HEIGHT = 58;
 export function AllReposView({
   rows,
   statusByRepo,
+  healthByRepo,
   selectedRepoId,
   filter,
   onFilterChange,
+  activeFilters,
+  onToggleFilter,
+  onClearFilters,
   onSelect,
   onWarm,
   utilities,
 }: {
   rows: { workspace: Workspace; repo: RepositoryEntry }[];
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   selectedRepoId: string | null;
   filter: string;
   onFilterChange: (value: string) => void;
+  activeFilters: ReadonlySet<UiOverviewFilter>;
+  onToggleFilter: (filter: UiOverviewFilter) => void;
+  onClearFilters: () => void;
   onSelect: (workspaceId: string, repoId: string) => void;
   onWarm?: (workspaceId: string, repoId: string) => void;
   utilities: ReactNode;
 }) {
   const { t } = useTranslation("workspace");
   const parentRef = useRef<HTMLDivElement>(null);
+  const filteredRows = useMemo(
+    () => filterRepositoryRows(rows, healthByRepo, activeFilters, filter),
+    [activeFilters, filter, healthByRepo, rows],
+  );
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: filteredRows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 12,
@@ -42,24 +57,32 @@ export function AllReposView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <header className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
+      <header className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-[1_1_14rem]">
           <h2 className="text-[17px] font-medium">{t("allRepositories.title")}</h2>
           <p className="text-[13px]" style={{ color: "var(--slate)" }}>
-            {t("dashboard.repoCountValue", { count: rows.length })}
+            {t("dashboard.repoCountValue", { count: filteredRows.length })}
           </p>
         </div>
         <Input
           value={filter}
           onChange={(event) => onFilterChange(event.target.value)}
           placeholder={t("allRepositories.filterPlaceholder")}
-          className="w-64"
+          className="min-w-40 max-w-full flex-[0_1_16rem]"
         />
         {utilities}
       </header>
 
-      {rows.length === 0 ? (
-        <Muted className="text-[13px]">{t("allRepositories.empty")}</Muted>
+      <HealthFilterBar
+        filters={activeFilters}
+        onToggle={onToggleFilter}
+        onClear={onClearFilters}
+      />
+
+      {filteredRows.length === 0 ? (
+        <Muted className="text-[13px]">
+          {rows.length === 0 ? t("allRepositories.empty") : t("filters.noMatches")}
+        </Muted>
       ) : (
         <div
           ref={parentRef}
@@ -74,7 +97,7 @@ export function AllReposView({
             }}
           >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const { workspace, repo } = rows[virtualRow.index];
+              const { workspace, repo } = filteredRows[virtualRow.index];
               const status = statusByRepo[repo.id]?.status;
               const isSelected = repo.id === selectedRepoId;
 

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
 import { RepoCard } from "@/presentation/RepoCard";
+import { HealthFilterBar } from "@/presentation/HealthFilterBar";
 import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
-import { countOnExpectedBranch, repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
+import { countOnExpectedBranch, filterRepositoriesByHealth } from "@/application/repoHealth";
 import type { ExpectedBranchSummary } from "@/application/repoHealth";
+import type { UiOverviewFilter } from "@/domain/generated";
 import type { RepoHealth, RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 interface OverviewProps {
@@ -29,13 +30,14 @@ interface OverviewProps {
   onSelectRepo: (repoId: string) => void;
   onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
+  activeFilters: ReadonlySet<UiOverviewFilter>;
+  onToggleFilter: (filter: UiOverviewFilter) => void;
+  onClearFilters: () => void;
   utilities: ReactNode;
 }
 
 const CARD_ROW_HEIGHT = 112;
 const CARD_GRID_GAP = 12;
-type OverviewFilter = "attention" | "behind";
-
 export function OverviewView({
   workspace,
   repositories,
@@ -51,19 +53,12 @@ export function OverviewView({
   onSelectRepo,
   onWarmRepo,
   onRemoveRepo,
+  activeFilters,
+  onToggleFilter,
+  onClearFilters,
   utilities,
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
-  const [activeFilters, setActiveFilters] = useState<Set<OverviewFilter>>(() => new Set());
-  const uiStateRestoredRef = useRef(false);
-
-  useEffect(() => {
-    if (uiStateRestoredRef.current) return;
-    uiStateRestoredRef.current = true;
-    void loadUiState()
-      .then((state) => setActiveFilters(new Set(state.overview.filters)))
-      .catch(() => undefined);
-  }, []);
   // Computed from the health set that is already loaded for this screen — the
   // expected-branch summary never costs an extra backend request.
   const expectedBranchSummary = useMemo(
@@ -71,32 +66,14 @@ export function OverviewView({
       workspace?.expectedBranch ? countOnExpectedBranch(repositories, healthByRepo) : null,
     [healthByRepo, repositories, workspace?.expectedBranch],
   );
-  const filteredRepositories = useMemo(() => {
-    const attentionActive = metrics.attention > 0 && activeFilters.has("attention");
-    const behindActive = metrics.behind > 0 && activeFilters.has("behind");
-    if (!attentionActive && !behindActive) return repositories;
-    return repositories.filter((repo) => {
-      const health = healthByRepo[repo.id];
-      return (
-        (attentionActive && repoNeedsAttention(health)) ||
-        (behindActive && repoIsBehind(health))
-      );
-    });
-  }, [activeFilters, healthByRepo, metrics.attention, metrics.behind, repositories]);
-
-  function toggleFilter(filter: OverviewFilter) {
-    setActiveFilters((current) => {
-      const next = new Set(current);
-      if (next.has(filter)) next.delete(filter);
-      else next.add(filter);
-      void saveOverviewFilters([...next]).catch(() => undefined);
-      return next;
-    });
-  }
+  const filteredRepositories = useMemo(
+    () => filterRepositoriesByHealth(repositories, healthByRepo, activeFilters),
+    [activeFilters, healthByRepo, repositories],
+  );
 
   return (
     <ScreenSurface screen="overview" className="flex min-h-0 flex-1 flex-col gap-5">
-      <header className="flex items-center gap-3">
+      <header className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className={`truncate ${TYPOGRAPHY.screenTitle}`}>
             {workspace?.name ?? t("dashboard.title")}
@@ -135,9 +112,15 @@ export function OverviewView({
         metrics={metrics}
         expectedBranch={workspace?.expectedBranch ?? null}
         expectedBranchSummary={expectedBranchSummary}
-        attentionActive={metrics.attention > 0 && activeFilters.has("attention")}
-        behindActive={metrics.behind > 0 && activeFilters.has("behind")}
-        onToggle={toggleFilter}
+        attentionActive={activeFilters.has("attention")}
+        behindActive={activeFilters.has("behind")}
+        onToggle={onToggleFilter}
+      />
+
+      <HealthFilterBar
+        filters={activeFilters}
+        onToggle={onToggleFilter}
+        onClear={onClearFilters}
       />
 
       {filteredRepositories.length === 0 ? (
@@ -306,7 +289,7 @@ function SummaryLine({
   expectedBranchSummary: ExpectedBranchSummary | null;
   attentionActive: boolean;
   behindActive: boolean;
-  onToggle: (filter: OverviewFilter) => void;
+  onToggle: (filter: UiOverviewFilter) => void;
 }) {
   const { t } = useTranslation("workspace");
   return (

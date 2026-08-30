@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Tous les dépôts",
     "filterPlaceholder": "Filtrer par dépôt ou workspace",
-    "empty": "Aucun dépôt ne correspond au filtre."
+    "empty": "Aucun dépôt pour le moment."
+  },
+  "filters": {
+    "label": "Filtres des dépôts",
+    "attention": "À surveiller",
+    "dirty": "Modifié",
+    "ahead": "En avance",
+    "behind": "En retard",
+    "conflicts": "Conflits",
+    "wrongBranch": "Mauvaise branche",
+    "clear": "Effacer",
+    "noMatches": "Aucun dépôt ne correspond aux filtres actuels."
   },
   "branches": {
     "current": "actuelle"
