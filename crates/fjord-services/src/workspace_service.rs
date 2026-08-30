@@ -432,9 +432,7 @@ pub fn derive_repo_health(
     if status.is_some_and(|status| status.has_conflict) {
         conditions.push(RepoCondition::Conflict);
     }
-    if let Some(operation) =
-        operation.filter(|operation| !matches!(operation, RepoOperation::Normal))
-    {
+    if let Some(operation) = operation.filter(|operation| is_operation_in_progress(operation)) {
         conditions.push(RepoCondition::OperationInProgress {
             operation: operation.clone(),
         });
@@ -488,6 +486,17 @@ pub fn derive_repo_health(
         needs_attention,
         as_of,
     }
+}
+
+fn is_operation_in_progress(operation: &RepoOperation) -> bool {
+    matches!(
+        operation,
+        RepoOperation::Merge { .. }
+            | RepoOperation::Rebase { .. }
+            | RepoOperation::CherryPick { .. }
+            | RepoOperation::Revert { .. }
+            | RepoOperation::Bisect { .. }
+    )
 }
 
 #[cfg(test)]
@@ -1181,7 +1190,28 @@ mod tests {
     }
 
     #[test]
-    fn detached_and_unborn_heads_report_wrong_branch_with_no_actual_branch() {
+    fn detached_and_unborn_heads_are_clean_without_an_expected_branch() {
+        for operation in [
+            RepoOperation::Detached {
+                head: "deadbeef".into(),
+            },
+            RepoOperation::UnbornBranch,
+        ] {
+            let health = derive_repo_health(
+                RepositoryId::new(),
+                Some(&status(None, 0, 0, 0, false)),
+                Some(&operation),
+                None,
+                None,
+                OffsetDateTime::UNIX_EPOCH,
+            );
+            assert_eq!(health.conditions, vec![RepoCondition::Clean]);
+            assert!(!health.needs_attention);
+        }
+    }
+
+    #[test]
+    fn detached_and_unborn_heads_report_only_wrong_branch_with_an_expected_branch() {
         for operation in [
             RepoOperation::Detached {
                 head: "deadbeef".into(),
@@ -1196,10 +1226,56 @@ mod tests {
                 None,
                 OffsetDateTime::UNIX_EPOCH,
             );
-            assert!(health.conditions.contains(&RepoCondition::WrongBranch {
-                expected: "develop".into(),
-                actual: None,
-            }));
+            assert_eq!(
+                health.conditions,
+                vec![RepoCondition::WrongBranch {
+                    expected: "develop".into(),
+                    actual: None,
+                }]
+            );
+            assert!(health.needs_attention);
+        }
+    }
+
+    #[test]
+    fn integration_and_history_operations_report_operation_in_progress() {
+        let operations = [
+            RepoOperation::Merge {
+                head: "main".into(),
+                incoming: vec!["feature/x".into()],
+            },
+            RepoOperation::Rebase {
+                rebase_kind: fjord_domain::RebaseKind::Merge,
+                onto: "main".into(),
+                current: 1,
+                total: 3,
+                head_name: Some("refs/heads/feature/x".into()),
+            },
+            RepoOperation::CherryPick {
+                commit: "deadbeef".into(),
+            },
+            RepoOperation::Revert {
+                commit: "deadbeef".into(),
+            },
+            RepoOperation::Bisect { good: 2, bad: 1 },
+        ];
+
+        for operation in operations {
+            let health = derive_repo_health(
+                RepositoryId::new(),
+                Some(&status(Some("main"), 0, 0, 0, false)),
+                Some(&operation),
+                None,
+                None,
+                OffsetDateTime::UNIX_EPOCH,
+            );
+            assert_eq!(
+                health.conditions,
+                vec![RepoCondition::OperationInProgress {
+                    operation: operation.clone(),
+                }]
+            );
+            assert!(health.needs_attention);
         }
     }
 
