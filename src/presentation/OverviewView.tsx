@@ -5,12 +5,14 @@ import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
 import { RepoCard } from "@/presentation/RepoCard";
 import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
-import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
+import { repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
+import type { RepoHealth, RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 interface OverviewProps {
   workspace: Workspace | null;
   repositories: RepositoryEntry[];
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   selectedRepoId: string | null;
   metrics: { total: number; attention: number; behind: number };
   bulkPending: string | null;
@@ -37,6 +39,7 @@ export function OverviewView({
   workspace,
   repositories,
   statusByRepo,
+  healthByRepo,
   selectedRepoId,
   metrics,
   bulkPending,
@@ -65,13 +68,13 @@ export function OverviewView({
     const behindActive = metrics.behind > 0 && activeFilters.has("behind");
     if (!attentionActive && !behindActive) return repositories;
     return repositories.filter((repo) => {
-      const status = statusByRepo[repo.id]?.status;
+      const health = healthByRepo[repo.id];
       return (
-        (attentionActive && Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind)) ||
-        (behindActive && (status?.behind ?? 0) > 0)
+        (attentionActive && repoNeedsAttention(health)) ||
+        (behindActive && repoIsBehind(health))
       );
     });
-  }, [activeFilters, metrics.attention, metrics.behind, repositories, statusByRepo]);
+  }, [activeFilters, healthByRepo, metrics.attention, metrics.behind, repositories]);
 
   function toggleFilter(filter: OverviewFilter) {
     setActiveFilters((current) => {
@@ -145,6 +148,7 @@ export function OverviewView({
         <VirtualRepoGrid
           repositories={filteredRepositories}
           statusByRepo={statusByRepo}
+          healthByRepo={healthByRepo}
           selectedRepoId={selectedRepoId}
           onSelectRepo={onSelectRepo}
           onWarmRepo={onWarmRepo}
@@ -192,6 +196,7 @@ function BulkProgressStrip({
 function VirtualRepoGrid({
   repositories,
   statusByRepo,
+  healthByRepo,
   selectedRepoId,
   onSelectRepo,
   onWarmRepo,
@@ -199,6 +204,7 @@ function VirtualRepoGrid({
 }: {
   repositories: RepositoryEntry[];
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   selectedRepoId: string | null;
   onSelectRepo: (repoId: string) => void;
   onWarmRepo: (repoId: string) => void;
@@ -263,6 +269,7 @@ function VirtualRepoGrid({
                 key={repo.id}
                 repo={repo}
                 status={statusByRepo[repo.id]?.status}
+                health={healthByRepo[repo.id]}
                 selected={repo.id === selectedRepoId}
                 onSelect={() => onSelectRepo(repo.id)}
                 onWarm={() => onWarmRepo(repo.id)}

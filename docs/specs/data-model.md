@@ -138,3 +138,9 @@ omission.
 ## What's deliberately *not* here
 
 Commit history, diffs, branch lists — none of that is cached in SQLite. It's read live through `GitBackend` on every request; only the *summary* (`repo_status_cache`) is persisted, because it's the one thing expensive enough (many repos × full status each) to be worth caching, and cheap enough to safely go stale between refreshes.
+
+`RepoHealth` is also deliberately absent from the schema. It is an O(repositories)
+derived projection over `repo_status_cache`, the cached operation observation,
+and the optional expected-branch input. The existing `repo_snapshot` payload may
+supply a cached operation state after restart, but it is never a second health
+source of truth.

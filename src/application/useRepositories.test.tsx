@@ -6,7 +6,7 @@ import { useRepositories } from "@/application/useRepositories";
 import * as dialog from "@/infrastructure/dialog";
 import { initI18n } from "@/infrastructure/i18n";
 import * as tauriClient from "@/infrastructure/tauriClient";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoHealth, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 
 vi.mock("@/infrastructure/dialog", () => ({
   pickFolder: vi.fn(),
@@ -19,6 +19,7 @@ vi.mock("@/infrastructure/tauriClient", () => ({
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
   getWorkspaceStatus: vi.fn(),
+  getWorkspaceHealth: vi.fn(),
   importRepositories: vi.fn(),
   listRepositories: vi.fn(),
   listWorkspaces: vi.fn(),
@@ -72,6 +73,16 @@ const statusByWorkspace: Record<string, RepoStatusSummary[]> = {
   mobile: [],
 };
 
+const healthByWorkspace: Record<string, RepoHealth[]> = {
+  backend: [
+    { repoId: "api", conditions: [{ kind: "behind", count: 1 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+  ],
+  frontend: [
+    { repoId: "web", conditions: [{ kind: "ahead", count: 2 }, { kind: "dirty", count: 3 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+  ],
+  mobile: [],
+};
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -94,6 +105,9 @@ describe("useRepositories", () => {
     vi.mocked(tauriClient.getWorkspaceStatus).mockImplementation(
       async (workspaceId) => statusByWorkspace[workspaceId] ?? [],
     );
+    vi.mocked(tauriClient.getWorkspaceHealth).mockImplementation(
+      async (workspaceId) => healthByWorkspace[workspaceId] ?? [],
+    );
     vi.mocked(tauriClient.createWorkspace).mockResolvedValue({
       id: "mobile",
       name: "Mobile",
@@ -109,6 +123,7 @@ describe("useRepositories", () => {
     expect(tauriClient.listWorkspaces).toHaveBeenCalledTimes(1);
     expect(tauriClient.listRepositories).toHaveBeenCalledWith("frontend");
     expect(tauriClient.getWorkspaceStatus).toHaveBeenCalledWith("backend");
+    expect(tauriClient.getWorkspaceHealth).toHaveBeenCalledWith("backend");
     expect(result.current.workspaces.map((workspace) => workspace.id)).toEqual([
       "frontend",
       "backend",
@@ -116,6 +131,7 @@ describe("useRepositories", () => {
     expect(result.current.selectedWorkspaceId).toBe("frontend");
     expect(result.current.repositories.map((repo) => repo.id)).toEqual(["web"]);
     expect(result.current.statusByRepo.web.status.dirtyCount).toBe(3);
+    expect(result.current.healthByRepo.web.needsAttention).toBe(false);
   });
 
   it("creates a workspace through a mutation and selects it", async () => {

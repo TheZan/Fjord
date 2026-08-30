@@ -14,6 +14,7 @@ import { queryKeys } from "@/application/queryKeys";
 import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { useShortcutRegistry } from "@/application/useShortcutRegistry";
+import { repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
@@ -77,6 +78,7 @@ export function App() {
     selectedWorkspaceId,
     repositoriesByWorkspace,
     statusByRepo,
+    healthByRepo,
     loading,
     error,
     workspaceActionPending,
@@ -185,15 +187,10 @@ export function App() {
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
   );
 
-  const needsAttention = (repoId: string) => {
-    const status = statusByRepo[repoId]?.status;
-    return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
-  };
-
   const metrics = {
     total: workspaceRepos.length,
-    attention: workspaceRepos.filter((repo) => needsAttention(repo.id)).length,
-    behind: workspaceRepos.filter((repo) => (statusByRepo[repo.id]?.status.behind ?? 0) > 0).length,
+    attention: workspaceRepos.filter((repo) => repoNeedsAttention(healthByRepo[repo.id])).length,
+    behind: workspaceRepos.filter((repo) => repoIsBehind(healthByRepo[repo.id])).length,
   };
 
   const repoCountByWorkspace = Object.fromEntries(
@@ -202,7 +199,9 @@ export function App() {
   const attentionByWorkspace = Object.fromEntries(
     workspaces.map((workspace) => [
       workspace.id,
-      (repositoriesByWorkspace[workspace.id] ?? []).filter((repo) => needsAttention(repo.id)).length,
+      (repositoriesByWorkspace[workspace.id] ?? []).filter((repo) =>
+        repoNeedsAttention(healthByRepo[repo.id]),
+      ).length,
     ]),
   );
 
@@ -482,6 +481,7 @@ export function App() {
         workspaces={workspaces}
         repositoriesByWorkspace={repositoriesByWorkspace}
         statusByRepo={statusByRepo}
+        healthByRepo={healthByRepo}
         repoCountByWorkspace={repoCountByWorkspace}
         attentionByWorkspace={attentionByWorkspace}
         selectedWorkspaceId={selectedWorkspaceId}
@@ -549,6 +549,7 @@ export function App() {
             workspace={selectedWorkspace}
             repositories={workspaceRepos}
             statusByRepo={statusByRepo}
+            healthByRepo={healthByRepo}
             selectedRepoId={selectedRepoId}
             metrics={metrics}
             bulkPending={bulkActionPending}

@@ -20,6 +20,7 @@ describe("invalidateRepoData", () => {
       queryKeys.repos.operationState("repo-1"),
       queryKeys.repos.workingChanges("repo-1"),
       queryKeys.repos.fileDiffs("repo-1"),
+      queryKeys.workspaces.health("workspace-1"),
     ]);
     expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.commits("repo-1"));
     expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.branches("repo-1"));
@@ -30,12 +31,15 @@ describe("invalidateRepoData", () => {
 
     await invalidateRepoData(queryClient.client, "repo-1", "workspace-1", ["refs", "operation"]);
 
-    expect(queryClient.cancelQueries).toHaveBeenCalledTimes(3);
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(3);
+    expect(queryClient.cancelQueries).toHaveBeenCalledTimes(4);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4);
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({ queryKey: queryKeys.repos.branches("repo-1") });
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({ queryKey: queryKeys.repos.tags("repo-1") });
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.repos.operationState("repo-1"),
+    });
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.workspaces.health("workspace-1"),
     });
   });
 

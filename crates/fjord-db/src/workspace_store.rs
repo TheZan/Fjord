@@ -373,6 +373,42 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         }))
     }
 
+    async fn list_workspace_snapshots(
+        &self,
+        workspace_id: WorkspaceId,
+        schema_version: u32,
+    ) -> Result<Vec<StoredRepositorySnapshot>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT s.repo_id, s.payload, s.captured_at \
+             FROM repo_snapshot s \
+             INNER JOIN repositories r ON r.id = s.repo_id \
+             WHERE r.workspace_id = ? AND s.schema_version = ? \
+             ORDER BY r.sort_order, r.created_at",
+        )
+        .bind(workspace_id.0.to_string())
+        .bind(i64::from(schema_version))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| StoreError::Database(error.to_string()))?;
+
+        rows.into_iter()
+            .map(|row| {
+                let repo_id = Uuid::from_str(row.get::<String, _>("repo_id").as_str())
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                let snapshot = serde_json::from_str::<RepositorySnapshot>(row.get("payload"))
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                let captured_at = OffsetDateTime::parse(row.get("captured_at"), &Rfc3339)
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                Ok(StoredRepositorySnapshot {
+                    repo_id: RepositoryId(repo_id),
+                    snapshot,
+                    captured_at,
+                    validated: false,
+                })
+            })
+            .collect()
+    }
+
     async fn upsert_repository_snapshot(
         &self,
         repo_id: RepositoryId,
@@ -611,6 +647,11 @@ mod tests {
         assert_eq!(loaded.snapshot, snapshot);
         assert_eq!(loaded.captured_at, captured.captured_at);
         assert!(!loaded.validated);
+
+        let workspace_snapshots = store.list_workspace_snapshots(ws.id, 1).await.unwrap();
+        assert_eq!(workspace_snapshots.len(), 1);
+        assert_eq!(workspace_snapshots[0].repo_id, repo.id);
+        assert_eq!(workspace_snapshots[0].snapshot, snapshot);
     }
 
     #[tokio::test]

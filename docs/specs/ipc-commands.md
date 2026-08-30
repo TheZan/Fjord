@@ -51,6 +51,7 @@ The authoritative list is the `invoke_handler` registration in `crates/fjord-app
 | `import_repositories` | `{ workspace_id, root }` | `RepositoryEntry[]` | Recursively discovers repositories, skips generated directories and duplicates |
 | `remove_repository` | `{ id }` | — | Removes tracking only, never touches disk |
 | `get_workspace_status` | `{ workspace_id }` | `RepoStatusSummary[]` | Reads from `repo_status_cache`; triggers a background refresh, does not block on it |
+| `get_workspace_health` | `{ workspace_id }` | `RepoHealth[]` | O(repositories) projection over cached status plus in-memory operation/error observations; performs no Git reads and returns all applicable conditions in canonical severity order |
 | `refresh_repo_status` | `{ repo_id }` | `RepoStatusSummary` | Forces a live `GitBackend::status`, updates the cache |
 | `set_repository_activity` | `{ workspace_id?, repo_id? }` | — | Applies Hot/Warm/Cold runtime and watcher tiers after navigation |
 | `get_repository_snapshot` | `{ repo_id }` | `StoredRepositorySnapshot?` | Loads the persisted projection as unvalidated; callers must start live revalidation |
@@ -175,7 +176,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
 | `start_rebase` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §2 | `P10-04` |
 | `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
-| `get_workspace_health` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §4 | `P10-08` |
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained

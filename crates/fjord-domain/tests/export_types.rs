@@ -14,10 +14,10 @@ use fjord_domain::{
     LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome, MergePrediction,
     MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget, OperationControl,
     OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability,
-    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoOperation,
-    RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch,
-    RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, ResetMode,
-    SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoCondition, RepoHealth,
+    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
+    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult,
     StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
     StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
@@ -68,6 +68,8 @@ fn generated_types() -> String {
     push::<SnapshotRevalidation>(&mut output, &config);
     push::<RepoStatus>(&mut output, &config);
     push::<RepoStatusSummary>(&mut output, &config);
+    push::<RepoCondition>(&mut output, &config);
+    push::<RepoHealth>(&mut output, &config);
     push::<OperationControl>(&mut output, &config);
     push::<RebaseKind>(&mut output, &config);
     push::<RepoOperation>(&mut output, &config);

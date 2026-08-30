@@ -279,6 +279,60 @@ pub struct RepoStatusSummary {
     pub last_synced_at: Option<OffsetDateTime>,
 }
 
+/// Backend-derived repository health. Conditions are emitted in the canonical
+/// display severity order and may contain more than one applicable fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RepoCondition {
+    Clean,
+    Dirty {
+        count: u32,
+    },
+    Ahead {
+        count: u32,
+    },
+    Behind {
+        count: u32,
+    },
+    Diverged {
+        ahead: u32,
+        behind: u32,
+    },
+    Conflict,
+    OperationInProgress {
+        operation: RepoOperation,
+    },
+    WrongBranch {
+        expected: String,
+        actual: Option<String>,
+    },
+    Unreadable {
+        reason_code: String,
+    },
+}
+
+/// A point-in-time health projection derived from authoritative cached inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepoHealth {
+    pub repo_id: RepositoryId,
+    pub conditions: Vec<RepoCondition>,
+    pub needs_attention: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub as_of: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]

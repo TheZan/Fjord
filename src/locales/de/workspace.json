@@ -22,6 +22,10 @@
     "ahead": "Voraus",
     "behind": "Zurück",
     "conflict": "Konflikt",
+    "diverged": "Auseinanderentwickelt",
+    "operation": "Vorgang läuft",
+    "unreadable": "Nicht lesbar",
+    "wrongBranch": "Falscher Branch",
     "upToDate": "Aktuell",
     "changes": "{{count}} Änderungen"
   },

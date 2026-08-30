@@ -78,11 +78,11 @@ color-vision-deficient users and in high-contrast environments.
 
 | Element | State |
 |---|---|
-| Sidebar | ✅ Resizable navigation/workspace tree with no working-shell branding or Settings entry; width, expansion, and selection persist through the versioned UI-state store. |
+| Sidebar | ✅ Resizable navigation/workspace tree with no working-shell branding or Settings entry; width, expansion, and selection persist through the versioned UI-state store. Workspace attention dots and repository primary-state badges consume backend-sorted `RepoHealth`. |
 | Global utilities | ✅ Reusable `ShellUtilities` owns exactly Search and Settings and is composed into the active screen header. The shortcut/palette and Settings dialog owners are unchanged. There is no dedicated utility row. |
 | Settings dialog | ✅ Compact modal with a narrow sidebar and five product sections in order: General, Git, Tools, Appearance, About. General owns language; Git groups executable, authentication/environment, repository trust, and connection diagnostics; Tools owns performance traces plus built-in/custom editor selection; Appearance owns the three theme choices; About contains only app/version and log-folder diagnostics. There is no Sync section or background auto-fetch control. 🚧 `P10-WC-06` adds one control to the existing Tools section — the optional external diff-tool **name** — without adding a section ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.4). |
 | RepoToolbar | ✅ Identity/state left; Fetch/Pull/Push/Branch center; IDE and overflow next; one separated `ShellUtilities` slot last. Stash/Pop/Terminal/Merge tool/compact Inspector live in overflow. No duplicate Search. |
-| Overview header | ✅ Four workspace actions (Fetch all, Pull all, Add repository, overflow), followed by the separated two-control utility slot; one compact filterable summary line replaces metric cards. |
+| Overview header | ✅ Four workspace actions (Fetch all, Pull all, Add repository, overflow), followed by the separated two-control utility slot; one compact filterable summary line replaces metric cards. Its attention count/filter reads `RepoHealth.needs_attention`, so a merely dirty repository is not included. |
 | All repositories header | ✅ Title/count, text filter, then the same two-control utility slot. |
 | Borders | ✅ `Surface`/`ScreenSurface` enforce one visual ownership level with hairline separators instead of nested bordered cards. |
 | Layout persistence | ✅ SQLite-backed versioned UI state owns sidebar/tree/inspector widths, collapsed workspaces, selection, diff/file modes, and Overview filters. |
