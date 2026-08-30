@@ -5,6 +5,7 @@ export const queryKeys = {
     repositories: (workspaceId: string) =>
       [...queryKeys.workspaces.all, workspaceId, "repositories"] as const,
     status: (workspaceId: string) => [...queryKeys.workspaces.all, workspaceId, "status"] as const,
+    health: (workspaceId: string) => [...queryKeys.workspaces.all, workspaceId, "health"] as const,
   },
   repos: {
     all: ["repos"] as const,

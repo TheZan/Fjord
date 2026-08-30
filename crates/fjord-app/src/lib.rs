@@ -88,6 +88,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::delete_workspace,
             commands::list_repositories,
             commands::get_workspace_status,
+            commands::get_workspace_health,
             commands::refresh_repo_status,
             commands::set_repository_activity,
             commands::add_repository,

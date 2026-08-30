@@ -46,6 +46,7 @@ import type {
   CreateRepositoryResult,
   RemoteInfo,
   RemotePushResult,
+  RepoHealth,
   RepoStatusSummary,
   RepositoryEntry,
   Workspace,
@@ -321,6 +322,10 @@ export function listRepositories(workspaceId: string): Promise<RepositoryEntry[]
 
 export function getWorkspaceStatus(workspaceId: string): Promise<RepoStatusSummary[]> {
   return invoke("get_workspace_status", { workspaceId });
+}
+
+export function getWorkspaceHealth(workspaceId: string): Promise<RepoHealth[]> {
+  return invoke("get_workspace_health", { workspaceId });
 }
 
 export function refreshRepoStatus(repoId: string): Promise<RepoStatusSummary> {

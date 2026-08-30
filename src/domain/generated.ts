@@ -39,6 +39,10 @@ export type RepoStatus = { branch: string | null, ahead: number, behind: number,
 
 export type RepoStatusSummary = { repoId: RepositoryId, status: RepoStatus, lastSyncedAt: string | null, };
 
+export type RepoCondition = { "kind": "clean" } | { "kind": "dirty", count: number, } | { "kind": "ahead", count: number, } | { "kind": "behind", count: number, } | { "kind": "diverged", ahead: number, behind: number, } | { "kind": "conflict" } | { "kind": "operationInProgress", operation: RepoOperation, } | { "kind": "wrongBranch", expected: string, actual: string | null, } | { "kind": "unreadable", reasonCode: string, };
+
+export type RepoHealth = { repoId: RepositoryId, conditions: Array<RepoCondition>, needsAttention: boolean, asOf: string, };
+
 export type OperationControl = "continue" | "skip" | "abort";
 
 export type RebaseKind = "apply" | "merge" | "interactive";

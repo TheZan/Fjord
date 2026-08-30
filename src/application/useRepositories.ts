@@ -11,6 +11,7 @@ import {
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
+  getWorkspaceHealth,
   importRepositories as importRepositoriesCommand,
   listRepositories,
   listWorkspaces,
@@ -25,6 +26,7 @@ import type {
   CreateRepositoryRequest,
   CreateRepositoryResult,
   RepoStatusSummary,
+  RepoHealth,
   RepositoryEntry,
   Workspace,
 } from "@/domain/workspace";
@@ -49,6 +51,7 @@ export interface UseRepositoriesResult {
   repositories: RepositoryEntry[];
   repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   loading: boolean;
   error: string | null;
   workspaceActionPending: string | null;
@@ -97,6 +100,14 @@ export function useRepositories(): UseRepositoriesResult {
     })),
   });
 
+  const healthQueries = useQueries({
+    queries: workspaces.map((workspace) => ({
+      queryKey: queryKeys.workspaces.health(workspace.id),
+      queryFn: () => getWorkspaceHealth(workspace.id),
+      enabled: activated,
+    })),
+  });
+
   useEffect(() => {
     if (workspaces.length === 0) {
       setSelectedWorkspaceId(null);
@@ -123,6 +134,16 @@ export function useRepositories(): UseRepositoriesResult {
         ),
       ),
     [statusQueries],
+  );
+
+  const healthByRepo = useMemo(
+    () =>
+      Object.fromEntries(
+        healthQueries.flatMap((query) =>
+          (query.data ?? []).map((health) => [health.repoId, health] as const),
+        ),
+      ),
+    [healthQueries],
   );
 
   const selectedWorkspace = useMemo(
@@ -163,6 +184,7 @@ export function useRepositories(): UseRepositoriesResult {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.repositories(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.health(workspaceId) }),
       ]);
     },
     [queryClient],
@@ -232,6 +254,7 @@ export function useRepositories(): UseRepositoriesResult {
         queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), remaining);
         queryClient.removeQueries({ queryKey: queryKeys.workspaces.repositories(id) });
         queryClient.removeQueries({ queryKey: queryKeys.workspaces.status(id) });
+        queryClient.removeQueries({ queryKey: queryKeys.workspaces.health(id) });
         for (const repo of repositoriesByWorkspace[id] ?? []) {
           queryClient.removeQueries({ queryKey: queryKeys.repos.detail(repo.id) });
         }
@@ -376,6 +399,9 @@ export function useRepositories(): UseRepositoriesResult {
           await queryClient.invalidateQueries({
             queryKey: queryKeys.workspaces.status(request.workspaceId),
           });
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.workspaces.health(request.workspaceId),
+          });
           return result;
         }),
       };
@@ -396,13 +422,18 @@ export function useRepositories(): UseRepositoriesResult {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.workspaces.status(request.workspaceId),
       });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.health(request.workspaceId),
+      });
       return result;
     },
     [queryClient],
   );
 
   const queryBackedError =
-    workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
+    workspacesQuery.error
+      ? userErrorMessage(workspacesQuery.error)
+      : queryError(repositoryQueries) ?? queryError(statusQueries) ?? queryError(healthQueries);
 
   return {
     workspaces,
@@ -411,11 +442,13 @@ export function useRepositories(): UseRepositoriesResult {
     repositories,
     repositoriesByWorkspace,
     statusByRepo,
+    healthByRepo,
     loading:
       !activated ||
       workspacesQuery.isLoading ||
       repositoryQueries.some((query) => query.isLoading) ||
-      statusQueries.some((query) => query.isLoading),
+      statusQueries.some((query) => query.isLoading) ||
+      healthQueries.some((query) => query.isLoading),
     error: localError ?? queryBackedError,
     workspaceActionPending,
     clearError: () => setLocalError(null),

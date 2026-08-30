@@ -67,6 +67,7 @@ function props(overrides: Partial<React.ComponentProps<typeof OverviewView>> = {
     workspace,
     repositories: [],
     statusByRepo: {},
+    healthByRepo: {},
     selectedRepoId: null,
     metrics: { total: 5, attention: 2, behind: 1 },
     bulkPending: null,
@@ -185,26 +186,46 @@ describe("OverviewView", () => {
         lastSyncedAt: null,
       },
     };
+    const healthByRepo = {
+      "repo-1": {
+        repoId: "repo-1",
+        conditions: [{ kind: "conflict" as const }, { kind: "dirty" as const, count: 1 }],
+        needsAttention: true,
+        asOf: "1970-01-01T00:00:00Z",
+      },
+      "repo-2": {
+        repoId: "repo-2",
+        conditions: [{ kind: "behind" as const, count: 1 }],
+        needsAttention: false,
+        asOf: "1970-01-01T00:00:00Z",
+      },
+      "repo-3": {
+        repoId: "repo-3",
+        conditions: [{ kind: "clean" as const }],
+        needsAttention: false,
+        asOf: "1970-01-01T00:00:00Z",
+      },
+    };
     const { rerender } = render(
       <OverviewView
-        {...props({ repositories, statusByRepo, metrics: { total: 3, attention: 2, behind: 1 } })}
+        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 1, behind: 1 } })}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "2 need attention" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 need attention" }));
     expect(saveOverviewFilters).toHaveBeenCalledWith(["attention"]);
     expect(screen.getByTestId("card-repo-1")).toBeInTheDocument();
-    expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("card-repo-2")).not.toBeInTheDocument();
     expect(screen.queryByTestId("card-repo-3")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "2 need attention" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 need attention" }));
     fireEvent.click(screen.getByRole("button", { name: "1 behind" }));
     expect(screen.queryByTestId("card-repo-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("card-repo-2")).toBeInTheDocument();
 
     rerender(
       <OverviewView
-        {...props({ repositories, statusByRepo, metrics: { total: 3, attention: 0, behind: 0 } })}
+        {...props({ repositories, statusByRepo, healthByRepo, metrics: { total: 3, attention: 0, behind: 0 } })}
       />,
     );
     expect(screen.queryByRole("button", { name: /need attention/ })).not.toBeInTheDocument();
@@ -235,7 +256,15 @@ describe("OverviewView", () => {
 
     render(
       <OverviewView
-        {...props({ repositories, statusByRepo, metrics: { total: 2, attention: 1, behind: 1 } })}
+        {...props({
+          repositories,
+          statusByRepo,
+          healthByRepo: {
+            "repo-1": { repoId: "repo-1", conditions: [{ kind: "clean" }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+            "repo-2": { repoId: "repo-2", conditions: [{ kind: "behind", count: 1 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+          },
+          metrics: { total: 2, attention: 0, behind: 1 },
+        })}
       />,
     );
 

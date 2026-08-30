@@ -2,9 +2,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use fjord_domain::{RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId};
+use fjord_domain::{
+    RepoCondition, RepoHealth, RepoOperation, RepoStatus, RepoStatusSummary, RepositoryEntry,
+    RepositoryId, Workspace, WorkspaceId,
+};
 use fjord_ports::{GitBackend, GitError, RepoPath, StoreError, WorkspaceStore};
 use thiserror::Error;
+use time::OffsetDateTime;
 
 #[derive(Debug, Error)]
 pub enum WorkspaceError {
@@ -38,12 +42,20 @@ pub struct WorkspaceService {
     git: Arc<dyn GitBackend>,
     runtime: tokio::runtime::Handle,
     status_refreshes: Arc<Mutex<HashMap<RepositoryId, PendingStatusRefresh>>>,
+    health_runtime: Arc<Mutex<HashMap<RepositoryId, HealthRuntimeState>>>,
 }
 
 #[derive(Debug, Default)]
 struct PendingStatusRefresh {
     pending: bool,
     invalidate: bool,
+}
+
+#[derive(Debug, Clone)]
+struct HealthRuntimeState {
+    operation: RepoOperation,
+    unreadable_reason_code: Option<String>,
+    observed_at: OffsetDateTime,
 }
 
 impl WorkspaceService {
@@ -53,6 +65,7 @@ impl WorkspaceService {
             git,
             runtime: tokio::runtime::Handle::current(),
             status_refreshes: Arc::new(Mutex::new(HashMap::new())),
+            health_runtime: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -105,11 +118,87 @@ impl WorkspaceService {
         Ok(cached)
     }
 
+    /// Derives one health projection for every repository from the status
+    /// cache and the operation/error observations populated by the existing
+    /// refresh path. This query performs no Git reads and therefore remains
+    /// O(repository count) even for cold workspaces.
+    pub async fn get_workspace_health(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<RepoHealth>, WorkspaceError> {
+        self.get_workspace_health_with_expected_branch(workspace_id, None)
+            .await
+    }
+
+    /// P10-09 supplies the persisted expected branch through this seam. P10-08
+    /// intentionally leaves persistence and settings UI out of scope.
+    pub async fn get_workspace_health_with_expected_branch(
+        &self,
+        workspace_id: WorkspaceId,
+        expected_branch: Option<&str>,
+    ) -> Result<Vec<RepoHealth>, WorkspaceError> {
+        let (cached, snapshots) = tokio::try_join!(
+            self.store.list_workspace_status(workspace_id),
+            self.store.list_workspace_snapshots(
+                workspace_id,
+                crate::repo_service::SNAPSHOT_SCHEMA_VERSION,
+            ),
+        )?;
+        let snapshots = snapshots
+            .into_iter()
+            .map(|snapshot| (snapshot.repo_id, snapshot))
+            .collect::<HashMap<_, _>>();
+        let runtime = self.health_runtime.lock().unwrap().clone();
+
+        Ok(cached
+            .into_iter()
+            .map(|summary| {
+                let runtime_state = runtime.get(&summary.repo_id);
+                let snapshot = snapshots.get(&summary.repo_id);
+                let unreadable = runtime_state
+                    .and_then(|state| state.unreadable_reason_code.as_deref())
+                    .or_else(|| {
+                        summary
+                            .last_synced_at
+                            .is_none()
+                            .then_some("status_unavailable")
+                    });
+                let operation = runtime_state.map(|state| &state.operation).or_else(|| {
+                    snapshot.map(|snapshot| &snapshot.snapshot.operation_state.operation)
+                });
+                let operation_at = runtime_state
+                    .map(|state| state.observed_at)
+                    .or_else(|| snapshot.map(|snapshot| snapshot.captured_at));
+                let as_of = match (summary.last_synced_at, operation_at) {
+                    (Some(status_at), Some(operation_at)) => status_at.min(operation_at),
+                    (Some(status_at), None) => status_at,
+                    (None, Some(observed_at)) => observed_at,
+                    (None, None) => OffsetDateTime::UNIX_EPOCH,
+                };
+
+                derive_repo_health(
+                    summary.repo_id,
+                    Some(&summary.status),
+                    operation,
+                    expected_branch,
+                    unreadable,
+                    as_of,
+                )
+            })
+            .collect())
+    }
+
     pub async fn refresh_repo_status(
         &self,
         repo_id: RepositoryId,
     ) -> Result<RepoStatusSummary, WorkspaceError> {
-        refresh_repo_status_once(self.store.as_ref(), self.git.as_ref(), repo_id).await
+        refresh_repo_status_once(
+            self.store.as_ref(),
+            self.git.as_ref(),
+            self.health_runtime.as_ref(),
+            repo_id,
+        )
+        .await
     }
 
     /// Performs a live status read while preserving the cache-first dashboard
@@ -127,7 +216,20 @@ impl WorkspaceService {
             .into_iter()
             .find(|summary| summary.repo_id == repo_id)
             .map(|summary| summary.status);
-        let status = self.git.status(&RepoPath::new(repo.path)).await?;
+        let repo_path = RepoPath::new(repo.path);
+        let (status_result, operation_result) = tokio::join!(
+            self.git.status(&repo_path),
+            self.git.operation_state(&repo_path)
+        );
+        let observed_at = OffsetDateTime::now_utc();
+        let status = match status_result {
+            Ok(status) => status,
+            Err(error) => {
+                record_health_failure(&self.health_runtime, repo_id, &error, observed_at);
+                return Err(error.into());
+            }
+        };
+        record_health_operation(&self.health_runtime, repo_id, operation_result, observed_at);
         let changed = previous.as_ref() != Some(&status);
         let summary = self.store.upsert_repo_status(repo_id, &status).await?;
         Ok(changed.then_some(summary))
@@ -154,6 +256,7 @@ impl WorkspaceService {
             self.status_refreshes.clone(),
             self.store.clone(),
             self.git.clone(),
+            self.health_runtime.clone(),
             repo_id,
             invalidate_first,
         );
@@ -206,6 +309,7 @@ fn spawn_status_refresh_worker(
     refreshes: Arc<Mutex<HashMap<RepositoryId, PendingStatusRefresh>>>,
     store: Arc<dyn WorkspaceStore>,
     git: Arc<dyn GitBackend>,
+    health_runtime: Arc<Mutex<HashMap<RepositoryId, HealthRuntimeState>>>,
     repo_id: RepositoryId,
     invalidate_first: bool,
 ) {
@@ -217,7 +321,13 @@ fn spawn_status_refresh_worker(
                 let _ = store.invalidate_repo_status(repo_id).await;
             }
 
-            let _ = refresh_repo_status_once(store.as_ref(), git.as_ref(), repo_id).await;
+            let _ = refresh_repo_status_once(
+                store.as_ref(),
+                git.as_ref(),
+                health_runtime.as_ref(),
+                repo_id,
+            )
+            .await;
 
             invalidate = {
                 let mut refreshes = refreshes.lock().unwrap();
@@ -242,11 +352,142 @@ fn spawn_status_refresh_worker(
 async fn refresh_repo_status_once(
     store: &dyn WorkspaceStore,
     git: &dyn GitBackend,
+    health_runtime: &Mutex<HashMap<RepositoryId, HealthRuntimeState>>,
     repo_id: RepositoryId,
 ) -> Result<RepoStatusSummary, WorkspaceError> {
     let repo = store.get_repository(repo_id).await?;
-    let status = git.status(&RepoPath::new(repo.path)).await?;
+    let repo_path = RepoPath::new(repo.path);
+    let (status_result, operation_result) =
+        tokio::join!(git.status(&repo_path), git.operation_state(&repo_path));
+    let observed_at = OffsetDateTime::now_utc();
+    let status = match status_result {
+        Ok(status) => status,
+        Err(error) => {
+            record_health_failure(health_runtime, repo_id, &error, observed_at);
+            return Err(error.into());
+        }
+    };
+    record_health_operation(health_runtime, repo_id, operation_result, observed_at);
     Ok(store.upsert_repo_status(repo_id, &status).await?)
+}
+
+fn record_health_operation(
+    health_runtime: &Mutex<HashMap<RepositoryId, HealthRuntimeState>>,
+    repo_id: RepositoryId,
+    operation_result: Result<fjord_domain::RepoOperationState, GitError>,
+    observed_at: OffsetDateTime,
+) {
+    let state = match operation_result {
+        Ok(operation_state) => HealthRuntimeState {
+            operation: operation_state.operation,
+            unreadable_reason_code: None,
+            observed_at,
+        },
+        Err(error) => HealthRuntimeState {
+            operation: RepoOperation::Normal,
+            unreadable_reason_code: Some(git_error_reason_code(&error).to_string()),
+            observed_at,
+        },
+    };
+    health_runtime.lock().unwrap().insert(repo_id, state);
+}
+
+fn record_health_failure(
+    health_runtime: &Mutex<HashMap<RepositoryId, HealthRuntimeState>>,
+    repo_id: RepositoryId,
+    error: &GitError,
+    observed_at: OffsetDateTime,
+) {
+    health_runtime.lock().unwrap().insert(
+        repo_id,
+        HealthRuntimeState {
+            operation: RepoOperation::Normal,
+            unreadable_reason_code: Some(git_error_reason_code(error).to_string()),
+            observed_at,
+        },
+    );
+}
+
+fn git_error_reason_code(error: &GitError) -> &'static str {
+    match error {
+        GitError::RepoNotFound(_) => "repository_not_found",
+        GitError::NotAGitRepository(_) => "not_a_git_repository",
+        GitError::RepositoryOwnership(_) => "repository_ownership_refused",
+        _ => "repository_read_failed",
+    }
+}
+
+/// Pure deterministic health derivation. P10-09 can pass an expected branch
+/// without changing the model or duplicating the condition rules.
+pub fn derive_repo_health(
+    repo_id: RepositoryId,
+    status: Option<&RepoStatus>,
+    operation: Option<&RepoOperation>,
+    expected_branch: Option<&str>,
+    unreadable_reason_code: Option<&str>,
+    as_of: OffsetDateTime,
+) -> RepoHealth {
+    let mut conditions = Vec::new();
+
+    if status.is_some_and(|status| status.has_conflict) {
+        conditions.push(RepoCondition::Conflict);
+    }
+    if let Some(operation) =
+        operation.filter(|operation| !matches!(operation, RepoOperation::Normal))
+    {
+        conditions.push(RepoCondition::OperationInProgress {
+            operation: operation.clone(),
+        });
+    }
+    if let Some(reason_code) = unreadable_reason_code {
+        conditions.push(RepoCondition::Unreadable {
+            reason_code: reason_code.to_string(),
+        });
+    }
+    if let (Some(expected), Some(status)) = (expected_branch, status) {
+        if status.branch.as_deref() != Some(expected) {
+            conditions.push(RepoCondition::WrongBranch {
+                expected: expected.to_string(),
+                actual: status.branch.clone(),
+            });
+        }
+    }
+    if let Some(status) = status {
+        match (status.ahead, status.behind) {
+            (ahead, behind) if ahead > 0 && behind > 0 => {
+                conditions.push(RepoCondition::Diverged { ahead, behind });
+            }
+            (0, behind) if behind > 0 => conditions.push(RepoCondition::Behind { count: behind }),
+            (ahead, 0) if ahead > 0 => conditions.push(RepoCondition::Ahead { count: ahead }),
+            _ => {}
+        }
+        if status.dirty_count > 0 {
+            conditions.push(RepoCondition::Dirty {
+                count: status.dirty_count,
+            });
+        }
+    }
+
+    if conditions.is_empty() {
+        conditions.push(RepoCondition::Clean);
+    }
+    let needs_attention = conditions.iter().any(|condition| {
+        matches!(
+            condition,
+            RepoCondition::Conflict
+                | RepoCondition::OperationInProgress { .. }
+                | RepoCondition::Unreadable { .. }
+                | RepoCondition::WrongBranch { .. }
+                | RepoCondition::Diverged { .. }
+        )
+    });
+
+    RepoHealth {
+        repo_id,
+        conditions,
+        needs_attention,
+        as_of,
+    }
 }
 
 #[cfg(test)]
@@ -265,6 +506,7 @@ mod tests {
     struct FakeWorkspaceStore {
         workspaces: Mutex<Vec<Workspace>>,
         repos: Mutex<Vec<RepositoryEntry>>,
+        statuses: Mutex<HashMap<RepositoryId, RepoStatusSummary>>,
     }
 
     #[async_trait]
@@ -356,16 +598,23 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|r| r.workspace_id == workspace_id)
-                .map(|r| RepoStatusSummary {
-                    repo_id: r.id,
-                    status: fjord_domain::RepoStatus {
-                        branch: None,
-                        ahead: 0,
-                        behind: 0,
-                        dirty_count: 0,
-                        has_conflict: false,
-                    },
-                    last_synced_at: None,
+                .map(|r| {
+                    self.statuses
+                        .lock()
+                        .unwrap()
+                        .get(&r.id)
+                        .cloned()
+                        .unwrap_or(RepoStatusSummary {
+                            repo_id: r.id,
+                            status: fjord_domain::RepoStatus {
+                                branch: None,
+                                ahead: 0,
+                                behind: 0,
+                                dirty_count: 0,
+                                has_conflict: false,
+                            },
+                            last_synced_at: None,
+                        })
                 })
                 .collect())
         }
@@ -374,11 +623,16 @@ mod tests {
             repo_id: RepositoryId,
             status: &fjord_domain::RepoStatus,
         ) -> Result<RepoStatusSummary, StoreError> {
-            Ok(RepoStatusSummary {
+            let summary = RepoStatusSummary {
                 repo_id,
                 status: status.clone(),
                 last_synced_at: Some(time::OffsetDateTime::UNIX_EPOCH),
-            })
+            };
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(repo_id, summary.clone());
+            Ok(summary)
         }
         async fn invalidate_repo_status(&self, _repo_id: RepositoryId) -> Result<(), StoreError> {
             Ok(())
@@ -493,6 +747,17 @@ mod tests {
         async fn working_changes(&self, _repo: &RepoPath) -> Result<WorkingChanges, GitError> {
             Ok(WorkingChanges::default())
         }
+        async fn operation_state(
+            &self,
+            _repo: &RepoPath,
+        ) -> Result<fjord_domain::RepoOperationState, GitError> {
+            Ok(fjord_domain::RepoOperationState {
+                operation: RepoOperation::Normal,
+                conflicted_paths: Vec::new(),
+                available: Vec::new(),
+                detected_externally: false,
+            })
+        }
         async fn working_file_diff(
             &self,
             _repo: &RepoPath,
@@ -538,6 +803,7 @@ mod tests {
             Arc::new(FakeWorkspaceStore {
                 workspaces: Mutex::new(vec![]),
                 repos: Mutex::new(vec![]),
+                statuses: Mutex::new(HashMap::new()),
             }),
             Arc::new(FakeGitBackend {
                 valid_repo,
@@ -702,6 +968,7 @@ mod tests {
                     sort_order: 0,
                 }]),
                 repos: Mutex::new(vec![repo.clone()]),
+                statuses: Mutex::new(HashMap::new()),
             }),
             Arc::new(FakeGitBackend {
                 valid_repo: true,
@@ -739,5 +1006,357 @@ mod tests {
         assert_eq!(refreshed.repo_id, entry.id);
         assert_eq!(refreshed.status.branch.as_deref(), Some("main"));
         assert!(refreshed.last_synced_at.is_some());
+    }
+
+    fn status(
+        branch: Option<&str>,
+        ahead: u32,
+        behind: u32,
+        dirty_count: u32,
+        has_conflict: bool,
+    ) -> RepoStatus {
+        RepoStatus {
+            branch: branch.map(str::to_string),
+            ahead,
+            behind,
+            dirty_count,
+            has_conflict,
+        }
+    }
+
+    #[test]
+    fn health_derivation_covers_each_condition_and_attention_rule() {
+        let repo_id = RepositoryId::new();
+        let as_of = OffsetDateTime::UNIX_EPOCH;
+        let merge = RepoOperation::Merge {
+            head: "main".into(),
+            incoming: vec!["feature/x".into()],
+        };
+        let cases = vec![
+            (
+                "clean",
+                status(Some("main"), 0, 0, 0, false),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Clean],
+                false,
+            ),
+            (
+                "dirty only",
+                status(Some("main"), 0, 0, 7, false),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Dirty { count: 7 }],
+                false,
+            ),
+            (
+                "ahead only",
+                status(Some("main"), 2, 0, 0, false),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Ahead { count: 2 }],
+                false,
+            ),
+            (
+                "behind only",
+                status(Some("main"), 0, 3, 0, false),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Behind { count: 3 }],
+                false,
+            ),
+            (
+                "diverged",
+                status(Some("main"), 2, 3, 0, false),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Diverged {
+                    ahead: 2,
+                    behind: 3,
+                }],
+                true,
+            ),
+            (
+                "conflict",
+                status(Some("main"), 0, 0, 0, true),
+                RepoOperation::Normal,
+                None,
+                None,
+                vec![RepoCondition::Conflict],
+                true,
+            ),
+            (
+                "operation",
+                status(Some("main"), 0, 0, 0, false),
+                merge.clone(),
+                None,
+                None,
+                vec![RepoCondition::OperationInProgress {
+                    operation: merge.clone(),
+                }],
+                true,
+            ),
+            (
+                "unreadable",
+                status(Some("main"), 0, 0, 0, false),
+                RepoOperation::Normal,
+                None,
+                Some("repository_not_found"),
+                vec![RepoCondition::Unreadable {
+                    reason_code: "repository_not_found".into(),
+                }],
+                true,
+            ),
+            (
+                "wrong branch",
+                status(Some("feature/x"), 0, 0, 0, false),
+                RepoOperation::Normal,
+                Some("develop"),
+                None,
+                vec![RepoCondition::WrongBranch {
+                    expected: "develop".into(),
+                    actual: Some("feature/x".into()),
+                }],
+                true,
+            ),
+        ];
+
+        for (name, status, operation, expected, unreadable, conditions, attention) in cases {
+            let health = derive_repo_health(
+                repo_id,
+                Some(&status),
+                Some(&operation),
+                expected,
+                unreadable,
+                as_of,
+            );
+            assert_eq!(health.conditions, conditions, "{name}");
+            assert_eq!(health.needs_attention, attention, "{name}");
+            assert_eq!(health.as_of, as_of, "{name}");
+        }
+    }
+
+    #[test]
+    fn health_preserves_exact_severity_order_and_normalizes_divergence() {
+        let repo_id = RepositoryId::new();
+        let merge = RepoOperation::Merge {
+            head: "develop".into(),
+            incoming: vec!["feature/x".into()],
+        };
+        let health = derive_repo_health(
+            repo_id,
+            Some(&status(Some("feature/x"), 2, 3, 4, true)),
+            Some(&merge),
+            Some("develop"),
+            None,
+            OffsetDateTime::UNIX_EPOCH,
+        );
+
+        assert_eq!(
+            health.conditions,
+            vec![
+                RepoCondition::Conflict,
+                RepoCondition::OperationInProgress { operation: merge },
+                RepoCondition::WrongBranch {
+                    expected: "develop".into(),
+                    actual: Some("feature/x".into()),
+                },
+                RepoCondition::Diverged {
+                    ahead: 2,
+                    behind: 3,
+                },
+                RepoCondition::Dirty { count: 4 },
+            ]
+        );
+        assert!(health.needs_attention);
+        assert!(!health.conditions.iter().any(|condition| matches!(
+            condition,
+            RepoCondition::Ahead { .. } | RepoCondition::Behind { .. } | RepoCondition::Clean
+        )));
+    }
+
+    #[test]
+    fn detached_and_unborn_heads_report_wrong_branch_with_no_actual_branch() {
+        for operation in [
+            RepoOperation::Detached {
+                head: "deadbeef".into(),
+            },
+            RepoOperation::UnbornBranch,
+        ] {
+            let health = derive_repo_health(
+                RepositoryId::new(),
+                Some(&status(None, 0, 0, 0, false)),
+                Some(&operation),
+                Some("develop"),
+                None,
+                OffsetDateTime::UNIX_EPOCH,
+            );
+            assert!(health.conditions.contains(&RepoCondition::WrongBranch {
+                expected: "develop".into(),
+                actual: None,
+            }));
+        }
+    }
+
+    #[tokio::test]
+    async fn workspace_health_uses_cached_inputs_for_multiple_repositories() {
+        let store = Arc::new(FakeWorkspaceStore {
+            workspaces: Mutex::new(vec![]),
+            repos: Mutex::new(vec![]),
+            statuses: Mutex::new(HashMap::new()),
+        });
+        let service = WorkspaceService::new(
+            store.clone(),
+            Arc::new(FakeGitBackend {
+                valid_repo: true,
+                status_probe: None,
+            }),
+        );
+        let workspace = service.create_workspace("Health").await.unwrap();
+        let clean = service
+            .add_repository(workspace.id, PathBuf::from("/repos/clean"))
+            .await
+            .unwrap();
+        let diverged = service
+            .add_repository(workspace.id, PathBuf::from("/repos/diverged"))
+            .await
+            .unwrap();
+        let conflicted = service
+            .add_repository(workspace.id, PathBuf::from("/repos/conflicted"))
+            .await
+            .unwrap();
+        let operating = service
+            .add_repository(workspace.id, PathBuf::from("/repos/operating"))
+            .await
+            .unwrap();
+        let unreadable = service
+            .add_repository(workspace.id, PathBuf::from("/repos/unreadable"))
+            .await
+            .unwrap();
+
+        store
+            .upsert_repo_status(clean.id, &status(Some("main"), 0, 0, 0, false))
+            .await
+            .unwrap();
+        let initial = service.get_workspace_health(workspace.id).await.unwrap();
+        assert_eq!(initial[0].conditions, vec![RepoCondition::Clean]);
+
+        store
+            .upsert_repo_status(clean.id, &status(Some("main"), 0, 0, 5, false))
+            .await
+            .unwrap();
+        store
+            .upsert_repo_status(diverged.id, &status(Some("main"), 2, 3, 0, false))
+            .await
+            .unwrap();
+        store
+            .upsert_repo_status(conflicted.id, &status(Some("main"), 0, 0, 1, true))
+            .await
+            .unwrap();
+        store
+            .upsert_repo_status(operating.id, &status(Some("main"), 0, 0, 0, false))
+            .await
+            .unwrap();
+        store
+            .upsert_repo_status(unreadable.id, &status(Some("main"), 0, 0, 0, false))
+            .await
+            .unwrap();
+        record_health_operation(
+            &service.health_runtime,
+            operating.id,
+            Ok(fjord_domain::RepoOperationState {
+                operation: RepoOperation::CherryPick {
+                    commit: "deadbeef".into(),
+                },
+                conflicted_paths: vec![],
+                available: vec![],
+                detected_externally: true,
+            }),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+        record_health_failure(
+            &service.health_runtime,
+            unreadable.id,
+            &GitError::RepoNotFound(PathBuf::from("/redacted")),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+
+        let health = service.get_workspace_health(workspace.id).await.unwrap();
+        assert_eq!(health.len(), 5);
+        let by_id = health
+            .into_iter()
+            .map(|health| (health.repo_id, health))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(
+            by_id[&clean.id].conditions,
+            vec![RepoCondition::Dirty { count: 5 }]
+        );
+        assert!(!by_id[&clean.id].needs_attention);
+        assert!(matches!(
+            by_id[&diverged.id].conditions.as_slice(),
+            [RepoCondition::Diverged {
+                ahead: 2,
+                behind: 3
+            }]
+        ));
+        assert!(by_id[&diverged.id].needs_attention);
+        assert!(matches!(
+            by_id[&conflicted.id].conditions.first(),
+            Some(RepoCondition::Conflict)
+        ));
+        assert!(matches!(
+            by_id[&operating.id].conditions.first(),
+            Some(RepoCondition::OperationInProgress { .. })
+        ));
+        assert!(matches!(
+            by_id[&unreadable.id].conditions.first(),
+            Some(RepoCondition::Unreadable { reason_code }) if reason_code == "repository_not_found"
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_status_refresh_is_exposed_as_stable_unreadable_health() {
+        let workspace_id = WorkspaceId::new();
+        let repo = RepositoryEntry {
+            id: RepositoryId::new(),
+            workspace_id,
+            name: "broken".into(),
+            path: PathBuf::from("/repos/broken"),
+            sort_order: 0,
+        };
+        let store = Arc::new(FakeWorkspaceStore {
+            workspaces: Mutex::new(vec![Workspace {
+                id: workspace_id,
+                name: "Health".into(),
+                sort_order: 0,
+            }]),
+            repos: Mutex::new(vec![repo.clone()]),
+            statuses: Mutex::new(HashMap::new()),
+        });
+        store
+            .upsert_repo_status(repo.id, &status(Some("main"), 0, 0, 0, false))
+            .await
+            .unwrap();
+        let service = WorkspaceService::new(
+            store,
+            Arc::new(FakeGitBackend {
+                valid_repo: false,
+                status_probe: None,
+            }),
+        );
+
+        assert!(service.refresh_repo_status(repo.id).await.is_err());
+        let health = service.get_workspace_health(workspace_id).await.unwrap();
+
+        assert!(matches!(
+            health[0].conditions.first(),
+            Some(RepoCondition::Unreadable { reason_code }) if reason_code == "not_a_git_repository"
+        ));
+        assert!(health[0].needs_attention);
     }
 }

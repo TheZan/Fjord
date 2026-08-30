@@ -14,9 +14,14 @@ export async function invalidateRepoData(
   const requested = new Set(scopes);
 
   if (requested.has("status")) {
-    keys.push(queryKeys.repos.status(repoId), queryKeys.workspaces.status(workspaceId));
+    keys.push(
+      queryKeys.repos.status(repoId),
+      queryKeys.workspaces.status(workspaceId),
+    );
   }
-  if (requested.has("operation")) keys.push(queryKeys.repos.operationState(repoId));
+  if (requested.has("operation")) {
+    keys.push(queryKeys.repos.operationState(repoId));
+  }
   if (requested.has("working")) {
     keys.push(queryKeys.repos.workingChanges(repoId), queryKeys.repos.fileDiffs(repoId));
   }
@@ -30,6 +35,9 @@ export async function invalidateRepoData(
   if (requested.has("stashes")) keys.push(queryKeys.repos.stashes(repoId));
   if (requested.has("merge")) {
     keys.push([...queryKeys.repos.detail(repoId), "mergePreflight"]);
+  }
+  if (requested.has("status") || requested.has("operation")) {
+    keys.push(queryKeys.workspaces.health(workspaceId));
   }
 
   await Promise.all(

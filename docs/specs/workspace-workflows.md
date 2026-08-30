@@ -79,7 +79,7 @@ most are the ones still missing:
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
 | Merge | 🚧 Starting a merge is absent and is owned by [`branch-merge.md`](branch-merge.md), scheduled **before** rebase. Detection, conflict UI, Continue, and Abort already exist (Phase 9). |
 | Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
-| Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
+| Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
 | Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
 | Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |
 
@@ -245,10 +245,19 @@ pub struct RepoHealth {
 }
 ```
 
-Computation moves to the backend (`WorkspaceService`), from the same
-`repo_status_cache` row plus the expected branch and the operation state. Today
-`needsAttention` is computed in `App.tsx`; centralizing it means the dashboard,
-the sidebar badge, the filters, and any future surface agree by construction.
+Computation is owned by the backend (`WorkspaceService`), from the same
+`repo_status_cache` row plus cached operation state and a future expected-branch
+input. `get_workspace_health` returns one batch for a workspace without Git
+reads or per-repository IPC. The dashboard, sidebar badge, existing Overview
+attention filter, and any future surface agree by consuming that projection.
+
+`as_of` uses the oldest timestamp among the status-cache row and the selected
+operation observation (in-memory when available, otherwise the persisted
+repository snapshot). A never-refreshed row uses `UNIX_EPOCH` and carries the
+stable `status_unavailable` unreadable reason rather than pretending to be
+fresh. Expected-branch persistence and settings remain intentionally unconnected
+until P10-09; `WorkspaceService` already accepts `Option<&str>` at the derivation
+seam.
 
 Severity order for display: `Conflict` > `OperationInProgress` > `Unreadable` >
 `WrongBranch` > `Diverged` > `Behind` > `Ahead` > `Dirty` > `Clean`. A repository

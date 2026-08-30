@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { loadUiState, saveCollapsedWorkspaces } from "@/infrastructure/uiState";
+import { primaryRepoCondition } from "@/application/repoHealth";
 import { GroupLabel, Input, TYPOGRAPHY } from "@/presentation/ui";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoHealth, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 import type { View } from "@/presentation/view";
 
 interface SidebarProps {
@@ -11,6 +12,7 @@ interface SidebarProps {
   workspaces: Workspace[];
   repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   repoCountByWorkspace: Record<string, number>;
   attentionByWorkspace: Record<string, number>;
   selectedWorkspaceId: string | null;
@@ -32,6 +34,7 @@ export function Sidebar({
   workspaces,
   repositoriesByWorkspace,
   statusByRepo,
+  healthByRepo,
   repoCountByWorkspace,
   attentionByWorkspace,
   selectedWorkspaceId,
@@ -363,6 +366,7 @@ export function Sidebar({
                         key={repo.id}
                         repo={repo}
                         status={statusByRepo[repo.id]?.status}
+                        health={healthByRepo[repo.id]}
                         selected={repo.id === selectedRepoId}
                         onSelect={() => onSelectRepository(workspace.id, repo.id)}
                         onWarm={() => onWarmRepository(repo.id)}
@@ -383,12 +387,14 @@ export function Sidebar({
 function RepositoryItem({
   repo,
   status,
+  health,
   selected,
   onSelect,
   onWarm,
 }: {
   repo: RepositoryEntry;
   status: RepoStatusSummary["status"] | undefined;
+  health: RepoHealth | undefined;
   selected: boolean;
   onSelect: () => void;
   onWarm: () => void;
@@ -397,13 +403,8 @@ function RepositoryItem({
   const dirty = status?.dirtyCount ?? 0;
   const ahead = status?.ahead ?? 0;
   const behind = status?.behind ?? 0;
-  const tone = status?.hasConflict
-    ? "var(--rust)"
-    : dirty > 0
-      ? "var(--amber)"
-      : ahead > 0 || behind > 0
-        ? "var(--fjord)"
-        : "var(--moss)";
+  const primary = primaryRepoCondition(health);
+  const tone = repositoryHealthTone(primary?.kind);
 
   return (
     <button
@@ -412,6 +413,8 @@ function RepositoryItem({
       onPointerEnter={onWarm}
       onFocus={onWarm}
       data-selected={selected}
+      data-health-condition={primary?.kind ?? "unknown"}
+      data-needs-attention={health?.needsAttention ?? false}
       className="interactive-row grid w-full grid-cols-[0.5rem_minmax(0,1fr)] items-center gap-x-2 rounded-md px-2 py-1 text-left"
       title={repo.path}
       style={{
@@ -435,6 +438,26 @@ function RepositoryItem({
       </span>
     </button>
   );
+}
+
+function repositoryHealthTone(kind: RepoHealth["conditions"][number]["kind"] | undefined): string {
+  switch (kind) {
+    case "conflict":
+    case "operationInProgress":
+    case "unreadable":
+    case "diverged":
+      return "var(--rust)";
+    case "wrongBranch":
+    case "behind":
+    case "dirty":
+      return "var(--amber)";
+    case "ahead":
+      return "var(--fjord)";
+    case "clean":
+      return "var(--moss)";
+    default:
+      return "var(--mist)";
+  }
 }
 
 function ChevronIcon({ open }: { open: boolean }) {

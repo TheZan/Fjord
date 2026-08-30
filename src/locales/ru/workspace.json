@@ -22,6 +22,10 @@
     "ahead": "Впереди",
     "behind": "Отстаёт",
     "conflict": "Конфликт",
+    "diverged": "Расхождение веток",
+    "operation": "Операция выполняется",
+    "unreadable": "Недоступен",
+    "wrongBranch": "Неверная ветка",
     "upToDate": "Актуален",
     "changes": "изменений: {{count}}"
   },

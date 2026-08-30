@@ -10,7 +10,7 @@ use crate::operations::{
 use crate::state::AppState;
 use fjord_domain::{
     CloneRepositoryRequest, CloneRepositoryResult, CreateRepositoryRequest, CreateRepositoryResult,
-    RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
+    RepoHealth, RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
 };
 use fjord_services::WorkspaceError;
 use tauri::AppHandle;
@@ -66,6 +66,14 @@ pub async fn get_workspace_status(
     workspace_id: WorkspaceId,
 ) -> Result<Vec<RepoStatusSummary>, AppError> {
     Ok(state.workspaces.get_workspace_status(workspace_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_workspace_health(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<RepoHealth>, AppError> {
+    Ok(state.workspaces.get_workspace_health(workspace_id).await?)
 }
 
 #[tauri::command]

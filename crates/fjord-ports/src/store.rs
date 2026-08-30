@@ -61,6 +61,13 @@ pub trait WorkspaceStore: Send + Sync {
     ) -> Result<Option<StoredRepositorySnapshot>, StoreError> {
         Ok(None)
     }
+    async fn list_workspace_snapshots(
+        &self,
+        _workspace_id: WorkspaceId,
+        _schema_version: u32,
+    ) -> Result<Vec<StoredRepositorySnapshot>, StoreError> {
+        Ok(Vec::new())
+    }
     async fn upsert_repository_snapshot(
         &self,
         _repo_id: RepositoryId,
