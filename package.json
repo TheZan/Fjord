@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:ws100": "npm run build && playwright test e2e/ws100-wrong-branch.spec.ts",
     "test:benchmark-report": "node --test scripts/report-benchmark-deltas.node-test.mjs",
     "check-i18n": "node scripts/check-i18n.ts",
     "check-ipc-docs": "node scripts/check-ipc-docs.ts",
@@ -42,6 +44,7 @@
     "react-i18next": "^17.0.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^7.0.0",
