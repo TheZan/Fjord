@@ -1,7 +1,7 @@
 # CI on all three supported platforms (docs/tasks.md P0-09, SDD §5.4).
 #
 # Jobs:
-#   - frontend: type-check + Vite build, vitest, the i18n catalog drift check
+#   - frontend: type-check + Vite build, vitest, Playwright E2E, the i18n catalog drift check
 #     (scripts/check-i18n.ts), the IPC contract drift check
 #     (scripts/check-ipc-docs.ts), and release-script regressions
 #     (release:verify, the release-script node:test suites, the Apple
@@ -44,6 +44,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       - run: npm run check-i18n
       - run: npm run check-ipc-docs
       - run: npm run audit:public
