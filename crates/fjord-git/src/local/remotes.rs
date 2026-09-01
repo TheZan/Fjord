@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::Arc;
 
 use super::destructive_confirmation::DestructiveConfirmationStore;
@@ -67,6 +68,16 @@ pub(super) async fn set_url(
     fetch: &str,
     push: Option<&str>,
 ) -> Result<RemoteInfo, GitError> {
+    set_url_with_committer(repo, name, fetch, push, AtomicConfigCommitter).await
+}
+
+async fn set_url_with_committer<C: ConfigCommitter>(
+    repo: &RepoPath,
+    name: &str,
+    fetch: &str,
+    push: Option<&str>,
+    committer: C,
+) -> Result<RemoteInfo, GitError> {
     validate_name(name)?;
     validate_url(fetch)?;
     if let Some(push) = push {
@@ -91,13 +102,22 @@ pub(super) async fn set_url(
                 if fetch_url_count > 1 || push_url_count > 1 {
                     return Err(GitError::InvalidRemoteUrl);
                 }
-                git.remote_set_url(&name, &fetch)
-                    .map_err(|_| GitError::InvalidRemoteUrl)?;
-                if push.is_some() || push_url_count == 1 {
-                    git.remote_set_pushurl(&name, push.as_deref())
-                        .map_err(|_| GitError::InvalidRemoteUrl)?;
-                }
-                remote_info(git, &name)
+                write_remote_urls_transaction(
+                    git,
+                    &name,
+                    &fetch,
+                    push.as_deref(),
+                    push_url_count,
+                    committer,
+                )
+            })?;
+
+            // No fallible work follows config publication: returning Err after
+            // the atomic replace would violate the mutation/generation contract.
+            Ok(RemoteInfo {
+                name,
+                fetch_url: sanitize_diagnostics(&fetch),
+                push_url: push.as_deref().map(sanitize_diagnostics),
             })
         }
     })
@@ -105,6 +125,68 @@ pub(super) async fn set_url(
     .map_err(|error| GitError::Git2(error.to_string()))??;
     runtime::bump_mutation(&repo, MutationKind::SetRemoteUrl);
     Ok(remote)
+}
+
+trait ConfigCommitter: Send + 'static {
+    fn commit(self, marker: gix_lock::Marker) -> Result<(), GitError>;
+}
+
+struct AtomicConfigCommitter;
+
+impl ConfigCommitter for AtomicConfigCommitter {
+    fn commit(self, marker: gix_lock::Marker) -> Result<(), GitError> {
+        marker
+            .commit()
+            .map(|_| ())
+            .map_err(|_| GitError::InvalidRemoteUrl)
+    }
+}
+
+fn write_remote_urls_transaction<C: ConfigCommitter>(
+    git: &git2::Repository,
+    name: &str,
+    fetch: &str,
+    push: Option<&str>,
+    push_url_count: usize,
+    committer: C,
+) -> Result<(), GitError> {
+    let config_path = git.commondir().join("config");
+    let mut lock = gix_lock::File::acquire_to_update_resource(
+        &config_path,
+        gix_lock::acquire::Fail::Immediately,
+        None,
+    )
+    .map_err(|_| GitError::InvalidRemoteUrl)?;
+
+    // Read only after acquiring Git's standard config lock. Both edits are
+    // prepared in the lock file, and the original is replaced only once every
+    // fallible config operation has succeeded.
+    {
+        let mut original =
+            std::fs::File::open(&config_path).map_err(|_| GitError::InvalidRemoteUrl)?;
+        std::io::copy(&mut original, &mut lock).map_err(|_| GitError::InvalidRemoteUrl)?;
+    }
+    lock.flush().map_err(|_| GitError::InvalidRemoteUrl)?;
+    let marker = lock.close().map_err(|_| GitError::InvalidRemoteUrl)?;
+
+    {
+        let mut staged =
+            git2::Config::open(marker.lock_path()).map_err(|_| GitError::InvalidRemoteUrl)?;
+        staged
+            .set_str(&format!("remote.{name}.url"), fetch)
+            .map_err(|_| GitError::InvalidRemoteUrl)?;
+        match push {
+            Some(push) => staged
+                .set_str(&format!("remote.{name}.pushurl"), push)
+                .map_err(|_| GitError::InvalidRemoteUrl)?,
+            None if push_url_count == 1 => staged
+                .remove(&format!("remote.{name}.pushurl"))
+                .map_err(|_| GitError::InvalidRemoteUrl)?,
+            None => {}
+        }
+    }
+
+    committer.commit(marker)
 }
 
 pub(super) async fn rename(
@@ -387,6 +469,23 @@ mod tests {
             .unwrap();
     }
 
+    struct FailingConfigCommitter;
+
+    impl ConfigCommitter for FailingConfigCommitter {
+        fn commit(self, marker: gix_lock::Marker) -> Result<(), GitError> {
+            let staged = git2::Config::open(marker.lock_path()).unwrap();
+            assert_eq!(
+                staged.get_string("remote.origin.url").unwrap(),
+                "https://new/repo.git"
+            );
+            assert_eq!(
+                staged.get_string("remote.origin.pushurl").unwrap(),
+                "ssh://new/repo.git"
+            );
+            Err(GitError::InvalidRemoteUrl)
+        }
+    }
+
     #[tokio::test]
     async fn list_and_add_preserve_config_and_redact_userinfo() {
         let (directory, repo, backend) = fixture();
@@ -435,7 +534,15 @@ mod tests {
         git_config
             .set_str("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
             .unwrap();
+        git_config
+            .set_str("remote.origin.push", "refs/heads/main:refs/heads/mirror")
+            .unwrap();
         git_config.set_bool("remote.origin.prune", true).unwrap();
+        drop(git_config);
+        backend
+            .add_remote(&repo, "fork", "https://fork/repo.git")
+            .await
+            .unwrap();
 
         let before = backend.generations(&repo).unwrap();
         let edited = backend
@@ -456,7 +563,15 @@ mod tests {
             git_config.get_string("remote.origin.fetch").unwrap(),
             "+refs/heads/*:refs/remotes/origin/*"
         );
+        assert_eq!(
+            git_config.get_string("remote.origin.push").unwrap(),
+            "refs/heads/main:refs/heads/mirror"
+        );
         assert!(git_config.get_bool("remote.origin.prune").unwrap());
+        assert_eq!(
+            git_config.get_string("remote.fork.url").unwrap(),
+            "https://fork/repo.git"
+        );
         assert_eq!(
             git_config
                 .get_string("remote.origin.pushurl")
@@ -582,6 +697,83 @@ mod tests {
         ));
         assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
         assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    }
+
+    #[tokio::test]
+    async fn set_url_rejects_multiple_fetch_urls_before_any_config_mutation() {
+        let (directory, repo, backend) = fixture();
+        backend
+            .add_remote(&repo, "origin", "https://old/repo.git")
+            .await
+            .unwrap();
+        let mut git_config = config(&directory);
+        git_config
+            .set_multivar("remote.origin.url", "^$", "https://mirror/repo.git")
+            .unwrap();
+        drop(git_config);
+
+        let config_path = git2::Repository::open(directory.path())
+            .unwrap()
+            .path()
+            .join("config");
+        let config_before = std::fs::read(&config_path).unwrap();
+        let generations_before = backend.generations(&repo).unwrap();
+
+        assert!(matches!(
+            backend
+                .set_remote_url(
+                    &repo,
+                    "origin",
+                    "https://new/repo.git",
+                    Some("ssh://new/repo.git"),
+                )
+                .await,
+            Err(GitError::InvalidRemoteUrl)
+        ));
+        assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
+        assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    }
+
+    #[tokio::test]
+    async fn set_url_transaction_failure_preserves_config_and_generations() {
+        let (directory, repo, backend) = fixture();
+        backend
+            .add_remote(&repo, "origin", "https://old/repo.git")
+            .await
+            .unwrap();
+        config(&directory)
+            .set_str("remote.origin.pushurl", "ssh://old/repo.git")
+            .unwrap();
+
+        let config_path = git2::Repository::open(directory.path())
+            .unwrap()
+            .path()
+            .join("config");
+        let config_before = std::fs::read(&config_path).unwrap();
+        let generations_before = backend.generations(&repo).unwrap();
+
+        assert!(matches!(
+            set_url_with_committer(
+                &repo,
+                "origin",
+                "https://new/repo.git",
+                Some("ssh://new/repo.git"),
+                FailingConfigCommitter,
+            )
+            .await,
+            Err(GitError::InvalidRemoteUrl)
+        ));
+        assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
+        assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+        let git_config = config(&directory);
+        assert_eq!(
+            git_config.get_string("remote.origin.url").unwrap(),
+            "https://old/repo.git"
+        );
+        assert_eq!(
+            git_config.get_string("remote.origin.pushurl").unwrap(),
+            "ssh://old/repo.git"
+        );
     }
 
     #[tokio::test]

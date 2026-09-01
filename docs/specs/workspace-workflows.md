@@ -206,6 +206,9 @@ Backend CRUD is shipped by `P10-06`; its configuration writes are local and
 never imply network access. Editing with `push = None` removes an explicit
 `pushurl`; a remote with multiple fetch or push URLs is rejected before the
 first write because the single-URL edit contract cannot represent it safely.
+`set_remote_url` publishes either the complete requested fetch/push URL state
+or no config change at all; every failed edit leaves config bytes and the
+config generation unchanged.
 Rename preserves the remote section/refspecs and updates configured
 branch upstream names, and native removal clears the associated branch upstream
 configuration. Renaming a remote to its current literal name is a no-op and does
