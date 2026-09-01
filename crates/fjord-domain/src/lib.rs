@@ -122,6 +122,20 @@ pub struct RemoteInfo {
     pub push_url: Option<String>,
 }
 
+/// Confirmation facts for deleting one configured remote. The token is
+/// backend-issued and bound to this repository, remote name, affected branch
+/// set, and config generation; callers must not construct one themselves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RemoveRemotePreflight {
+    pub remote: String,
+    pub orphaned_upstreams: Vec<String>,
+    #[ts(type = "number")]
+    pub config_generation: u64,
+    pub confirmation_token: String,
+}
+
 /// Result of pushing the current branch to one explicitly selected remote.
 /// Individual remote failures are data so one rejected destination does not
 /// hide successful pushes to the others.

@@ -619,11 +619,51 @@ async fn remote_connection_lists_adds_preserves_config_and_can_fetch() {
         .await
         .expect_err("empty remote inputs must fail before config mutation")
         .into();
-    assert_eq!(invalid.code, "remote_request_invalid");
+    assert_eq!(invalid.code, "remote_name_invalid");
     assert_eq!(
         services.repos.list_remotes(entry.id).await.unwrap().len(),
         1
     );
+
+    let edited = services
+        .repos
+        .set_remote_url(entry.id, " origin ", bare.to_str().unwrap(), None)
+        .await
+        .unwrap();
+    assert_eq!(edited.name, "origin");
+    let renamed = services
+        .repos
+        .rename_remote(entry.id, " origin ", " upstream ")
+        .await
+        .unwrap();
+    assert_eq!(renamed.name, "upstream");
+    let mut config = Repository::open(&local).unwrap().config().unwrap();
+    config.set_str("branch.main.remote", "upstream").unwrap();
+    config
+        .set_str("branch.main.merge", "refs/heads/main")
+        .unwrap();
+    let preflight = services
+        .repos
+        .preflight_remove_remote(entry.id, " upstream ")
+        .await
+        .unwrap();
+    assert_eq!(preflight.orphaned_upstreams, ["main"]);
+    services
+        .repos
+        .remove_remote(
+            entry.id,
+            " upstream ",
+            preflight.config_generation,
+            &preflight.confirmation_token,
+        )
+        .await
+        .unwrap();
+    assert!(services
+        .repos
+        .list_remotes(entry.id)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

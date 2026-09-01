@@ -128,6 +128,10 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Dispatches to the detected rebase/cherry-pick/revert sequencer and returns its new state |
 | `list_remotes` | `{ repo_id }` | `RemoteInfo[]` | Lists configured remotes with URL userinfo redacted before IPC |
 | `add_remote` | `{ repo_id, name, url }` | `RemoteInfo` | Local Git config write; refuses duplicate names and never fetches, pushes, or rewrites another remote |
+| `set_remote_url` | `{ repo_id, name, fetch, push? }` | `RemoteInfo` | Local config-only edit; omitted/null `push` removes explicit `pushurl`, unrelated remote config is preserved, and returned URLs are redacted |
+| `rename_remote` | `{ repo_id, old, new }` | `RemoteInfo` | Native local rename preserving the remote section/refspecs and updating affected branch upstream remote names; no fetch or other transport |
+| `preflight_remove_remote` | `{ repo_id, name }` | `RemoveRemotePreflight` | Returns deterministic orphaned branch names and a one-use confirmation bound to repository, remote, affected set, and config generation; never returns a URL |
+| `remove_remote` | `{ repo_id, name, expected_config_generation, confirmation_token }` | — | Native local removal only after exact preflight validation; stale confirmation returns `preflight_stale` before config mutation |
 
 ### Remote operations (system Git)
 
@@ -176,7 +180,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 |---|---|---|---|---|
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
 | `start_rebase` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §2 | `P10-04` |
-| `set_remote_url` / `rename_remote` / `remove_remote` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §3 | `P10-06` |
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained

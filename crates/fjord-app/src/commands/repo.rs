@@ -5,9 +5,9 @@ use fjord_domain::{
     GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
     IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
     MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
-    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
-    SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId,
+    SnapshotRevalidation, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup,
+    StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -43,6 +43,58 @@ pub async fn add_remote(
     url: String,
 ) -> Result<RemoteInfo, AppError> {
     Ok(state.repos.add_remote(repo_id, &name, &url).await?)
+}
+
+#[tauri::command]
+pub async fn set_remote_url(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    fetch: String,
+    push: Option<String>,
+) -> Result<RemoteInfo, AppError> {
+    Ok(state
+        .repos
+        .set_remote_url(repo_id, &name, &fetch, push.as_deref())
+        .await?)
+}
+
+#[tauri::command]
+pub async fn rename_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    old: String,
+    new: String,
+) -> Result<RemoteInfo, AppError> {
+    Ok(state.repos.rename_remote(repo_id, &old, &new).await?)
+}
+
+#[tauri::command]
+pub async fn preflight_remove_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+) -> Result<RemoveRemotePreflight, AppError> {
+    Ok(state.repos.preflight_remove_remote(repo_id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn remove_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    expected_config_generation: u64,
+    confirmation_token: String,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .remove_remote(
+            repo_id,
+            &name,
+            expected_config_generation,
+            &confirmation_token,
+        )
+        .await?)
 }
 
 #[derive(Serialize)]

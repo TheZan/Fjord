@@ -101,6 +101,14 @@ only through `execute_destructive_action`, token-bound `discard_patch`, or the
 token-bound force-with-lease service. This makes preflight enforcement part of
 the service API shape instead of a UI convention.
 
+`P10-06` applies the same backend-authoritative rule to remote configuration
+deletion through a focused `RemoveRemotePreflight`, rather than weakening the
+patch/reset-shaped `DestructiveAction` enum. Its one-use token binds repository,
+remote name, the deterministic set of branches whose configured upstream will
+be orphaned, and the config generation. Confirmed removal rechecks those facts
+under the repository write lock and returns `preflight_stale` before mutation
+when the binding no longer matches.
+
 ## Proposed design
 
 ### 1. Repository operation state

@@ -12,8 +12,8 @@ use fjord_domain::{
     DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
     MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
-    RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult, StashEntry,
-    StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
+    RemoveRemotePreflight, RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult,
+    StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -211,6 +211,14 @@ pub enum GitError {
     RepositoryDestinationNotEmpty,
     #[error("remote already exists: {0}")]
     RemoteAlreadyExists(String),
+    #[error("remote not found: {0}")]
+    RemoteNotFound(String),
+    #[error("invalid remote name")]
+    InvalidRemoteName,
+    #[error("invalid remote URL")]
+    InvalidRemoteUrl,
+    #[error("remote rename target already exists: {0}")]
+    RemoteRenameTargetExists(String),
     #[error("invalid remote configuration: {0}")]
     InvalidRemote(String),
     #[error("nothing to stash")]
@@ -336,6 +344,45 @@ pub trait GitBackend: Send + Sync {
         _url: &str,
     ) -> Result<RemoteInfo, GitError> {
         Err(GitError::NotImplemented("add_remote"))
+    }
+
+    async fn set_remote_url(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _fetch: &str,
+        _push: Option<&str>,
+    ) -> Result<RemoteInfo, GitError> {
+        Err(GitError::NotImplemented("set_remote_url"))
+    }
+
+    async fn rename_remote(
+        &self,
+        _repo: &RepoPath,
+        _old: &str,
+        _new: &str,
+    ) -> Result<RemoteInfo, GitError> {
+        Err(GitError::NotImplemented("rename_remote"))
+    }
+
+    async fn preflight_remove_remote(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+    ) -> Result<RemoveRemotePreflight, GitError> {
+        Err(GitError::NotImplemented("preflight_remove_remote"))
+    }
+
+    /// Deletes one remote only after consuming the exact backend-issued
+    /// preflight binding under the repository write lock.
+    async fn remove_remote(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _expected_config_generation: u64,
+        _confirmation_token: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("remove_remote"))
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;

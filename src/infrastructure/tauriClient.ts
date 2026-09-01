@@ -46,6 +46,7 @@ import type {
   CreateRepositoryResult,
   RemoteInfo,
   RemotePushResult,
+  RemoveRemotePreflight,
   RepoHealth,
   RepoStatusSummary,
   RepositoryEntry,
@@ -485,6 +486,44 @@ export function listRemotes(repoId: string): Promise<RemoteInfo[]> {
 
 export function addRemote(repoId: string, name: string, url: string): Promise<RemoteInfo> {
   return invoke("add_remote", { repoId, name, url });
+}
+
+export function setRemoteUrl(
+  repoId: string,
+  name: string,
+  fetch: string,
+  push: string | null,
+): Promise<RemoteInfo> {
+  return invoke("set_remote_url", { repoId, name, fetch, push });
+}
+
+export function renameRemote(
+  repoId: string,
+  old: string,
+  newName: string,
+): Promise<RemoteInfo> {
+  return invoke("rename_remote", { repoId, old, new: newName });
+}
+
+export function preflightRemoveRemote(
+  repoId: string,
+  name: string,
+): Promise<RemoveRemotePreflight> {
+  return invoke("preflight_remove_remote", { repoId, name });
+}
+
+export function removeRemote(
+  repoId: string,
+  name: string,
+  expectedConfigGeneration: number,
+  confirmationToken: string,
+): Promise<void> {
+  return invoke("remove_remote", {
+    repoId,
+    name,
+    expectedConfigGeneration,
+    confirmationToken,
+  });
 }
 
 export function getRepoStatus(repoId: string, signal?: AbortSignal): Promise<RepoStatus> {

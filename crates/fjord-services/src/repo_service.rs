@@ -11,8 +11,8 @@ use fjord_domain::{
     GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
     PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo, RemotePushResult,
-    RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath, RepositoryId,
-    RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
+    RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
+    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
     StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, StashScope,
     StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
@@ -735,13 +735,79 @@ impl RepoService {
     ) -> Result<RemoteInfo, RepoError> {
         let name = name.trim();
         let url = url.trim();
-        if name.is_empty() || url.is_empty() || name.contains('\0') || url.contains('\0') {
-            return Err(GitError::InvalidRemote("remote name and URL are required".into()).into());
+        if name.is_empty() || name.contains('\0') {
+            return Err(GitError::InvalidRemoteName.into());
+        }
+        if url.is_empty() || url.contains('\0') {
+            return Err(GitError::InvalidRemoteUrl.into());
         }
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
             .add_remote(&RepoPath::new(repo.path), name, url)
+            .await?)
+    }
+
+    pub async fn set_remote_url(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        fetch: &str,
+        push: Option<&str>,
+    ) -> Result<RemoteInfo, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .set_remote_url(
+                &RepoPath::new(repo.path),
+                name.trim(),
+                fetch.trim(),
+                push.map(str::trim),
+            )
+            .await?)
+    }
+
+    pub async fn rename_remote(
+        &self,
+        repo_id: RepositoryId,
+        old: &str,
+        new: &str,
+    ) -> Result<RemoteInfo, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .rename_remote(&RepoPath::new(repo.path), old.trim(), new.trim())
+            .await?)
+    }
+
+    pub async fn preflight_remove_remote(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+    ) -> Result<RemoveRemotePreflight, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .preflight_remove_remote(&RepoPath::new(repo.path), name.trim())
+            .await?)
+    }
+
+    pub async fn remove_remote(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        expected_config_generation: u64,
+        confirmation_token: &str,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .remove_remote(
+                &RepoPath::new(repo.path),
+                name.trim(),
+                expected_config_generation,
+                confirmation_token,
+            )
             .await?)
     }
 

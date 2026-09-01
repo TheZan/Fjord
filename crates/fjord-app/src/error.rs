@@ -258,6 +258,10 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::RepositoryDestinationInvalid(_) => "create_repository_destination_invalid",
         GitError::RepositoryDestinationNotEmpty => "create_repository_destination_not_empty",
         GitError::RemoteAlreadyExists(_) => "remote_name_exists",
+        GitError::RemoteNotFound(_) => "remote_not_found",
+        GitError::InvalidRemoteName => "remote_name_invalid",
+        GitError::InvalidRemoteUrl => "remote_url_invalid",
+        GitError::RemoteRenameTargetExists(_) => "remote_rename_target_exists",
         GitError::InvalidRemote(_) => "remote_request_invalid",
         GitError::NothingToStash => "nothing_to_stash",
         GitError::StashNotFound => "stash_not_found",
@@ -423,6 +427,33 @@ mod tests {
         assert_eq!(preflight_stale.code, "preflight_stale");
         assert_eq!(apply.code, "patch_apply_failed");
         assert_eq!(unsupported.code, "patch_unsupported");
+    }
+
+    #[test]
+    fn remote_crud_failures_have_stable_non_secret_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::RemoteNotFound("origin".into())).code,
+            "remote_not_found"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::InvalidRemoteName).code,
+            "remote_name_invalid"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::InvalidRemoteUrl).code,
+            "remote_url_invalid"
+        );
+        assert_eq!(
+            git_error_to_app_error(GitError::RemoteRenameTargetExists("upstream".into())).code,
+            "remote_rename_target_exists"
+        );
+        for error in [
+            git_error_to_app_error(GitError::InvalidRemoteUrl),
+            git_error_to_app_error(GitError::RemoteNotFound("origin".into())),
+        ] {
+            assert!(!error.message.contains("secret"));
+            assert!(error.diagnostics.is_none());
+        }
     }
 
     #[test]
