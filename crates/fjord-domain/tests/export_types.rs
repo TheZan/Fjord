@@ -14,13 +14,13 @@ use fjord_domain::{
     LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome, MergePrediction,
     MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget, OperationControl,
     OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability,
-    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoCondition, RepoHealth,
-    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
-    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
-    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
-    SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult,
-    StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
-    StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight,
+    RepoCondition, RepoHealth, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary,
+    RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId,
+    RepositorySnapshot, ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
+    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome,
+    SquashMergeResult, StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
+    StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
     UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
     Workspace, WorkspaceId,
 };
@@ -61,6 +61,7 @@ fn generated_types() -> String {
     push::<CreateRepositoryRequest>(&mut output, &config);
     push::<CreateRepositoryResult>(&mut output, &config);
     push::<RemoteInfo>(&mut output, &config);
+    push::<RemoveRemotePreflight>(&mut output, &config);
     push::<RemotePushResult>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
     push::<RepositorySnapshot>(&mut output, &config);

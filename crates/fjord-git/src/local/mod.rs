@@ -22,8 +22,9 @@ use fjord_domain::{
     DiffLineKind, DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail,
     FileDiffWindow, HunkSelection, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
-    PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RepoStatus, StashApplyResult, StashEntry,
-    StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges, WorkingFile,
+    PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RemoveRemotePreflight, RepoStatus,
+    StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
+    WorkingFile,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -153,9 +154,52 @@ impl GitBackend for LocalGitBackend {
         name: &str,
         url: &str,
     ) -> Result<RemoteInfo, GitError> {
-        let remote = remotes::add(repo, name, url).await?;
-        bump_repository_mutation(repo, MutationKind::AddRemote);
-        Ok(remote)
+        remotes::add(repo, name, url).await
+    }
+
+    async fn set_remote_url(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        fetch: &str,
+        push: Option<&str>,
+    ) -> Result<RemoteInfo, GitError> {
+        remotes::set_url(repo, name, fetch, push).await
+    }
+
+    async fn rename_remote(
+        &self,
+        repo: &RepoPath,
+        old: &str,
+        new: &str,
+    ) -> Result<RemoteInfo, GitError> {
+        remotes::rename(&self.commands, repo, old, new).await
+    }
+
+    async fn preflight_remove_remote(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+    ) -> Result<RemoveRemotePreflight, GitError> {
+        remotes::preflight_remove(repo, name, self.destructive_confirmations.clone()).await
+    }
+
+    async fn remove_remote(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        expected_config_generation: u64,
+        confirmation_token: &str,
+    ) -> Result<(), GitError> {
+        remotes::remove(
+            &self.commands,
+            repo,
+            name,
+            expected_config_generation,
+            confirmation_token,
+            self.destructive_confirmations.clone(),
+        )
+        .await
     }
 
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError> {

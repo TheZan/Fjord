@@ -30,9 +30,10 @@ most are the ones still missing:
    it still cannot begin one. "Rebase my branch onto develop" is a daily
    operation, and its absence sends the user to a terminal, where they will also
    do the next five things.
-3. **Remotes are read-only.** Fjord resolves upstreams and pushes to them, but
-   cannot list, add, edit, or remove a remote. Adding a fork or an internal mirror
-   requires another tool.
+3. **Remote management is not yet complete in the UI.** The backend can list,
+   add, edit, rename, and safely remove remotes, while the shipped repository
+   section still exposes only list/add and explicit multi-push. Editing, rename,
+   removal confirmation, and shared pickers remain `P10-07` UI work.
 4. **Workspace state is a flat list of numbers.** The dashboard shows counts, not
    conditions. With 40 repositories, the question is never "how many are dirty" but
    "which ones need me, and why". There is no filtering, and no concept of a
@@ -78,7 +79,7 @@ most are the ones still missing:
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
 | Merge | 🚧 Starting a merge is absent and is owned by [`branch-merge.md`](branch-merge.md), scheduled **before** rebase. Detection, conflict UI, Continue, and Abort already exist (Phase 9). |
-| Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
+| Remotes | ⚠️ Backend CRUD is complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. The shipped section still exposes only list/add and explicit multi-push; edit/rename/remove controls and generalized pickers remain `P10-07`. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
 | Filters | ✅ Overview and All Repositories share the six persisted health filters (needs attention, dirty, ahead, behind, conflicts, wrong branch). Health filters compose with OR; All Repositories text search composes with the health result using AND. Filtering is client-side over the loaded `RepoHealth` map, so WrongBranch is one click away without Git or IPC work. The application-level Playwright scenario verifies the rendered All Repositories flow against the backend-shaped `ws-100` fixture, including detached/unborn `actual: null`. |
 | Expected branch | ✅ `workspaces.expected_branch` (nullable, `0008_expected_branch.sql`) is set per workspace in a small Workspace settings dialog and feeds the existing `RepoHealth` derivation, so an off-branch repository reports `WrongBranch` and the Overview summary line shows `28 of 31 on develop`. Matching is literal; nothing is ever checked out. |
@@ -185,20 +186,34 @@ have all been proven.
 ### 3. Remote management
 
 ```rust
-pub struct Remote { pub name: String, pub fetch_url: String, pub push_url: Option<String> }
+pub struct RemoteInfo { pub name: String, pub fetch_url: String, pub push_url: Option<String> }
+pub struct RemoveRemotePreflight {
+    pub remote: String,
+    pub orphaned_upstreams: Vec<String>,
+    pub config_generation: u64,
+    pub confirmation_token: String,
+}
 
-async fn remotes(&self, repo: &RepoPath) -> Result<Vec<Remote>, GitError>;
-async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<(), GitError>;
-async fn set_remote_url(&self, repo: &RepoPath, name: &str, fetch: &str, push: Option<&str>) -> Result<(), GitError>;
-async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<(), GitError>;
-async fn remove_remote(&self, repo: &RepoPath, name: &str) -> Result<(), GitError>;
+async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError>;
+async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<RemoteInfo, GitError>;
+async fn set_remote_url(&self, repo: &RepoPath, name: &str, fetch: &str, push: Option<&str>) -> Result<RemoteInfo, GitError>;
+async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<RemoteInfo, GitError>;
+async fn preflight_remove_remote(&self, repo: &RepoPath, name: &str) -> Result<RemoveRemotePreflight, GitError>;
+async fn remove_remote(&self, repo: &RepoPath, name: &str, expected_config_generation: u64, confirmation_token: &str) -> Result<(), GitError>;
 ```
 
-Listing and adding are shipped by `P9R-06`; the remaining mutations stay in
-Phase 10. Configuration writes are local and never imply network access. The
+Backend CRUD is shipped by `P10-06`; its configuration writes are local and
+never imply network access. Editing with `push = None` removes an explicit
+`pushurl`, rename preserves the remote section/refspecs and updates configured
+branch upstream names, and native removal clears the associated branch upstream
+configuration. Renaming a remote to its current literal name is a no-op and does
+not advance the config generation. Removal requires the focused preflight token above: it is bound
+to the repository, exact remote, deterministic affected-branch set, and current
+config generation, so a stale confirmation cannot mutate config. The
 v0.1 add flow may start a separate fetch only when the user selects that option;
 it never pulls, merges unrelated histories, overwrites another remote, or pushes.
-IPC mirrors the shipped methods one-to-one.
+Every successful mutation advances only the config generation. IPC mirrors the
+shipped methods one-to-one.
 
 UI: a Remotes section in the repository tree with add/edit/remove, and a
 remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs are

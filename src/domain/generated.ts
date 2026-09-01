@@ -32,6 +32,8 @@ export type CreateRepositoryResult = { repository: RepositoryEntry, };
 
 export type RemoteInfo = { name: string, fetchUrl: string, pushUrl: string | null, };
 
+export type RemoveRemotePreflight = { remote: string, orphanedUpstreams: Array<string>, configGeneration: number, confirmationToken: string, };
+
 export type RemotePushResult = { remote: string, ok: boolean, errorCode: string | null, };
 
 export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };

@@ -6,6 +6,7 @@ export type {
   CreateRepositoryResult,
   RemoteInfo,
   RemotePushResult,
+  RemoveRemotePreflight,
   RepoCondition,
   RepoHealth,
   RepoStatusSummary,

@@ -12,6 +12,9 @@ import {
   getStashFileDiffPage,
   getWorkingFileDiffPage,
   revealLogFolder,
+  removeRemote,
+  renameRemote,
+  setRemoteUrl,
   setRepositoryActivity,
   stagePatch,
   unstagePatch,
@@ -115,6 +118,33 @@ describe("abortable Tauri queries", () => {
       limit: 1_000,
       whitespace: "show",
       loadAnyway: true,
+    });
+  });
+
+  it("keeps remote mutations explicit and binds removal confirmation fields", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+
+    await setRemoteUrl("repo-1", "origin", "https://fetch.test/repo.git", null);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("set_remote_url", {
+      repoId: "repo-1",
+      name: "origin",
+      fetch: "https://fetch.test/repo.git",
+      push: null,
+    });
+
+    await renameRemote("repo-1", "origin", "upstream");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("rename_remote", {
+      repoId: "repo-1",
+      old: "origin",
+      new: "upstream",
+    });
+
+    await removeRemote("repo-1", "upstream", 7, "confirmation-token");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("remove_remote", {
+      repoId: "repo-1",
+      name: "upstream",
+      expectedConfigGeneration: 7,
+      confirmationToken: "confirmation-token",
     });
   });
 
