@@ -204,7 +204,9 @@ async fn remove_remote(&self, repo: &RepoPath, name: &str, expected_config_gener
 
 Backend CRUD is shipped by `P10-06`; its configuration writes are local and
 never imply network access. Editing with `push = None` removes an explicit
-`pushurl`, rename preserves the remote section/refspecs and updates configured
+`pushurl`; a remote with multiple fetch or push URLs is rejected before the
+first write because the single-URL edit contract cannot represent it safely.
+Rename preserves the remote section/refspecs and updates configured
 branch upstream names, and native removal clears the associated branch upstream
 configuration. Renaming a remote to its current literal name is a no-op and does
 not advance the config generation. Removal requires the focused preflight token above: it is bound
@@ -212,8 +214,9 @@ to the repository, exact remote, deterministic affected-branch set, and current
 config generation, so a stale confirmation cannot mutate config. The
 v0.1 add flow may start a separate fetch only when the user selects that option;
 it never pulls, merges unrelated histories, overwrites another remote, or pushes.
-Every successful mutation advances only the config generation. IPC mirrors the
-shipped methods one-to-one.
+Add and URL edit advance only `config`; rename advances `refs + config`; removal
+advances `refs + history + config`, matching the remote-tracking refs changed by
+native Git. IPC mirrors the shipped methods one-to-one.
 
 UI: a Remotes section in the repository tree with add/edit/remove, and a
 remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs are
