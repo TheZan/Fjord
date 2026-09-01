@@ -197,10 +197,9 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             GenerationMask::REFS_HISTORY
         }
         MutationKind::PublishBranch => GenerationMask::REFS_HISTORY_CONFIG,
-        MutationKind::AddRemote
-        | MutationKind::SetRemoteUrl
-        | MutationKind::RenameRemote
-        | MutationKind::RemoveRemote => GenerationMask::CONFIG,
+        MutationKind::AddRemote | MutationKind::SetRemoteUrl => GenerationMask::CONFIG,
+        MutationKind::RenameRemote => GenerationMask::REFS_CONFIG,
+        MutationKind::RemoveRemote => GenerationMask::REFS_HISTORY_CONFIG,
         MutationKind::OperationStep => GenerationMask::WORKING_REFS_HISTORY,
     }
 }
@@ -301,8 +300,11 @@ mod tests {
             ),
             (MutationKind::AddRemote, GenerationMask::CONFIG),
             (MutationKind::SetRemoteUrl, GenerationMask::CONFIG),
-            (MutationKind::RenameRemote, GenerationMask::CONFIG),
-            (MutationKind::RemoveRemote, GenerationMask::CONFIG),
+            (MutationKind::RenameRemote, GenerationMask::REFS_CONFIG),
+            (
+                MutationKind::RemoveRemote,
+                GenerationMask::REFS_HISTORY_CONFIG,
+            ),
         ];
 
         for (mutation, expected) in cases {

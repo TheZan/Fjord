@@ -83,15 +83,17 @@ pub(super) async fn set_url(
         move || {
             LocalGitBackend::with_runtime_git2(&repo, |git| {
                 ensure_remote_exists(git, &name)?;
-                let has_explicit_push_url = git
-                    .find_remote(&name)
-                    .map_err(|_| GitError::RemoteNotFound(name.clone()))?
-                    .pushurl()
-                    .map_err(|_| GitError::InvalidRemoteUrl)?
-                    .is_some();
+                let fetch_url_count = remote_value_count(git, &name, "url")?;
+                let push_url_count = remote_value_count(git, &name, "pushurl")?;
+                // libgit2's single-value setters reject multi-valued URL keys.
+                // Inspect both keys before either setter writes so an unsupported
+                // remote fails without partially changing its fetch URL.
+                if fetch_url_count > 1 || push_url_count > 1 {
+                    return Err(GitError::InvalidRemoteUrl);
+                }
                 git.remote_set_url(&name, &fetch)
                     .map_err(|_| GitError::InvalidRemoteUrl)?;
-                if push.is_some() || has_explicit_push_url {
+                if push.is_some() || push_url_count == 1 {
                     git.remote_set_pushurl(&name, push.as_deref())
                         .map_err(|_| GitError::InvalidRemoteUrl)?;
                 }
@@ -265,6 +267,17 @@ fn ensure_remote_exists(git: &git2::Repository, name: &str) -> Result<(), GitErr
         })
 }
 
+fn remote_value_count(git: &git2::Repository, remote: &str, key: &str) -> Result<usize, GitError> {
+    let config = git.config().map_err(LocalGitBackend::map_git2_error)?;
+    let mut count = 0;
+    config
+        .multivar(&format!("remote.{remote}.{key}"), None)
+        .map_err(|_| GitError::InvalidRemoteUrl)?
+        .for_each(|_| count += 1)
+        .map_err(|_| GitError::InvalidRemoteUrl)?;
+    Ok(count)
+}
+
 fn configured_upstream_branches(
     git: &git2::Repository,
     remote: &str,
@@ -337,6 +350,41 @@ mod tests {
                 ..before
             }
         );
+    }
+
+    fn assert_refs_config_increment(before: GenerationSet, after: GenerationSet) {
+        assert_eq!(
+            after,
+            GenerationSet {
+                refs: before.refs + 1,
+                config: before.config + 1,
+                ..before
+            }
+        );
+    }
+
+    fn assert_refs_history_config_increment(before: GenerationSet, after: GenerationSet) {
+        assert_eq!(
+            after,
+            GenerationSet {
+                refs: before.refs + 1,
+                history: before.history + 1,
+                config: before.config + 1,
+                ..before
+            }
+        );
+    }
+
+    fn create_remote_tracking_ref(directory: &TempDir, name: &str) {
+        let git = git2::Repository::open(directory.path()).unwrap();
+        let tree_id = git.treebuilder(None).unwrap().write().unwrap();
+        let tree = git.find_tree(tree_id).unwrap();
+        let signature = git2::Signature::now("Fjord Test", "fjord@example.test").unwrap();
+        let commit = git
+            .commit(None, &signature, &signature, "remote tip", &tree, &[])
+            .unwrap();
+        git.reference(name, commit, true, "test remote-tracking ref")
+            .unwrap();
     }
 
     #[tokio::test]
@@ -499,6 +547,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_url_rejects_multiple_push_urls_before_any_config_mutation() {
+        let (directory, repo, backend) = fixture();
+        backend
+            .add_remote(&repo, "origin", "https://old/repo.git")
+            .await
+            .unwrap();
+        let mut git_config = config(&directory);
+        git_config
+            .set_multivar("remote.origin.pushurl", "^$", "ssh://server1/repo.git")
+            .unwrap();
+        git_config
+            .set_multivar("remote.origin.pushurl", "^$", "ssh://server2/repo.git")
+            .unwrap();
+        drop(git_config);
+
+        let config_path = git2::Repository::open(directory.path())
+            .unwrap()
+            .path()
+            .join("config");
+        let config_before = std::fs::read(&config_path).unwrap();
+        let generations_before = backend.generations(&repo).unwrap();
+
+        assert!(matches!(
+            backend
+                .set_remote_url(
+                    &repo,
+                    "origin",
+                    "https://new/repo.git",
+                    Some("ssh://new/repo.git"),
+                )
+                .await,
+            Err(GitError::InvalidRemoteUrl)
+        ));
+        assert_eq!(std::fs::read(&config_path).unwrap(), config_before);
+        assert_eq!(backend.generations(&repo).unwrap(), generations_before);
+    }
+
+    #[tokio::test]
     async fn rename_preserves_remote_config_and_updates_branch_upstream() {
         let (directory, repo, backend) = fixture();
         backend
@@ -521,6 +607,8 @@ mod tests {
         git_config
             .set_str("branch.main.merge", "refs/heads/main")
             .unwrap();
+        drop(git_config);
+        create_remote_tracking_ref(&directory, "refs/remotes/origin/main");
 
         let config_path = git2::Repository::open(directory.path())
             .unwrap()
@@ -542,7 +630,10 @@ mod tests {
         assert_eq!(renamed.name, "upstream");
         assert_eq!(renamed.fetch_url, "https://fetch/repo.git");
         assert_eq!(renamed.push_url.as_deref(), Some("ssh://push/repo.git"));
-        assert_config_only_increment(before, backend.generations(&repo).unwrap());
+        assert_refs_config_increment(before, backend.generations(&repo).unwrap());
+        let git = git2::Repository::open(directory.path()).unwrap();
+        assert!(git.find_reference("refs/remotes/origin/main").is_err());
+        assert!(git.find_reference("refs/remotes/upstream/main").is_ok());
 
         let git_config = config(&directory);
         assert_eq!(
@@ -628,6 +719,8 @@ mod tests {
                 )
                 .unwrap();
         }
+        drop(git_config);
+        create_remote_tracking_ref(&directory, "refs/remotes/origin/main");
 
         let preflight = backend
             .preflight_remove_remote(&repo, "origin")
@@ -647,7 +740,11 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_config_only_increment(before, backend.generations(&repo).unwrap());
+        assert_refs_history_config_increment(before, backend.generations(&repo).unwrap());
+        assert!(git2::Repository::open(directory.path())
+            .unwrap()
+            .find_reference("refs/remotes/origin/main")
+            .is_err());
 
         let remotes = backend.remotes(&repo).await.unwrap();
         assert_eq!(
