@@ -79,6 +79,7 @@
     "remote_rename_target_exists": "Un dépôt distant utilise déjà le nouveau nom.",
     "remote_request_invalid": "Vérifiez le nom du dépôt distant et l’URL du dépôt.",
     "remote_url_invalid": "Saisissez une URL de dépôt distant non vide.",
+    "preflight_stale": "Le dépôt a changé après la confirmation. Vérifiez son état actuel et réessayez.",
     "stash_empty": "Aucun stash enregistré n'est disponible.",
     "stash_not_found": "Ce stash n’existe plus. Actualisez la vue et réessayez.",
     "stash_ambiguous": "Plusieurs entrées de stash pointent vers le même commit ; Fjord refuse d’en choisir une arbitrairement.",

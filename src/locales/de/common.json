@@ -79,6 +79,7 @@
     "remote_rename_target_exists": "Ein Remote verwendet bereits den neuen Namen.",
     "remote_request_invalid": "Prüfen Sie den Remote-Namen und die Repository-URL.",
     "remote_url_invalid": "Geben Sie eine nicht leere Remote-Repository-URL ein.",
+    "preflight_stale": "Das Repository wurde nach der Bestätigung geändert. Prüfen Sie den aktuellen Zustand und versuchen Sie es erneut.",
     "stash_empty": "Es gibt keine gespeicherten Stashes zum Anwenden.",
     "stash_not_found": "Dieser Stash existiert nicht mehr. Aktualisieren Sie die Ansicht und versuchen Sie es erneut.",
     "stash_ambiguous": "Mehr als ein Stash-Eintrag verweist auf denselben Commit; Fjord wählt nicht willkürlich einen davon aus.",

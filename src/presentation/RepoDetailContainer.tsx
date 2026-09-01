@@ -337,6 +337,10 @@ export function RepoDetailContainer({
       setStashDialog({ kind: "all" });
       return;
     }
+    if (action === "fetch") {
+      setActionConfirmation({ kind: "remote", action: "fetch" });
+      return;
+    }
     if (needsConfirmation(action)) {
       setActionConfirmation({ kind: "origin", action });
       return;
@@ -413,12 +417,12 @@ export function RepoDetailContainer({
     if (action.kind === "stashDrop") setActionSuccess(t("stash.notice.dropped"));
   }
 
-  function executeAction(action: RepoAction) {
+  function executeAction(action: RepoAction, remote: string | null = null) {
     if (isNetworkAction(action)) {
       void runRepoAction(
         action,
         async () => {
-          const networkTask = startNetworkAction(action);
+          const networkTask = startNetworkAction(action, remote);
           setActionOperationId(networkTask.operationId);
           await networkTask.promise;
         },
@@ -441,10 +445,10 @@ export function RepoDetailContainer({
     void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
-  function startNetworkAction(action: NetworkRepoAction): OperationTask<void> {
+  function startNetworkAction(action: NetworkRepoAction, remote: string | null): OperationTask<void> {
     switch (action) {
       case "fetch":
-        return runFetchRepo(repo.id);
+        return runFetchRepo(repo.id, remote);
       case "pull":
         return runPullRepo(repo.id);
       case "push":
@@ -455,7 +459,7 @@ export function RepoDetailContainer({
   function offerPushRecovery(error: unknown): boolean {
     const code = invokeErrorCode(error);
     if (code === "no_upstream") {
-      setActionConfirmation({ kind: "publish", branch: status?.branch ?? "" });
+      setActionConfirmation({ kind: "remote", action: "publish", branch: status?.branch ?? "" });
       return true;
     }
     if (code === "git_non_fast_forward") {
@@ -465,11 +469,11 @@ export function RepoDetailContainer({
     return false;
   }
 
-  function publishCurrentBranch() {
+  function publishCurrentBranch(remote: string) {
     void runRepoAction(
       "publish",
       async () => {
-        const task = runPublishBranch(repo.id);
+        const task = runPublishBranch(repo.id, remote);
         setActionOperationId(task.operationId);
         await task.promise;
       },
@@ -989,12 +993,16 @@ export function RepoDetailContainer({
       onOpenRecoveryCenter={() => setRecoveryCenterOpen(true)}
       onAction={onAction}
       actionConfirmation={actionConfirmation}
-      onConfirmAction={() => {
+      onConfirmAction={(remote) => {
         if (!actionConfirmation) return;
         const confirmation = actionConfirmation;
         setActionConfirmation(null);
         if (confirmation.kind === "origin") executeAction(confirmation.action);
-        else if (confirmation.kind === "publish") publishCurrentBranch();
+        else if (confirmation.kind === "remote") {
+          if (!remote) return;
+          if (confirmation.action === "fetch") executeAction("fetch", remote);
+          else publishCurrentBranch(remote);
+        }
         else performCheckoutAndScrollToBranch(confirmation.branch);
       }}
       onCancelActionConfirmation={() => setActionConfirmation(null)}
@@ -1012,7 +1020,7 @@ export function RepoDetailContainer({
       stashActionRequest={stashActionRequest}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
-      onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
+      onPublishBranch={(branch) => setActionConfirmation({ kind: "remote", action: "publish", branch })}
       onPushToRemotes={pushCurrentBranchToRemotes}
       onCreateTag={onCreateTag}
       onCherryPick={onCherryPick}
@@ -1211,7 +1219,7 @@ export function RepoDetailContainer({
   );
 }
 
-type ConfirmableAction = "fetch" | "pull" | "push";
+type ConfirmableAction = "pull" | "push";
 const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
 type CheckoutOverwrite = { branch: string; paths: string[] };
@@ -1222,10 +1230,10 @@ type WorkingFileDiscard = {
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "publish"; branch: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
-  return action === "fetch" || action === "pull" || action === "push";
+  return action === "pull" || action === "push";
 }
 
 function isNetworkAction(action: RepoAction): action is NetworkRepoAction {

@@ -24,7 +24,8 @@ import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
 import { RemoteSection } from "@/presentation/RemoteSection";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
-import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import { RemotePickerDialog } from "@/presentation/RemotePickerDialog";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
 import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
@@ -48,9 +49,9 @@ import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
-  | { kind: "origin"; action: "fetch" | "pull" | "push" | "stash-pop" }
+  | { kind: "origin"; action: "pull" | "push" | "stash-pop" }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "publish"; branch: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
 
 /**
  * A selected repository used to render *below* the dashboard, so clicking a
@@ -164,7 +165,7 @@ export function RepoDetailView({
   onOpenRecoveryCenter: () => void;
   onAction: (action: RepoAction) => void;
   onOperationControl: (control: OperationControl) => void;
-  onConfirmAction: () => void;
+  onConfirmAction: (remote?: string) => void;
   onCancelActionConfirmation: () => void;
   onCancelOperation: () => void;
   onCheckout: (branch: string) => void;
@@ -611,14 +612,14 @@ export function RepoDetailView({
         />
       )}
       {dialog?.kind === "setUpstream" && (
-        <SelectActionDialog
-          title={t("context.setUpstream")}
-          description={t("context.setUpstreamDescription", { branch: dialog.branch })}
-          label={t("context.upstreamBranch")}
-          options={dialog.options}
-          confirmLabel={t("context.setUpstream")}
+        <RemotePickerDialog
+          repoId={repo.id}
+          kind="setUpstream"
+          branch={dialog.branch}
+          remoteBranches={dialog.options}
           onClose={() => setDialog(null)}
-          onConfirm={(upstream) => {
+          onConfirm={({ upstream }) => {
+            if (!upstream) return;
             setDialog(null);
             onSetBranchUpstream(dialog.branch, upstream);
           }}
@@ -642,18 +643,24 @@ export function RepoDetailView({
           }}
         />
       )}
-      {actionConfirmation && (
+      {actionConfirmation?.kind === "remote" ? (
+        <RemotePickerDialog
+          repoId={repo.id}
+          kind={actionConfirmation.action}
+          branch={actionConfirmation.branch}
+          onClose={onCancelActionConfirmation}
+          onConfirm={({ remote }) => onConfirmAction(remote)}
+        />
+      ) : actionConfirmation ? (
         <ConfirmActionDialog
           title={t(`context.confirm.${confirmationKey(actionConfirmation)}.title`)}
           description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "origin" ? undefined : actionConfirmation.branch })}
-          confirmLabel={actionConfirmation.kind === "publish"
-            ? t("remotes.pushAndSetUpstream")
-            : t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
+          confirmLabel={t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
           danger={actionConfirmation.kind === "origin" && actionConfirmation.action === "stash-pop"}
           onClose={onCancelActionConfirmation}
-          onConfirm={onConfirmAction}
+          onConfirm={() => onConfirmAction()}
         />
-      )}
+      ) : null}
       {notice ? (
         <NotificationToast
           key={notice.id}
@@ -827,6 +834,5 @@ async function copyText(value: string) {
 
 function confirmationKey(action: ActionConfirmation) {
   if (action.kind === "remote-checkout") return "remoteCheckout";
-  if (action.kind === "publish") return "publishBranch";
   return action.action === "stash-pop" ? "stashPop" : action.action;
 }

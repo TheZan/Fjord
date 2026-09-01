@@ -50,6 +50,7 @@ const USER_ERROR_CODES = new Set([
   "operation_has_conflicts",
   "operation_not_in_progress",
   "operation_step_failed",
+  "preflight_stale",
   "repository_already_added",
   "repository_discovery_failed",
   "repository_not_found",
