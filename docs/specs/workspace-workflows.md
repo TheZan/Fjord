@@ -26,10 +26,9 @@ most are the ones still missing:
    has no representation in Fjord at all. Worktrees of a tracked repository appear
    either as unrelated repositories (if imported separately) or not at all, and
    their shared `.git` relationship is never modeled.
-2. **Rebase cannot be started.** Phase 9 makes Fjord able to *finish* a rebase;
-   it still cannot begin one. "Rebase my branch onto develop" is a daily
-   operation, and its absence sends the user to a terminal, where they will also
-   do the next five things.
+2. **Basic rebase can be started through the backend (`P10-04`).** System Git
+   starts it and Phase 9 handles conflicts and finishing. User-facing preflight
+   and entry points remain `P10-05`; interactive rebase remains `P10-11`.
 3. **Remote management is now complete (`P10-06`–`07`).** The repository section
    supports list/add/edit/rename and confirmation-bound removal. Publish, fetch,
    and set-upstream reuse a single-remote picker; explicit multi-push remains a
@@ -77,8 +76,8 @@ most are the ones still missing:
 | Area | State |
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
-| Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
-| Merge | 🚧 Starting a merge is absent and is owned by [`branch-merge.md`](branch-merge.md), scheduled **before** rebase. Detection, conflict UI, Continue, and Abort already exist (Phase 9). |
+| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Preflight/UI remain `P10-05`, interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
+| Merge | ✅ Initiation is shipped by `P10-MERGE-01`–`03`, owned by [`branch-merge.md`](branch-merge.md). Conflicts use the Phase 9 controls. |
 | Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
 | Filters | ✅ Overview and All Repositories share the six persisted health filters (needs attention, dirty, ahead, behind, conflicts, wrong branch). Health filters compose with OR; All Repositories text search composes with the health result using AND. Filtering is client-side over the loaded `RepoHealth` map, so WrongBranch is one click away without Git or IPC work. The application-level Playwright scenario verifies the rendered All Repositories flow against the backend-shaped `ws-100` fixture, including detached/unborn `actual: null`. |
@@ -156,7 +155,19 @@ conflicted one returns `Rebase { .. }` and the Phase 9 banner takes over
 immediately. Continue/skip/abort are already specified there and are not
 reimplemented here.
 
-Preflight before starting: rebase **reuses** the shared integration preflight in
+`P10-04` ships only the backend, service, registered command and typed client.
+It passes the exact target as one argument after `--`, explicitly disables
+autostash (including configured autostash), and disables implicit object fetch.
+The shared operation runner supplies non-interactive editors and process-tree
+cancellation. Existing operations are refused under the write lock. After every
+runner outcome, the existing detector remains authoritative; a non-zero exit
+with rebase metadata is a typed state, while cancellation remains an error and
+leaves any metadata intact for explicit Abort. Before/after HEAD, reflog, semantic
+index, tracked worktree status and operation observations control one
+`WORKING_REFS_HISTORY` bump, including partial execution. Config and stash are
+not invalidated; an unchanged refusal or no-op does not bump generations.
+
+**Still planned for `P10-05`:** preflight before starting **reuses** the shared integration preflight in
 [`branch-merge.md`](branch-merge.md) §4 — the same blocker codes
 (`operation_already_in_progress`, detached/unborn `HEAD`, staged changes, the
 bounded overwrite set), the same dirty-tree policy, and the same explicit

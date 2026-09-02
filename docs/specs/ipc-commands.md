@@ -98,6 +98,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch when needed; before switching, returns `checkout_would_overwrite` with at most 100 affected paths if local work would be replaced |
 | `stash_and_checkout` | `{ repo_id, branch, operation_id? }` | `string` | Saves tracked and untracked work with a source→target message, checks out the target, never auto-pops, and returns `stash@{0}` |
 | `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Cancellable branch merge through system Git; supports local and remote-tracking sources (`P10-MERGE-01`, `P10-MERGE-02`) |
+| `start_rebase` | `{ repo_id, onto, operation_id? }` | `RepoOperationState` | Basic local system-Git rebase of the current branch onto a ref/commit-ish, with live snapshot validation before operation registration. Conflict returns authoritative rebase state; cancellation preserves Git metadata. No autostash or fetch. Backend only (`P10-04`); preflight/UI remain `P10-05` |
 | `squash_merge_branch` | `{ repo_id, source, dirty_policy, operation_id? }` | `SquashMergeResult` | Cancellable `merge --squash` through system Git; shares `get_merge_preflight`'s blockers and dirty-tree policy. Stages the combined diff (or leaves it conflicted) without a merge commit and without moving any ref, so a conflict is a live index read rather than a `RepoOperationState`, and any outcome can be discarded with a plain Reset (Hard) to the returned `targetCommit` (`P10-MERGE-03`) |
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
@@ -179,7 +180,6 @@ Designed but not implemented. Each is owned by a spec and a phase; nothing below
 | Command | Input | Output | Spec | Task |
 |---|---|---|---|---|
 | `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
-| `start_rebase` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §2 | `P10-04` |
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained

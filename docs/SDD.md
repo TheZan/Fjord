@@ -114,7 +114,8 @@ expresses clone and remote operations, and `GitEnvironmentProvider` expresses di
 read-only diagnostics. **gix serves hot reads**, **git2 serves local mutations and
 `pull`'s own fast-forward/merge integration**, and **system Git serves
 fetch/push/remote inspection plus every sequencer operation** (cherry-pick,
-revert, continue/skip/abort, and — planned — merge and rebase initiation).
+revert, continue/skip/abort, merge, and basic rebase initiation). Rebase preflight
+and UI remain `P10-05`; interactive rebase remains `P10-11`.
 Sequencer work uses system Git so the process that *starts* an operation speaks
 the same on-disk protocol as the one that *finishes* it, including operations
 Fjord did not start ([`specs/branch-merge.md`](specs/branch-merge.md) §7).

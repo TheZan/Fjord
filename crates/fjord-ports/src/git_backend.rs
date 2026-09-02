@@ -391,6 +391,24 @@ pub trait GitBackend: Send + Sync {
     async fn operation_state(&self, _repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         Err(GitError::NotImplemented("operation_state"))
     }
+    /// Starts a local, non-interactive rebase of the current branch onto a
+    /// commit-ish. A stopped rebase is a typed state; cancellation never aborts it.
+    async fn start_rebase(
+        &self,
+        repo: &RepoPath,
+        onto: &str,
+    ) -> Result<RepoOperationState, GitError> {
+        self.start_rebase_with_context(repo, onto, GitOperationContext::default())
+            .await
+    }
+    async fn start_rebase_with_context(
+        &self,
+        _repo: &RepoPath,
+        _onto: &str,
+        _context: GitOperationContext,
+    ) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("start_rebase"))
+    }
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         self.continue_operation_with_context(repo, GitOperationContext::default())
             .await

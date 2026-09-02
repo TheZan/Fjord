@@ -117,6 +117,7 @@ export type OperationKind =
   | "destructive-action"
   | "stash-checkout"
   | "merge"
+  | "rebase"
   | "squash-merge";
 export type OperationStatus =
   | "started"
@@ -421,6 +422,10 @@ export function runMergeBranch(
   dirtyPolicy: MergeDirtyPolicy,
 ): OperationTask<MergeResult> {
   return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
+}
+
+export function runStartRebase(repoId: string, onto: string): OperationTask<RepoOperationState> {
+  return invokeOperation("rebase", "start_rebase", { repoId, onto });
 }
 
 export function runSquashMergeBranch(

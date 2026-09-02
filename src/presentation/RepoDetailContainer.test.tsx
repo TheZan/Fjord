@@ -876,6 +876,8 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "discard working file" }));
     expect(await screen.findByRole("dialog", { name: "preflight.discard.title" })).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: "preflight.discard.confirm" });
+    await waitFor(() => expect(confirm).toBeEnabled());
     expect(discardPatch).not.toHaveBeenCalled();
     expect(preflightDestructiveAction).toHaveBeenCalledWith(
       "repo-1",
@@ -887,8 +889,6 @@ describe("RepoDetailContainer checkout confirmation", () => {
       })],
     );
 
-    const confirm = screen.getByRole("button", { name: "preflight.discard.confirm" });
-    await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
     await waitFor(() => expect(discardPatch).toHaveBeenCalledWith(
       "repo-1",
@@ -908,6 +908,10 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "discard working file batch" }));
     expect(await screen.findByRole("dialog", { name: "preflight.discardFiles.title" })).toBeInTheDocument();
+    // The dialog mounts before its effect loads preflight. Its ready control,
+    // rather than the dialog's presence, proves that the request has settled.
+    const confirm = screen.getByRole("button", { name: "preflight.discardFiles.confirm" });
+    await waitFor(() => expect(confirm).toBeEnabled());
     expect(discardPatches).not.toHaveBeenCalled();
     const selections = ["batch-a.txt", "batch-b.txt"].map((path) => ({
       path,
@@ -917,8 +921,6 @@ describe("RepoDetailContainer checkout confirmation", () => {
     }));
     expect(preflightDestructiveAction).toHaveBeenCalledWith("repo-1", action, selections);
 
-    const confirm = screen.getByRole("button", { name: "preflight.discardFiles.confirm" });
-    await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
 
     await waitFor(() => expect(discardPatches).toHaveBeenCalledOnce());

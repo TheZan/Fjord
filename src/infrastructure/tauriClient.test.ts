@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RepoOperationState } from "@/domain/generated";
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -13,6 +14,7 @@ import {
   getWorkingFileDiffPage,
   revealLogFolder,
   removeRemote,
+  runStartRebase,
   renameRemote,
   setRemoteUrl,
   setRepositoryActivity,
@@ -118,6 +120,20 @@ describe("abortable Tauri queries", () => {
       limit: 1_000,
       whitespace: "show",
       loadAnyway: true,
+    });
+  });
+
+  it("starts rebase with the exact repository and commit-ish and returns the typed state", async () => {
+    const state: RepoOperationState = {
+      operation: { kind: "rebase", rebaseKind: "merge", onto: "abc", current: 1, total: 2, headName: "refs/heads/feature" },
+      conflictedPaths: ["file.txt"], available: ["skip", "abort"], detectedExternally: false,
+    };
+    tauri.invoke.mockResolvedValue(state);
+    const task = runStartRebase("repo-1", "refs/remotes/origin/develop~1");
+    await expect(task.promise).resolves.toEqual(state);
+    expect(task.operationId).toMatch(/^rebase:/);
+    expect(tauri.invoke).toHaveBeenCalledWith("start_rebase", {
+      repoId: "repo-1", onto: "refs/remotes/origin/develop~1", operationId: task.operationId,
     });
   });
 

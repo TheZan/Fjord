@@ -20,6 +20,7 @@ pub trait GitBackend: Send + Sync {
     async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError>;
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn start_rebase(&self, repo: &RepoPath, onto: &str) -> Result<RepoOperationState, GitError>;
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn abort_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
@@ -77,6 +78,7 @@ at 200 entries per response.
 | `init_repository` | `git2` | Creates one local non-bare repository without transport or an initial commit. Fjord initializes in an app-owned sibling staging directory and publishes only after success, so a failed initialization does not leave a partial target. |
 | `status` | `gix` | Hot path, run per-repo on every dashboard refresh — this is the operation the "fast on large repos" claim lives or dies on. |
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
+| `start_rebase` | system Git + existing operation detector | Uses `GitCommandFactory` and the shared cancellable runner/editor environment under the repository write lock. Targets are separate arguments after `--`; no autostash or implicit transport. A detected rebase after non-zero exit is a typed result; other execution failures use `operation_step_failed`, unavailable Git uses `git_executable_not_found`, and cancellation remains cancellation. `MutationKind::Rebase` advances only working-tree/refs/history generations when observable state changes; unchanged refusal/no-op/spawn failure does not invalidate. (`P10-04`) |
 | `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |
 | `remotes` / `add_remote` / `set_remote_url` / removal preflight | `git2` | Reads and writes only local Git configuration under repository locks. Names use libgit2 validation; URL edits inspect all URL values and reject unsupported multi-valued configuration before the first write, then publish the complete fetch/push URL state through one atomic config replacement. A failed edit leaves the config byte-for-byte unchanged. Unrelated keys are preserved, absent `pushurl` stays distinct from an explicit value, and returned URLs are sanitized before crossing IPC. Affected branches come from actual `branch.*.remote` configuration. |

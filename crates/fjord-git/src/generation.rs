@@ -154,6 +154,7 @@ pub(crate) enum MutationKind {
     RenameRemote,
     RemoveRemote,
     OperationStep,
+    Rebase,
 }
 
 pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
@@ -200,7 +201,7 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::AddRemote | MutationKind::SetRemoteUrl => GenerationMask::CONFIG,
         MutationKind::RenameRemote => GenerationMask::REFS_CONFIG,
         MutationKind::RemoveRemote => GenerationMask::REFS_HISTORY_CONFIG,
-        MutationKind::OperationStep => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::OperationStep | MutationKind::Rebase => GenerationMask::WORKING_REFS_HISTORY,
     }
 }
 
@@ -212,6 +213,7 @@ mod tests {
     fn every_mutation_bumps_exactly_its_observable_domains() {
         let cases = [
             (MutationKind::Checkout, GenerationMask::WORKING_REFS),
+            (MutationKind::Rebase, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::CreateBranch { checkout: false },
                 GenerationMask::REFS,
