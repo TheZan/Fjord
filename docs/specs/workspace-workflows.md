@@ -30,10 +30,10 @@ most are the ones still missing:
    it still cannot begin one. "Rebase my branch onto develop" is a daily
    operation, and its absence sends the user to a terminal, where they will also
    do the next five things.
-3. **Remote management is not yet complete in the UI.** The backend can list,
-   add, edit, rename, and safely remove remotes, while the shipped repository
-   section still exposes only list/add and explicit multi-push. Editing, rename,
-   removal confirmation, and shared pickers remain `P10-07` UI work.
+3. **Remote management is now complete (`P10-06`–`07`).** The repository section
+   supports list/add/edit/rename and confirmation-bound removal. Publish, fetch,
+   and set-upstream reuse a single-remote picker; explicit multi-push remains a
+   separate flow that never changes upstream.
 4. **Workspace state is a flat list of numbers.** The dashboard shows counts, not
    conditions. With 40 repositories, the question is never "how many are dirty" but
    "which ones need me, and why". There is no filtering, and no concept of a
@@ -79,7 +79,7 @@ most are the ones still missing:
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
 | Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
 | Merge | 🚧 Starting a merge is absent and is owned by [`branch-merge.md`](branch-merge.md), scheduled **before** rebase. Detection, conflict UI, Continue, and Abort already exist (Phase 9). |
-| Remotes | ⚠️ Backend CRUD is complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. The shipped section still exposes only list/add and explicit multi-push; edit/rename/remove controls and generalized pickers remain `P10-07`. |
+| Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
 | Filters | ✅ Overview and All Repositories share the six persisted health filters (needs attention, dirty, ahead, behind, conflicts, wrong branch). Health filters compose with OR; All Repositories text search composes with the health result using AND. Filtering is client-side over the loaded `RepoHealth` map, so WrongBranch is one click away without Git or IPC work. The application-level Playwright scenario verifies the rendered All Repositories flow against the backend-shaped `ws-100` fixture, including detached/unborn `actual: null`. |
 | Expected branch | ✅ `workspaces.expected_branch` (nullable, `0008_expected_branch.sql`) is set per workspace in a small Workspace settings dialog and feeds the existing `RepoHealth` derivation, so an off-branch repository reports `WrongBranch` and the Overview summary line shows `28 of 31 on develop`. Matching is literal; nothing is ever checked out. |
@@ -221,11 +221,15 @@ Add and URL edit advance only `config`; rename advances `refs + config`; removal
 advances `refs + history + config`, matching the remote-tracking refs changed by
 native Git. IPC mirrors the shipped methods one-to-one.
 
-UI: a Remotes section in the repository tree with add/edit/remove, and a
-remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs are
-displayed with userinfo redacted using the existing sanitizer
+UI: the shipped Remotes section in the repository tree supports add, URL edit,
+rename, and confirmation-bound remove. One shipped single-remote picker is reused
+wherever a remote is chosen (publish, fetch, set upstream), while multi-push keeps
+its separate multi-selection control. URLs are displayed with userinfo redacted
+using the existing sanitizer
 ([`system-git-transport.md`](system-git-transport.md) §"Redaction") — a URL with an
-embedded token must never be rendered verbatim.
+embedded token is never rendered verbatim or copied into an editable mutation
+field. URL editing requires the user to enter the complete desired fetch URL and
+explicit push-URL state.
 
 The shipped multi-push slice is deliberately narrower than that shared picker:
 when at least two remotes exist, the Remotes section exposes unchecked

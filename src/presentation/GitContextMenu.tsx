@@ -496,7 +496,7 @@ export function ConfirmActionDialog({
   );
 }
 
-function DialogFrame({
+export function DialogFrame({
   title,
   description,
   children,
@@ -529,15 +529,17 @@ function DialogFrame({
   );
 }
 
-function DialogActions({
+export function DialogActions({
   confirmLabel,
   disabled = false,
+  closeDisabled = false,
   danger = false,
   onConfirm,
   onClose,
 }: {
   confirmLabel: string;
   disabled?: boolean;
+  closeDisabled?: boolean;
   danger?: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -545,7 +547,7 @@ function DialogActions({
   const { t } = useTranslation("workspace");
   return (
     <div className="flex justify-end gap-2">
-      <Button onClick={onClose}>{t("context.cancel")}</Button>
+      <Button disabled={closeDisabled} onClick={onClose}>{t("context.cancel")}</Button>
       <Button variant={danger ? "danger" : "primary"} disabled={disabled} onClick={onConfirm}>
         {confirmLabel}
       </Button>

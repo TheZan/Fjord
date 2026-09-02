@@ -266,10 +266,10 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPreflightAction,
     onApplyStash,
   }: {
-    actionConfirmation: { kind: string; branch?: string } | null;
-    onAction: (action: "push" | "stash" | "stash-pop") => void;
+    actionConfirmation: { kind: string; action?: string; branch?: string } | null;
+    onAction: (action: "fetch" | "push" | "stash" | "stash-pop") => void;
     onCheckout: (branch: string) => void;
-    onConfirmAction: () => void;
+    onConfirmAction: (remote?: string) => void;
     onApplyHunk: (selection: import("@/domain/git").PatchSelection, generations: import("@/domain/git").GenerationSet) => Promise<boolean>;
     onDiscardPatch: (
       action: import("@/domain/git").DestructiveAction,
@@ -309,6 +309,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <output data-testid="working-selected">{String(workingSelected)}</output>
       <button type="button" onClick={() => onCheckout("feature")}>local checkout</button>
       <button type="button" onClick={() => onCheckout("origin/feature")}>remote checkout</button>
+      <button type="button" onClick={() => onAction("fetch")}>fetch</button>
       <button type="button" onClick={() => onAction("push")}>push</button>
       <button type="button" onClick={() => onAction("stash")}>stash all</button>
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
@@ -354,8 +355,11 @@ vi.mock("@/presentation/RepoDetailView", () => ({
         </>
       ) : null}
       {actionConfirmation ? (
-        <button type="button" onClick={onConfirmAction}>
-          confirm {actionConfirmation.kind} {actionConfirmation.branch}
+        <button
+          type="button"
+          onClick={() => onConfirmAction(actionConfirmation.kind === "remote" ? "gitlab" : undefined)}
+        >
+          confirm {actionConfirmation.kind} {actionConfirmation.action} {actionConfirmation.branch}
         </button>
       ) : null}
     </div>
@@ -542,15 +546,31 @@ describe("RepoDetailContainer checkout confirmation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "push and set upstream" }));
     expect(runPublishBranch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "confirm publish main" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm remote publish main" }));
 
-    await waitFor(() => expect(runPublishBranch).toHaveBeenCalledWith("repo-1"));
+    await waitFor(() => expect(runPublishBranch).toHaveBeenCalledWith("repo-1", "gitlab"));
     await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
       queryClientMock,
       "repo-1",
       "workspace-1",
       ["status", "refs"],
     ));
+  });
+
+  it("fetches only after confirming the selected remote", async () => {
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "fetch" }));
+    expect(runFetchRepo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "confirm remote fetch" }));
+
+    await waitFor(() => expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "gitlab"));
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock,
+      "repo-1",
+      "workspace-1",
+      ["status", "history", "refs"],
+    );
   });
 
   it("pushes the current branch to explicitly selected remotes", async () => {
