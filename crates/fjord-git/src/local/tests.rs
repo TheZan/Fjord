@@ -8802,6 +8802,246 @@ async fn rebase_controls_continue_skip_and_abort_to_normal() {
     assert_normal_operation(&abort_backend.abort_operation(&abort_repo).await.unwrap());
 }
 
+fn basic_rebase_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "feature"]);
+    run_git_success(&backend, &repo, &["branch", "-m", "develop"]);
+    commit_with_cli(&backend, &repo, "develop\n", "develop change");
+    run_git_success(&backend, &repo, &["checkout", "feature"]);
+    write_file(&repo, "feature.txt", "feature\n");
+    run_git_success(&backend, &repo, &["add", "feature.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "feature change"]);
+    (directory, repo, backend)
+}
+
+fn assert_rebase_generations(backend: &LocalGitBackend, repo: &RepoPath, before: GenerationSet) {
+    assert_eq!(
+        backend.generations(repo).unwrap(),
+        GenerationSet {
+            working_tree: before.working_tree + 1,
+            refs: before.refs + 1,
+            history: before.history + 1,
+            ..before
+        }
+    );
+}
+
+fn assert_no_rebase_markers(repo: &RepoPath) {
+    let git = Repository::open(&repo.0).unwrap();
+    assert!(!git.path().join("rebase-merge").exists());
+    assert!(!git.path().join("rebase-apply").exists());
+}
+
+#[tokio::test]
+async fn start_rebase_replays_the_current_branch_onto_refs_and_commit_ishes() {
+    for target in ["develop", "refs/heads/develop", "develop~0"] {
+        let (_directory, repo, backend) = basic_rebase_fixture();
+        let original = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+        let target_head = git_output(&backend, &repo, &["rev-parse", "develop"]);
+        let before = backend.generations(&repo).unwrap();
+
+        assert_normal_operation(&backend.start_rebase(&repo, target).await.unwrap());
+
+        assert_ne!(
+            git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+            original
+        );
+        assert_eq!(
+            git_output(&backend, &repo, &["rev-parse", "HEAD^"]),
+            target_head
+        );
+        assert_eq!(
+            git_output(&backend, &repo, &["rev-list", "--count", "develop..HEAD"]),
+            b"1\n"
+        );
+        assert_eq!(
+            git_output(&backend, &repo, &["symbolic-ref", "--short", "HEAD"]),
+            b"feature\n"
+        );
+        assert_eq!(
+            std::fs::read(repo.0.join("operation.txt")).unwrap(),
+            b"develop\n"
+        );
+        assert_eq!(
+            std::fs::read(repo.0.join("feature.txt")).unwrap(),
+            b"feature\n"
+        );
+        assert_eq!(backend.status(&repo).await.unwrap().dirty_count, 0);
+        assert_no_rebase_markers(&repo);
+        assert_rebase_generations(&backend, &repo, before);
+
+        let unchanged = backend.generations(&repo).unwrap();
+        assert_normal_operation(&backend.start_rebase(&repo, target).await.unwrap());
+        assert_eq!(backend.generations(&repo).unwrap(), unchanged);
+    }
+}
+
+#[tokio::test]
+async fn start_rebase_conflict_returns_authoritative_state_and_existing_abort_restores_head() {
+    for engine in ["merge", "apply"] {
+        let (_directory, repo, backend) = divergent_operation_fixture();
+        run_git_success(&backend, &repo, &["checkout", "topic"]);
+        run_git_success(&backend, &repo, &["config", "rebase.backend", engine]);
+        let original = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+        let before = backend.generations(&repo).unwrap();
+
+        let state = backend.start_rebase(&repo, "main").await.unwrap();
+
+        assert!(matches!(
+            state.operation,
+            RepoOperation::Rebase {
+                current: 1,
+                total: 1,
+                ..
+            }
+        ));
+        assert_eq!(state.conflicted_paths, ["operation.txt"]);
+        assert!(!state.detected_externally);
+        assert_eq!(state, backend.operation_state(&repo).await.unwrap());
+        assert!(repo.0.join(format!(".git/rebase-{engine}")).is_dir());
+        assert!(backend.status(&repo).await.unwrap().has_conflict);
+        assert!(backend
+            .working_changes(&repo)
+            .await
+            .unwrap()
+            .unstaged
+            .iter()
+            .any(|file| file.path == "operation.txt" && file.conflicted));
+        assert_rebase_generations(&backend, &repo, before);
+
+        let during = backend.generations(&repo).unwrap();
+        assert!(matches!(
+            backend.start_rebase(&repo, "main").await,
+            Err(GitError::OperationAlreadyInProgress)
+        ));
+        assert_eq!(backend.generations(&repo).unwrap(), during);
+        assert_eq!(state, backend.operation_state(&repo).await.unwrap());
+
+        assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+        assert_eq!(
+            git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+            original
+        );
+        assert_eq!(
+            git_output(&backend, &repo, &["symbolic-ref", "--short", "HEAD"]),
+            b"topic\n"
+        );
+        assert_eq!(
+            std::fs::read(repo.0.join("operation.txt")).unwrap(),
+            b"topic\n"
+        );
+        assert_eq!(backend.status(&repo).await.unwrap().dirty_count, 0);
+        assert_no_rebase_markers(&repo);
+    }
+}
+
+#[tokio::test]
+async fn start_rebase_invalid_targets_and_dirty_tree_fail_without_mutation_or_autostash() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let before = backend.generations(&repo).unwrap();
+    let original = safety_fingerprint(&backend, &repo).await;
+    for target in [
+        "does-not-exist",
+        "",
+        "HEAD\0",
+        "--abort",
+        "--exec=touch sentinel",
+        "develop; touch sentinel",
+        "develop feature",
+    ] {
+        assert!(matches!(
+            backend.start_rebase(&repo, target).await,
+            Err(GitError::OperationStepFailed(_))
+        ));
+        assert_eq!(safety_fingerprint(&backend, &repo).await, original);
+        assert_eq!(backend.generations(&repo).unwrap(), before);
+        assert_no_rebase_markers(&repo);
+    }
+    run_git_success(&backend, &repo, &["config", "rebase.autoStash", "true"]);
+    write_file(&repo, "operation.txt", "unsaved\n");
+    let dirty = safety_fingerprint(&backend, &repo).await;
+    assert!(matches!(
+        backend.start_rebase(&repo, "develop").await,
+        Err(GitError::OperationStepFailed(_))
+    ));
+    assert_eq!(safety_fingerprint(&backend, &repo).await, dirty);
+    assert_eq!(
+        std::fs::read(repo.0.join("operation.txt")).unwrap(),
+        b"unsaved\n"
+    );
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    assert_no_rebase_markers(&repo);
+}
+
+#[tokio::test]
+async fn start_rebase_cancelled_before_spawn_and_spawn_failure_leave_generations_unchanged() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let before = backend.generations(&repo).unwrap();
+    assert!(matches!(
+        backend
+            .start_rebase_with_context(&repo, "develop", GitOperationContext::new(|_| {}, || true))
+            .await,
+        Err(GitError::Cancelled)
+    ));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    assert_no_rebase_markers(&repo);
+
+    backend
+        .commands
+        .apply(fjord_ports::GitExecutableResolution::Resolved(
+            repo.0.join("missing-git"),
+        ));
+    assert!(matches!(
+        backend.start_rebase(&repo, "develop").await,
+        Err(GitError::OperationStepFailed(_))
+    ));
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    assert_no_rebase_markers(&repo);
+}
+
+#[tokio::test]
+async fn start_rebase_cancellation_preserves_started_sequencer_for_explicit_abort() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let original = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    let hook = repo.0.join(".git/hooks/post-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\ntouch .git/rebase-hook-entered\nwhile true; do sleep 1; done\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let marker = repo.0.join(".git/rebase-hook-entered");
+    let before = backend.generations(&repo).unwrap();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        backend.start_rebase_with_context(
+            &repo,
+            "develop",
+            GitOperationContext::new(|_| {}, move || marker.exists()),
+        ),
+    )
+    .await
+    .expect("rebase should be cancelled inside the hook");
+    assert!(matches!(result, Err(GitError::Cancelled)));
+    let state = backend.operation_state(&repo).await.unwrap();
+    assert!(matches!(state.operation, RepoOperation::Rebase { .. }));
+    assert!(!state.detected_externally);
+    assert_rebase_generations(&backend, &repo, before);
+    assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        original
+    );
+    assert_eq!(backend.status(&repo).await.unwrap().dirty_count, 0);
+    assert_no_rebase_markers(&repo);
+}
+
 #[tokio::test]
 async fn cherry_pick_controls_continue_skip_and_abort_to_normal() {
     let (_continue_directory, continue_repo, continue_backend) = divergent_operation_fixture();

@@ -500,6 +500,98 @@ async fn snapshot_refresh_reports_a_cli_created_rebase_without_restart() {
     );
 }
 
+#[tokio::test]
+async fn start_rebase_service_returns_serializable_conflict_and_updates_the_snapshot() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("start-rebase");
+    run_git_success(&repo_path, &["config", "core.autocrlf", "false"]);
+    run_git_success(&repo_path, &["branch", "feature"]);
+    commit_with_system_git(&repo_path, b"main\n", "main change");
+    run_git_success(&repo_path, &["checkout", "feature"]);
+    commit_with_system_git(&repo_path, b"feature\n", "feature change");
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+    services
+        .repos
+        .revalidate_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+    let before = services.repos.get_generations(repo.id).await.unwrap();
+
+    let state = services
+        .repos
+        .start_rebase(repo.id, "refs/heads/main~0")
+        .await
+        .unwrap();
+
+    assert!(matches!(state.operation, RepoOperation::Rebase { .. }));
+    assert_eq!(state.conflicted_paths, ["README.md"]);
+    assert!(!state.detected_externally);
+    assert_eq!(
+        services.repos.get_generations(repo.id).await.unwrap(),
+        fjord_domain::GenerationSet {
+            working_tree: before.working_tree + 1,
+            refs: before.refs + 1,
+            history: before.history + 1,
+            ..before
+        }
+    );
+    let payload = serde_json::to_value(&state).unwrap();
+    assert_eq!(payload["operation"]["kind"], "rebase");
+    assert_eq!(payload["conflictedPaths"], serde_json::json!(["README.md"]));
+    assert_eq!(payload["detectedExternally"], false);
+    assert_eq!(
+        serde_json::to_value(crate::operations::OperationKind::Rebase).unwrap(),
+        "rebase"
+    );
+    assert_eq!(
+        services
+            .repos
+            .revalidate_repository_snapshot(repo.id)
+            .await
+            .unwrap()
+            .snapshot
+            .snapshot
+            .operation_state,
+        state
+    );
+
+    let action = fjord_domain::DestructiveAction::AbortOperation;
+    let preflight = services
+        .repos
+        .preflight_destructive_action(repo.id, action.clone(), None)
+        .await
+        .unwrap();
+    services
+        .repos
+        .execute_destructive_action(
+            repo.id,
+            &action,
+            preflight.generations,
+            preflight.confirmation_token.as_deref().unwrap(),
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        services
+            .repos
+            .get_operation_state(repo.id)
+            .await
+            .unwrap()
+            .operation,
+        RepoOperation::Normal
+    );
+}
+
 /// An unknown id fails before any Git work, with the code the frontend uses to
 /// drop a stale selection.
 #[tokio::test]

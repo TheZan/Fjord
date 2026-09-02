@@ -54,6 +54,7 @@ mod operation_control;
 mod operation_state;
 mod patch;
 mod patch_transaction;
+mod rebase;
 mod reflog;
 mod refs;
 mod remotes;
@@ -211,6 +212,22 @@ impl GitBackend for LocalGitBackend {
         repo: &RepoPath,
     ) -> Result<fjord_domain::RepoOperationState, GitError> {
         operation_state::state(self.operation_origins.clone(), repo).await
+    }
+
+    async fn start_rebase_with_context(
+        &self,
+        repo: &RepoPath,
+        onto: &str,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RepoOperationState, GitError> {
+        rebase::run(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            onto,
+            context,
+        )
+        .await
     }
 
     async fn continue_operation_with_context(

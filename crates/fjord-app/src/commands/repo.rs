@@ -214,6 +214,30 @@ pub async fn get_repo_operation_state(
 }
 
 #[tauri::command]
+pub async fn start_rebase(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    onto: String,
+    operation_id: Option<String>,
+) -> Result<RepoOperationState, AppError> {
+    state.repos.revalidate_repository_snapshot(repo_id).await?;
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Rebase,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .start_rebase_with_context(repo_id, &onto, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn continue_operation(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1319,7 +1343,10 @@ where
     let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
     let guard = state.operations.begin(operation_id);
     let scope = OperationScope::Repo { repo_id };
-    let total = if matches!(kind, OperationKind::Merge | OperationKind::SquashMerge) {
+    let total = if matches!(
+        kind,
+        OperationKind::Merge | OperationKind::SquashMerge | OperationKind::Rebase
+    ) {
         0
     } else {
         1

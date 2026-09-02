@@ -49,6 +49,7 @@ pub enum OperationKind {
     StashCheckout,
     Merge,
     SquashMerge,
+    Rebase,
 }
 
 impl OperationKind {
@@ -69,6 +70,7 @@ impl OperationKind {
             Self::StashCheckout => "stash-checkout",
             Self::Merge => "merge",
             Self::SquashMerge => "squash-merge",
+            Self::Rebase => "rebase",
         }
     }
 }

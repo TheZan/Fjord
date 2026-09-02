@@ -946,6 +946,28 @@ impl RepoService {
         Ok(self.git.operation_state(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn start_rebase(
+        &self,
+        repo_id: RepositoryId,
+        onto: &str,
+    ) -> Result<RepoOperationState, RepoError> {
+        self.start_rebase_with_context(repo_id, onto, GitOperationContext::default())
+            .await
+    }
+
+    pub async fn start_rebase_with_context(
+        &self,
+        repo_id: RepositoryId,
+        onto: &str,
+        context: GitOperationContext,
+    ) -> Result<RepoOperationState, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .start_rebase_with_context(&RepoPath::new(repo.path), onto, context)
+            .await?)
+    }
+
     pub async fn continue_operation(
         &self,
         repo_id: RepositoryId,

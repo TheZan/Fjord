@@ -18,6 +18,7 @@ Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operat
 | `commit_and_push_repo` | `{ repo_id, message, amend, operation_id? }` | `CommitPushResult` | Uses one operation id for both phases. A push failure after commit is a partial result and terminal `failed` event, not a rollback. |
 | `continue_operation` / `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Runs the local system-Git sequencer command and returns the newly detected state. Abort is destructive and therefore runs through `execute_destructive_action` with its operation id. |
 | `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Runs the local branch merge with message-only progress; conflict is a successful typed result. |
+| `start_rebase` | `{ repo_id, onto, operation_id? }` | `RepoOperationState` | Local basic rebase, operation kind `rebase`, indeterminate progress (`total = 0`). Snapshot validation precedes operation registration; detected conflict is a successful typed result. |
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
@@ -49,7 +50,7 @@ Payload shape:
 type OperationProgressEvent = {
   operationId: string;
   kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation" | "merge"
-      // 🚧 planned: "rebase" (P10-04)
+      | "rebase"
       ;
   scope:
     | { type: "repo"; repoId: string }
@@ -94,6 +95,9 @@ runner.
   equivalent to abort. A **conflicted** merge is a `succeeded` terminal event —
   Git did what it was asked — carrying the typed `Conflicted` result; only a
   genuine failure emits `failed`.
+- Basic `rebase` (`P10-04`) uses the same process-tree cancellation: it does not run Abort or
+  remove sequencer files, and any remaining rebase state is read by Phase 9.
+  A conflict confirmed by the detector returns a `succeeded` terminal event.
 - Reader tasks drain/finish, the runner returns `Cancelled`, and only then is the
   final `cancelled` event emitted and the registry entry removed.
 - Bulk operations stop scheduling queued repositories and cancel already-started
