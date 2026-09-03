@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -60,6 +60,7 @@ vi.mock("@/application/useRepositorySnapshot", () => ({
     validated: snapshotMock.validated,
     capturedAt: null,
     ensureValidated: snapshotMock.ensureValidated,
+    revalidate: snapshotMock.ensureValidated,
   }),
 }));
 vi.mock("@/application/useWorkingChanges", () => ({
@@ -114,6 +115,7 @@ vi.mock("@/presentation/performance", () => ({
 }));
 vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
+  runStartRebase: vi.fn(),
   checkoutBranch: vi.fn(async () => undefined),
   previewIgnoreRule: vi.fn(async () => ({ rule: "*.log", alreadyPresent: false })),
   addIgnoreRule: vi.fn(async () => "added" as const),
@@ -255,6 +257,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter,
     onPublishBranch,
     onPushToRemotes,
+    onRebaseBranch,
     onMergeBranch,
     onSquashMergeBranch,
     onWorkingFileAction,
@@ -286,6 +289,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter: () => void;
     onPublishBranch: (branch: string) => void;
     onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
+    onRebaseBranch: (source: import("@/domain/git").MergeSource) => void;
     onMergeBranch: (source: import("@/domain/git").MergeSource) => void;
     onSquashMergeBranch: (source: import("@/domain/git").MergeSource) => void;
     onWorkingFileAction: (
@@ -324,6 +328,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onSelectStash("stash-id")}>select top stash</button>
       <button type="button" onClick={() => onApplyStash({ id: "stash-id", index: 0, refName: "stash@{0}", message: "On main: test", title: "test", base: "base-id", branch: "main", createdAt: "2026-08-24T00:00:00Z", filesChanged: 1, hasIndexState: false, hasUntracked: false }, false)}>apply top stash</button>
       <button type="button" onClick={() => onPreflightAction({ kind: "stashDrop", id: "stash-id" })}>drop top stash</button>
+      <button type="button" onClick={() => onRebaseBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>rebase feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
@@ -364,6 +369,13 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       ) : null}
     </div>
   ),
+}));
+
+vi.mock("@/presentation/RebaseDialog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/presentation/RebaseDialog")>()),
+  RebaseDialog: ({ onConfirm, onto }: { onto: import("@/domain/git").MergeSource;
+    onConfirm: (facts: import("@/domain/git").RebasePreflight, policy: import("@/domain/git").MergeDirtyPolicy) => void }) =>
+    <button onClick={() => onConfirm(rebaseFacts(onto), "refuse")}>confirm rebase</button>,
 }));
 
 vi.mock("@/presentation/MergeDialog", () => ({
@@ -1349,3 +1361,34 @@ function actionPreflight(
     confirmationToken,
   };
 }
+
+function rebaseFacts(onto: import("@/domain/git").MergeSource = { refName: "refs/heads/feature", kind: "localBranch" as const }): import("@/domain/git").RebasePreflight {
+  return { onto, ontoLabel: "feature", ontoCommit: "target", currentBranch: "main", currentCommit: "head", commits: 1,
+    alreadyUpToDate: false, blockers: [], dirty: { staged: 0, modified: 0, untracked: 0, wouldOverwrite: [] }, publishedRewrite: null,
+    generations: { workingTree: 0, refs: 0, history: 0, config: 0, stash: 0 } };
+}
+it.each(["menu", "palette"])("dispatches %s rebase through the same application action and hands conflict to Phase 9", async (entry) => {
+  const state: import("@/domain/generated").RepoOperationState = { operation: { kind: "rebase", rebaseKind: "merge", onto: "target", current: 1, total: 1, headName: "main" },
+    conflictedPaths: ["conflict.txt"], available: ["abort", "skip"], detectedExternally: false };
+  vi.mocked(runStartRebase).mockClear();
+  vi.mocked(runStartRebase).mockReturnValue({ operationId: "rebase:1", promise: Promise.resolve({ state, stashRef: "stash@{3}", generations: rebaseFacts().generations }) });
+  const command = entry === "palette" ? { id: 200, kind: "rebase" as const, repoId: repo.id, onto: rebaseFacts().onto } : null;
+  render(<RepoDetailContainer repo={repo} command={command} onBack={vi.fn()} utilities={null} />);
+  if (entry === "menu") fireEvent.click(screen.getByText("rebase feature"));
+  fireEvent.click(await screen.findByText("confirm rebase"));
+  await waitFor(() => expect(runStartRebase).toHaveBeenCalledWith(repo.id, rebaseFacts(), "refuse"));
+  await waitFor(() => expect(screen.queryByText("confirm rebase")).not.toBeInTheDocument());
+  expect(queryClientMock.setQueryData).toHaveBeenCalledWith(["repos", repo.id, "operationState"], state);
+  expect(screen.getByTestId("working-selected")).toHaveTextContent("true");
+});
+it("refuses palette commands from another repository and drops an open preview on repository switch", async () => {
+  vi.mocked(runStartRebase).mockClear();
+  const command = { id: 201, kind: "rebase" as const, repoId: "old-repo", onto: rebaseFacts().onto };
+  const view = render(<RepoDetailContainer repo={repo} command={command} onBack={vi.fn()} utilities={null} />);
+  expect(screen.queryByText("confirm rebase")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText("rebase feature"));
+  expect(screen.getByText("confirm rebase")).toBeVisible();
+  view.rerender(<RepoDetailContainer repo={{ ...repo, id: "another-repo" }} command={command} onBack={vi.fn()} utilities={null} />);
+  expect(screen.queryByText("confirm rebase")).not.toBeInTheDocument();
+  expect(runStartRebase).not.toHaveBeenCalled();
+});

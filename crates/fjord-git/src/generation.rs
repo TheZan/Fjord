@@ -155,6 +155,7 @@ pub(crate) enum MutationKind {
     RemoveRemote,
     OperationStep,
     Rebase,
+    RebaseWithStash,
 }
 
 pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
@@ -174,7 +175,9 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         | MutationKind::Commit
         | MutationKind::IntegrateUpstream
         | MutationKind::Merge { stash: false } => GenerationMask::WORKING_REFS_HISTORY,
-        MutationKind::Merge { stash: true } => GenerationMask::new(true, true, true, true, false),
+        MutationKind::RebaseWithStash | MutationKind::Merge { stash: true } => {
+            GenerationMask::new(true, true, true, true, false)
+        }
         MutationKind::SquashMerge { stash: false } => GenerationMask::WORKING_TREE,
         MutationKind::SquashMerge { stash: true } => {
             GenerationMask::new(true, false, false, true, false)

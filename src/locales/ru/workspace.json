@@ -122,6 +122,33 @@
     "updatingGraph": "Обновляем граф коммитов…",
     "rowLabel": "{{message}}, автор {{author}}, коммит {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase {{current}} на {{onto}}",
+    "entry": "Выполнить rebase {{current}} на {{onto}}…",
+    "palette": "Rebase текущей ветки…",
+    "prediction": "Коммитов для rebase на {{onto}}: {{count}}. Git пропустит изменения, уже имеющиеся в целевой ветке.",
+    "published": "Rebase заменит опубликованные коммиты: {{count}}. После этого потребуется push с force-with-lease.",
+    "noOp": "Ветка {{current}} уже основана на {{onto}}. Rebase не требуется.",
+    "stashExplanation": "Git требует чистые tracked-файлы. Сохраните tracked- и untracked-изменения в явный stash перед rebase; он останется до вашего ручного восстановления.",
+    "stashAndRebase": "Сохранить изменения в stash и выполнить rebase",
+    "confirm": "Выполнить rebase",
+    "running": "Выполняется rebase…",
+    "cancelOperation": "Отменить операцию",
+    "completed": "Rebase завершён.",
+    "conflicted": "Rebase остановлен из-за конфликтов. Разрешите их в рабочих изменениях, затем продолжите, пропустите коммит или прервите rebase.",
+    "stale": "Репозиторий изменился. Проверьте обновлённые данные перед повторным запуском.",
+    "failed": "Не удалось начать rebase.",
+    "blocked": {
+      "target_is_current_branch": "Целевая ветка уже является текущей.",
+      "target_not_found": "Ветка {{onto}} больше не существует.",
+      "target_unsupported": "Выберите локальную или remote-tracking ветку.",
+      "operation_already_in_progress": "Уже выполняется другая операция Git.",
+      "detached_head": "HEAD отделён от ветки. Переключитесь на ветку перед rebase.",
+      "unborn_head": "В текущей ветке ещё нет коммитов.",
+      "index_has_staged_changes": "В индексе есть staged-изменения.",
+      "would_overwrite": "Rebase перезапишет локальные изменения в указанных файлах."
+    }
+  },
   "merge": {
     "title": "Слить {{source}} в {{target}}", "loading": "Проверяем репозиторий…", "running": "Выполняется слияние…", "dismiss": "Закрыть",
     "mode": { "label": "Режим", "default": "Обычное слияние", "fastForwardOnly": "Только fast-forward" }, "confirm": "Слить", "cancel": "Отмена",

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
+import { mergeSourceLabel, mergeSourceRemoteName } from "@/application/mergeBranchAction";
 import { useMergeBranch } from "@/application/useMergeBranch";
 import type {
   MergeDirtyPolicy,
@@ -160,11 +160,7 @@ export function MergeDialog({
   );
 }
 
-export function mergeSourceLabel(source: MergeSource) {
-  return source.refName
-    .replace(/^refs\/heads\//, "")
-    .replace(/^refs\/remotes\//, "");
-}
+export { mergeSourceLabel } from "@/application/mergeBranchAction";
 
 export function predictionText(
   preflight: MergePreflight,

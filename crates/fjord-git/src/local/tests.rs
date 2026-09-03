@@ -8805,6 +8805,8 @@ async fn rebase_controls_continue_skip_and_abort_to_normal() {
 fn basic_rebase_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
     let (directory, repo) = empty_repo();
     let backend = LocalGitBackend::new();
+    write_file(&repo, "shared.txt", "shared\n");
+    run_git_success(&backend, &repo, &["add", "shared.txt"]);
     commit_with_cli(&backend, &repo, "base\n", "base");
     run_git_success(&backend, &repo, &["branch", "feature"]);
     run_git_success(&backend, &repo, &["branch", "-m", "develop"]);
@@ -10762,4 +10764,458 @@ async fn open_external_diff_rejects_control_or_path_like_tool_names() {
             "expected {invalid:?} to fail validation before Git execution, got {result:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn rebase_preflight_shares_clean_dirty_staged_and_overwrite_facts_with_merge() {
+    use fjord_domain::IntegrationBlocker;
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let onto = local_merge_source("develop");
+    let clean = backend.rebase_preflight(&repo, &onto).await.unwrap();
+    assert!(clean.blockers.is_empty());
+    assert_eq!(clean.current_branch, "feature");
+    assert_eq!(clean.onto_label, "develop");
+    assert_eq!(clean.commits, 1);
+    assert!(!clean.already_up_to_date);
+    assert!(clean.published_rewrite.is_none());
+    write_file(
+        &repo,
+        "shared.txt",
+        "unrelated dirty
+",
+    );
+    let unrelated = backend.rebase_preflight(&repo, &onto).await.unwrap();
+    assert_eq!(unrelated.dirty.modified, 1);
+    assert!(unrelated.blockers.is_empty());
+    assert_eq!(
+        unrelated.dirty,
+        backend.merge_preflight(&repo, &onto).await.unwrap().dirty
+    );
+    write_file(
+        &repo,
+        "operation.txt",
+        "relevant dirty
+",
+    );
+    let overwrite = backend.rebase_preflight(&repo, &onto).await.unwrap();
+    assert!(overwrite
+        .blockers
+        .contains(&IntegrationBlocker::WouldOverwrite));
+    assert_eq!(overwrite.dirty.would_overwrite, vec!["operation.txt"]);
+    run_git_success(&backend, &repo, &["add", "shared.txt"]);
+    let staged = backend.rebase_preflight(&repo, &onto).await.unwrap();
+    assert!(staged
+        .blockers
+        .contains(&IntegrationBlocker::IndexHasStagedChanges));
+    let before = backend.generations(&repo).unwrap();
+    assert!(matches!(
+        backend
+            .start_rebase_preflighted(
+                &repo,
+                &staged,
+                MergeDirtyPolicy::Refuse,
+                GitOperationContext::default()
+            )
+            .await,
+        Err(GitError::IntegrationBlocked(_))
+    ));
+    assert_eq!(before, backend.generations(&repo).unwrap());
+}
+
+#[tokio::test]
+async fn rebase_preflight_refuses_invalid_heads_targets_and_existing_operations() {
+    use fjord_domain::IntegrationBlocker;
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let own = backend
+        .rebase_preflight(&repo, &local_merge_source("feature"))
+        .await
+        .unwrap();
+    assert!(own
+        .blockers
+        .contains(&IntegrationBlocker::TargetIsCurrentBranch));
+    assert!(matches!(
+        backend
+            .rebase_preflight(&repo, &local_merge_source("missing"))
+            .await,
+        Err(GitError::IntegrationBlocked(
+            IntegrationBlocker::TargetNotFound
+        ))
+    ));
+    let unsupported = MergeSource {
+        ref_name: "refs/tags/v1".into(),
+        kind: MergeSourceKind::LocalBranch,
+    };
+    assert!(matches!(
+        backend.rebase_preflight(&repo, &unsupported).await,
+        Err(GitError::IntegrationBlocked(
+            IntegrationBlocker::TargetUnsupported
+        ))
+    ));
+    run_git_success(&backend, &repo, &["checkout", "--detach"]);
+    assert!(matches!(
+        backend
+            .rebase_preflight(&repo, &local_merge_source("develop"))
+            .await,
+        Err(GitError::IntegrationBlocked(
+            IntegrationBlocker::DetachedHead
+        ))
+    ));
+    run_git_success(&backend, &repo, &["checkout", "--orphan", "empty"]);
+    assert!(matches!(
+        backend
+            .rebase_preflight(&repo, &local_merge_source("develop"))
+            .await,
+        Err(GitError::IntegrationBlocked(IntegrationBlocker::UnbornHead))
+    ));
+    let (_directory2, repo2, backend2) = divergent_operation_fixture();
+    assert!(!run_git_status(&backend2, &repo2, &["merge", "topic"]).success());
+    let blocked = backend2
+        .rebase_preflight(&repo2, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert!(blocked
+        .blockers
+        .contains(&IntegrationBlocker::OperationAlreadyInProgress));
+}
+
+#[tokio::test]
+async fn rebase_published_count_intersects_upstream_reachability_and_excludes_no_op() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    let onto = local_merge_source("develop");
+    run_git_success(
+        &backend,
+        &repo,
+        &["remote", "add", "origin", "https://example.invalid/repo"],
+    );
+    run_git_success(
+        &backend,
+        &repo,
+        &["update-ref", "refs/remotes/origin/feature", "HEAD"],
+    );
+    run_git_success(
+        &backend,
+        &repo,
+        &["branch", "--set-upstream-to=origin/feature"],
+    );
+    write_file(
+        &repo,
+        "local.txt",
+        "local
+",
+    );
+    run_git_success(&backend, &repo, &["add", "local.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "unpublished"]);
+    let published = backend.rebase_preflight(&repo, &onto).await.unwrap();
+    assert_eq!(published.commits, 2);
+    assert_eq!(published.published_rewrite.as_ref().unwrap().commits, 1);
+    // A configured upstream containing only the base has no affected commits.
+    run_git_success(
+        &backend,
+        &repo,
+        &["update-ref", "refs/remotes/origin/feature", "HEAD~2"],
+    );
+    assert!(backend
+        .rebase_preflight(&repo, &onto)
+        .await
+        .unwrap()
+        .published_rewrite
+        .is_none());
+    // Moving only the upstream is a stale fact even without watcher delivery.
+    assert!(matches!(
+        backend
+            .start_rebase_preflighted(
+                &repo,
+                &published,
+                MergeDirtyPolicy::Refuse,
+                GitOperationContext::default()
+            )
+            .await,
+        Err(GitError::PreflightStale)
+    ));
+    run_git_success(
+        &backend,
+        &repo,
+        &["update-ref", "refs/remotes/origin/feature", "HEAD"],
+    );
+    run_git_success(&backend, &repo, &["branch", "base", "HEAD~2"]);
+    let noop = backend
+        .rebase_preflight(&repo, &local_merge_source("base"))
+        .await
+        .unwrap();
+    assert!(noop.already_up_to_date);
+    assert_eq!(noop.commits, 0);
+    assert!(noop.published_rewrite.is_none());
+    let before = backend.generations(&repo).unwrap();
+    backend
+        .start_rebase_preflighted(
+            &repo,
+            &noop,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(before, backend.generations(&repo).unwrap());
+}
+
+#[tokio::test]
+async fn rebase_execution_rejects_stale_target_head_dirty_and_generation_facts() {
+    for change in ["target", "head", "dirty", "generation"] {
+        let (_directory, repo, backend) = basic_rebase_fixture();
+        let preflight = backend
+            .rebase_preflight(&repo, &local_merge_source("develop"))
+            .await
+            .unwrap();
+        match change {
+            "target" => run_git_success(
+                &backend,
+                &repo,
+                &["update-ref", "refs/heads/develop", "HEAD~1"],
+            ),
+            "head" => {
+                write_file(
+                    &repo, "new.txt", "new
+",
+                );
+                run_git_success(&backend, &repo, &["add", "new.txt"]);
+                run_git_success(&backend, &repo, &["commit", "-m", "new"]);
+            }
+            "dirty" => write_file(
+                &repo,
+                "operation.txt",
+                "dirty
+",
+            ),
+            _ => bump_repository_mutation(&repo, MutationKind::Stage),
+        }
+        let before = backend.generations(&repo).unwrap();
+        assert!(
+            matches!(
+                backend
+                    .start_rebase_preflighted(
+                        &repo,
+                        &preflight,
+                        MergeDirtyPolicy::StashFirst,
+                        GitOperationContext::default()
+                    )
+                    .await,
+                Err(GitError::PreflightStale)
+            ),
+            "{change}"
+        );
+        assert_eq!(before, backend.generations(&repo).unwrap());
+        assert!(backend.stashes(&repo).await.unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn rebase_stash_first_retains_tracked_and_untracked_work_on_success_and_conflict() {
+    for conflict in [false, true] {
+        let (_directory, repo, backend) = if conflict {
+            let value = divergent_operation_fixture();
+            run_git_success(&value.2, &value.1, &["checkout", "topic"]);
+            value
+        } else {
+            basic_rebase_fixture()
+        };
+        write_file(
+            &repo,
+            "operation.txt",
+            "my local work
+",
+        );
+        write_file(
+            &repo,
+            "untracked.txt",
+            "my untracked work
+",
+        );
+        let preflight = backend
+            .rebase_preflight(
+                &repo,
+                &local_merge_source(if conflict { "main" } else { "develop" }),
+            )
+            .await
+            .unwrap();
+        let before = backend.generations(&repo).unwrap();
+        let result = backend
+            .start_rebase_preflighted(
+                &repo,
+                &preflight,
+                MergeDirtyPolicy::StashFirst,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+        let selector = result.stash_ref.unwrap();
+        assert_eq!(
+            git_output(
+                &backend,
+                &repo,
+                &["show", &format!("{selector}:operation.txt")]
+            ),
+            b"my local work\n"
+        );
+        assert_eq!(
+            git_output(
+                &backend,
+                &repo,
+                &["show", &format!("{selector}^3:untracked.txt")]
+            ),
+            b"my untracked work\n"
+        );
+        assert!(!repo.0.join("untracked.txt").exists());
+        assert_eq!(result.generations.stash, before.stash + 1);
+        assert_eq!(result.generations.working_tree, before.working_tree + 1);
+        assert_eq!(result.generations.refs, before.refs + 1);
+        if conflict {
+            assert!(matches!(
+                result.state.operation,
+                RepoOperation::Rebase { .. }
+            ));
+            assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+        } else {
+            assert_normal_operation(&result.state);
+        }
+        assert_eq!(backend.stashes(&repo).await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn rebase_cancel_after_explicit_stash_reports_retained_ref_without_auto_abort() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    write_file(
+        &repo,
+        "operation.txt",
+        "retained work
+",
+    );
+    let preflight = backend
+        .rebase_preflight(&repo, &local_merge_source("develop"))
+        .await
+        .unwrap();
+    let marker = repo.0.join(".git/refs/stash");
+    let result = backend
+        .start_rebase_preflighted(
+            &repo,
+            &preflight,
+            MergeDirtyPolicy::StashFirst,
+            GitOperationContext::new(|_| {}, move || marker.exists()),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(GitError::IntegrationStashRetained { stash_ref, source })
+        if stash_ref == "stash@{0}" && matches!(*source, GitError::Cancelled))
+    );
+    assert_eq!(backend.stashes(&repo).await.unwrap().len(), 1);
+    assert_no_rebase_markers(&repo);
+}
+
+#[tokio::test]
+async fn rebase_published_count_excludes_fast_forward_prefix_of_flattened_merge() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["checkout", "-b", "feature"]);
+    for name in ["a", "b"] {
+        write_file(&repo, name, name);
+        run_git_success(&backend, &repo, &["add", name]);
+        run_git_success(&backend, &repo, &["commit", "-m", name]);
+    }
+    run_git_success(&backend, &repo, &["checkout", "-b", "side", "HEAD~1"]);
+    write_file(&repo, "c", "c");
+    run_git_success(&backend, &repo, &["add", "c"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "c"]);
+    run_git_success(&backend, &repo, &["checkout", "feature"]);
+    run_git_success(&backend, &repo, &["merge", "--no-edit", "side"]);
+    run_git_success(&backend, &repo, &["branch", "published"]);
+    run_git_success(&backend, &repo, &["branch", "--set-upstream-to=published"]);
+    let preflight = backend
+        .rebase_preflight(&repo, &local_merge_source("main"))
+        .await
+        .unwrap();
+    assert_eq!(preflight.published_rewrite.as_ref().unwrap().commits, 2);
+    backend
+        .start_rebase_preflighted(
+            &repo,
+            &preflight,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-list", "--count", "HEAD..published"]),
+        b"2\n"
+    );
+}
+
+#[tokio::test]
+async fn rebase_published_count_includes_dropped_cherry_equivalents_and_counts_actual_picks() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    run_git_success(&backend, &repo, &["branch", "published"]);
+    run_git_success(&backend, &repo, &["branch", "--set-upstream-to=published"]);
+    run_git_success(&backend, &repo, &["checkout", "develop"]);
+    run_git_success(&backend, &repo, &["cherry-pick", "feature"]);
+    run_git_success(&backend, &repo, &["checkout", "feature"]);
+    let preflight = backend
+        .rebase_preflight(&repo, &local_merge_source("develop"))
+        .await
+        .unwrap();
+    assert_eq!(preflight.commits, 0);
+    assert!(!preflight.already_up_to_date);
+    assert_eq!(preflight.published_rewrite.as_ref().unwrap().commits, 1);
+    backend
+        .start_rebase_preflighted(
+            &repo,
+            &preflight,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-list", "--count", "HEAD..published"]),
+        b"1\n"
+    );
+}
+
+#[tokio::test]
+async fn rebase_failed_hook_retains_explicit_stash_and_reports_its_actual_selector() {
+    let (_directory, repo, backend) = basic_rebase_fixture();
+    write_file(&repo, "operation.txt", "keep me\n");
+    let hook = repo.0.join(".git/hooks/pre-rebase");
+    // A hook can move the original stash down the reflog. Report its actual
+    // selector rather than assuming the stash created by Fjord is still first.
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf 'hook work' > hook.txt\ngit stash push -u -m hook-stash\nexit 1\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let preflight = backend
+        .rebase_preflight(&repo, &local_merge_source("develop"))
+        .await
+        .unwrap();
+    let result = backend
+        .start_rebase_preflighted(
+            &repo,
+            &preflight,
+            MergeDirtyPolicy::StashFirst,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(GitError::IntegrationStashRetained { stash_ref, .. }) if stash_ref == "stash@{1}")
+    );
+    assert_eq!(backend.stashes(&repo).await.unwrap().len(), 2);
+    assert_eq!(
+        git_output(&backend, &repo, &["show", "stash@{1}:operation.txt"]),
+        b"keep me\n"
+    );
+    assert_no_rebase_markers(&repo);
 }

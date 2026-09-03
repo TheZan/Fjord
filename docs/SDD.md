@@ -114,8 +114,7 @@ expresses clone and remote operations, and `GitEnvironmentProvider` expresses di
 read-only diagnostics. **gix serves hot reads**, **git2 serves local mutations and
 `pull`'s own fast-forward/merge integration**, and **system Git serves
 fetch/push/remote inspection plus every sequencer operation** (cherry-pick,
-revert, continue/skip/abort, merge, and basic rebase initiation). Rebase preflight
-and UI remain `P10-05`; interactive rebase remains `P10-11`.
+revert, continue/skip/abort, merge, and basic rebase initiation). Shared rebase preflight and UI are shipped in `P10-05`; interactive rebase remains `P10-11`.
 Sequencer work uses system Git so the process that *starts* an operation speaks
 the same on-disk protocol as the one that *finishes* it, including operations
 Fjord did not start ([`specs/branch-merge.md`](specs/branch-merge.md) §7).
@@ -309,7 +308,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 7 — UI/UX shell | ✅ done (`P7-01`–`P7-16`, `P7-FIX-01`–`P7-FIX-06`; [`specs/ui-shell.md`](specs/ui-shell.md)) |
 | Phase 8 — Daily-driver essentials | ✅ done (`P8-00`–`P8-15`, `P8-FIX-07`; [`specs/working-tree-and-diff.md`](specs/working-tree-and-diff.md)) |
 | Phase 9 — Safety & recovery | ✅ done (`P9-01`–`P9-10`; [`specs/repository-safety.md`](specs/repository-safety.md)) |
-| Phase 10 — Daily-driver integration, advanced workflows & workspace | 🚧 in progress: branch merge (`P10-MERGE-01`–`03`), Working Changes file actions (`P10-WC-01`–`06`), multi-selection and all batch actions (`P10-WC-MULTI-01`–`03`), stash management (`P10-STASH-01`–`06`), remote management (`P10-06`–`07`), and Workspace Intelligence (`P10-08`–`10`: backend health, expected branch, and shared persisted filters) are complete. Worktrees, basic rebase, and interactive rebase remain open. See [`tasks.md`](tasks.md) §"Phase 10 execution order". |
+| Phase 10 — Daily-driver integration, advanced workflows & workspace | 🚧 in progress: branch merge (`P10-MERGE-01`–`03`), Working Changes file actions (`P10-WC-01`–`06`), multi-selection and all batch actions (`P10-WC-MULTI-01`–`03`), stash management (`P10-STASH-01`–`06`), remote management (`P10-06`–`07`), and Workspace Intelligence (`P10-08`–`10`: backend health, expected branch, and shared persisted filters) are complete. Basic rebase including shared preflight/UI is complete (`P10-04`–`05`). Worktrees and interactive rebase remain open. See [`tasks.md`](tasks.md) §"Phase 10 execution order". |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
 
 Between `P4-18` and `P5-01`, and again after `P5-19`, a substantial amount of UI

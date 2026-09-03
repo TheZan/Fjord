@@ -20,6 +20,8 @@ pub trait GitBackend: Send + Sync {
     async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError>;
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn rebase_preflight(&self, repo: &RepoPath, onto: &MergeSource) -> Result<RebasePreflight, GitError>;
+    async fn start_rebase_preflighted(&self, repo: &RepoPath, expected: &RebasePreflight, policy: MergeDirtyPolicy, context: GitOperationContext) -> Result<RebaseResult, GitError>;
     async fn start_rebase(&self, repo: &RepoPath, onto: &str) -> Result<RepoOperationState, GitError>;
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
@@ -78,6 +80,7 @@ at 200 entries per response.
 | `init_repository` | `git2` | Creates one local non-bare repository without transport or an initial commit. Fjord initializes in an app-owned sibling staging directory and publishes only after success, so a failed initialization does not leave a partial target. |
 | `status` | `gix` | Hot path, run per-repo on every dashboard refresh — this is the operation the "fast on large repos" claim lives or dies on. |
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
+| `rebase_preflight` / `start_rebase_preflighted` | shared integration engine + read-only system Git history / existing rebase runner | `P10-05`: reuse merge's ref/HEAD, dirty, staged, overwrite and operation checks; add typed blockers and an exact published rewrite count. Read lock for display, complete fact comparison under write lock at execution. Explicit shared stash primitive retains tracked/untracked work and reports its actual selector on success, conflict, failure and cancellation. `RebaseWithStash` adds stash to the existing rebase generation mask once. The IPC start command uses this checked path; the lower-level P10-04 entry below remains available for backend callers. See workspace-workflows §2. |
 | `start_rebase` | system Git + existing operation detector | Uses `GitCommandFactory` and the shared cancellable runner/editor environment under the repository write lock. Targets are separate arguments after `--`; no autostash or implicit transport. A detected rebase after non-zero exit is a typed result; other execution failures use `operation_step_failed`, unavailable Git uses `git_executable_not_found`, and cancellation remains cancellation. `MutationKind::Rebase` advances only working-tree/refs/history generations when observable state changes; unchanged refusal/no-op/spawn failure does not invalidate. (`P10-04`) |
 | `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |

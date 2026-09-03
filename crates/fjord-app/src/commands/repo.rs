@@ -214,13 +214,27 @@ pub async fn get_repo_operation_state(
 }
 
 #[tauri::command]
+pub async fn get_rebase_preflight(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    onto: MergeSource,
+) -> Result<GenerationEnvelope<fjord_domain::RebasePreflight>, AppError> {
+    let data = state.repos.get_rebase_preflight(repo_id, &onto).await?;
+    Ok(GenerationEnvelope {
+        generations: data.generations,
+        data,
+    })
+}
+
+#[tauri::command]
 pub async fn start_rebase(
     app: AppHandle,
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-    onto: String,
+    preflight: fjord_domain::RebasePreflight,
+    dirty_policy: MergeDirtyPolicy,
     operation_id: Option<String>,
-) -> Result<RepoOperationState, AppError> {
+) -> Result<fjord_domain::RebaseResult, AppError> {
     state.repos.revalidate_repository_snapshot(repo_id).await?;
     run_repo_operation(
         &app,
@@ -231,7 +245,7 @@ pub async fn start_rebase(
         |context| {
             state
                 .repos
-                .start_rebase_with_context(repo_id, &onto, context)
+                .start_rebase_preflighted(repo_id, &preflight, dirty_policy, context)
         },
     )
     .await

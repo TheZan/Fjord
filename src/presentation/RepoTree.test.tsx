@@ -14,6 +14,8 @@ vi.mock("react-i18next", () => ({
         ? `${values?.matched}/${values?.total}`
         : key === "context.mergeInto"
           ? `Merge ${values?.source} into ${values?.target}…`
+          : key === "rebase.entry"
+            ? `Rebase ${values?.current} onto ${values?.onto}…`
           : key === "context.squashMergeInto"
             ? `Squash merge ${values?.source} into ${values?.target}…`
             : key,
@@ -372,4 +374,13 @@ describe("RepoTree", () => {
     expect(checkout).toBeDisabled();
     expect(checkout).toHaveAttribute("title", "operation in progress");
   });
+});
+
+it("dispatches rebase on the clicked target with the current branch as the source", () => {
+  const onBranchContextAction = vi.fn(); render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+  fireEvent.contextMenu(screen.getByRole("button", { name: "feature/ui" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Rebase main onto feature/ui…" }));
+  expect(onBranchContextAction).toHaveBeenCalledWith("rebase", branches[1], ["origin/release"]);
+  fireEvent.contextMenu(screen.getByRole("button", { name: /main/ }));
+  expect(screen.getByRole("menuitem", { name: "Rebase main onto main…" })).toBeDisabled();
 });

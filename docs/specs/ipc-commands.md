@@ -98,7 +98,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch when needed; before switching, returns `checkout_would_overwrite` with at most 100 affected paths if local work would be replaced |
 | `stash_and_checkout` | `{ repo_id, branch, operation_id? }` | `string` | Saves tracked and untracked work with a source→target message, checks out the target, never auto-pops, and returns `stash@{0}` |
 | `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Cancellable branch merge through system Git; supports local and remote-tracking sources (`P10-MERGE-01`, `P10-MERGE-02`) |
-| `start_rebase` | `{ repo_id, onto, operation_id? }` | `RepoOperationState` | Basic local system-Git rebase of the current branch onto a ref/commit-ish, with live snapshot validation before operation registration. Conflict returns authoritative rebase state; cancellation preserves Git metadata. No autostash or fetch. Backend only (`P10-04`); preflight/UI remain `P10-05` |
+| `get_rebase_preflight` | `{ repo_id, onto: MergeSource }` | `GenerationEnvelope<RebasePreflight>` | Read-only shared integration facts, exact target/current identities, typed blockers and published rewrite consequence. Uses the local target only; no fetch. |
+| `start_rebase` | `{ repo_id, preflight: RebasePreflight, dirty_policy: MergeDirtyPolicy, operation_id? }` | `RebaseResult` | Validates the live snapshot before registration, then recomputes and compares the complete preview under the write lock. Stale facts fail `preflight_stale` before stash or rebase. Explicit stash is retained and its actual selector is returned alongside authoritative `RepoOperationState` and generations. Cancellation leaves the sequencer for the Phase 9 controls. No autostash, fetch or push. (`P10-05`) |
 | `squash_merge_branch` | `{ repo_id, source, dirty_policy, operation_id? }` | `SquashMergeResult` | Cancellable `merge --squash` through system Git; shares `get_merge_preflight`'s blockers and dirty-tree policy. Stages the combined diff (or leaves it conflicted) without a merge commit and without moving any ref, so a conflict is a live index read rather than a `RepoOperationState`, and any outcome can be discarded with a plain Reset (Hard) to the returned `targetCommit` (`P10-MERGE-03`) |
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
@@ -212,7 +213,7 @@ and validates containment before acting. `merge_branch` takes a typed
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, `delete_target_not_a_file`, `delete_file_conflicted`, `delete_file_partially_staged`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge/rebase error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, `delete_target_not_a_file`, `delete_file_conflicted`, `delete_file_partially_staged`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 Planned codes, added with the commands above and listed here so no task invents
 its own spelling. A normal Git outcome is never one of these — merge reports
@@ -257,3 +258,16 @@ disabled menu entry is never the guarantee
 ## What's not a command
 
 Anything that's pure frontend state (which rows are selected in Working Changes, which row is selected in the commit graph, whether the command palette is open) — that stays in `application/` view-state, never round-trips through IPC. UI state that *must* survive a restart is the documented exception and goes through `get_ui_state`/`update_ui_state` ([`ui-shell.md`](ui-shell.md) §5), not through per-feature commands.
+
+### Rebase integration errors (P10-05)
+
+`IntegrationBlocker` has `target_is_current_branch`, `target_not_found`,
+`target_unsupported`, `operation_already_in_progress`, `detached_head`,
+`unborn_head`, `index_has_staged_changes`, and `would_overwrite` variants.
+Read failures for missing/unsupported targets and detached/unborn HEAD use
+`integration_*` error codes; an active sequencer uses the existing
+`operation_already_in_progress` code. Execution repeats all shared checks;
+`preflight_stale` requests a new display and never retries the mutation.
+`IntegrationStashRetained` adds the resolved `stashRef` to any error, including
+cancellation, while preserving its original code. Merge's shipped codes remain
+unchanged. No confirmation token is used for this additive integration action.

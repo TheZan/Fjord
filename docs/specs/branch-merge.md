@@ -224,6 +224,11 @@ No other mode is offered in v1. `--no-ff`, `--squash`, `--strategy`, `-X`,
 
 ### 4. Integration preflight (shared with rebase)
 
+The shared implementation lives in `crates/fjord-git/src/local/integration.rs`
+and is used by merge, squash merge and rebase (P10-05). Existing merge type/code
+names remain compatible. Its explicit stash primitive is shared too; rebase
+adds facts in `workspace-workflows.md` §2 without duplicating dirty or blocker rules.
+
 `get_merge_preflight` is a read-only command that runs under the repository read
 lock and returns bounded, concrete facts:
 

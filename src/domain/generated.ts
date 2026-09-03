@@ -80,6 +80,14 @@ export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastFor
 
 export type MergeDirtyState = { staged: number, modified: number, untracked: number, wouldOverwrite: Array<string>, };
 
+export type IntegrationBlocker = "target_is_current_branch" | "target_not_found" | "target_unsupported" | "operation_already_in_progress" | "detached_head" | "unborn_head" | "index_has_staged_changes" | "would_overwrite";
+
+export type PublishedRewriteConsequence = { upstream: string, commits: number, };
+
+export type RebasePreflight = { onto: MergeSource, ontoLabel: string, ontoCommit: CommitId, currentBranch: string, currentCommit: CommitId, dirty: MergeDirtyState, blockers: Array<IntegrationBlocker>, commits: number, alreadyUpToDate: boolean, publishedRewrite: PublishedRewriteConsequence | null, generations: GenerationSet, };
+
+export type RebaseResult = { state: RepoOperationState, stashRef: string | null, generations: GenerationSet, };
+
 export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
 
 export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };

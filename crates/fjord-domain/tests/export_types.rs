@@ -10,10 +10,11 @@ use fjord_domain::{
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
-    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, InteractionSpan, InteractionTrace,
-    LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome, MergePrediction,
-    MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget, OperationControl,
-    OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, IntegrationBlocker, InteractionSpan,
+    InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome,
+    MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget,
+    OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource,
+    PublishedRewriteConsequence, RebaseKind, RebasePreflight, RebaseResult, Recoverability,
     ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight,
     RepoCondition, RepoHealth, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary,
     RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId,
@@ -85,6 +86,10 @@ fn generated_types() -> String {
     push::<MergeDirtyPolicy>(&mut output, &config);
     push_without_trailing_whitespace::<MergePrediction>(&mut output, &config);
     push::<MergeDirtyState>(&mut output, &config);
+    push::<IntegrationBlocker>(&mut output, &config);
+    push::<PublishedRewriteConsequence>(&mut output, &config);
+    push::<RebasePreflight>(&mut output, &config);
+    push::<RebaseResult>(&mut output, &config);
     push::<MergePreflight>(&mut output, &config);
     push_without_trailing_whitespace::<MergeOutcome>(&mut output, &config);
     push::<MergeResult>(&mut output, &config);

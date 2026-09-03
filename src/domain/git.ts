@@ -27,6 +27,8 @@ export type {
   MergeMode,
   MergeOutcome,
   MergePrediction,
+  RebasePreflight,
+  RebaseResult,
   MergePreflight,
   MergeResult,
   MergeSource,

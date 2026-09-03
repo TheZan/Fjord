@@ -98,6 +98,7 @@ export function RepoDetailView({
   onCreateBranch,
   onCreateBranchAt,
   onRenameBranch,
+  onRebaseBranch,
   onMergeBranch,
   onSquashMergeBranch,
   onPreflightAction,
@@ -173,6 +174,7 @@ export function RepoDetailView({
   onCreateBranch: (name: string) => void;
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
+  onRebaseBranch?: (onto: MergeSource) => void;
   onMergeBranch: (source: MergeSource) => void;
   onSquashMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
@@ -729,6 +731,7 @@ export function RepoDetailView({
   ) {
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
+      case "rebase": onRebaseBranch?.(mergeSourceForBranch(branch)); break;
       case "merge": onMergeBranch(mergeSourceForBranch(branch)); break;
       case "squashMerge": onSquashMergeBranch(mergeSourceForBranch(branch)); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;

@@ -129,11 +129,12 @@ describe("abortable Tauri queries", () => {
       conflictedPaths: ["file.txt"], available: ["skip", "abort"], detectedExternally: false,
     };
     tauri.invoke.mockResolvedValue(state);
-    const task = runStartRebase("repo-1", "refs/remotes/origin/develop~1");
+    const preflight = { onto: { refName: "refs/remotes/origin/develop", kind: "remoteTracking" } } as import("@/domain/git").RebasePreflight;
+    const task = runStartRebase("repo-1", preflight, "stashFirst");
     await expect(task.promise).resolves.toEqual(state);
     expect(task.operationId).toMatch(/^rebase:/);
     expect(tauri.invoke).toHaveBeenCalledWith("start_rebase", {
-      repoId: "repo-1", onto: "refs/remotes/origin/develop~1", operationId: task.operationId,
+      repoId: "repo-1", preflight, dirtyPolicy: "stashFirst", operationId: task.operationId,
     });
   });
 

@@ -33,6 +33,7 @@ export async function invalidateRepoData(
     keys.push(queryKeys.repos.branches(repoId), queryKeys.repos.tags(repoId));
   }
   if (requested.has("stashes")) keys.push(queryKeys.repos.stashes(repoId));
+  if (requested.has("rebase")) keys.push([...queryKeys.repos.detail(repoId), "rebasePreflight"]);
   if (requested.has("merge")) {
     keys.push([...queryKeys.repos.detail(repoId), "mergePreflight"]);
   }

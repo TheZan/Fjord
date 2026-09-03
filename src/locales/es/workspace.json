@@ -122,6 +122,33 @@
     "updatingGraph": "Actualizando el gráfico de commits…",
     "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase de {{current}} sobre {{onto}}",
+    "entry": "Hacer rebase de {{current}} sobre {{onto}}…",
+    "palette": "Rebase de la rama actual…",
+    "prediction": "Commits seleccionados para rebase sobre {{onto}}: {{count}}. Git omite cambios ya presentes en el destino.",
+    "published": "Rebase reemplazará {{count}} commits publicados. Después se necesitará un push con force-with-lease.",
+    "noOp": "{{current}} ya se basa en {{onto}}. No es necesario rebase.",
+    "stashExplanation": "Git requiere archivos rastreados sin cambios. Guarda explícitamente los cambios rastreados y no rastreados en un stash antes del rebase; permanecerá hasta que lo restaures manualmente.",
+    "stashAndRebase": "Guardar cambios en stash y hacer rebase",
+    "confirm": "Rebase",
+    "running": "Rebase en curso…",
+    "cancelOperation": "Cancelar operación",
+    "completed": "Rebase completado.",
+    "conflicted": "Rebase detenido por conflictos. Resuélvelos en Cambios de trabajo y después continúa, omite o aborta.",
+    "stale": "El repositorio ha cambiado. Revisa la vista previa actualizada antes de volver a intentarlo.",
+    "failed": "No se pudo iniciar rebase.",
+    "blocked": {
+      "target_is_current_branch": "El destino ya es la rama actual.",
+      "target_not_found": "{{onto}} ya no existe.",
+      "target_unsupported": "Elige una rama local o de seguimiento remoto.",
+      "operation_already_in_progress": "Ya hay otra operación Git en curso.",
+      "detached_head": "HEAD está separado. Cambia a una rama antes de rebase.",
+      "unborn_head": "La rama actual aún no tiene commits.",
+      "index_has_staged_changes": "El índice contiene cambios preparados.",
+      "would_overwrite": "Rebase sobrescribiría cambios locales en los siguientes archivos."
+    }
+  },
   "merge": {
     "title": "Fusionar {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Fusionando…", "dismiss": "Cerrar",
     "mode": { "label": "Modo", "default": "Fusión predeterminada", "fastForwardOnly": "Solo fast-forward" }, "confirm": "Fusionar", "cancel": "Cancelar",

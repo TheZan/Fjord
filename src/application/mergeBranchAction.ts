@@ -18,3 +18,9 @@ export function mergeSourceRemoteName(source: MergeSource): string | null {
   const remote = withoutPrefix.split("/", 1)[0];
   return remote || null;
 }
+
+export function mergeSourceLabel(source: MergeSource) {
+  return source.refName
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "");
+}

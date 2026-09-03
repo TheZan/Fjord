@@ -257,6 +257,13 @@ pub enum GitError {
     MergeFailed(String),
     #[error("{0}")]
     MergeStashRetained(Box<GitError>),
+    #[error("integration blocked: {0:?}")]
+    IntegrationBlocked(fjord_domain::IntegrationBlocker),
+    #[error("{source}; local work retained in {stash_ref}")]
+    IntegrationStashRetained {
+        stash_ref: String,
+        source: Box<GitError>,
+    },
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
     #[error("operation cancelled")]
@@ -408,6 +415,22 @@ pub trait GitBackend: Send + Sync {
         _context: GitOperationContext,
     ) -> Result<RepoOperationState, GitError> {
         Err(GitError::NotImplemented("start_rebase"))
+    }
+    async fn rebase_preflight(
+        &self,
+        _repo: &RepoPath,
+        _onto: &MergeSource,
+    ) -> Result<fjord_domain::RebasePreflight, GitError> {
+        Err(GitError::NotImplemented("rebase_preflight"))
+    }
+    async fn start_rebase_preflighted(
+        &self,
+        _repo: &RepoPath,
+        _expected: &fjord_domain::RebasePreflight,
+        _policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, GitError> {
+        Err(GitError::NotImplemented("start_rebase_preflighted"))
     }
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         self.continue_operation_with_context(repo, GitOperationContext::default())

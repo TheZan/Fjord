@@ -1,6 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// @ts-expect-error process is a Node.js global
 const isCi = Boolean(process.env.CI);
 
 export default defineConfig({

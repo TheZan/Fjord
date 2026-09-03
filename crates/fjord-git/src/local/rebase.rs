@@ -2,7 +2,11 @@
 
 use std::sync::Arc;
 
-use fjord_domain::{RepoOperation, RepoOperationState};
+use super::integration;
+use fjord_domain::{
+    IntegrationBlocker, MergeDirtyPolicy, MergeSource, PublishedRewriteConsequence,
+    RebasePreflight, RebaseResult, RepoOperation, RepoOperationState,
+};
 use fjord_ports::{GitError, GitOperationContext, RepoPath};
 use sha2::{Digest, Sha256};
 
@@ -34,20 +38,41 @@ pub(super) async fn run(
             "Invalid rebase target".into(),
         ));
     }
-    let spec = rebase_spec(&commands, repo, onto)?;
+    run_locked(commands, origins, repo, onto, context, before, false).await
+}
+
+async fn run_locked(
+    commands: GitCommandFactory,
+    origins: Arc<OperationOriginTracker>,
+    repo: &RepoPath,
+    onto: &str,
+    context: GitOperationContext,
+    before: Observation,
+    stashed: bool,
+) -> Result<RepoOperationState, GitError> {
+    let mutation = if stashed {
+        MutationKind::RebaseWithStash
+    } else {
+        MutationKind::Rebase
+    };
+    let spec = rebase_spec(&commands, repo, onto).inspect_err(|_| {
+        if stashed {
+            bump_repository_mutation(repo, mutation);
+        }
+    })?;
     let result = GitProcessRunner.run(&spec, context, None).await;
 
     // Inspect after *every* runner result, including cancellation and non-zero
     // exit. Never abort or remove markers: the Phase 9 controls own that choice.
     origins.record_if_in_progress(repo, OperationFamily::Rebase);
     let after = observe(repo, &origins).await;
-    if after.as_ref().is_ok_and(|after| after != &before) {
-        bump_repository_mutation(repo, MutationKind::Rebase);
+    if stashed || after.as_ref().is_ok_and(|after| after != &before) {
+        bump_repository_mutation(repo, mutation);
     } else if after.is_err() && !matches!(&result, Err(fjord_ports::GitRemoteError::SpawnFailed(_)))
     {
         // Git had control and the repository can no longer be read. Its old
         // projections cannot be trusted, even though classification must fail.
-        bump_repository_mutation(repo, MutationKind::Rebase);
+        bump_repository_mutation(repo, mutation);
     }
     let result = result.map_err(map_process_error)?;
     let state = after?.state;
@@ -61,6 +86,325 @@ pub(super) async fn run(
         ));
     }
     Ok(state)
+}
+
+/// Read-only display artifact. All facts are recomputed under the write lock.
+pub(super) async fn preflight(
+    commands: GitCommandFactory,
+    origins: Arc<OperationOriginTracker>,
+    repo: &RepoPath,
+    onto: &MergeSource,
+) -> Result<RebasePreflight, GitError> {
+    let _guard = LocalGitBackend::acquire_repo_read_lock(repo).await;
+    preflight_locked(&commands, repo, onto, &origins).await
+}
+
+fn integration_error(error: GitError) -> GitError {
+    use IntegrationBlocker::*;
+    let blocker = match error {
+        GitError::MergeSourceNotFound => TargetNotFound,
+        GitError::MergeSourceUnsupported => TargetUnsupported,
+        GitError::MergeDetachedHead => DetachedHead,
+        GitError::MergeUnbornHead => UnbornHead,
+        other => return other,
+    };
+    GitError::IntegrationBlocked(blocker)
+}
+
+async fn preflight_locked(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    onto: &MergeSource,
+    origins: &OperationOriginTracker,
+) -> Result<RebasePreflight, GitError> {
+    // The shared integration engine owns ref/HEAD validation, dirty computation,
+    // overwrite intersection and blockers. No parallel rebase safety engine.
+    let shared = integration::preflight_locked(repo, onto, origins).map_err(integration_error)?;
+    let blockers = shared
+        .blockers
+        .iter()
+        .map(|code| match code.as_str() {
+            "merge_source_is_current_branch" => IntegrationBlocker::TargetIsCurrentBranch,
+            "merge_source_unsupported" => IntegrationBlocker::TargetUnsupported,
+            "operation_already_in_progress" => IntegrationBlocker::OperationAlreadyInProgress,
+            "merge_index_has_staged_changes" => IntegrationBlocker::IndexHasStagedChanges,
+            "merge_would_overwrite" => IntegrationBlocker::WouldOverwrite,
+            _ => IntegrationBlocker::TargetUnsupported, // fail closed on a new shared blocker
+        })
+        .collect();
+    let mut spec = command_spec(
+        commands.executable()?,
+        repo,
+        vec![
+            "rev-list".into(),
+            "--reverse".into(),
+            "--topo-order".into(),
+            "--right-only".into(),
+            "--cherry-mark".into(),
+            "--no-merges".into(),
+            format!("{}...{}", shared.source_commit.0, shared.target_commit.0).into(),
+            "--".into(),
+        ],
+    );
+    spec.stdout_capture = crate::remote::process_runner::OutputCapture::Full {
+        max_bytes: 64 * 1024 * 1024,
+    };
+    spec.timeout = Some(std::time::Duration::from_secs(30));
+    spec.environment.extend([
+        ("GIT_NO_LAZY_FETCH".into(), "1".into()),
+        ("GIT_ALLOW_PROTOCOL".into(), "".into()),
+    ]);
+    // Git's own ordering and patch-equivalence decisions, not an approximation
+    // of its sequencer. Only object ids are captured, with a fail-closed bound.
+    let plan = GitProcessRunner
+        .run(&spec, GitOperationContext::default(), None)
+        .await
+        .map_err(map_process_error)?;
+    if plan.exit_code != Some(0) {
+        return Err(GitError::OperationStepFailed(
+            "Could not read rebase history".into(),
+        ));
+    }
+    let (commits, already_up_to_date, published_rewrite) =
+        LocalGitBackend::with_runtime_git2(repo, |git| {
+            let head = git2::Oid::from_str(&shared.target_commit.0)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let target = git2::Oid::from_str(&shared.source_commit.0)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let mut affected = std::collections::HashSet::new();
+            let mut walk = git.revwalk().map_err(LocalGitBackend::map_git2_error)?;
+            walk.push(head).map_err(LocalGitBackend::map_git2_error)?;
+            walk.hide(target).map_err(LocalGitBackend::map_git2_error)?;
+            let mut linear = true;
+            for id in walk {
+                let id = id.map_err(LocalGitBackend::map_git2_error)?;
+                linear &= git
+                    .find_commit(id)
+                    .map_err(LocalGitBackend::map_git2_error)?
+                    .parent_count()
+                    <= 1;
+                affected.insert(id);
+            }
+            let already_up_to_date = (head == target
+                || git
+                    .graph_descendant_of(head, target)
+                    .map_err(LocalGitBackend::map_git2_error)?)
+                && linear;
+            let apply = git
+                .config()
+                .map_err(LocalGitBackend::map_git2_error)?
+                .get_string("rebase.backend")
+                .is_ok_and(|backend| backend == "apply");
+            let mut cursor = Some(target);
+            let mut commits = 0u32;
+            for line in plan.stdout.lines() {
+                let (mark, hex) = line.split_at_checked(1).ok_or_else(|| {
+                    GitError::OperationStepFailed("Invalid rebase history".into())
+                })?;
+                let id = git2::Oid::from_str(hex).map_err(LocalGitBackend::map_git2_error)?;
+                let commit = git
+                    .find_commit(id)
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                let parent = if commit.parent_count() == 0 {
+                    None
+                } else {
+                    Some(commit.parent(0).map_err(LocalGitBackend::map_git2_error)?)
+                };
+                let empty = parent
+                    .as_ref()
+                    .is_some_and(|parent| commit.tree_id() == parent.tree_id());
+                if (mark == "=" && !empty) || (apply && empty) {
+                    continue;
+                }
+                commits = commits.checked_add(1).ok_or_else(|| {
+                    GitError::OperationStepFailed("Rebase history exceeds the count limit".into())
+                })?;
+                // Even a flattened merge history can retain a linear prefix through
+                // Git's fast-forward picks. Those published ids are not rewritten.
+                if !apply && cursor.is_some() && cursor == parent.as_ref().map(|parent| parent.id())
+                {
+                    affected.remove(&id);
+                    cursor = Some(id);
+                } else {
+                    cursor = None;
+                }
+            }
+            let branch = git
+                .find_branch(&shared.target_branch, git2::BranchType::Local)
+                .map_err(LocalGitBackend::map_git2_error)?;
+            let upstream = match branch.upstream() {
+                Ok(upstream) => Some(upstream),
+                Err(error) if error.code() == git2::ErrorCode::NotFound => None,
+                Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+            };
+            let mut published = None;
+            if !already_up_to_date {
+                if let Some(upstream) = upstream {
+                    let reference = upstream.get();
+                    let tip = reference
+                        .peel_to_commit()
+                        .map_err(LocalGitBackend::map_git2_error)?
+                        .id();
+                    let mut walk = git.revwalk().map_err(LocalGitBackend::map_git2_error)?;
+                    walk.push(tip).map_err(LocalGitBackend::map_git2_error)?;
+                    walk.hide(target).map_err(LocalGitBackend::map_git2_error)?;
+                    let mut count = 0u32;
+                    for id in walk {
+                        if affected.contains(&id.map_err(LocalGitBackend::map_git2_error)?) {
+                            count = count.checked_add(1).ok_or_else(|| {
+                                GitError::OperationStepFailed(
+                                    "Published history exceeds the count limit".into(),
+                                )
+                            })?;
+                        }
+                    }
+                    if count > 0 {
+                        published = Some(PublishedRewriteConsequence {
+                            upstream: reference
+                                .name()
+                                .map_err(LocalGitBackend::map_git2_error)?
+                                .to_string(),
+                            commits: count,
+                        });
+                    }
+                }
+            }
+            Ok((
+                if already_up_to_date { 0 } else { commits },
+                already_up_to_date,
+                published,
+            ))
+        })?;
+    Ok(RebasePreflight {
+        onto: shared.source,
+        onto_label: shared.source_label,
+        onto_commit: shared.source_commit,
+        current_branch: shared.target_branch,
+        current_commit: shared.target_commit,
+        dirty: shared.dirty,
+        blockers,
+        commits,
+        already_up_to_date,
+        published_rewrite,
+        generations: shared.generations,
+    })
+}
+
+pub(super) async fn run_preflighted(
+    commands: GitCommandFactory,
+    origins: Arc<OperationOriginTracker>,
+    repo: &RepoPath,
+    expected: &RebasePreflight,
+    policy: MergeDirtyPolicy,
+    context: GitOperationContext,
+) -> Result<RebaseResult, GitError> {
+    let _guard = LocalGitBackend::acquire_repo_write_lock(repo).await;
+    let current = preflight_locked(&commands, repo, &expected.onto, &origins).await?;
+    if &current != expected {
+        return Err(GitError::PreflightStale);
+    }
+    for blocker in &current.blockers {
+        if !matches!(
+            blocker,
+            IntegrationBlocker::IndexHasStagedChanges | IntegrationBlocker::WouldOverwrite
+        ) || policy == MergeDirtyPolicy::Refuse
+        {
+            return Err(GitError::IntegrationBlocked(*blocker));
+        }
+    }
+    let before = observe(repo, &origins).await?;
+    if current.already_up_to_date {
+        return Ok(RebaseResult {
+            state: before.state,
+            stash_ref: None,
+            generations: current.generations,
+        });
+    }
+    // Explicit stash may also be selected for unrelated tracked changes, since
+    // system Git itself requires those clean. They stay outside shared blockers.
+    commands.executable()?;
+    let needs_stash = policy == MergeDirtyPolicy::StashFirst
+        && (current.dirty.staged > 0
+            || current.dirty.modified > 0
+            || !current.dirty.would_overwrite.is_empty());
+    let mut stash_id = None;
+    if needs_stash {
+        context.emit(fjord_ports::GitProgress {
+            completed: 0,
+            total: 0,
+            message: Some("Stashing local changes".into()),
+        });
+        let (created, result) = integration::stash(
+            &commands,
+            repo,
+            format!(
+                "Fjord rebase: {} -> {}",
+                current.current_branch, current.onto_label
+            ),
+            context.clone(),
+        )
+        .await;
+        if created {
+            stash_id = integration::stash_tip(repo)?;
+        }
+        if let Err(error) = result {
+            if created {
+                bump_repository_mutation(repo, MutationKind::RebaseWithStash);
+            }
+            return Err(retained(repo, stash_id.as_deref(), error));
+        }
+        let validation = preflight_locked(&commands, repo, &expected.onto, &origins)
+            .await
+            .and_then(|after| {
+                if after.current_branch != current.current_branch
+                    || after.current_commit != current.current_commit
+                    || after.onto_commit != current.onto_commit
+                    || after.published_rewrite != current.published_rewrite
+                {
+                    return Err(GitError::PreflightStale);
+                }
+                if let Some(blocker) = after.blockers.first() {
+                    return Err(GitError::IntegrationBlocked(*blocker));
+                }
+                Ok(())
+            });
+        if let Err(error) = validation {
+            if created {
+                bump_repository_mutation(repo, MutationKind::RebaseWithStash);
+            }
+            return Err(retained(repo, stash_id.as_deref(), error));
+        }
+    }
+    // The immutable resolved commit is the operand; a ref cannot move between
+    // this revalidation and Git's resolution and silently change the preview.
+    let result = run_locked(
+        commands,
+        origins,
+        repo,
+        &current.onto_commit.0,
+        context,
+        before,
+        stash_id.is_some(),
+    )
+    .await;
+    let state = result.map_err(|error| retained(repo, stash_id.as_deref(), error))?;
+    Ok(RebaseResult {
+        state,
+        stash_ref: stash_id
+            .as_deref()
+            .map(|id| integration::stash_ref(repo, id)),
+        generations: super::repository_generations(repo)?,
+    })
+}
+
+fn retained(repo: &RepoPath, stash: Option<&str>, error: GitError) -> GitError {
+    match stash {
+        Some(id) => GitError::IntegrationStashRetained {
+            stash_ref: integration::stash_ref(repo, id),
+            source: Box::new(error),
+        },
+        None => error,
+    }
 }
 
 fn rebase_spec(

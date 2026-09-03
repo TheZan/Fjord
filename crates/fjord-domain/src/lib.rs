@@ -473,6 +473,55 @@ pub struct MergePreflight {
     pub generations: GenerationSet,
 }
 
+/// Shared integration blockers. Merge's shipped string codes remain compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum IntegrationBlocker {
+    TargetIsCurrentBranch,
+    TargetNotFound,
+    TargetUnsupported,
+    OperationAlreadyInProgress,
+    DetachedHead,
+    UnbornHead,
+    IndexHasStagedChanges,
+    WouldOverwrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct PublishedRewriteConsequence {
+    pub upstream: String,
+    pub commits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RebasePreflight {
+    pub onto: MergeSource,
+    pub onto_label: String,
+    pub onto_commit: CommitId,
+    pub current_branch: String,
+    pub current_commit: CommitId,
+    pub dirty: MergeDirtyState,
+    pub blockers: Vec<IntegrationBlocker>,
+    pub commits: u32,
+    pub already_up_to_date: bool,
+    pub published_rewrite: Option<PublishedRewriteConsequence>,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RebaseResult {
+    pub state: RepoOperationState,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",

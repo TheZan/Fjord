@@ -48,6 +48,7 @@ mod diff_tool;
 mod history;
 mod ignore;
 mod initialization;
+mod integration;
 mod merge;
 mod mutations;
 mod operation_control;
@@ -230,6 +231,36 @@ impl GitBackend for LocalGitBackend {
         .await
     }
 
+    async fn rebase_preflight(
+        &self,
+        repo: &RepoPath,
+        onto: &MergeSource,
+    ) -> Result<fjord_domain::RebasePreflight, GitError> {
+        rebase::preflight(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            onto,
+        )
+        .await
+    }
+    async fn start_rebase_preflighted(
+        &self,
+        repo: &RepoPath,
+        expected: &fjord_domain::RebasePreflight,
+        policy: MergeDirtyPolicy,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, GitError> {
+        rebase::run_preflighted(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            expected,
+            policy,
+            context,
+        )
+        .await
+    }
     async fn continue_operation_with_context(
         &self,
         repo: &RepoPath,

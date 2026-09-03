@@ -576,7 +576,7 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "rebase" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "delete" | "copy";
 
 function branchMenuItems(
@@ -609,6 +609,14 @@ function branchMenuItems(
         : !currentBranch
           ? t("merge.blocked.detachedHead")
           : checkoutDisabledReason,
+    },
+    {
+      id: "rebase",
+      label: t("rebase.entry", { current: currentBranch ?? "HEAD", onto: branch.name }),
+      icon: "merge",
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent ? t("rebase.blocked.target_is_current_branch")
+        : !currentBranch ? t("rebase.blocked.detached_head") : checkoutDisabledReason,
     },
     {
       id: "squashMerge",

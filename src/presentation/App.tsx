@@ -374,6 +374,13 @@ export function App() {
   }
 
   const paletteItems: PaletteItem[] = [
+    ...(selectedRepo && selectedRepoBranches.some((branch) => branch.isCurrent)
+      ? selectedRepoBranches.filter((branch) => !branch.isCurrent).map((branch) => ({
+          id: `rebase:${branch.isRemote ? "remote" : "local"}:${branch.name}`,
+          label: tw("rebase.entry", { current: selectedRepoBranches.find((candidate) => candidate.isCurrent)?.name, onto: branch.name }),
+          detail: tw("rebase.palette"), group: tw("commandPalette.activeRepositoryGroup"),
+          run: () => sendRepoDetailCommand({ kind: "rebase", onto: mergeSourceForBranch(branch), repoId: selectedRepo.id }),
+        })) : []),
     ...(selectedRepo
       ? commandPaletteMergeBranches(selectedRepoBranches)
           .map((branch) => ({

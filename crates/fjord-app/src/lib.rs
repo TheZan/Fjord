@@ -111,6 +111,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::get_repo_status,
             commands::get_repo_operation_state,
             commands::continue_operation,
+            commands::get_rebase_preflight,
             commands::start_rebase,
             commands::skip_operation,
             commands::get_repository_snapshot,
