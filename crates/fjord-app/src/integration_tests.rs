@@ -526,11 +526,31 @@ async fn start_rebase_service_returns_serializable_conflict_and_updates_the_snap
         .unwrap();
     let before = services.repos.get_generations(repo.id).await.unwrap();
 
-    let state = services
+    let preflight = services
         .repos
-        .start_rebase(repo.id, "refs/heads/main~0")
+        .get_rebase_preflight(
+            repo.id,
+            &fjord_domain::MergeSource {
+                ref_name: "refs/heads/main".into(),
+                kind: fjord_domain::MergeSourceKind::LocalBranch,
+            },
+        )
         .await
         .unwrap();
+    assert!(preflight.blockers.is_empty());
+    assert_eq!(preflight.current_branch, "feature");
+    let result = services
+        .repos
+        .start_rebase_preflighted(
+            repo.id,
+            &preflight,
+            fjord_domain::MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.stash_ref.is_none());
+    let state = result.state;
 
     assert!(matches!(state.operation, RepoOperation::Rebase { .. }));
     assert_eq!(state.conflicted_paths, ["README.md"]);

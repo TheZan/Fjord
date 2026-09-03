@@ -122,6 +122,33 @@
     "updatingGraph": "Mise à jour du graphe des commits…",
     "rowLabel": "{{message}}, par {{author}}, commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase de {{current}} sur {{onto}}",
+    "entry": "Rebaser {{current}} sur {{onto}}…",
+    "palette": "Rebaser la branche courante…",
+    "prediction": "Commits sélectionnés pour le rebase sur {{onto}} : {{count}}. Git ignore les changements déjà présents dans la cible.",
+    "published": "Le rebase remplacera {{count}} commits publiés. Un push avec force-with-lease sera ensuite nécessaire.",
+    "noOp": "{{current}} repose déjà sur {{onto}}. Aucun rebase nécessaire.",
+    "stashExplanation": "Git exige des fichiers suivis sans modification. Placez explicitement les modifications suivies et non suivies dans un stash avant le rebase ; il sera conservé jusqu’à sa restauration manuelle.",
+    "stashAndRebase": "Placer les changements dans un stash et rebaser",
+    "confirm": "Rebase",
+    "running": "Rebase en cours…",
+    "cancelOperation": "Annuler l’opération",
+    "completed": "Rebase terminé.",
+    "conflicted": "Rebase arrêté sur des conflits. Résolvez-les dans les changements de travail, puis continuez, ignorez ou abandonnez.",
+    "stale": "Le dépôt a changé. Vérifiez l’aperçu actualisé avant de réessayer.",
+    "failed": "Impossible de démarrer le rebase.",
+    "blocked": {
+      "target_is_current_branch": "La cible est déjà la branche courante.",
+      "target_not_found": "{{onto}} n’existe plus.",
+      "target_unsupported": "Choisissez une branche locale ou de suivi distant.",
+      "operation_already_in_progress": "Une autre opération Git est déjà en cours.",
+      "detached_head": "HEAD est détaché. Basculez sur une branche avant le rebase.",
+      "unborn_head": "La branche courante ne contient aucun commit.",
+      "index_has_staged_changes": "L’index contient des modifications indexées.",
+      "would_overwrite": "Le rebase écraserait les modifications locales dans les fichiers suivants."
+    }
+  },
   "merge": {
     "title": "Fusionner {{source}} dans {{target}}", "loading": "Vérification du dépôt…", "running": "Fusion en cours…", "dismiss": "Fermer",
     "mode": { "label": "Mode", "default": "Fusion par défaut", "fastForwardOnly": "Fast-forward uniquement" }, "confirm": "Fusionner", "cancel": "Annuler",

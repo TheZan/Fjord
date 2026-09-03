@@ -26,9 +26,9 @@ most are the ones still missing:
    has no representation in Fjord at all. Worktrees of a tracked repository appear
    either as unrelated repositories (if imported separately) or not at all, and
    their shared `.git` relationship is never modeled.
-2. **Basic rebase can be started through the backend (`P10-04`).** System Git
+2. **Basic rebase is available through shared preflight and UI (`P10-04`–`05`).** System Git
    starts it and Phase 9 handles conflicts and finishing. User-facing preflight
-   and entry points remain `P10-05`; interactive rebase remains `P10-11`.
+   and entry points are shipped; interactive rebase remains `P10-11`.
 3. **Remote management is now complete (`P10-06`–`07`).** The repository section
    supports list/add/edit/rename and confirmation-bound removal. Publish, fetch,
    and set-upstream reuse a single-remote picker; explicit multi-push remains a
@@ -76,7 +76,7 @@ most are the ones still missing:
 | Area | State |
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
-| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Preflight/UI remain `P10-05`, interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
+| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Shared preflight, branch-menu and palette entry points are shipped (`P10-05`); interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
 | Merge | ✅ Initiation is shipped by `P10-MERGE-01`–`03`, owned by [`branch-merge.md`](branch-merge.md). Conflicts use the Phase 9 controls. |
 | Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
@@ -155,7 +155,7 @@ conflicted one returns `Rebase { .. }` and the Phase 9 banner takes over
 immediately. Continue/skip/abort are already specified there and are not
 reimplemented here.
 
-`P10-04` ships only the backend, service, registered command and typed client.
+`P10-04` originally shipped the backend, service, registered command and typed client; `P10-05` extends that command as described below.
 It passes the exact target as one argument after `--`, explicitly disables
 autostash (including configured autostash), and disables implicit object fetch.
 The shared operation runner supplies non-interactive editors and process-tree
@@ -165,9 +165,9 @@ with rebase metadata is a typed state, while cancellation remains an error and
 leaves any metadata intact for explicit Abort. Before/after HEAD, reflog, semantic
 index, tracked worktree status and operation observations control one
 `WORKING_REFS_HISTORY` bump, including partial execution. Config and stash are
-not invalidated; an unchanged refusal or no-op does not bump generations.
+not invalidated by the lower-level P10-04 primitive; an unchanged refusal or no-op does not bump generations.
 
-**Still planned for `P10-05`:** preflight before starting **reuses** the shared integration preflight in
+**Shipped in `P10-05`:** preflight before starting **reuses** the shared integration preflight in
 [`branch-merge.md`](branch-merge.md) §4 — the same blocker codes
 (`operation_already_in_progress`, detached/unborn `HEAD`, staged changes, the
 bounded overwrite set), the same dirty-tree policy, and the same explicit
@@ -179,6 +179,42 @@ rules are not restated here; only the rebase-specific addition is:
   that a force-with-lease push will be required afterwards
   ([`working-tree-and-diff.md`](working-tree-and-diff.md) §3), with the commit
   count.
+
+`get_rebase_preflight(onto: MergeSource)` reuses the extracted
+`local/integration.rs` engine, including `MergeDirtyState` and the bounded
+checkout overwrite intersection. The existing merge model and error codes are
+preserved; rebase exposes typed `IntegrationBlocker` values and neutral
+`integration_*` errors. Missing refs and detached/unborn HEAD fail with typed
+read errors, as in the merge contract.
+
+`start_rebase` now takes the displayed `RebasePreflight` and explicit
+`MergeDirtyPolicy`, and returns `RebaseResult { state, stash_ref, generations }`.
+It recomputes all facts under the write lock, including HEAD identity, target,
+index, overwrite set, generations, and published consequence. A mismatch fails
+closed before mutation. Git receives the immutable resolved target commit.
+While open, the preview refreshes when any dependency generation advances;
+confirmation stays disabled during the refresh or a read error.
+
+The published count intersects affected current-branch commits with locally
+known upstream reachability, excluding commits already reachable from the target.
+Git's read-only `rev-list --reverse --topo-order --right-only --cherry-mark
+--no-merges` supplies its pick order and patch-equivalence facts. The merge
+backend can fast-forward a linear prefix even when flattening a merge: those
+unchanged ids are excluded. Dropped published cherry-equivalent commits and
+flattened merge commits are counted as replaced history. A linear already-based
+history is a no-op and produces no warning; no upstream or an entirely
+unpublished affected range also produces no warning. The dialog reports the
+exact published count and force-with-lease requirement; it performs no push.
+History capture is capped at 64 MiB and 30 seconds and fails closed on overflow.
+
+Stash-first uses the same explicit primitive as merge and squash, including
+tracked and untracked work, with `Fjord rebase: <current> -> <onto>`. The backend
+resolves the created stash id to its actual reflog selector, including on failure
+or cancellation; it never restores or pops it. Unrelated dirty paths remain
+outside the shared blocker set. Because system Git requires clean tracked files,
+the dialog also offers explicit stash-and-rebase for unrelated tracked edits.
+No stash is created for a no-op. A started mutation advances working-tree, refs
+and history once, plus stash only if created; refusals/no-ops do not advance them.
 
 Entry points: branch context menu ("Rebase current branch onto <branch>") and the
 command palette — the same two surfaces the merge action uses, sharing the
@@ -448,3 +484,12 @@ enumerated conditions, and the text query already handles names and paths.
 14. Interactive rebase (P10-11) writes a todo list Git accepts and drives the
     resulting sequence through the same operation-state controls, with every
     action reversible via abort until the sequence completes.
+
+P10-05 verification uses real-repository adapter and composed-service tests,
+component and generation-refresh tests, and Playwright at the existing Tauri
+boundary. The rebase E2E bridges the critical calls to the actual Rust
+`LocalGitBackend`, invokes system Git and a configured fixture merge tool, then
+continues through the existing operation banner and verifies Git history. Only
+shell/workspace IPC and watcher delivery are fixtures; conflict and resolution
+results are never fabricated. `npm run test:e2e` builds the lightweight Rust
+bridge before Playwright, including in CI.

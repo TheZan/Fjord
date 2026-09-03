@@ -22,6 +22,8 @@ import type {
   InteractionTrace,
   MergeDirtyPolicy,
   MergeMode,
+  RebasePreflight,
+  RebaseResult,
   MergePreflight,
   MergeResult,
   MergeSource,
@@ -424,8 +426,12 @@ export function runMergeBranch(
   return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
 }
 
-export function runStartRebase(repoId: string, onto: string): OperationTask<RepoOperationState> {
-  return invokeOperation("rebase", "start_rebase", { repoId, onto });
+export function getRebasePreflight(repoId: string, onto: MergeSource, signal?: AbortSignal): Promise<RebasePreflight> {
+  return invokeVersioned("get_rebase_preflight", { repoId, onto }, repoId, "rebase", signal);
+}
+
+export function runStartRebase(repoId: string, preflight: RebasePreflight, dirtyPolicy: MergeDirtyPolicy): OperationTask<RebaseResult> {
+  return invokeOperation("rebase", "start_rebase", { repoId, preflight, dirtyPolicy });
 }
 
 export function runSquashMergeBranch(

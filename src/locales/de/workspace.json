@@ -122,6 +122,33 @@
     "updatingGraph": "Commit-Graph wird aktualisiert…",
     "rowLabel": "{{message}}, von {{author}}, Commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase von {{current}} auf {{onto}}",
+    "entry": "{{current}} auf {{onto}} rebasen…",
+    "palette": "Aktuellen Branch rebasen…",
+    "prediction": "Für Rebase auf {{onto}} ausgewählte Commits: {{count}}. Git überspringt bereits im Ziel vorhandene Änderungen.",
+    "published": "Rebase ersetzt {{count}} veröffentlichte Commits. Danach ist ein Push mit force-with-lease erforderlich.",
+    "noOp": "{{current}} basiert bereits auf {{onto}}. Kein Rebase erforderlich.",
+    "stashExplanation": "Git benötigt unveränderte verfolgte Dateien. Verfolgte und unverfolgte Änderungen vor dem Rebase ausdrücklich stashen; der Stash bleibt bis zur manuellen Wiederherstellung erhalten.",
+    "stashAndRebase": "Änderungen stashen und rebasen",
+    "confirm": "Rebase",
+    "running": "Rebase läuft…",
+    "cancelOperation": "Vorgang abbrechen",
+    "completed": "Rebase abgeschlossen.",
+    "conflicted": "Rebase wegen Konflikten angehalten. Konflikte in den Arbeitsänderungen lösen, dann fortsetzen, überspringen oder abbrechen.",
+    "stale": "Das Repository hat sich geändert. Die aktualisierte Vorschau vor dem nächsten Versuch prüfen.",
+    "failed": "Rebase konnte nicht gestartet werden.",
+    "blocked": {
+      "target_is_current_branch": "Das Ziel ist bereits der aktuelle Branch.",
+      "target_not_found": "{{onto}} existiert nicht mehr.",
+      "target_unsupported": "Einen lokalen oder Remote-Tracking-Branch wählen.",
+      "operation_already_in_progress": "Ein anderer Git-Vorgang läuft bereits.",
+      "detached_head": "HEAD ist losgelöst. Vor dem Rebase einen Branch auschecken.",
+      "unborn_head": "Der aktuelle Branch enthält noch keine Commits.",
+      "index_has_staged_changes": "Der Index enthält vorgemerkte Änderungen.",
+      "would_overwrite": "Rebase würde lokale Änderungen in den folgenden Dateien überschreiben."
+    }
+  },
   "merge": {
     "title": "{{source}} in {{target}} zusammenführen", "loading": "Repository wird geprüft…", "running": "Zusammenführung läuft…", "dismiss": "Schließen",
     "mode": { "label": "Modus", "default": "Standard-Merge", "fastForwardOnly": "Nur Fast-forward" }, "confirm": "Zusammenführen", "cancel": "Abbrechen",

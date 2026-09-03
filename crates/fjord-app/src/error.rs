@@ -224,6 +224,11 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 tool: None,
             };
         }
+        GitError::IntegrationStashRetained { stash_ref, source } => {
+            let mut error = git_error_to_app_error(*source);
+            error.stash_ref = boxed(stash_ref);
+            return error;
+        }
         GitError::MergeStashRetained(source) => {
             let mut error = git_error_to_app_error(*source);
             error.stash_ref = boxed("stash@{0}".to_string());
@@ -270,6 +275,23 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::StashApplyIndexRefused => "stash_apply_index_refused",
         GitError::StashApplyFailed(_) => unreachable!("handled above"),
         GitError::CheckoutWouldOverwrite { .. } => unreachable!("handled above"),
+        GitError::IntegrationStashRetained { .. } => unreachable!("handled above"),
+        GitError::IntegrationBlocked(blocker) => match blocker {
+            fjord_domain::IntegrationBlocker::TargetIsCurrentBranch => {
+                "integration_target_is_current_branch"
+            }
+            fjord_domain::IntegrationBlocker::TargetNotFound => "integration_target_not_found",
+            fjord_domain::IntegrationBlocker::TargetUnsupported => "integration_target_unsupported",
+            fjord_domain::IntegrationBlocker::OperationAlreadyInProgress => {
+                "operation_already_in_progress"
+            }
+            fjord_domain::IntegrationBlocker::DetachedHead => "integration_detached_head",
+            fjord_domain::IntegrationBlocker::UnbornHead => "integration_unborn_head",
+            fjord_domain::IntegrationBlocker::IndexHasStagedChanges => {
+                "integration_index_has_staged_changes"
+            }
+            fjord_domain::IntegrationBlocker::WouldOverwrite => "integration_would_overwrite",
+        },
         GitError::MergeSourceNotFound => "merge_source_not_found",
         GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",
         GitError::MergeSourceUnsupported => "merge_source_unsupported",

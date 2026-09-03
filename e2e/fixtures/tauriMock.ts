@@ -33,6 +33,7 @@ export async function installTauriMock(page: Page, fixture: TauriWorkspaceFixtur
       let callbackId = 1;
       let eventId = 1;
       const callbacks = new Map<number, (payload: unknown) => void>();
+      const listeners = new Map<number, { event: string; handler: number }>();
       const uiState = structuredClone(startupUiState);
 
       function applyUiStatePatch(patch: UiStatePatch) {
@@ -60,10 +61,15 @@ export async function installTauriMock(page: Page, fixture: TauriWorkspaceFixtur
         switch (command) {
           case "activate_after_first_paint":
           case "set_repository_activity":
-          case "plugin:event|unlisten":
             return undefined;
-          case "plugin:event|listen":
-            return eventId++;
+          case "plugin:event|unlisten":
+            listeners.delete(args.eventId as number);
+            return undefined;
+          case "plugin:event|listen": {
+            const id = eventId++;
+            listeners.set(id, { event: args.event as string, handler: args.handler as number });
+            return id;
+          }
           case "get_settings":
             return structuredClone(startupSettings);
           case "list_workspaces":
@@ -84,6 +90,16 @@ export async function installTauriMock(page: Page, fixture: TauriWorkspaceFixtur
           case "plugin:updater|check":
             return null;
           default:
+            if ("fjordRealGit" in window) {
+              const value = await (window as unknown as { fjordRealGit: (command: string, args: Record<string, unknown>) => Promise<unknown> }).fjordRealGit(command, args);
+              if (value && typeof value === "object" && "fixtureRepositoryChanged" in value) {
+                for (const [id, listener] of listeners) {
+                  if (listener.event === "fjord-repository-changed") callbacks.get(listener.handler)?.({ event: listener.event, id, payload: value.fixtureRepositoryChanged });
+                }
+                return undefined;
+              }
+              return value;
+            }
             throw new Error(`Unexpected Tauri command in E2E: ${command}`);
         }
       }

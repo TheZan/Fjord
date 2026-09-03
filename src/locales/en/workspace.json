@@ -122,6 +122,33 @@
     "updatingGraph": "Updating commit graph…",
     "rowLabel": "{{message}}, by {{author}}, commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase {{current}} onto {{onto}}",
+    "entry": "Rebase {{current}} onto {{onto}}…",
+    "palette": "Rebase current branch…",
+    "prediction": "Commits selected for rebase onto {{onto}}: {{count}}. Git skips changes already present in the target.",
+    "published": "Rebase will replace {{count}} published commits. A force-with-lease push will be required afterwards.",
+    "noOp": "{{current}} is already based on {{onto}}. Nothing to rebase.",
+    "stashExplanation": "Git requires clean tracked files. Stash tracked and untracked changes explicitly before rebase; the stash will remain until you restore it yourself.",
+    "stashAndRebase": "Stash changes and rebase",
+    "confirm": "Rebase",
+    "running": "Rebasing…",
+    "cancelOperation": "Cancel operation",
+    "completed": "Rebase completed.",
+    "conflicted": "Rebase stopped with conflicts. Resolve them in Working Changes, then Continue, Skip or Abort.",
+    "stale": "The repository changed. Review the refreshed preflight before trying again.",
+    "failed": "Could not start rebase.",
+    "blocked": {
+      "target_is_current_branch": "The target is already the current branch.",
+      "target_not_found": "{{onto}} no longer exists.",
+      "target_unsupported": "Choose a local or remote-tracking branch.",
+      "operation_already_in_progress": "Another Git operation is already in progress.",
+      "detached_head": "HEAD is detached. Check out a branch before rebase.",
+      "unborn_head": "The current branch has no commits yet.",
+      "index_has_staged_changes": "The index has staged changes.",
+      "would_overwrite": "Rebase would overwrite local work in the paths below."
+    }
+  },
   "merge": {
     "title": "Merge {{source}} into {{target}}",
     "loading": "Checking the repository…",
