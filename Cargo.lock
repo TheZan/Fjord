@@ -1062,7 +1062,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fjord"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fjord-app",
  "serde_json",
@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-app"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-db",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-askpass"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-bench"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-db",
@@ -1127,7 +1127,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-db"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-domain",
@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-domain"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-fs"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "notify",
  "tempfile",
@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-git"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-domain",
@@ -1171,8 +1171,10 @@ dependencies = [
  "git2",
  "gix",
  "gix-lock",
+ "gix-tempfile",
  "libc",
  "regex",
+ "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.19",
@@ -1185,7 +1187,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-ports"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-domain",
@@ -1194,7 +1196,7 @@ dependencies = [
 
 [[package]]
 name = "fjord-services"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "fjord-domain",

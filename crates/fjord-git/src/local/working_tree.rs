@@ -1,6 +1,7 @@
 //! Working-tree inspection and index staging.
 
 use super::*;
+use std::collections::HashSet;
 use std::io::Write;
 
 pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, GitError> {
@@ -34,6 +35,7 @@ pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, G
                         out.staged.push(WorkingFile {
                             path,
                             change_type: LocalGitBackend::classify_delta(delta.status()),
+                            tracked: true,
                             conflicted,
                         });
                     }
@@ -49,6 +51,7 @@ pub(super) async fn working_changes(repo: &RepoPath) -> Result<WorkingChanges, G
                         out.unstaged.push(WorkingFile {
                             path,
                             change_type: LocalGitBackend::classify_delta(delta.status()),
+                            tracked: delta.status() != git2::Delta::Untracked,
                             conflicted,
                         });
                     }
@@ -242,17 +245,31 @@ pub(super) async fn stage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitE
         LocalGitBackend::with_runtime_git2(&repo, |git| {
             let mut index = LocalGitBackend::fresh_index(git)?;
 
-            // `add_all` rather than `add_path` even for explicit paths: it is
-            // the only one that also records *deletions*, so staging a removed
-            // file from the commit panel doesn't fail on the missing file.
             if paths.is_empty() {
+                // Empty remains the deliberate Stage All contract.
                 index
                     .add_all(["*"], IndexAddOption::DEFAULT, None)
                     .map_err(LocalGitBackend::map_git2_error)?;
             } else {
-                index
-                    .add_all(paths.iter(), IndexAddOption::DEFAULT, None)
-                    .map_err(LocalGitBackend::map_git2_error)?;
+                // `add_all` treats semantic filenames as pathspecs. Use
+                // literal index operations against one fresh index and write
+                // it once; missing tracked paths represent deletions.
+                for path in &paths {
+                    match index.add_path(path) {
+                        Ok(()) => {}
+                        Err(error) if error.code() == git2::ErrorCode::NotFound => {
+                            // `add_path` is literal but cannot represent a
+                            // deletion. Remove the missing tracked path from
+                            // this same in-memory index transaction instead.
+                            if index.get_path(path, 0).is_some() {
+                                index
+                                    .remove_path(path)
+                                    .map_err(LocalGitBackend::map_git2_error)?;
+                            }
+                        }
+                        Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+                    }
+                }
             }
 
             index.write().map_err(LocalGitBackend::map_git2_error)
@@ -303,21 +320,19 @@ pub(super) async fn issue_discard_confirmation(
     confirmations: &std::sync::Arc<destructive_confirmation::DestructiveConfirmationStore>,
     repo: &RepoPath,
     action: &DestructiveAction,
-    selection: &PatchSelection,
+    selections: &[PatchSelection],
     generations: crate::GenerationSet,
 ) -> Result<String, GitError> {
     let confirmations = confirmations.clone();
     let repo = repo.clone();
     let action = action.clone();
-    let selection = selection.clone();
+    let selections = selections.to_vec();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
         ensure_confirmed_generations(&repo, generations)?;
-        let detail = current_index_patch_diff(&repo, &selection.path, false)?;
-        ensure_discard_scope_matches(&action, &selection, &detail)?;
-        patch::build_unified_reverse_patch(&detail, &selection)?;
+        build_discard_patch(&repo, &action, &selections)?;
         ensure_confirmed_generations(&repo, generations)?;
-        confirmations.issue(&repo, &action, &selection, generations)
+        confirmations.issue(&repo, &action, &selections, generations)
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -332,31 +347,50 @@ pub(super) async fn discard_patch(
     expected_generations: crate::GenerationSet,
     confirmation_token: &str,
 ) -> Result<crate::GenerationSet, GitError> {
+    discard_patches(
+        commands,
+        confirmations,
+        repo,
+        action,
+        std::slice::from_ref(selection),
+        expected_generations,
+        confirmation_token,
+    )
+    .await
+}
+
+/// Discards an exact ordered vector of whole-file index-to-worktree
+/// selections in one confirmation-bound Git apply transaction. The vector is
+/// kept in user-confirmed order for token validation; patch sections are
+/// canonicalized by repository-path bytes only after that validation.
+pub(super) async fn discard_patches(
+    commands: &GitCommandFactory,
+    confirmations: &std::sync::Arc<destructive_confirmation::DestructiveConfirmationStore>,
+    repo: &RepoPath,
+    action: &DestructiveAction,
+    selections: &[PatchSelection],
+    expected_generations: crate::GenerationSet,
+    confirmation_token: &str,
+) -> Result<crate::GenerationSet, GitError> {
     let commands = commands.clone();
     let confirmations = confirmations.clone();
     let repo = repo.clone();
     let action = action.clone();
-    let selection = selection.clone();
+    let selections = selections.to_vec();
     let confirmation_token = confirmation_token.to_string();
     let _repo_guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        let index_lock = patch_transaction::IndexLock::acquire(&repo)?;
         confirmations.consume(
             &confirmation_token,
             &repo,
             &action,
-            &selection,
+            &selections,
             expected_generations,
         )?;
-        if selection.source != PatchSource::Worktree {
-            return Err(GitError::PatchUnsupported(
-                "discard_patch requires a worktree selection".to_string(),
-            ));
-        }
+        let index_lock = patch_transaction::IndexLock::acquire(&repo)?;
         ensure_confirmed_generations(&repo, expected_generations)?;
 
-        let detail = current_index_patch_diff(&repo, &selection.path, false)?;
-        let patch = patch::build_unified_reverse_patch(&detail, &selection)?;
+        let patch = build_discard_patch(&repo, &action, &selections)?;
         ensure_confirmed_generations(&repo, expected_generations)?;
 
         run_git_apply_to_worktree(&commands, &repo, &patch, true)?;
@@ -366,8 +400,7 @@ pub(super) async fn discard_patch(
         // checkout, or switch cannot change the discard base in between.
         patch_transaction::pause_before_mutation(&repo);
         ensure_confirmed_generations(&repo, expected_generations)?;
-        let verified_detail = current_index_patch_diff(&repo, &selection.path, false)?;
-        let verified_patch = patch::build_unified_reverse_patch(&verified_detail, &selection)?;
+        let verified_patch = build_discard_patch(&repo, &action, &selections)?;
         if verified_patch != patch {
             return Err(GitError::PatchStale);
         }
@@ -379,6 +412,148 @@ pub(super) async fn discard_patch(
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+/// Constructs one combined patch for an exact, non-empty, source-homogeneous
+/// selection vector without
+/// mutating anything: read-only, no index lock, no `git apply`. Reuses the
+/// same `P8-01` deterministic constructor and digest verification as every
+/// mutating patch command — a stale selection fails with `PatchStale`
+/// exactly as it would for staging.
+pub(super) async fn export_patch(
+    repo: &RepoPath,
+    selections: &[PatchSelection],
+) -> Result<Vec<u8>, GitError> {
+    let repo = repo.clone();
+    let selections = selections.to_vec();
+    let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+    tokio::task::spawn_blocking(move || build_export_patch(&repo, &selections))
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?
+}
+
+fn build_export_patch(repo: &RepoPath, selections: &[PatchSelection]) -> Result<Vec<u8>, GitError> {
+    validate_patch_selection_vector(selections)?;
+    let staged = selections[0].source == PatchSource::Index;
+    let mut sections = Vec::with_capacity(selections.len());
+    for selection in selections {
+        let detail = current_index_patch_diff(repo, &selection.path, staged)?;
+        let bytes = patch::build_unified_patch(&detail, selection)?;
+        sections.push((selection.path.as_bytes().to_vec(), bytes));
+    }
+    Ok(concatenate_patch_sections(sections))
+}
+
+fn build_discard_patch(
+    repo: &RepoPath,
+    action: &DestructiveAction,
+    selections: &[PatchSelection],
+) -> Result<Vec<u8>, GitError> {
+    if selections.is_empty() {
+        return Err(GitError::PatchUnsupported(
+            "discard selection list must not be empty".to_string(),
+        ));
+    }
+
+    match action {
+        DestructiveAction::Discard { .. } if selections.len() == 1 => {}
+        DestructiveAction::DiscardFiles { paths } => {
+            if paths.is_empty()
+                || paths.len() != selections.len()
+                || paths
+                    .iter()
+                    .zip(selections)
+                    .any(|(path, selection)| path != &selection.path)
+            {
+                return Err(GitError::PreflightStale);
+            }
+        }
+        _ => return Err(GitError::PreflightStale),
+    }
+
+    let mut unique = HashSet::with_capacity(selections.len());
+    if selections.iter().any(|selection| {
+        selection.source != PatchSource::Worktree || !unique.insert(selection.path.as_str())
+    }) {
+        return Err(GitError::PatchUnsupported(
+            "discard requires unique worktree selections".to_string(),
+        ));
+    }
+
+    ensure_no_conflicted_paths(
+        repo,
+        selections.iter().map(|selection| selection.path.as_str()),
+    )?;
+
+    let batch = matches!(action, DestructiveAction::DiscardFiles { .. });
+    let mut sections = Vec::with_capacity(selections.len());
+    for selection in selections {
+        let detail = current_index_patch_diff(repo, &selection.path, false)?;
+        if batch {
+            ensure_whole_file_selection(selection, &detail)?;
+        } else {
+            ensure_discard_scope_matches(action, selection, &detail)?;
+        }
+        let bytes = patch::build_unified_reverse_patch(&detail, selection)?;
+        sections.push((selection.path.as_bytes().to_vec(), bytes));
+    }
+    Ok(concatenate_patch_sections(sections))
+}
+
+fn validate_patch_selection_vector(selections: &[PatchSelection]) -> Result<(), GitError> {
+    let Some(first) = selections.first() else {
+        return Err(GitError::PatchUnsupported(
+            "patch selection list must not be empty".to_string(),
+        ));
+    };
+    let mut unique = HashSet::with_capacity(selections.len());
+    if selections.iter().any(|selection| {
+        selection.source != first.source || !unique.insert(selection.path.as_str())
+    }) {
+        return Err(GitError::PatchUnsupported(
+            "patch selections must have one source and unique paths".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn concatenate_patch_sections(mut sections: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<u8> {
+    sections.sort_by(|left, right| left.0.cmp(&right.0));
+    let capacity = sections.iter().map(|(_, bytes)| bytes.len()).sum();
+    let mut combined = Vec::with_capacity(capacity);
+    for (_, bytes) in sections {
+        combined.extend_from_slice(&bytes);
+    }
+    combined
+}
+
+fn ensure_no_conflicted_paths<'a>(
+    repo: &RepoPath,
+    paths: impl Iterator<Item = &'a str>,
+) -> Result<(), GitError> {
+    let selected = paths.collect::<HashSet<_>>();
+    LocalGitBackend::with_runtime_git2(repo, |git| {
+        let conflicts = LocalGitBackend::conflict_paths(&LocalGitBackend::fresh_index(git)?)
+            .into_iter()
+            .filter(|path| selected.contains(path.as_str()))
+            .collect::<Vec<_>>();
+        if conflicts.is_empty() {
+            Ok(())
+        } else {
+            Err(GitError::Conflict { paths: conflicts })
+        }
+    })
+}
+
+fn ensure_whole_file_selection(
+    selection: &PatchSelection,
+    detail: &FileDiffDetail,
+) -> Result<(), GitError> {
+    if selection.path == detail.path && is_complete_file_selection(detail, selection)? {
+        Ok(())
+    } else {
+        Err(GitError::PreflightStale)
+    }
 }
 
 fn ensure_discard_scope_matches(
@@ -841,8 +1016,29 @@ pub(super) async fn unstage(repo: &RepoPath, paths: &[PathBuf]) -> Result<(), Gi
                 git.reset_default(head.as_ref(), ["*"])
                     .map_err(LocalGitBackend::map_git2_error)
             } else {
-                git.reset_default(head.as_ref(), paths.iter())
-                    .map_err(LocalGitBackend::map_git2_error)
+                let mut index = LocalGitBackend::fresh_index(git)?;
+                let mut head_index = git2::Index::new().map_err(LocalGitBackend::map_git2_error)?;
+                if let Some(head) = head.as_ref() {
+                    let tree = head
+                        .peel_to_tree()
+                        .map_err(LocalGitBackend::map_git2_error)?;
+                    head_index
+                        .read_tree(&tree)
+                        .map_err(LocalGitBackend::map_git2_error)?;
+                }
+
+                for path in &paths {
+                    if let Some(head_entry) = head_index.get_path(path, 0) {
+                        index
+                            .add(&head_entry)
+                            .map_err(LocalGitBackend::map_git2_error)?;
+                    } else if index.get_path(path, 0).is_some() {
+                        index
+                            .remove_path(path)
+                            .map_err(LocalGitBackend::map_git2_error)?;
+                    }
+                }
+                index.write().map_err(LocalGitBackend::map_git2_error)
             }
         })
     })

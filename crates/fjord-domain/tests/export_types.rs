@@ -3,20 +3,27 @@ use std::path::Path;
 
 use fjord_domain::{
     AmendInfo, BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
-    CommitPage, CommitPushResult, CommitSummary, Consequence, CreateRepositoryRequest,
-    CreateRepositoryResult, CredentialHelperInfo, DestructiveAction, DestructivePreflight,
+    CommitPage, CommitPushResult, CommitSummary, Consequence, CreateBranchFromStashResult,
+    CreateRepositoryRequest, CreateRepositoryResult, CreateStashRequest, CreateStashResult,
+    CredentialHelperInfo, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
     DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
     FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
     GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
-    InteractionSpan, InteractionTrace, LogCursor, OperationControl, OverviewUiState,
-    OverviewUiStatePatch, PatchSelection, PatchSource, RebaseKind, Recoverability, ReflogEntry,
-    ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RepoOperation, RepoOperationState,
-    RepoStatus, RepoStatusSummary, RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryId,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, IntegrationBlocker, InteractionSpan,
+    InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome,
+    MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget,
+    OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource,
+    PublishedRewriteConsequence, RebaseKind, RebasePreflight, RebaseResult, Recoverability,
+    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight,
+    RepoCondition, RepoHealth, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary,
+    RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId,
     RepositorySnapshot, ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
-    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode, UiOverviewFilter,
-    UiState, UiStatePatch, WorkingChanges, WorkingFile, Workspace, WorkspaceId,
+    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome,
+    SquashMergeResult, StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
+    StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
+    Workspace, WorkspaceId,
 };
 use ts_rs::{Config, TS};
 
@@ -55,6 +62,7 @@ fn generated_types() -> String {
     push::<CreateRepositoryRequest>(&mut output, &config);
     push::<CreateRepositoryResult>(&mut output, &config);
     push::<RemoteInfo>(&mut output, &config);
+    push::<RemoveRemotePreflight>(&mut output, &config);
     push::<RemotePushResult>(&mut output, &config);
     push::<GenerationSet>(&mut output, &config);
     push::<RepositorySnapshot>(&mut output, &config);
@@ -62,6 +70,8 @@ fn generated_types() -> String {
     push::<SnapshotRevalidation>(&mut output, &config);
     push::<RepoStatus>(&mut output, &config);
     push::<RepoStatusSummary>(&mut output, &config);
+    push::<RepoCondition>(&mut output, &config);
+    push::<RepoHealth>(&mut output, &config);
     push::<OperationControl>(&mut output, &config);
     push::<RebaseKind>(&mut output, &config);
     push::<RepoOperation>(&mut output, &config);
@@ -70,9 +80,33 @@ fn generated_types() -> String {
     push::<SearchResultKind>(&mut output, &config);
     push::<GlobalSearchResult>(&mut output, &config);
     push::<BranchInfo>(&mut output, &config);
+    push::<MergeSourceKind>(&mut output, &config);
+    push::<MergeSource>(&mut output, &config);
+    push::<MergeMode>(&mut output, &config);
+    push::<MergeDirtyPolicy>(&mut output, &config);
+    push_without_trailing_whitespace::<MergePrediction>(&mut output, &config);
+    push::<MergeDirtyState>(&mut output, &config);
+    push::<IntegrationBlocker>(&mut output, &config);
+    push::<PublishedRewriteConsequence>(&mut output, &config);
+    push::<RebasePreflight>(&mut output, &config);
+    push::<RebaseResult>(&mut output, &config);
+    push::<MergePreflight>(&mut output, &config);
+    push_without_trailing_whitespace::<MergeOutcome>(&mut output, &config);
+    push::<MergeResult>(&mut output, &config);
+    push_without_trailing_whitespace::<SquashMergeOutcome>(&mut output, &config);
+    push::<SquashMergeResult>(&mut output, &config);
     push::<RemoteRef>(&mut output, &config);
     push::<TagInfo>(&mut output, &config);
+    push::<StashId>(&mut output, &config);
     push::<StashEntry>(&mut output, &config);
+    push::<StashFileGroup>(&mut output, &config);
+    push::<StashFiles>(&mut output, &config);
+    push_without_trailing_whitespace::<StashScope>(&mut output, &config);
+    push::<CreateStashRequest>(&mut output, &config);
+    push::<CreateStashResult>(&mut output, &config);
+    push_without_trailing_whitespace::<StashApplyOutcome>(&mut output, &config);
+    push::<StashApplyResult>(&mut output, &config);
+    push::<CreateBranchFromStashResult>(&mut output, &config);
     push::<CommitId>(&mut output, &config);
     push::<CommitSummary>(&mut output, &config);
     push::<LogCursor>(&mut output, &config);
@@ -83,14 +117,21 @@ fn generated_types() -> String {
     push::<CommitPushResult>(&mut output, &config);
     push::<FileChangeType>(&mut output, &config);
     push::<FileDiff>(&mut output, &config);
-    push::<WorkingFile>(&mut output, &config);
+    push_without_trailing_whitespace::<WorkingFile>(&mut output, &config);
     push::<WorkingChanges>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSource>(&mut output, &config);
+    push::<WorkingFileTarget>(&mut output, &config);
+    push::<RepositoryFilePath>(&mut output, &config);
+    push_without_trailing_whitespace::<OpenTarget>(&mut output, &config);
+    push::<IgnoreRuleKind>(&mut output, &config);
+    push::<IgnoreRulePreview>(&mut output, &config);
+    push::<IgnoreRuleOutcome>(&mut output, &config);
     push_without_trailing_whitespace::<HunkSelection>(&mut output, &config);
     push_without_trailing_whitespace::<PatchSelection>(&mut output, &config);
     push::<DiscardSelection>(&mut output, &config);
     push::<ResetMode>(&mut output, &config);
     push::<DestructiveAction>(&mut output, &config);
+    push_without_trailing_whitespace::<DestructiveExecutionResult>(&mut output, &config);
     push::<ForceWithLeaseDetails>(&mut output, &config);
     push::<Recoverability>(&mut output, &config);
     push::<Consequence>(&mut output, &config);

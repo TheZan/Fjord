@@ -10,7 +10,7 @@ use crate::operations::{
 use crate::state::AppState;
 use fjord_domain::{
     CloneRepositoryRequest, CloneRepositoryResult, CreateRepositoryRequest, CreateRepositoryResult,
-    RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
+    RepoHealth, RepoStatusSummary, RepositoryEntry, RepositoryId, Workspace, WorkspaceId,
 };
 use fjord_services::WorkspaceError;
 use tauri::AppHandle;
@@ -37,6 +37,22 @@ pub async fn rename_workspace(
     name: String,
 ) -> Result<Workspace, AppError> {
     Ok(state.workspaces.rename_workspace(id, &name).await?)
+}
+
+/// Configuration only: persists the workspace's expected branch and returns
+/// the updated row. No Git process runs, nothing is checked out, and no
+/// repository generation is bumped — only the derived `RepoHealth` projection
+/// changes (docs/specs/workspace-workflows.md §5).
+#[tauri::command]
+pub async fn set_workspace_expected_branch(
+    state: State<'_, AppState>,
+    id: WorkspaceId,
+    expected_branch: Option<String>,
+) -> Result<Workspace, AppError> {
+    Ok(state
+        .workspaces
+        .set_workspace_expected_branch(id, expected_branch.as_deref())
+        .await?)
 }
 
 #[tauri::command]
@@ -66,6 +82,14 @@ pub async fn get_workspace_status(
     workspace_id: WorkspaceId,
 ) -> Result<Vec<RepoStatusSummary>, AppError> {
     Ok(state.workspaces.get_workspace_status(workspace_id).await?)
+}
+
+#[tauri::command]
+pub async fn get_workspace_health(
+    state: State<'_, AppState>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<RepoHealth>, AppError> {
+    Ok(state.workspaces.get_workspace_health(workspace_id).await?)
 }
 
 #[tauri::command]
@@ -170,7 +194,8 @@ pub async fn clone_repository(
             None,
             error
                 .diagnostics
-                .clone()
+                .as_deref()
+                .cloned()
                 .or_else(|| Some(error.message.clone())),
         ),
     };

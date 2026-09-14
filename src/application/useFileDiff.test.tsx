@@ -15,6 +15,7 @@ import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
 
 vi.mock("@/infrastructure/tauriClient", () => ({
   getFileDiffPage: vi.fn(),
+  getStashFileDiffPage: vi.fn(),
   getWorkingFileDiffPage: vi.fn(),
   observeDiffPage: vi.fn(),
 }));
@@ -155,6 +156,41 @@ describe("diff window merging", () => {
 describe("useFileDiff mixed-snapshot recovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("keeps the same stash path in different groups under distinct queries", async () => {
+    vi.mocked(tauriClient.getStashFileDiffPage).mockImplementation(
+      async (_repoId, _stashId, group) => ({
+        data: window(0, [group, "two", "three", "four"], null),
+        generations: generationsA,
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const index = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "stash", stashId: "stash-oid", group: "index" }),
+      { wrapper },
+    );
+    const worktree = renderHook(
+      () => useFileDiff("repo-1", "large.txt", { kind: "stash", stashId: "stash-oid", group: "worktree" }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(index.result.current.diff?.hunks[0].lines[0].content).toBe("index"));
+    await waitFor(() => expect(worktree.result.current.diff?.hunks[0].lines[0].content).toBe("worktree"));
+    expect(tauriClient.getStashFileDiffPage).toHaveBeenCalledWith(
+      "repo-1", "stash-oid", "index", "large.txt", 0, 1_000, "show", false, expect.any(AbortSignal),
+    );
+    expect(tauriClient.getStashFileDiffPage).toHaveBeenCalledWith(
+      "repo-1", "stash-oid", "worktree", "large.txt", 0, 1_000, "show", false, expect.any(AbortSignal),
+    );
+    expect(tauriClient.observeDiffPage).toHaveBeenCalledWith(
+      "repo-1",
+      expect.any(Object),
+      "stashes",
+    );
   });
 
   it("discards A+B, clears its actionable identity, and refetches from zero after A→B→A", async () => {

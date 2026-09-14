@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Alle Repositorys",
     "filterPlaceholder": "Nach Repo oder Workspace filtern",
-    "empty": "Keine Repositorys entsprechen dem Filter."
+    "empty": "Noch keine Repositorys."
+  },
+  "filters": {
+    "label": "Repository-Filter",
+    "attention": "Benötigt Aufmerksamkeit",
+    "dirty": "Geändert",
+    "ahead": "Voraus",
+    "behind": "Zurück",
+    "conflicts": "Konflikte",
+    "wrongBranch": "Falscher Branch",
+    "clear": "Löschen",
+    "noMatches": "Keine Repositorys entsprechen den aktuellen Filtern."
   },
   "branches": {
     "current": "aktuell"
@@ -22,6 +33,10 @@
     "ahead": "Voraus",
     "behind": "Zurück",
     "conflict": "Konflikt",
+    "diverged": "Auseinanderentwickelt",
+    "operation": "Vorgang läuft",
+    "unreadable": "Nicht lesbar",
+    "wrongBranch": "Falscher Branch",
     "upToDate": "Aktuell",
     "changes": "{{count}} Änderungen"
   },
@@ -32,7 +47,8 @@
     "activeRepositoryGroup": "Aktives Repository",
     "workspaceGroup": "Arbeitsbereich",
     "globalGroup": "Global",
-    "viewDetail": "Ansicht wechseln"
+    "viewDetail": "Ansicht wechseln",
+    "mergeBranch": "Branch zusammenführen…"
   },
   "repositorySwitcher": {
     "placeholder": "Repository oder Arbeitsbereich wechseln",
@@ -106,7 +122,53 @@
     "updatingGraph": "Commit-Graph wird aktualisiert…",
     "rowLabel": "{{message}}, von {{author}}, Commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase von {{current}} auf {{onto}}",
+    "entry": "{{current}} auf {{onto}} rebasen…",
+    "palette": "Aktuellen Branch rebasen…",
+    "prediction": "Für Rebase auf {{onto}} ausgewählte Commits: {{count}}. Git überspringt bereits im Ziel vorhandene Änderungen.",
+    "published": "Rebase ersetzt {{count}} veröffentlichte Commits. Danach ist ein Push mit force-with-lease erforderlich.",
+    "noOp": "{{current}} basiert bereits auf {{onto}}. Kein Rebase erforderlich.",
+    "stashExplanation": "Git benötigt unveränderte verfolgte Dateien. Verfolgte und unverfolgte Änderungen vor dem Rebase ausdrücklich stashen; der Stash bleibt bis zur manuellen Wiederherstellung erhalten.",
+    "stashAndRebase": "Änderungen stashen und rebasen",
+    "confirm": "Rebase",
+    "running": "Rebase läuft…",
+    "cancelOperation": "Vorgang abbrechen",
+    "completed": "Rebase abgeschlossen.",
+    "conflicted": "Rebase wegen Konflikten angehalten. Konflikte in den Arbeitsänderungen lösen, dann fortsetzen, überspringen oder abbrechen.",
+    "stale": "Das Repository hat sich geändert. Die aktualisierte Vorschau vor dem nächsten Versuch prüfen.",
+    "failed": "Rebase konnte nicht gestartet werden.",
+    "blocked": {
+      "target_is_current_branch": "Das Ziel ist bereits der aktuelle Branch.",
+      "target_not_found": "{{onto}} existiert nicht mehr.",
+      "target_unsupported": "Einen lokalen oder Remote-Tracking-Branch wählen.",
+      "operation_already_in_progress": "Ein anderer Git-Vorgang läuft bereits.",
+      "detached_head": "HEAD ist losgelöst. Vor dem Rebase einen Branch auschecken.",
+      "unborn_head": "Der aktuelle Branch enthält noch keine Commits.",
+      "index_has_staged_changes": "Der Index enthält vorgemerkte Änderungen.",
+      "would_overwrite": "Rebase würde lokale Änderungen in den folgenden Dateien überschreiben."
+    }
+  },
+  "merge": {
+    "title": "{{source}} in {{target}} zusammenführen", "loading": "Repository wird geprüft…", "running": "Zusammenführung läuft…", "dismiss": "Schließen",
+    "mode": { "label": "Modus", "default": "Standard-Merge", "fastForwardOnly": "Nur Fast-forward" }, "confirm": "Zusammenführen", "cancel": "Abbrechen",
+    "prediction": { "alreadyUpToDate": "{{target}} enthält {{source}} bereits. Nichts zusammenzuführen.", "fastForward_one": "{{source}} ist {{count}} Commit vor {{target}}. Fast-forward wird ausgeführt.", "fastForward_other": "{{source}} ist {{count}} Commits vor {{target}}. Fast-forward wird ausgeführt.", "mergeCommit": "{{source}} ist {{ahead}} Commits vor und {{behind}} hinter {{target}}. Ein Merge-Commit wird erstellt." },
+    "dirty": { "title": "Lokale Änderungen vorhanden.", "stashAndMerge": "Änderungen stashen und zusammenführen", "stashRetained": "Ihre Arbeit befindet sich in {{stash}}." },
+    "remote": { "knownCommit": "Bekannter Commit: {{sha}}", "explanation": "Dies ist der Remote-Tracking-Branch, wie Fjord ihn zuletzt gesehen hat.", "fetchFirst": "{{remote}} vor dem Zusammenführen abrufen" },
+    "outcome": { "alreadyUpToDate": "{{target}} war bereits aktuell.", "fastForwarded": "{{target}} wurde per Fast-forward auf {{source}} gesetzt.", "merged": "{{source}} wurde in {{target}} zusammengeführt.", "conflicted": "{{source}} steht in Konflikt mit {{target}}. Lösen Sie die Konflikte und setzen Sie den Merge fort oder brechen Sie ihn ab." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} ist bereits der aktuelle Branch.", "sourceNotFound": "{{source}} existiert nicht mehr.", "remoteSourceNotSupported": "Remote-Branches können noch nicht zusammengeführt werden. Checken Sie ihn aus oder führen Sie Fetch und den lokalen Branch zusammen.", "sourceKindUnsupported": "Nur Branches können zusammengeführt werden.", "operationInProgress": "Eine andere Git-Operation läuft bereits.", "detachedHead": "HEAD ist detached. Checken Sie vor dem Merge einen Branch aus.", "unbornHead": "{{target}} enthält noch keine Commits.", "stagedChanges_one": "{{count}} vorgemerkte Änderung muss vor dem Merge committet oder gestasht werden.", "stagedChanges_other": "{{count}} vorgemerkte Änderungen müssen vor dem Merge committet oder gestasht werden.", "wouldOverwrite_one": "{{count}} Datei mit lokalen Änderungen würde überschrieben.", "wouldOverwrite_other": "{{count}} Dateien mit lokalen Änderungen würden überschrieben." },
+    "error": { "notFastForward": "{{source}} kann nicht per Fast-forward in {{target}} integriert werden. Verwenden Sie einen Standard-Merge oder zuerst Rebase.", "failed": "Der Merge konnte nicht abgeschlossen werden. Das Repository wurde nur so weit geändert, wie Git gemeldet hat." }
+  },
+  "squashMerge": {
+    "title": "{{source}} als Squash-Merge in {{target}} zusammenführen", "loading": "Repository wird geprüft…", "running": "Squash-Merge läuft…", "dismiss": "Schließen", "confirm": "Squash-Merge", "cancel": "Abbrechen",
+    "explanation": "Die zusammengeführten Änderungen aus {{source}} werden im Index vorgemerkt, ohne einen Commit zu erstellen. Prüfen und committen Sie sie in den Änderungen.",
+    "dirty": { "stashAndSquashMerge": "Änderungen stashen und Squash-Merge ausführen" },
+    "outcome": { "alreadyUpToDate": "{{target}} enthält {{source}} bereits. Nichts zu squashen.", "staged": "{{source}} wurde per Squash-Merge in {{target}} zusammengeführt und für den Commit vorgemerkt.", "conflicted_one": "{{source}} steht in Konflikt mit {{target}}: {{count}} Datei muss in den Änderungen gelöst werden, dann committen. Um den Squash-Merge zu verwerfen, verwenden Sie Reset (Hard) auf den aktuellen Commit.", "conflicted_other": "{{source}} steht in Konflikt mit {{target}}: {{count}} Dateien müssen in den Änderungen gelöst werden, dann committen. Um den Squash-Merge zu verwerfen, verwenden Sie Reset (Hard) auf den aktuellen Commit." },
+    "error": { "failed": "Der Squash-Merge konnte nicht abgeschlossen werden. Das Repository wurde nur so weit geändert, wie Git gemeldet hat." }
+  },
   "context": {
+    "mergeInto": "{{source}} in {{target}} zusammenführen…",
+    "squashMergeInto": "{{source}} als Squash-Merge in {{target}} zusammenführen…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",
@@ -209,6 +271,8 @@
     "repoCountValue": "{{count}} Repos",
     "needAttentionValue": "{{count}} benötigen Aufmerksamkeit",
     "behindOriginValue": "{{count}} zurück",
+    "onExpectedBranchValue": "{{count}} von {{total}} auf {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} von {{total}} bekannten auf {{branch}}",
     "noFilterMatches": "Keine Repositorys entsprechen den aktiven Filtern.",
     "branch": "Branch",
     "dirty": "Änderungen",
@@ -438,6 +502,14 @@
       "title": "Änderungen verwerfen?",
       "confirm": "Änderungen verwerfen"
     },
+    "discardFiles": {
+      "title_one": "Änderungen in dieser Datei verwerfen?",
+      "title_other": "Änderungen in {{count}} Dateien verwerfen?",
+      "confirm": "Änderungen verwerfen",
+      "changedLines_one": "{{count}} geänderte Zeile wird verworfen.",
+      "changedLines_other": "{{count}} geänderte Zeilen werden verworfen.",
+      "stagedUnaffected": "Vorgemerkte Änderungen werden nicht verändert."
+    },
     "forceWithLease": {
       "title": "Push mit Lease erzwingen?",
       "confirm": "Push erzwingen",
@@ -463,6 +535,10 @@
       "title": "Diesen Stash anwenden und entfernen?",
       "confirm": "Stash anwenden"
     },
+    "stashDrop": {
+      "title": "Diesen Stash verwerfen?",
+      "confirm": "Stash verwerfen"
+    },
     "checkoutDiscard": {
       "title": "Änderungen verwerfen und wechseln?",
       "confirm": "Verwerfen und wechseln"
@@ -475,10 +551,15 @@
       "title": "HEAD auf diesen Stand wiederherstellen?",
       "confirm": "HEAD wiederherstellen"
     },
+    "deleteFile": {
+      "title": "Diese Datei löschen?",
+      "confirm": "Datei löschen"
+    },
     "recoverability": {
       "reflog": "Die Commits bleiben über das Reflog erreichbar und können im Wiederherstellungscenter wiederhergestellt werden.",
       "stash": "Ihre Änderungen werden im Stash gespeichert.",
-      "notRecoverable": "Git bewahrt keine garantierte Wiederherstellungskopie dieser Änderungen auf. Fjord kann ihre Wiederherstellung nicht versprechen."
+      "notRecoverable": "Git bewahrt keine garantierte Wiederherstellungskopie dieser Änderungen auf. Fjord kann ihre Wiederherstellung nicht versprechen.",
+      "committed": "Die committete Version bleibt in HEAD erhalten und kann von dort wiederhergestellt werden."
     },
     "blockers": {
       "binary_changes_unsupported": "Binäre Änderungen können in dieser Granularität nicht verworfen werden.",
@@ -487,7 +568,10 @@
       "current_branch_cannot_be_deleted": "Der aktuell ausgecheckte Branch kann nicht gelöscht werden.",
       "operation_not_in_progress": "Es gibt keinen Git-Vorgang zum Abbrechen.",
       "ref_not_found": "Die Ziel-Referenz existiert nicht mehr.",
-      "stash_not_found": "Der ausgewählte Stash-Eintrag existiert nicht mehr."
+      "stash_not_found": "Der ausgewählte Stash-Eintrag existiert nicht mehr.",
+      "delete_target_not_a_file": "Über dieses Menü können nur Dateien gelöscht werden.",
+      "delete_file_partially_staged": "{{path}} hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
+      "delete_file_conflicted": "{{path}} hat ungelöste Konflikte. Lösen Sie diese zuerst auf."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Änderungen in {{count}} geänderter Datei verwerfen: {{sample}}.",
@@ -502,8 +586,11 @@
       "branchDeleted": "Branch {{name}} löschen.",
       "branchDeletedUnmerged": "Branch {{name}} löschen, der nicht in {{unmergedInto}} zusammengeführt ist.",
       "tagDeleted": "Tag {{name}} löschen.",
-      "stashEntryConsumed": "Stash {{index}} anwenden und verbrauchen: {{message}}.",
-      "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen."
+      "stashEntryPopped": "„{{title}}“ ({{refName}}) auf den aktuellen Branch anwenden, {{filesChanged}} Dateien ändern und nur bei erfolgreicher Anwendung entfernen. Erstellt aus {{branch}} bei {{base}}.",
+      "stashEntryDropped": "„{{title}}“ ({{refName}}) mit {{filesChanged}} geänderten Dateien dauerhaft verwerfen. Erstellt aus {{branch}} bei {{base}}.",
+      "remoteRefUpdated": "{{refName}} auf {{remote}} aktualisieren und {{droppedCommits}} Remote-Commits verwerfen.",
+      "fileRemovedTracked": "{{path}} aus dem Arbeitsverzeichnis entfernen; es erscheint als Git-Löschung.",
+      "fileRemovedUntracked": "{{path}} löschen. Git besitzt keine Kopie dieser Datei."
     }
   },
   "repoActions": {
@@ -557,7 +644,8 @@
     "local": "Lokal",
     "remote": "Remote",
     "tags": "Tags",
-    "filterPlaceholder": "Branches und Tags filtern",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Branches, Tags und Stashes filtern",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Leeren",
     "noMatches": "Keine Treffer.",
@@ -581,7 +669,191 @@
     "pushPending": "Wird gepusht…",
     "pushResults": "Push-Ergebnisse",
     "pushSuccess": "Gepusht",
-    "pushFailure": "Fehlgeschlagen: {{error}}"
+    "pushFailure": "Fehlgeschlagen: {{error}}",
+    "fetchUrl": "Fetch-URL",
+    "pushUrl": "Push-URL",
+    "edit": "Bearbeiten",
+    "editLabel": "{{remote}} bearbeiten",
+    "rename": "Umbenennen",
+    "renameLabel": "{{remote}} umbenennen",
+    "remove": "Entfernen",
+    "removeLabel": "{{remote}} entfernen",
+    "removeChecking": "Wird geprüft…",
+    "editTitle": "{{remote}} bearbeiten",
+    "editDescription": "Geben Sie den vollständigen gewünschten URL-Zustand ein. Angezeigte redigierte URLs werden nie als Konfiguration übernommen.",
+    "currentFetchUrl": "Aktuelle Fetch-URL (schreibgeschützt)",
+    "currentPushUrl": "Aktuelle Push-URL (schreibgeschützt)",
+    "noExplicitPushUrl": "Keine explizite Push-URL",
+    "newFetchUrl": "Neue Fetch-URL",
+    "useSeparatePushUrl": "Separate Push-URL verwenden",
+    "newPushUrl": "Neue Push-URL",
+    "save": "Speichern",
+    "saving": "Wird gespeichert…",
+    "renameTitle": "{{remote}} umbenennen",
+    "renameDescription": "Beim Umbenennen bleiben die Remote-Einstellungen erhalten und Branch-Upstreams werden aktualisiert.",
+    "renaming": "Wird umbenannt…",
+    "removeTitle": "{{remote}} entfernen?",
+    "removeDescription": "Die lokale Remote-Konfiguration und Remote-Tracking-Refs werden entfernt. Der Server wird nicht kontaktiert.",
+    "orphanedBranches": "Diese lokalen Branches verlieren ihren Upstream:",
+    "noOrphanedBranches": "Kein lokaler Branch verliert seinen Upstream.",
+    "removing": "Wird entfernt…",
+    "picker": {
+      "fetchTitle": "Remote fetchen",
+      "fetchDescription": "Wählen Sie genau ein Remote zum Fetchen.",
+      "fetchConfirm": "Fetchen",
+      "publishTitle": "Push & Upstream festlegen",
+      "publishDescription": "Wählen Sie das Ziel für {{branch}} und legen Sie den Upstream fest.",
+      "publishConfirm": "Push & Upstream festlegen",
+      "setUpstreamTitle": "Upstream festlegen",
+      "setUpstreamDescription": "Wählen Sie Remote und Remote-Branch für {{branch}}.",
+      "setUpstreamConfirm": "Upstream festlegen",
+      "remoteLabel": "Remote",
+      "branchLabel": "Remote-Branch",
+      "loading": "Remotes werden geladen…",
+      "empty": "Fügen Sie zuerst ein Remote hinzu.",
+      "noBranches": "{{remote}} hat keine bekannten Remote-Branches. Fetchen Sie es zuerst."
+    }
+  },
+  "stash": {
+    "empty": "Keine Stashes.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "apply": "Stash anwenden",
+      "pop": "Stash anwenden und entfernen…",
+      "createBranch": "Branch aus Stash erstellen…",
+      "copyRef": "Stash-Referenz kopieren",
+      "copySha": "Stash-SHA kopieren",
+      "copyBaseSha": "Basis-Commit-SHA kopieren",
+      "revealInGraph": "Im Graphen anzeigen",
+      "drop": "Stash verwerfen…",
+      "more": "Weitere Stash-Aktionen"
+    },
+    "options": {
+      "applyTitle": "Stash anwenden",
+      "popTitle": "Stash anwenden und entfernen",
+      "applyDescription": "„{{title}}“ auf den aktuellen Branch anwenden und im Stash behalten.",
+      "popDescription": "„{{title}}“ auf den aktuellen Branch anwenden und bei Erfolg entfernen.",
+      "restoreIndex": "Bereitgestellten Zustand wiederherstellen",
+      "restoreIndexUnavailable": "Dieser Stash enthält keinen gespeicherten bereitgestellten Zustand.",
+      "cancel": "Abbrechen",
+      "applyConfirm": "Anwenden",
+      "popConfirm": "Weiter"
+    },
+    "branch": {
+      "title": "Branch aus Stash erstellen",
+      "description": "Branch an der Stash-Basis {{base}} erstellen und auschecken.",
+      "name": "Branch-Name",
+      "confirm": "Erstellen",
+      "base": "Basis: {{base}}",
+      "applyAfterCheckout": "Stash nach dem Checkout anwenden",
+      "kept": "Der Stash bleibt erhalten und kann anschließend verworfen werden."
+    },
+    "notice": {
+      "applied": "Stash wurde angewendet und behalten.",
+      "applyConflicted": "Stash wurde mit Konflikten in {{count}} Dateien angewendet und behalten. Lösen Sie sie in den Arbeitsänderungen oder im Merge-Tool.",
+      "popped": "Stash wurde angewendet und entfernt.",
+      "popConflicted": "Stash wurde mit Konflikten in {{count}} Dateien angewendet und behalten. Lösen Sie sie in den Arbeitsänderungen oder im Merge-Tool.",
+      "dropped": "Stash wurde verworfen.",
+      "branchCreated": "Branch {{branch}} wurde erstellt und ausgecheckt. Der Stash wurde behalten.",
+      "branchConflicted": "Branch {{branch}} wurde erstellt und ausgecheckt. Beim Anwenden entstanden Konflikte in {{count}} Dateien; der Stash wurde behalten."
+    },
+    "error": {
+      "empty": "Es gibt keine Stashes zum Anwenden."
+    },
+    "revealNotFound": "Der Commit, aus dem dieser Stash erstellt wurde, ist in diesem Verlauf nicht enthalten.",
+    "inspector": {
+      "createdFrom": "Erstellt aus {{branch}}",
+      "createdDetached": "Bei losgelöstem HEAD erstellt",
+      "baseCommit": "Basis-Commit",
+      "files_one": "{{count}} Datei",
+      "files_other": "{{count}} Dateien",
+      "groupStaged": "Bereitgestellte Änderungen",
+      "groupWorktree": "Arbeitsänderungen",
+      "groupUntracked": "Nicht verfolgt",
+      "applyIsUnstaged": "Anwenden stellt diese Änderungen als nicht bereitgestellt wieder her, sofern der Indexzustand nicht wiederhergestellt wird.",
+      "truncated": "Dieser Stash ist zu groß, um alle Dateien aufzulisten.",
+      "empty": "Dieser Stash enthält keine Dateiänderungen."
+    },
+    "create": {
+      "title": "Änderungen stashen",
+      "name": "Name",
+      "scope": "Umfang",
+      "all": "Alle geänderten Dateien",
+      "selected": "Ausgewählte Dateien ({{count}})",
+      "selectedFiles": "Ausgewählte Dateien",
+      "includeUntracked": "Nicht verfolgte Dateien einschließen",
+      "untrackedExcluded": "{{count}} nicht verfolgte Datei(en) ausgeschlossen: {{paths}}",
+      "emptyEffectiveScope": "Keine ausgewählten verfolgten Dateien verbleiben. Schließen Sie nicht verfolgte Dateien ein.",
+      "unsupportedGit": "Bereichsbezogene Stashes benötigen Git 2.23 oder neuer.",
+      "defaultAll": "Fjord: Änderungen stashen",
+      "defaultPaths": "Fjord: {{count}} Dateien stashen",
+      "andMore": "und {{count}} weitere",
+      "confirm": "Stashen"
+    }
+  },
+  "workingFile": {
+    "stage": "Stagen",
+    "stageFiles_one": "Stagen",
+    "stageFiles_other": "{{count}} Dateien stagen",
+    "unstage": "Aus Staging entfernen",
+    "unstageFiles_one": "Aus Staging entfernen",
+    "unstageFiles_other": "{{count}} Dateien aus Staging entfernen",
+    "discard": "Arbeitsänderungen verwerfen…",
+    "discardFiles_one": "Arbeitsänderungen verwerfen…",
+    "discardFiles_other": "Änderungen in {{count}} Dateien verwerfen…",
+    "discardIncomplete": "Öffne den Datei-Diff, um Änderungen in einer so großen Datei zu verwerfen.",
+    "openInConfiguredEditor": "Im konfigurierten Editor öffnen",
+    "openWithDefault": "Mit Standardanwendung öffnen",
+    "showInFolder": "Im Ordner anzeigen",
+    "openMergeTool": "Merge-Werkzeug öffnen",
+    "openExternalDiff": "In externem Diff-Tool öffnen",
+    "copyPath": { "label": "Pfad kopieren", "relative": "Relativer Pfad", "absolute": "Absoluter Pfad" },
+    "copyPaths": "Pfade kopieren",
+    "stashFiles_one": "Datei stashen…",
+    "stashFiles_other": "{{count}} Dateien stashen…",
+    "createPatch": "Patch aus Änderungen erstellen…",
+    "createPatchStaged": "Patch aus vorgemerkten Änderungen erstellen…",
+    "copyPatch": "Patch in die Zwischenablage kopieren",
+    "createPatchFiles_one": "Patch aus Änderungen erstellen…",
+    "createPatchFiles_other": "Patch aus {{count}} Dateien erstellen…",
+    "createPatchFilesStaged_one": "Patch aus vorgemerkten Änderungen erstellen…",
+    "createPatchFilesStaged_other": "Patch aus {{count}} vorgemerkten Dateien erstellen…",
+    "copyPatchFiles_one": "Patch in die Zwischenablage kopieren",
+    "copyPatchFiles_other": "Patch für {{count}} Dateien kopieren",
+    "patchSaved": "Patch gespeichert unter {{path}}.",
+    "delete": "Datei löschen…",
+    "stashFile": {
+      "label": "Datei stashen…",
+      "title": "Änderungen in {{path}} stashen",
+      "message": "Nachricht",
+      "defaultMessage": "Fjord: Stash {{path}}",
+      "stagedNotPreserved": "Der Bereitstellungsstatus bleibt nicht erhalten: Beim Wiederherstellen dieses Stashs erscheinen die Änderungen als nicht bereitgestellt.",
+      "unsupportedGit": "Bereichsbezogene Stashes benötigen Git 2.23 oder neuer.",
+      "confirm": "Datei stashen"
+    },
+    "disabled": {
+      "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde.",
+      "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
+      "noDiffTool": "Es ist kein externes Diff-Tool konfiguriert. Legen Sie diff.tool in Git fest oder wählen Sie eines unter Einstellungen → Werkzeuge.",
+      "conflictedSelection": "{{path}} hat einen Konflikt. Lösen Sie ihn, bevor Sie die Auswahl bearbeiten."
+    },
+    "ignore": {
+      "label": "Ignorieren",
+      "file": "Diese Datei ignorieren",
+      "extension": "Alle .{{extension}}-Dateien ignorieren",
+      "directory": "Diesen Ordner ignorieren ({{directory}})",
+      "title": "Regel zu .gitignore hinzufügen",
+      "description": "Prüfen Sie vor dem Schreiben die genaue Regel für {{path}}.",
+      "loading": ".gitignore wird geprüft…",
+      "rulePreview": "Hinzuzufügende Regel",
+      "confirm": "Regel hinzufügen",
+      "adding": "Wird hinzugefügt…",
+      "close": "Schließen",
+      "added": "Regel wurde zu .gitignore hinzugefügt.",
+      "alreadyPresent": "Diese genaue Regel ist bereits in .gitignore vorhanden.",
+      "trackedFile": "Verfolgte Dateien können nicht ignoriert werden. Git muss die Verfolgung zuerst beenden.",
+      "encodingUnsupported": ".gitignore muss UTF-8 mit oder ohne BOM sein. Die Datei wurde nicht geändert."
+    }
   },
   "working": {
     "title": "Nicht committete Änderungen",
@@ -606,6 +878,23 @@
     "descriptionPlaceholder": "Beschreibung (optional)",
     "commit_one": "{{count}} Datei committen",
     "commit_other": "{{count}} Dateien committen"
+  },
+  "workingChanges": {
+    "selectionAnnouncement_one": "{{count}} von {{total}} Datei ausgewählt",
+    "selectionAnnouncement_other": "{{count}} von {{total}} Dateien ausgewählt",
+    "selectedCount_one": "{{count}} ausgewählt",
+    "selectedCount_other": "{{count}} ausgewählt",
+    "selectionActions_one": "Aktionen für {{count}} ausgewählte Datei",
+    "selectionActions_other": "Aktionen für {{count}} ausgewählte Dateien",
+    "clearSelection": "Leeren"
+  },
+  "workspaceSettings": {
+    "title": "Workspace-Einstellungen",
+    "forWorkspace": "Einstellungen für {{workspace}}.",
+    "expectedBranch": "Erwarteter Branch",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Repositorys in diesem Workspace sollen auf diesem Branch stehen.",
+    "expectedBranchEmpty": "Leer lassen, um die Branch-Prüfung zu deaktivieren."
   },
   "workspaces": {
     "label": "Workspaces",

@@ -13,7 +13,7 @@ use fjord_git::{LocalGitBackend, SystemGitEnvironmentProvider, SystemGitRemoteBa
 use fjord_ports::{
     DiffWindowOptions, GitBackend, IdeLauncher, LaunchError, RepoPath, WorkspaceStore,
 };
-use fjord_services::RepoService;
+use fjord_services::{RepoService, WorkspaceService};
 use git2::{Repository, RepositoryInitOptions, Signature};
 
 /// `RepoService` needs an `IdeLauncher`; the benchmark never launches one.
@@ -948,6 +948,7 @@ async fn measure_workspace_dashboard(
         Arc::new(SystemGitEnvironmentProvider::new()),
         Arc::new(NoopIdeLauncher),
     );
+    let workspace_service = WorkspaceService::new(store.clone(), backend.clone());
     repo_service
         .capture_repository_snapshot(registered[0].id)
         .await
@@ -970,7 +971,9 @@ async fn measure_workspace_dashboard(
     let mut live_samples = Vec::with_capacity(args.repetitions);
     let mut cached_samples = Vec::with_capacity(args.repetitions);
     let mut snapshot_samples = Vec::with_capacity(args.repetitions);
+    let mut health_samples = Vec::with_capacity(args.repetitions);
     let mut dashboard = Vec::new();
+    let mut health = Vec::new();
     for iteration in sample_iterations(args) {
         let live_refresh_ms = if cached_only {
             0.0
@@ -996,6 +999,13 @@ async fn measure_workspace_dashboard(
             .map_err(|e| e.to_string())?;
         let cached_dashboard_ms = ms(start.elapsed());
 
+        let start = Instant::now();
+        health = workspace_service
+            .get_workspace_health(workspace.id)
+            .await
+            .map_err(|error| error.to_string())?;
+        let workspace_health_ms = ms(start.elapsed());
+
         // Backend contribution to SLO-4. The frontend hydrates this one row
         // into its existing query cache before mounting the repository view.
         let start = Instant::now();
@@ -1012,19 +1022,23 @@ async fn measure_workspace_dashboard(
                 live_samples.push(live_refresh_ms);
             }
             cached_samples.push(cached_dashboard_ms);
+            health_samples.push(workspace_health_ms);
             snapshot_samples.push(repo_snapshot_load_ms);
         }
     }
 
     println!("workspace_repos={repos}");
     println!("dashboard_rows={}", dashboard.len());
+    println!("health_rows={}", health.len());
 
     record
         .count("workspace_repos", repos as u64)
-        .count("dashboard_rows", dashboard.len() as u64);
+        .count("dashboard_rows", dashboard.len() as u64)
+        .count("health_rows", health.len() as u64);
     let live_distribution =
         (!cached_only).then(|| report_distribution(record, "live_refresh", &live_samples));
     let cached_distribution = report_distribution(record, "cached_dashboard", &cached_samples);
+    report_distribution(record, "workspace_health", &health_samples);
     report_distribution(record, "repo_snapshot_load", &snapshot_samples);
     for budget in [
         live_distribution.as_ref().and_then(|distribution| {
@@ -1323,10 +1337,13 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         Arc::new(SystemGitEnvironmentProvider::new()),
         Arc::new(NoopIdeLauncher),
     );
+    let workspace_service = WorkspaceService::new(store.clone(), backend.clone());
     let mut live_samples = Vec::with_capacity(args.repetitions);
     let mut cached_samples = Vec::with_capacity(args.repetitions);
     let mut search_samples = Vec::with_capacity(args.repetitions);
+    let mut health_samples = Vec::with_capacity(args.repetitions);
     let mut dashboard = Vec::new();
+    let mut health = Vec::new();
     let mut search_hits = Vec::new();
     for iteration in sample_iterations(&args) {
         let start = Instant::now();
@@ -1350,6 +1367,13 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         let cached_ms = ms(start.elapsed());
 
         let start = Instant::now();
+        health = workspace_service
+            .get_workspace_health(workspace.id)
+            .await
+            .map_err(|error| error.to_string())?;
+        let health_ms = ms(start.elapsed());
+
+        let start = Instant::now();
         search_hits = repo_service
             .global_search(Some(workspace.id), "synthetic commit 1", 30)
             .await
@@ -1358,22 +1382,26 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         if is_measured_iteration(&args, iteration) {
             live_samples.push(live_ms);
             cached_samples.push(cached_ms);
+            health_samples.push(health_ms);
             search_samples.push(search_ms);
         }
     }
 
-    let need_attention = dashboard
+    let need_attention = health
         .iter()
-        .filter(|summary| {
-            summary.status.has_conflict
-                || summary.status.dirty_count > 0
-                || summary.status.ahead > 0
-                || summary.status.behind > 0
-        })
+        .filter(|health| health.needs_attention)
         .count();
-    let behind_origin = dashboard
+    let behind_origin = health
         .iter()
-        .filter(|summary| summary.status.behind > 0)
+        .filter(|health| {
+            health.conditions.iter().any(|condition| {
+                matches!(
+                    condition,
+                    fjord_domain::RepoCondition::Behind { .. }
+                        | fjord_domain::RepoCondition::Diverged { .. }
+                )
+            })
+        })
         .count();
 
     println!("workspace_root={}", args.repo.display());
@@ -1383,6 +1411,7 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
     println!("commits_per_repo={}", args.commits);
     println!("files_per_repo={}", args.files);
     println!("dashboard_rows={}", dashboard.len());
+    println!("health_rows={}", health.len());
     println!("need_attention={need_attention}");
     println!("behind_origin={behind_origin}");
     let generation_ms = ms(generation_elapsed);
@@ -1401,6 +1430,7 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         .count("workspace_repos", args.workspace_repos as u64)
         .count("commits_per_repo", args.commits as u64)
         .count("dashboard_rows", dashboard.len() as u64)
+        .count("health_rows", health.len() as u64)
         .count("need_attention", need_attention as u64)
         .count("behind_origin", behind_origin as u64)
         .count("global_search_hits", search_hits.len() as u64)
@@ -1410,6 +1440,7 @@ async fn run_workspace_benchmark(args: Args) -> Result<(), String> {
         .ms("generation", generation_ms);
     let live_distribution = report_distribution(&mut record, "live_refresh", &live_samples);
     let cached_distribution = report_distribution(&mut record, "cached_dashboard", &cached_samples);
+    report_distribution(&mut record, "workspace_health", &health_samples);
     report_distribution(&mut record, "global_search", &search_samples);
     for budget in [
         check_distribution_budget(

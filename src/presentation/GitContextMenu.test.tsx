@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextMenu } from "@/presentation/GitContextMenu";
@@ -47,4 +48,44 @@ describe("ContextMenu", () => {
 
     expect(onSelect).toHaveBeenCalledWith("copy");
   });
+
+  it("opens submenus with the keyboard and restores focus after Escape", async () => {
+    const onSelect = vi.fn();
+    render(<MenuHarness onSelect={onSelect} />);
+    const origin = screen.getByRole("button", { name: "Open menu" });
+    origin.focus();
+    fireEvent.click(origin);
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Copy path" })).toHaveFocus());
+
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Relative path" })).toHaveFocus());
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Copy path" })).toHaveFocus());
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+    await waitFor(() => expect(origin).toHaveFocus());
+    expect(onSelect).not.toHaveBeenCalled();
+  });
 });
+
+function MenuHarness({ onSelect }: { onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" onClick={() => setOpen(true)}>Open menu</button>
+    {open ? (
+      <ContextMenu
+        position={{ x: 20, y: 20 }}
+        items={[{
+          id: "copy",
+          label: "Copy path",
+          children: [
+            { id: "relative", label: "Relative path" },
+            { id: "absolute", label: "Absolute path" },
+          ],
+        }]}
+        onSelect={onSelect}
+        onClose={() => setOpen(false)}
+      />
+    ) : null}
+  </>;
+}

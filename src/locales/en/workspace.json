@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "All repositories",
     "filterPlaceholder": "Filter by repo or workspace",
-    "empty": "No repositories match the filter."
+    "empty": "No repositories yet."
+  },
+  "filters": {
+    "label": "Repository filters",
+    "attention": "Needs attention",
+    "dirty": "Dirty",
+    "ahead": "Ahead",
+    "behind": "Behind",
+    "conflicts": "Conflicts",
+    "wrongBranch": "Wrong branch",
+    "clear": "Clear",
+    "noMatches": "No repositories match the current filters."
   },
   "branches": {
     "current": "current"
@@ -22,6 +33,10 @@
     "ahead": "Ahead",
     "behind": "Behind",
     "conflict": "Conflict",
+    "diverged": "Diverged",
+    "operation": "Operation in progress",
+    "unreadable": "Unreadable",
+    "wrongBranch": "Wrong branch",
     "upToDate": "Up to date",
     "changes": "{{count}} changes"
   },
@@ -32,7 +47,8 @@
     "activeRepositoryGroup": "Active repository",
     "workspaceGroup": "Workspace",
     "globalGroup": "Global",
-    "viewDetail": "Switch view"
+    "viewDetail": "Switch view",
+    "mergeBranch": "Merge branch…"
   },
   "repositorySwitcher": {
     "placeholder": "Switch repository or workspace",
@@ -106,7 +122,99 @@
     "updatingGraph": "Updating commit graph…",
     "rowLabel": "{{message}}, by {{author}}, commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase {{current}} onto {{onto}}",
+    "entry": "Rebase {{current}} onto {{onto}}…",
+    "palette": "Rebase current branch…",
+    "prediction": "Commits selected for rebase onto {{onto}}: {{count}}. Git skips changes already present in the target.",
+    "published": "Rebase will replace {{count}} published commits. A force-with-lease push will be required afterwards.",
+    "noOp": "{{current}} is already based on {{onto}}. Nothing to rebase.",
+    "stashExplanation": "Git requires clean tracked files. Stash tracked and untracked changes explicitly before rebase; the stash will remain until you restore it yourself.",
+    "stashAndRebase": "Stash changes and rebase",
+    "confirm": "Rebase",
+    "running": "Rebasing…",
+    "cancelOperation": "Cancel operation",
+    "completed": "Rebase completed.",
+    "conflicted": "Rebase stopped with conflicts. Resolve them in Working Changes, then Continue, Skip or Abort.",
+    "stale": "The repository changed. Review the refreshed preflight before trying again.",
+    "failed": "Could not start rebase.",
+    "blocked": {
+      "target_is_current_branch": "The target is already the current branch.",
+      "target_not_found": "{{onto}} no longer exists.",
+      "target_unsupported": "Choose a local or remote-tracking branch.",
+      "operation_already_in_progress": "Another Git operation is already in progress.",
+      "detached_head": "HEAD is detached. Check out a branch before rebase.",
+      "unborn_head": "The current branch has no commits yet.",
+      "index_has_staged_changes": "The index has staged changes.",
+      "would_overwrite": "Rebase would overwrite local work in the paths below."
+    }
+  },
+  "merge": {
+    "title": "Merge {{source}} into {{target}}",
+    "loading": "Checking the repository…",
+    "running": "Merging…",
+    "dismiss": "Close",
+    "mode": { "label": "Mode", "default": "Default merge", "fastForwardOnly": "Fast-forward only" },
+    "confirm": "Merge",
+    "cancel": "Cancel",
+    "prediction": {
+      "alreadyUpToDate": "{{target}} already contains {{source}}. Nothing to merge.",
+      "fastForward_one": "{{source}} is {{count}} commit ahead of {{target}}. This will fast-forward.",
+      "fastForward_other": "{{source}} is {{count}} commits ahead of {{target}}. This will fast-forward.",
+      "mergeCommit": "{{source}} is {{ahead}} commits ahead and {{behind}} behind {{target}}. This will create a merge commit."
+    },
+    "dirty": { "title": "You have local changes.", "stashAndMerge": "Stash changes and merge", "stashRetained": "Your work is in {{stash}}." },
+    "remote": {
+      "knownCommit": "Known commit: {{sha}}",
+      "explanation": "This is the remote-tracking branch as Fjord last saw it.",
+      "fetchFirst": "Fetch {{remote}} before merging"
+    },
+    "outcome": {
+      "alreadyUpToDate": "{{target}} was already up to date.",
+      "fastForwarded": "{{target}} was fast-forwarded to {{source}}.",
+      "merged": "Merged {{source}} into {{target}}.",
+      "conflicted": "{{source}} conflicts with {{target}}. Resolve the conflicts, then continue or abort the merge."
+    },
+    "blocked": {
+      "sourceIsCurrentBranch": "{{target}} is already the current branch.",
+      "sourceNotFound": "{{source}} no longer exists.",
+      "remoteSourceNotSupported": "Merging a remote branch is not available yet. Check it out, or fetch and merge the local branch.",
+      "sourceKindUnsupported": "Only branches can be merged.",
+      "operationInProgress": "Another Git operation is already in progress.",
+      "detachedHead": "HEAD is detached. Check out a branch before merging.",
+      "unbornHead": "{{target}} has no commits yet.",
+      "stagedChanges_one": "{{count}} staged change must be committed or stashed before merging.",
+      "stagedChanges_other": "{{count}} staged changes must be committed or stashed before merging.",
+      "wouldOverwrite_one": "{{count}} file with local changes would be overwritten by this merge.",
+      "wouldOverwrite_other": "{{count}} files with local changes would be overwritten by this merge."
+    },
+    "error": {
+      "notFastForward": "{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.",
+      "failed": "The merge could not be completed. The repository was not changed beyond what Git reported."
+    }
+  },
+  "squashMerge": {
+    "title": "Squash merge {{source}} into {{target}}",
+    "loading": "Checking the repository…",
+    "running": "Squash merging…",
+    "dismiss": "Close",
+    "confirm": "Squash merge",
+    "cancel": "Cancel",
+    "explanation": "This will stage the combined changes from {{source}} without creating a commit. Review and commit them from Working Changes.",
+    "dirty": { "stashAndSquashMerge": "Stash changes and squash merge" },
+    "outcome": {
+      "alreadyUpToDate": "{{target}} already contains {{source}}. Nothing to squash.",
+      "staged": "Squashed {{source}} into {{target}}: changes staged for commit.",
+      "conflicted_one": "{{source}} conflicts with {{target}}: 1 file needs resolving in Working Changes, then commit. To discard the squash, use Reset (Hard) to the current commit.",
+      "conflicted_other": "{{source}} conflicts with {{target}}: {{count}} files need resolving in Working Changes, then commit. To discard the squash, use Reset (Hard) to the current commit."
+    },
+    "error": {
+      "failed": "The squash merge could not be completed. The repository was not changed beyond what Git reported."
+    }
+  },
   "context": {
+    "mergeInto": "Merge {{source}} into {{target}}…",
+    "squashMergeInto": "Squash merge {{source}} into {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",
@@ -209,6 +317,8 @@
     "repoCountValue": "{{count}} repos",
     "needAttentionValue": "{{count}} need attention",
     "behindOriginValue": "{{count}} behind",
+    "onExpectedBranchValue": "{{count}} of {{total}} on {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} of {{total}} known on {{branch}}",
     "noFilterMatches": "No repositories match the active summary filters.",
     "branch": "Branch",
     "dirty": "Dirty",
@@ -438,6 +548,14 @@
       "title": "Discard changes?",
       "confirm": "Discard changes"
     },
+    "discardFiles": {
+      "title_one": "Discard changes in this file?",
+      "title_other": "Discard changes in {{count}} files?",
+      "confirm": "Discard changes",
+      "changedLines_one": "{{count}} changed line will be discarded.",
+      "changedLines_other": "{{count}} changed lines will be discarded.",
+      "stagedUnaffected": "Staged changes are not modified."
+    },
     "forceWithLease": {
       "title": "Force push with lease?",
       "confirm": "Force push",
@@ -463,6 +581,10 @@
       "title": "Apply and remove this stash?",
       "confirm": "Pop stash"
     },
+    "stashDrop": {
+      "title": "Drop this stash?",
+      "confirm": "Drop stash"
+    },
     "checkoutDiscard": {
       "title": "Discard changes and check out?",
       "confirm": "Discard and check out"
@@ -475,10 +597,15 @@
       "title": "Restore HEAD to this state?",
       "confirm": "Restore HEAD"
     },
+    "deleteFile": {
+      "title": "Delete this file?",
+      "confirm": "Delete file"
+    },
     "recoverability": {
       "reflog": "The commits remain reachable through the reflog and can be restored from the Recovery Center.",
       "stash": "Your changes will be saved to the stash.",
-      "notRecoverable": "Git does not retain a guaranteed recovery copy of these changes. Fjord cannot promise they can be restored."
+      "notRecoverable": "Git does not retain a guaranteed recovery copy of these changes. Fjord cannot promise they can be restored.",
+      "committed": "The committed version stays in HEAD and can be restored from there."
     },
     "blockers": {
       "binary_changes_unsupported": "Binary changes cannot be discarded at this granularity.",
@@ -487,7 +614,10 @@
       "current_branch_cannot_be_deleted": "The currently checked-out branch cannot be deleted.",
       "operation_not_in_progress": "There is no Git operation to abort.",
       "ref_not_found": "The target ref no longer exists.",
-      "stash_not_found": "The selected stash entry no longer exists."
+      "stash_not_found": "The selected stash entry no longer exists.",
+      "delete_target_not_a_file": "Only files can be deleted from this menu.",
+      "delete_file_partially_staged": "{{path}} also has staged changes. Unstage them before deleting the file.",
+      "delete_file_conflicted": "{{path}} has unresolved conflicts. Resolve them first."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Discard changes in {{count}} modified file: {{sample}}.",
@@ -502,8 +632,11 @@
       "branchDeleted": "Delete branch {{name}}.",
       "branchDeletedUnmerged": "Delete branch {{name}}, which is not merged into {{unmergedInto}}.",
       "tagDeleted": "Delete tag {{name}}.",
-      "stashEntryConsumed": "Apply and consume stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits."
+      "stashEntryPopped": "Apply “{{title}}” ({{refName}}) to the current branch, changing {{filesChanged}} files, then remove it only if apply succeeds. Created from {{branch}} at {{base}}.",
+      "stashEntryDropped": "Permanently drop “{{title}}” ({{refName}}), containing {{filesChanged}} changed files. Created from {{branch}} at {{base}}.",
+      "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits.",
+      "fileRemovedTracked": "Remove {{path}} from the working tree; it will appear as a Git deletion.",
+      "fileRemovedUntracked": "Delete {{path}}. Git has no copy of this file."
     }
   },
   "repoActions": {
@@ -557,7 +690,8 @@
     "local": "Local",
     "remote": "Remote",
     "tags": "Tags",
-    "filterPlaceholder": "Filter branches and tags",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Filter branches, tags, and stashes",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Clear",
     "noMatches": "No matches.",
@@ -581,7 +715,191 @@
     "pushPending": "Pushing…",
     "pushResults": "Push results",
     "pushSuccess": "Pushed",
-    "pushFailure": "Failed: {{error}}"
+    "pushFailure": "Failed: {{error}}",
+    "fetchUrl": "Fetch URL",
+    "pushUrl": "Push URL",
+    "edit": "Edit",
+    "editLabel": "Edit {{remote}}",
+    "rename": "Rename",
+    "renameLabel": "Rename {{remote}}",
+    "remove": "Remove",
+    "removeLabel": "Remove {{remote}}",
+    "removeChecking": "Checking…",
+    "editTitle": "Edit {{remote}}",
+    "editDescription": "Enter the complete desired URL state. Displayed redacted URLs are never reused as configuration input.",
+    "currentFetchUrl": "Current fetch URL (read only)",
+    "currentPushUrl": "Current push URL (read only)",
+    "noExplicitPushUrl": "No explicit push URL",
+    "newFetchUrl": "New fetch URL",
+    "useSeparatePushUrl": "Use a separate push URL",
+    "newPushUrl": "New push URL",
+    "save": "Save",
+    "saving": "Saving…",
+    "renameTitle": "Rename {{remote}}",
+    "renameDescription": "Renaming preserves this remote's configuration and updates branch upstream names.",
+    "renaming": "Renaming…",
+    "removeTitle": "Remove {{remote}}?",
+    "removeDescription": "This removes the local remote configuration and its remote-tracking refs. It does not contact the server.",
+    "orphanedBranches": "These local branches will lose their upstream:",
+    "noOrphanedBranches": "No local branch will lose its upstream.",
+    "removing": "Removing…",
+    "picker": {
+      "fetchTitle": "Fetch remote",
+      "fetchDescription": "Choose the one remote to fetch.",
+      "fetchConfirm": "Fetch",
+      "publishTitle": "Push & Set Upstream",
+      "publishDescription": "Choose where to publish {{branch}} and set its upstream.",
+      "publishConfirm": "Push & Set Upstream",
+      "setUpstreamTitle": "Set upstream",
+      "setUpstreamDescription": "Choose a remote and remote branch for {{branch}}.",
+      "setUpstreamConfirm": "Set upstream",
+      "remoteLabel": "Remote",
+      "branchLabel": "Remote branch",
+      "loading": "Loading remotes…",
+      "empty": "Add a remote before running this action.",
+      "noBranches": "{{remote}} has no known remote branches. Fetch it first."
+    }
+  },
+  "stash": {
+    "empty": "No stashes.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "apply": "Apply stash",
+      "pop": "Pop stash…",
+      "createBranch": "Create branch from stash…",
+      "copyRef": "Copy stash reference",
+      "copySha": "Copy stash SHA",
+      "copyBaseSha": "Copy base commit SHA",
+      "revealInGraph": "Reveal in graph",
+      "drop": "Drop stash…",
+      "more": "More stash actions"
+    },
+    "options": {
+      "applyTitle": "Apply stash",
+      "popTitle": "Pop stash",
+      "applyDescription": "Apply “{{title}}” to the current branch and keep it in the stash.",
+      "popDescription": "Apply “{{title}}” to the current branch, then remove it if apply succeeds.",
+      "restoreIndex": "Restore staged state",
+      "restoreIndexUnavailable": "This stash has no saved staged state to restore.",
+      "cancel": "Cancel",
+      "applyConfirm": "Apply",
+      "popConfirm": "Continue"
+    },
+    "branch": {
+      "title": "Create branch from stash",
+      "description": "Create and check out a branch at stash base {{base}}.",
+      "name": "Branch name",
+      "confirm": "Create",
+      "base": "Base: {{base}}",
+      "applyAfterCheckout": "Apply stash after checkout",
+      "kept": "The stash is kept. You can drop it afterwards."
+    },
+    "notice": {
+      "applied": "Stash applied and kept.",
+      "applyConflicted": "Stash applied with conflicts in {{count}} files. The stash was kept; resolve them in Working Changes or your merge tool.",
+      "popped": "Stash applied and removed.",
+      "popConflicted": "Stash applied with conflicts in {{count}} files. The stash was kept; resolve them in Working Changes or your merge tool.",
+      "dropped": "Stash dropped.",
+      "branchCreated": "Branch {{branch}} was created and checked out. The stash was kept.",
+      "branchConflicted": "Branch {{branch}} was created and checked out. Applying the stash produced conflicts in {{count}} files; the stash was kept."
+    },
+    "error": {
+      "empty": "There are no stashes to pop."
+    },
+    "revealNotFound": "The commit this stash was created from is not in this history.",
+    "inspector": {
+      "createdFrom": "Created from {{branch}}",
+      "createdDetached": "Created on a detached HEAD",
+      "baseCommit": "Base commit",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} files",
+      "groupStaged": "Staged changes",
+      "groupWorktree": "Working changes",
+      "groupUntracked": "Untracked",
+      "applyIsUnstaged": "Apply restores these changes as unstaged unless you restore the staged state.",
+      "truncated": "This stash is too large to list every file.",
+      "empty": "This stash contains no file changes."
+    },
+    "create": {
+      "title": "Stash changes",
+      "name": "Name",
+      "scope": "Scope",
+      "all": "All changed files",
+      "selected": "Selected files ({{count}})",
+      "selectedFiles": "Selected files",
+      "includeUntracked": "Include untracked files",
+      "untrackedExcluded": "Excluded {{count}} untracked file(s): {{paths}}",
+      "emptyEffectiveScope": "No tracked selected files remain. Include untracked files to continue.",
+      "unsupportedGit": "Scoped stash creation needs Git 2.23 or newer.",
+      "defaultAll": "Fjord: stash changes",
+      "defaultPaths": "Fjord: stash {{count}} files",
+      "andMore": "and {{count}} more",
+      "confirm": "Stash"
+    }
+  },
+  "workingFile": {
+    "stage": "Stage",
+    "stageFiles_one": "Stage",
+    "stageFiles_other": "Stage {{count}} files",
+    "unstage": "Unstage",
+    "unstageFiles_one": "Unstage",
+    "unstageFiles_other": "Unstage {{count}} files",
+    "discard": "Discard working changes…",
+    "discardFiles_one": "Discard working changes…",
+    "discardFiles_other": "Discard changes in {{count}} files…",
+    "discardIncomplete": "Open the file diff to discard changes in a file this large.",
+    "openInConfiguredEditor": "Open in configured editor",
+    "openWithDefault": "Open with default application",
+    "showInFolder": "Show in folder",
+    "openMergeTool": "Open merge tool",
+    "openExternalDiff": "Open in external diff tool",
+    "copyPath": { "label": "Copy path", "relative": "Relative path", "absolute": "Absolute path" },
+    "copyPaths": "Copy paths",
+    "stashFiles_one": "Stash file…",
+    "stashFiles_other": "Stash {{count}} files…",
+    "createPatch": "Create patch from changes…",
+    "createPatchStaged": "Create patch from staged changes…",
+    "copyPatch": "Copy patch to clipboard",
+    "createPatchFiles_one": "Create patch from changes…",
+    "createPatchFiles_other": "Create patch from {{count}} files…",
+    "createPatchFilesStaged_one": "Create patch from staged changes…",
+    "createPatchFilesStaged_other": "Create patch from {{count}} staged files…",
+    "copyPatchFiles_one": "Copy patch to clipboard",
+    "copyPatchFiles_other": "Copy patch for {{count}} files",
+    "patchSaved": "Patch saved to {{path}}.",
+    "delete": "Delete file…",
+    "stashFile": {
+      "label": "Stash file…",
+      "title": "Stash changes in {{path}}",
+      "message": "Message",
+      "defaultMessage": "Fjord: stash {{path}}",
+      "stagedNotPreserved": "Staged state is not preserved: restoring this stash brings the changes back as unstaged.",
+      "unsupportedGit": "Scoped stash creation needs Git 2.23 or newer.",
+      "confirm": "Stash file"
+    },
+    "disabled": {
+      "whitespaceMode": "The displayed diff is not the patch Git would apply.",
+      "deleteAlsoStaged": "This file also has staged changes. Unstage them before deleting the file.",
+      "noDiffTool": "No external diff tool is configured. Set diff.tool in Git, or choose one in Settings → Tools.",
+      "conflictedSelection": "{{path}} has a conflict. Resolve it before acting on this selection."
+    },
+    "ignore": {
+      "label": "Ignore",
+      "file": "Ignore this file",
+      "extension": "Ignore all .{{extension}} files",
+      "directory": "Ignore this folder ({{directory}})",
+      "title": "Add rule to .gitignore",
+      "description": "Review the exact rule for {{path}} before writing it.",
+      "loading": "Checking .gitignore…",
+      "rulePreview": "Rule to add",
+      "confirm": "Add rule",
+      "adding": "Adding…",
+      "close": "Close",
+      "added": "Rule added to .gitignore.",
+      "alreadyPresent": "This exact rule is already present in .gitignore.",
+      "trackedFile": "Tracked files cannot be ignored. Git must stop tracking the file first.",
+      "encodingUnsupported": ".gitignore must be UTF-8, with or without a BOM. The file was not changed."
+    }
   },
   "working": {
     "title": "Uncommitted changes",
@@ -606,6 +924,23 @@
     "descriptionPlaceholder": "Description (optional)",
     "commit_one": "Commit {{count}} file",
     "commit_other": "Commit {{count}} files"
+  },
+  "workingChanges": {
+    "selectionAnnouncement_one": "{{count}} of {{total}} file selected",
+    "selectionAnnouncement_other": "{{count}} of {{total}} files selected",
+    "selectedCount_one": "{{count}} selected",
+    "selectedCount_other": "{{count}} selected",
+    "selectionActions_one": "Actions for {{count}} selected file",
+    "selectionActions_other": "Actions for {{count}} selected files",
+    "clearSelection": "Clear"
+  },
+  "workspaceSettings": {
+    "title": "Workspace settings",
+    "forWorkspace": "Settings for {{workspace}}.",
+    "expectedBranch": "Expected branch",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Repositories in this workspace are expected to be on this branch.",
+    "expectedBranchEmpty": "Leave empty to disable branch checking."
   },
   "workspaces": {
     "label": "Workspaces",

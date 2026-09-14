@@ -1,9 +1,13 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, DestructiveAction,
-    DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult,
-    GlobalSearchResult, LogCursor, PatchSelection, ReflogPage, RemoteInfo, RemotePushResult,
-    RepoOperationState, RepoStatus, RepositoryId, SnapshotRevalidation, StashEntry,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary,
+    CreateBranchFromStashResult, CreateStashRequest, CreateStashResult, DestructiveAction,
+    DestructiveExecutionResult, DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet,
+    GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
+    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
+    MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
+    RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId,
+    SnapshotRevalidation, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup,
+    StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -41,6 +45,58 @@ pub async fn add_remote(
     Ok(state.repos.add_remote(repo_id, &name, &url).await?)
 }
 
+#[tauri::command]
+pub async fn set_remote_url(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    fetch: String,
+    push: Option<String>,
+) -> Result<RemoteInfo, AppError> {
+    Ok(state
+        .repos
+        .set_remote_url(repo_id, &name, &fetch, push.as_deref())
+        .await?)
+}
+
+#[tauri::command]
+pub async fn rename_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    old: String,
+    new: String,
+) -> Result<RemoteInfo, AppError> {
+    Ok(state.repos.rename_remote(repo_id, &old, &new).await?)
+}
+
+#[tauri::command]
+pub async fn preflight_remove_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+) -> Result<RemoveRemotePreflight, AppError> {
+    Ok(state.repos.preflight_remove_remote(repo_id, &name).await?)
+}
+
+#[tauri::command]
+pub async fn remove_remote(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    expected_config_generation: u64,
+    confirmation_token: String,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .remove_remote(
+            repo_id,
+            &name,
+            expected_config_generation,
+            &confirmation_token,
+        )
+        .await?)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationEnvelope<T> {
@@ -69,6 +125,68 @@ pub async fn get_branches(
 }
 
 #[tauri::command]
+pub async fn get_merge_preflight(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+) -> Result<GenerationEnvelope<MergePreflight>, AppError> {
+    let data = state.repos.get_merge_preflight(repo_id, &source).await?;
+    Ok(GenerationEnvelope {
+        generations: data.generations,
+        data,
+    })
+}
+
+#[tauri::command]
+pub async fn merge_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+    mode: MergeMode,
+    dirty_policy: MergeDirtyPolicy,
+    operation_id: Option<String>,
+) -> Result<MergeResult, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Merge,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .merge_branch_with_context(repo_id, &source, mode, dirty_policy, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn squash_merge_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    source: MergeSource,
+    dirty_policy: MergeDirtyPolicy,
+    operation_id: Option<String>,
+) -> Result<SquashMergeResult, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::SquashMerge,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .squash_merge_branch_with_context(repo_id, &source, dirty_policy, context)
+        },
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn get_tags(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -93,6 +211,44 @@ pub async fn get_repo_operation_state(
 ) -> Result<GenerationEnvelope<RepoOperationState>, AppError> {
     let data = state.repos.get_operation_state(repo_id).await?;
     versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn get_rebase_preflight(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    onto: MergeSource,
+) -> Result<GenerationEnvelope<fjord_domain::RebasePreflight>, AppError> {
+    let data = state.repos.get_rebase_preflight(repo_id, &onto).await?;
+    Ok(GenerationEnvelope {
+        generations: data.generations,
+        data,
+    })
+}
+
+#[tauri::command]
+pub async fn start_rebase(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    preflight: fjord_domain::RebasePreflight,
+    dirty_policy: MergeDirtyPolicy,
+    operation_id: Option<String>,
+) -> Result<fjord_domain::RebaseResult, AppError> {
+    state.repos.revalidate_repository_snapshot(repo_id).await?;
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Rebase,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .start_rebase_preflighted(repo_id, &preflight, dirty_policy, context)
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -374,11 +530,11 @@ pub async fn preflight_destructive_action(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     action: DestructiveAction,
-    patch_selection: Option<PatchSelection>,
+    patch_selections: Option<Vec<PatchSelection>>,
 ) -> Result<DestructivePreflight, AppError> {
     Ok(state
         .repos
-        .preflight_destructive_action(repo_id, action, patch_selection)
+        .preflight_destructive_action(repo_id, action, patch_selections)
         .await?)
 }
 
@@ -391,7 +547,7 @@ pub async fn execute_destructive_action(
     expected_generations: GenerationSet,
     confirmation_token: String,
     operation_id: Option<String>,
-) -> Result<Option<RepoOperationState>, AppError> {
+) -> Result<DestructiveExecutionResult, AppError> {
     run_repo_operation(
         &app,
         &state,
@@ -508,12 +664,81 @@ pub async fn get_stashes(
 }
 
 #[tauri::command]
-pub async fn stash_push(
+pub async fn get_stash_files(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
-    message: Option<String>,
-) -> Result<(), AppError> {
-    Ok(state.repos.stash_push(repo_id, message.as_deref()).await?)
+    stash_id: StashId,
+) -> Result<GenerationEnvelope<StashFiles>, AppError> {
+    let data = state.repos.get_stash_files(repo_id, &stash_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn get_stash_file_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    group: StashFileGroup,
+    path: String,
+    offset: u32,
+    limit: u32,
+    whitespace: fjord_domain::DiffWhitespaceMode,
+    load_anyway: bool,
+) -> Result<GenerationEnvelope<FileDiffWindow>, AppError> {
+    let data = state
+        .repos
+        .get_stash_file_diff(
+            repo_id,
+            &stash_id,
+            group,
+            &path,
+            fjord_services::DiffRequestOptions {
+                offset,
+                limit,
+                whitespace,
+                load_anyway,
+            },
+        )
+        .await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn create_stash(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    request: CreateStashRequest,
+) -> Result<CreateStashResult, AppError> {
+    Ok(state.repos.create_stash(repo_id, request).await?)
+}
+
+#[tauri::command]
+pub async fn apply_stash(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    restore_index: bool,
+) -> Result<StashApplyResult, AppError> {
+    Ok(state
+        .repos
+        .apply_stash(repo_id, &stash_id, restore_index)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn create_branch_from_stash(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    stash_id: StashId,
+    name: String,
+    apply: bool,
+    keep: bool,
+) -> Result<CreateBranchFromStashResult, AppError> {
+    Ok(state
+        .repos
+        .create_branch_from_stash(repo_id, &stash_id, &name, apply, keep)
+        .await?)
 }
 
 #[tauri::command]
@@ -522,6 +747,66 @@ pub async fn open_terminal(
     repo_id: RepositoryId,
 ) -> Result<(), AppError> {
     Ok(state.repos.open_terminal(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn resolve_repository_file_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+) -> Result<RepositoryFilePath, AppError> {
+    Ok(state
+        .repos
+        .resolve_repository_file_path(repo_id, &path)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn open_repository_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    target: OpenTarget,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .open_repository_path(repo_id, &path, target)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn reveal_repository_path(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+) -> Result<(), AppError> {
+    Ok(state.repos.reveal_repository_path(repo_id, &path).await?)
+}
+
+#[tauri::command]
+pub async fn preview_ignore_rule(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    rule_kind: IgnoreRuleKind,
+) -> Result<IgnoreRulePreview, AppError> {
+    Ok(state
+        .repos
+        .preview_ignore_rule(repo_id, &path, rule_kind)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn add_ignore_rule(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    rule_kind: IgnoreRuleKind,
+) -> Result<IgnoreRuleOutcome, AppError> {
+    Ok(state
+        .repos
+        .add_ignore_rule(repo_id, &path, rule_kind)
+        .await?)
 }
 
 #[tauri::command]
@@ -587,6 +872,57 @@ pub async fn discard_patch(
             &confirmation_token,
         )
         .await?)
+}
+
+#[tauri::command]
+pub async fn discard_patches(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    action: DestructiveAction,
+    selections: Vec<PatchSelection>,
+    expected_generations: GenerationSet,
+    confirmation_token: String,
+) -> Result<GenerationSet, AppError> {
+    Ok(state
+        .repos
+        .discard_patches(
+            repo_id,
+            &action,
+            &selections,
+            expected_generations,
+            &confirmation_token,
+        )
+        .await?)
+}
+
+/// Writes a working-file patch to a user-chosen destination. Bytes come
+/// entirely from the shared `P8-01` patch constructor and are never
+/// returned over IPC or logged — only path/byte counts would ever appear in
+/// diagnostics, and this command emits none.
+#[tauri::command]
+pub async fn export_patch(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    selections: Vec<PatchSelection>,
+    destination: PathBuf,
+) -> Result<(), AppError> {
+    let bytes = state.repos.export_patch(repo_id, &selections).await?;
+    tokio::fs::write(&destination, &bytes)
+        .await
+        .map_err(|error| AppError::patch_export_failed(format!("could not write patch: {error}")))
+}
+
+/// The same patch bytes as `export_patch`, returned as text for the
+/// clipboard follow-up — the only path where patch content legitimately
+/// crosses IPC, since the frontend owns the Clipboard API.
+#[tauri::command]
+pub async fn get_patch_text(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    selections: Vec<PatchSelection>,
+) -> Result<String, AppError> {
+    let bytes = state.repos.export_patch(repo_id, &selections).await?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[tauri::command]
@@ -698,7 +1034,8 @@ async fn run_commit_and_push_operation(
                     message: Some("commit-failed".to_string()),
                     error: error
                         .diagnostics
-                        .clone()
+                        .as_deref()
+                        .cloned()
                         .or_else(|| Some(error.message.clone())),
                 },
             );
@@ -735,7 +1072,8 @@ async fn run_commit_and_push_operation(
                     error: push_error.as_ref().and_then(|error| {
                         error
                             .diagnostics
-                            .clone()
+                            .as_deref()
+                            .cloned()
                             .or_else(|| Some(error.message.clone()))
                     }),
                 },
@@ -889,6 +1227,32 @@ pub async fn open_merge_tool(
 }
 
 #[tauri::command]
+pub async fn diff_tool_availability(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<bool, AppError> {
+    Ok(state.repos.diff_tool_availability(repo_id).await?)
+}
+
+#[tauri::command]
+pub async fn open_external_diff(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    source: PatchSource,
+) -> Result<(), AppError> {
+    Ok(state
+        .repos
+        .open_external_diff(repo_id, &path, source)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn stash_paths_supported(state: State<'_, AppState>) -> Result<bool, AppError> {
+    Ok(state.repos.stash_paths_supported().await?)
+}
+
+#[tauri::command]
 pub async fn open_in_ide(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
@@ -993,6 +1357,14 @@ where
     let operation_id = operation_id.unwrap_or_else(OperationRegistry::next_id);
     let guard = state.operations.begin(operation_id);
     let scope = OperationScope::Repo { repo_id };
+    let total = if matches!(
+        kind,
+        OperationKind::Merge | OperationKind::SquashMerge | OperationKind::Rebase
+    ) {
+        0
+    } else {
+        1
+    };
     emit_operation(
         app,
         OperationProgress {
@@ -1002,7 +1374,7 @@ where
             status: OperationStatus::Started,
             repo_id: Some(repo_id),
             completed: 0,
-            total: 1,
+            total,
             message: None,
             error: None,
         },
@@ -1029,14 +1401,15 @@ where
 
     state.askpass.finish_operation(guard.id());
     let (status, completed, error) = match &result {
-        Ok(_) => (OperationStatus::Succeeded, 1, None),
+        Ok(_) => (OperationStatus::Succeeded, total, None),
         Err(error) if error.code == "operation_cancelled" => (OperationStatus::Cancelled, 0, None),
         Err(error) => (
             OperationStatus::Failed,
             0,
             error
                 .diagnostics
-                .clone()
+                .as_deref()
+                .cloned()
                 .or_else(|| Some(error.message.clone())),
         ),
     };
@@ -1050,7 +1423,7 @@ where
             status,
             repo_id: Some(repo_id),
             completed,
-            total: 1,
+            total,
             message: None,
             error,
         },

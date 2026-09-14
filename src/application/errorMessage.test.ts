@@ -28,6 +28,15 @@ describe("errorTranslationKey", () => {
     expect(errorTranslationKey({ code: "git_network_unavailable", message: "raw git" })).toBe(
       "errors.git_network_unavailable",
     );
+    expect(errorTranslationKey({ code: "stash_not_found", message: "raw git" })).toBe(
+      "errors.stash_not_found",
+    );
+    expect(errorTranslationKey({ code: "stash_ambiguous", message: "raw git" })).toBe(
+      "errors.stash_ambiguous",
+    );
+    expect(errorTranslationKey({ code: "stash_recovery_failed", message: "raw git" })).toBe(
+      "errors.stash_recovery_failed",
+    );
   });
 
   it("never exposes unknown backend or JavaScript messages", () => {
@@ -45,6 +54,19 @@ describe("errorTranslationKey", () => {
     );
   });
 
+  it("interpolates the difftool name for an unresolvable diff tool", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "diff_tool_not_configured",
+      message: "Git could not resolve the difftool meld",
+      tool: "meld",
+    });
+
+    expect(message).toBe("Git could not resolve the difftool meld.");
+  });
+
   it("explains an ownership refusal without exposing the backend path", async () => {
     await initI18n("en");
     await setLocale("en");
@@ -57,5 +79,36 @@ describe("errorTranslationKey", () => {
     expect(message).toContain("owned by another account");
     expect(message).toContain("safe.directory");
     expect(message).not.toContain("/secret/repo");
+  });
+
+  it("interpolates the requested unrepresentable stash path", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "stash_scope_unrepresentable",
+      message: "backend fallback",
+      paths: ["nested"],
+    });
+
+    expect(message).toContain("nested");
+    expect(message).not.toContain("null");
+    expect(message).not.toContain("undefined");
+  });
+
+  it("falls back to a usable generic message when an error path is missing", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    const message = userErrorMessage({
+      code: "stash_scope_unrepresentable",
+      message: "backend fallback",
+    });
+
+    expect(message).toBe(
+      "Something went wrong. Try again or restart Fjord if the problem continues.",
+    );
+    expect(message).not.toContain("null");
+    expect(message).not.toContain("undefined");
   });
 });

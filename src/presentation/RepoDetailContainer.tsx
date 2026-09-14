@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { changedRepositoryScopes } from "@/infrastructure/repositoryGenerations";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { userErrorMessage } from "@/application/errorMessage";
+import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
+import { buildWholeFilePatchSelection, IncompleteWorkingDiffError } from "@/application/wholeFilePatchSelection";
 import { useCommitLog } from "@/application/useCommitLog";
 import { invalidateRepoData, type RepoDataScope } from "@/application/invalidateRepoData";
 import {
@@ -13,21 +16,31 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
-import type { AmendInfo, CommitSummary, DestructiveAction, GenerationSet, PatchSelection } from "@/domain/git";
+import { useWorkingFileActions } from "@/application/useWorkingFileActions";
+import { useStashes } from "@/application/useStashes";
+import type { StashAction } from "@/application/stashActions";
+import type { DiffSource } from "@/application/useFileDiff";
+import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
+  addIgnoreRule,
+  applyStash,
   checkoutBranch,
   cherryPick,
   commitRepo,
+  createStash,
   createBranch,
   createBranchAt,
+  createBranchFromStash,
   createTag,
   discardPatch,
+  discardPatches,
   getAmendInfo,
   invokeErrorCode,
   invokeErrorPaths,
+  invokeErrorStashRef,
   openInIde,
   openMergeTool,
   openTerminal,
@@ -41,12 +54,14 @@ import {
   runSkipOperation,
   runExecuteDestructiveAction,
   runStashAndCheckout,
+  runStartRebase,
+  runMergeBranch,
+  runSquashMergeBranch,
   setBranchUpstream,
   renameBranch,
   revertCommit,
   stageFiles,
   stagePatch,
-  stashPush,
   unstageFiles,
   unstagePatch,
   unsetBranchUpstream,
@@ -57,17 +72,26 @@ import { RepoDetailView } from "@/presentation/RepoDetailView";
 import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
+import { RebaseDialog, rebaseErrorKey } from "@/presentation/RebaseDialog";
+import { MergeDialog } from "@/presentation/MergeDialog";
+import { SquashMergeDialog } from "@/presentation/SquashMergeDialog";
+import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
+import { CreateStashDialog } from "@/presentation/CreateStashDialog";
 import { useInteractionCommit } from "@/presentation/performance";
 import type { BranchGraphScrollRequest } from "@/presentation/CommitGraph";
 import type { RepoAction } from "@/presentation/RepoToolbar";
 import { isOperationInProgress } from "@/presentation/OperationBanner";
 import { queryKeys } from "@/application/queryKeys";
+import { useDiffToolAvailability } from "@/application/useDiffToolAvailability";
+import { useStashPathsSupported } from "@/application/useStashPathsSupported";
 
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
   | { kind: "repoAction"; action: RepoAction }
   | { kind: "selectCommit"; commit: CommitSummary }
   | { kind: "openCommitSearch" }
+  | { kind: "rebase"; onto: MergeSource; repoId: string }
+  | { kind: "merge"; source: MergeSource }
   | { kind: "refresh" };
 
 export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
@@ -94,12 +118,14 @@ export function RepoDetailContainer({
     snapshot.ready,
   );
   const { commits, loading: commitsLoading } = useCommitLog(repo.id, snapshot.ready);
+  const { stashes } = useStashes(repo.id);
   const {
     changes,
     loading: changesLoading,
     error: changesError,
   } = useWorkingChanges(repo.id, snapshot.ready);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
+  const [selectedStashId, setSelectedStashId] = useState<StashId | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
   const [branchScrollRequest, setBranchScrollRequest] = useState<BranchGraphScrollRequest | null>(null);
   const [commitSearchRequestId, setCommitSearchRequestId] = useState<number | null>(null);
@@ -113,7 +139,57 @@ export function RepoDetailContainer({
   const [actionConfirmation, setActionConfirmation] = useState<ActionConfirmation | null>(null);
   const [forcePushPreflight, setForcePushPreflight] = useState(false);
   const [destructiveAction, setDestructiveAction] = useState<DestructiveAction | null>(null);
+  const [stashActionRequest, setStashActionRequest] = useState<
+    { id: number; action: StashAction; stash: StashEntry } | null
+  >(null);
+  const stashActionSequence = useRef(0);
+  const [workingFileDiscard, setWorkingFileDiscard] = useState<WorkingFileDiscard | null>(null);
   const [checkoutOverwrite, setCheckoutOverwrite] = useState<CheckoutOverwrite | null>(null);
+  const [stashDialog, setStashDialog] = useState<
+    { kind: "all" } | { kind: "paths"; paths: string[] } | null
+  >(null);
+  const [openWorkingDiffWhitespace, setOpenWorkingDiffWhitespace] = useState<
+    { path: string; staged: boolean; mode: DiffWhitespaceMode } | null
+  >(null);
+  // Stable identity: FileDiffView depends on this callback to know when to
+  // re-notify, and `source` — passed fresh from RepoDetailView on every
+  // render — is keyed down to primitives there. Recreating this closure
+  // every render defeated that and caused FileDiffView's effect to fire
+  // continuously, each run flipping this state and re-rendering this
+  // component, which recreated the closure again ("Maximum update depth
+  // exceeded").
+  const onWorkingDiffWhitespaceModeChange = useCallback(
+    (target: { path: string; source: DiffSource } | null, mode: DiffWhitespaceMode) => {
+      setOpenWorkingDiffWhitespace(
+        target && target.source.kind === "working"
+          ? { path: target.path, staged: target.source.staged, mode }
+          : null,
+      );
+    },
+    [],
+  );
+  const diffToolAvailable = useDiffToolAvailability(repo.id, snapshot.ready);
+  const stashPathsSupported = useStashPathsSupported();
+  const workingFileActions = useWorkingFileActions({
+    repoId: repo.id,
+    repositoryName: repo.name,
+    changes,
+    stashPathsSupported,
+    onStage,
+    onUnstage,
+    onDiscard: requestWorkingFileDiscard,
+    onDelete: (target) => setDestructiveAction({ kind: "deleteFile", path: target.path }),
+    onOpenMergeTool: () => onAction("merge-tool"),
+    onStashFiles: (paths) => setStashDialog({ kind: "paths", paths }),
+    onAddIgnore,
+    onPatchSaved: (destination) => setActionSuccess(t("workingFile.patchSaved", { path: destination })),
+    onError: (error) => setActionError(userErrorMessage(error)),
+  });
+  const [rebaseTarget, setRebaseTarget] = useState<{ repoId: string; onto: MergeSource } | null>(null);
+  const [rebaseError, setRebaseError] = useState<string | null>(null);
+  const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
+  const [squashMergeSource, setSquashMergeSource] = useState<MergeSource | null>(null);
+  const [pendingDraftMessage, setPendingDraftMessage] = useState<string | null>(null);
   const activeOperation = actionOperationId ? (operations[actionOperationId] ?? null) : null;
   const workingFileCount = changes.staged.length + changes.unstaged.length;
   const operationInProgress = isOperationInProgress(operationState?.operation);
@@ -189,6 +265,7 @@ export function RepoDetailContainer({
 
     if (command.kind === "selectCommit") {
       setWorkingSelected(false);
+      setSelectedStashId(null);
       setSelectedCommit(command.commit);
       return;
     }
@@ -200,6 +277,16 @@ export function RepoDetailContainer({
 
     if (command.kind === "openCommitSearch") {
       setCommitSearchRequestId(command.id);
+      return;
+    }
+
+    if (command.kind === "rebase") {
+      if (command.repoId === repo.id) onRebaseBranch(command.onto);
+      return;
+    }
+
+    if (command.kind === "merge") {
+      onMergeBranch(command.source);
       return;
     }
 
@@ -216,21 +303,25 @@ export function RepoDetailContainer({
 
   useEffect(() => {
     setSelectedCommit(null);
+    setSelectedStashId(null);
     setWorkingSelected(false);
     setRecoveryCenterOpen(false);
+    setMergeSource(null);
+    setStashDialog(null);
+    setStashActionRequest(null);
   }, [repo.id]);
 
   useEffect(() => {
     if (changesLoading) return;
 
     if (workingFileCount > 0) {
-      if (!selectedCommit && !workingSelected) setWorkingSelected(true);
+      if (!selectedCommit && !selectedStashId && !workingSelected) setWorkingSelected(true);
       return;
     }
 
     if (commitsLoading) return;
 
-    if (!selectedCommit) {
+    if (!selectedCommit && !selectedStashId) {
       setSelectedCommit(currentBranchTip(commits, status?.branch ?? null));
     }
   }, [
@@ -238,6 +329,7 @@ export function RepoDetailContainer({
     commits,
     commitsLoading,
     selectedCommit,
+    selectedStashId,
     status?.branch,
     workingFileCount,
     workingSelected,
@@ -249,7 +341,15 @@ export function RepoDetailContainer({
       return;
     }
     if (action === "stash-pop") {
-      setDestructiveAction({ kind: "stashPop", index: 0 });
+      requestTopStashAction("pop");
+      return;
+    }
+    if (action === "stash") {
+      setStashDialog({ kind: "all" });
+      return;
+    }
+    if (action === "fetch") {
+      setActionConfirmation({ kind: "remote", action: "fetch" });
       return;
     }
     if (needsConfirmation(action)) {
@@ -259,12 +359,81 @@ export function RepoDetailContainer({
     executeAction(action);
   }
 
-  function executeAction(action: RepoAction) {
+  function requestTopStashAction(action: StashAction) {
+    const stash = stashes[0];
+    if (!stash) {
+      setActionError(t("stash.error.empty"));
+      return;
+    }
+    setSelectedStashId(stash.id);
+    stashActionSequence.current += 1;
+    setStashActionRequest({ id: stashActionSequence.current, action, stash });
+  }
+
+  async function onApplyStash(stash: StashEntry, restoreIndex: boolean) {
+    await runRepoAction(
+      "stash-apply",
+      async () => describeStashApplyResult(await applyStash(repo.id, stash.id, restoreIndex)),
+      ["status", "working"],
+      undefined,
+      true,
+    );
+  }
+
+  async function onCreateBranchFromStash(stash: StashEntry, name: string, apply: boolean) {
+    await runRepoAction(
+      "stash-create-branch",
+      async () => describeCreateBranchResult(await createBranchFromStash(repo.id, stash.id, name, apply)),
+      ["status", "working", "refs", "history", "stashes"],
+      undefined,
+      true,
+    );
+  }
+
+  function describeStashApplyResult(result: StashApplyResult) {
+    setActionSuccess(t(
+      result.outcome.kind === "conflicted" ? "stash.notice.applyConflicted" : "stash.notice.applied",
+      result.outcome.kind === "conflicted" ? { count: result.outcome.paths.length } : undefined,
+    ));
+  }
+
+  function describeCreateBranchResult(result: CreateBranchFromStashResult) {
+    setActionSuccess(t(
+      result.outcome?.kind === "conflicted" ? "stash.notice.branchConflicted" : "stash.notice.branchCreated",
+      result.outcome?.kind === "conflicted"
+        ? { branch: result.branch, count: result.outcome.paths.length }
+        : { branch: result.branch },
+    ));
+  }
+
+  function handleDestructiveResult(action: DestructiveAction, result: DestructiveExecutionResult) {
+    if (result.kind === "operationState") {
+      queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.state);
+      return;
+    }
+    if (result.kind === "stashApply") {
+      setActionSuccess(t(
+        result.result.outcome.kind === "conflicted"
+          ? "stash.notice.popConflicted"
+          : "stash.notice.popped",
+        result.result.outcome.kind === "conflicted"
+          ? { count: result.result.outcome.paths.length }
+          : undefined,
+      ));
+      if (result.result.entryRemoved && action.kind === "stashPop") {
+        setSelectedStashId((selected) => selected === action.id ? null : selected);
+      }
+      return;
+    }
+    if (action.kind === "stashDrop") setActionSuccess(t("stash.notice.dropped"));
+  }
+
+  function executeAction(action: RepoAction, remote: string | null = null) {
     if (isNetworkAction(action)) {
       void runRepoAction(
         action,
         async () => {
-          const networkTask = startNetworkAction(action);
+          const networkTask = startNetworkAction(action, remote);
           setActionOperationId(networkTask.operationId);
           await networkTask.promise;
         },
@@ -278,20 +447,19 @@ export function RepoDetailContainer({
       return;
     }
 
-    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">, () => Promise<void>> = {
-      stash: () => stashPush(repo.id),
+    const runners: Record<Exclude<RepoAction, "fetch" | "pull" | "push" | "stash" | "stash-pop">, () => Promise<void>> = {
       terminal: () => openTerminal(repo.id),
       "open-ide": () => openInIde(repo.id),
       "merge-tool": () => openMergeTool(repo.id),
     };
-    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push" | "stash-pop">;
+    const localAction = action as Exclude<RepoAction, "fetch" | "pull" | "push" | "stash" | "stash-pop">;
     void runRepoAction(localAction, runners[localAction], scopesForRepoAction(action));
   }
 
-  function startNetworkAction(action: NetworkRepoAction): OperationTask<void> {
+  function startNetworkAction(action: NetworkRepoAction, remote: string | null): OperationTask<void> {
     switch (action) {
       case "fetch":
-        return runFetchRepo(repo.id);
+        return runFetchRepo(repo.id, remote);
       case "pull":
         return runPullRepo(repo.id);
       case "push":
@@ -302,7 +470,7 @@ export function RepoDetailContainer({
   function offerPushRecovery(error: unknown): boolean {
     const code = invokeErrorCode(error);
     if (code === "no_upstream") {
-      setActionConfirmation({ kind: "publish", branch: status?.branch ?? "" });
+      setActionConfirmation({ kind: "remote", action: "publish", branch: status?.branch ?? "" });
       return true;
     }
     if (code === "git_non_fast_forward") {
@@ -312,11 +480,11 @@ export function RepoDetailContainer({
     return false;
   }
 
-  function publishCurrentBranch() {
+  function publishCurrentBranch(remote: string) {
     void runRepoAction(
       "publish",
       async () => {
-        const task = runPublishBranch(repo.id);
+        const task = runPublishBranch(repo.id, remote);
         setActionOperationId(task.operationId);
         await task.promise;
       },
@@ -380,6 +548,170 @@ export function RepoDetailContainer({
     void runRepoAction("create-tag", () => createTag(repo.id, name, target), ["refs"]);
   }
 
+  function onRebaseBranch(onto: MergeSource) {
+    setRebaseError(null);
+    setRebaseTarget({ repoId: repo.id, onto });
+  }
+
+  function executeRebase(preflight: RebasePreflight, policy: MergeDirtyPolicy) {
+    if (!rebaseTarget || rebaseTarget.repoId !== repo.id || rebaseTarget.onto.refName !== preflight.onto.refName) return;
+    setRebaseError(null);
+    void runRepoAction("rebase", async () => {
+      const task = runStartRebase(repo.id, preflight, policy);
+      setActionOperationId(task.operationId);
+      const result = await task.promise;
+      queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.state);
+      setActionSuccess(`${t(result.state.operation.kind === "rebase" ? "rebase.conflicted" : "rebase.completed")}${result.stashRef ? ` ${t("merge.dirty.stashRetained", { stash: result.stashRef })}` : ""}`);
+      setRebaseTarget(null);
+      setWorkingSelected(true);
+      setSelectedCommit(null);
+      // A completed preview is now invalid; do not refetch it while Git owns
+      // a stopped sequencer. Other queries follow only advanced generations.
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos.rebasePreflight(repo.id, preflight.onto.refName), refetchType: "none" });
+      await invalidateRepoData(queryClient, repo.id, repo.workspaceId,
+        changedRepositoryScopes(repo.id, result.generations).filter((scope) => scope !== "rebase"));
+    }, [], async (error) => {
+      const code = invokeErrorCode(error);
+      const stashRef = invokeErrorStashRef(error);
+      const retained = stashRef ? t("merge.dirty.stashRetained", { stash: stashRef }) : "";
+      if (retained) setActionSuccess(retained);
+      if (code === "operation_cancelled" || code === "operation_step_failed" || stashRef) {
+        await snapshot.revalidate();
+        if (stashRef) await invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["stashes"]);
+      }
+      if (code === "operation_cancelled") { setRebaseTarget(null); setWorkingSelected(true); return true; }
+      setRebaseError(`${t(rebaseErrorKey(code), { current: preflight.currentBranch, onto: preflight.ontoLabel })} ${retained}`.trim());
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos.rebasePreflight(repo.id, preflight.onto.refName) });
+      return true;
+    });
+  }
+
+  function onMergeBranch(source: MergeSource) {
+    if (operationInProgress) {
+      setActionError(t("merge.blocked.operationInProgress"));
+      return;
+    }
+    if (!status?.branch) {
+      setActionError(t("merge.blocked.detachedHead"));
+      return;
+    }
+    setMergeSource(source);
+  }
+
+  function executeMerge(mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) {
+    if (!mergeSource) return;
+    const source = mergeSource;
+    void runRepoAction(
+      "merge",
+      async () => {
+        if (fetchFirst) {
+          const remote = mergeSourceRemoteName(source);
+          if (remote) {
+            const fetchTask = runFetchRepo(repo.id, remote);
+            setActionOperationId(fetchTask.operationId);
+            await fetchTask.promise;
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.repos.mergePreflight(repo.id, source.refName),
+            });
+          }
+        }
+        const task = runMergeBranch(repo.id, source, mode, dirtyPolicy);
+        setActionOperationId(task.operationId);
+        const result = await task.promise;
+        if (result.outcome.kind === "conflicted") {
+          queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.outcome.state);
+        }
+        const message = t(`merge.outcome.${result.outcome.kind}`, {
+          source: result.sourceLabel,
+          target: result.targetBranch,
+        });
+        setActionSuccess(result.stashRef
+          ? `${message} ${t("merge.dirty.stashRetained", { stash: result.stashRef })}`
+          : message);
+      },
+      ["status", "operation", "working", "history", "refs", "stashes", "merge"],
+      (error) => {
+        const code = invokeErrorCode(error);
+        const stashRef = invokeErrorStashRef(error);
+        const retained = stashRef
+          ? t("merge.dirty.stashRetained", { stash: stashRef })
+          : null;
+        if (retained) setActionSuccess(retained);
+        if (code === "merge_not_fast_forward") {
+          const message = t("merge.error.notFastForward", {
+            source: mergeSourceLabel(source),
+            target: status?.branch ?? "HEAD",
+          });
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        if (code === "merge_failed") {
+          const message = t("merge.error.failed");
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        return false;
+      },
+      true,
+    ).then((ok) => {
+      if (ok) setMergeSource(null);
+    });
+  }
+
+  function onSquashMergeBranch(source: MergeSource) {
+    if (operationInProgress) {
+      setActionError(t("merge.blocked.operationInProgress"));
+      return;
+    }
+    if (!status?.branch) {
+      setActionError(t("merge.blocked.detachedHead"));
+      return;
+    }
+    setSquashMergeSource(source);
+  }
+
+  function executeSquashMerge(dirtyPolicy: MergeDirtyPolicy) {
+    if (!squashMergeSource) return;
+    const source = squashMergeSource;
+    void runRepoAction(
+      "squash-merge",
+      async () => {
+        const task = runSquashMergeBranch(repo.id, source, dirtyPolicy);
+        setActionOperationId(task.operationId);
+        const result = await task.promise;
+        if (result.outcome.kind === "staged") {
+          setPendingDraftMessage(result.outcome.message);
+        }
+        const message = t(`squashMerge.outcome.${result.outcome.kind}`, {
+          source: result.sourceLabel,
+          target: result.targetBranch,
+          ...(result.outcome.kind === "conflicted" ? { count: result.outcome.paths.length } : {}),
+        });
+        setActionSuccess(result.stashRef
+          ? `${message} ${t("merge.dirty.stashRetained", { stash: result.stashRef })}`
+          : message);
+      },
+      ["status", "working", "stashes", "merge"],
+      (error) => {
+        const code = invokeErrorCode(error);
+        const stashRef = invokeErrorStashRef(error);
+        const retained = stashRef
+          ? t("merge.dirty.stashRetained", { stash: stashRef })
+          : null;
+        if (retained) setActionSuccess(retained);
+        if (code === "merge_failed") {
+          const message = t("squashMerge.error.failed");
+          setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        return false;
+      },
+      true,
+    ).then((ok) => {
+      if (ok) setSquashMergeSource(null);
+    });
+  }
+
   function onCherryPick(commitId: string) {
     void runRepoAction(
       "cherry-pick",
@@ -402,6 +734,7 @@ export function RepoDetailContainer({
 
   function requestBranchGraphScroll(branch: string) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setBranchScrollRequest((current) => ({ branch, id: (current?.id ?? 0) + 1 }));
   }
 
@@ -439,11 +772,11 @@ export function RepoDetailContainer({
   }
 
   function onStage(paths: string[]) {
-    void runWorkingAction("stage", () => stageFiles(repo.id, paths));
+    return runWorkingAction("stage", () => stageFiles(repo.id, paths));
   }
 
   function onUnstage(paths: string[]) {
-    void runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
+    return runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
   function onOperationControl(control: OperationControl) {
@@ -499,7 +832,7 @@ export function RepoDetailContainer({
       action,
       () => mutate(repo.id, selection, expectedGenerations).then(() => undefined),
       ["status", "working"],
-      (error) => handleRejectedPatchMutation(error, selection),
+      (error) => handleRejectedPatchMutation(error, [selection]),
     );
   }
 
@@ -522,18 +855,72 @@ export function RepoDetailContainer({
         confirmationToken,
       ).then(() => undefined),
       ["status", "working"],
-      (error) => handleRejectedPatchMutation(error, selection),
+      (error) => handleRejectedPatchMutation(error, [selection]),
     );
   }
 
-  async function handleRejectedPatchMutation(error: unknown, selection: PatchSelection): Promise<boolean> {
+  function onDiscardPatches(
+    action: DestructiveAction,
+    selections: PatchSelection[],
+    expectedGenerations: GenerationSet,
+    confirmationToken: string,
+  ): Promise<boolean> {
+    if (selections.length === 0 || selections.some((selection) => (
+      isWorkingDiffSnapshotRejected(queryClient, repo.id, selection.path, selection.source)
+    ))) {
+      return Promise.resolve(false);
+    }
+    return runRepoAction(
+      "discard-patches",
+      () => discardPatches(
+        repo.id,
+        action,
+        selections,
+        expectedGenerations,
+        confirmationToken,
+      ).then(() => undefined),
+      ["status", "working"],
+      (error) => handleRejectedPatchMutation(error, selections),
+    );
+  }
+
+  async function requestWorkingFileDiscard(targets: readonly WorkingFileTarget[]) {
+    if (targets.length === 0 || targets.some((target) => target.source !== "worktree")) return;
+    let prepared: WorkingFileDiscard | null = null;
+    const ready = await runRepoAction("discard-file-preflight", async () => {
+      let selections: PatchSelection[];
+      try {
+        selections = await Promise.all(targets.map((target) =>
+          buildWholeFilePatchSelection(repo.id, target.path, "worktree")));
+      } catch (error) {
+        if (error instanceof IncompleteWorkingDiffError) {
+          throw new Error(t("workingFile.discardIncomplete"));
+        }
+        throw error;
+      }
+      prepared = {
+        action: selections.length === 1
+          ? { kind: "discard", selection: { kind: "file", path: selections[0].path } }
+          : { kind: "discardFiles", paths: selections.map((selection) => selection.path) },
+        selections,
+      };
+    });
+    if (ready && prepared) setWorkingFileDiscard(prepared);
+  }
+
+  async function handleRejectedPatchMutation(
+    error: unknown,
+    selections: readonly PatchSelection[],
+  ): Promise<boolean> {
     const code = invokeErrorCode(error);
     if (code !== "patch_stale" && code !== "preflight_stale" && code !== "patch_apply_failed") return false;
 
     // A rejected patch invalidates the rendered snapshot. TanStack Query can
     // retain that data after a failed refetch, so only a later successful,
     // authoritative working-diff result may release this latch.
-    rejectWorkingDiffSnapshot(queryClient, repo.id, selection.path, selection.source);
+    for (const selection of selections) {
+      rejectWorkingDiffSnapshot(queryClient, repo.id, selection.path, selection.source);
+    }
     setActionConfirmation(null);
     setActionError(t(code === "preflight_stale" ? "diff.preflightStale" : "diff.patchStale"));
     try {
@@ -577,12 +964,35 @@ export function RepoDetailContainer({
 
   function onSelectCommit(commit: CommitSummary) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setSelectedCommit((current) => (commit.id === current?.id ? null : commit));
   }
 
   function onRevealCommit(commit: CommitSummary) {
     setWorkingSelected(false);
+    setSelectedStashId(null);
     setSelectedCommit(commit);
+  }
+
+  function onSelectStash(stashId: StashId) {
+    setWorkingSelected(false);
+    setSelectedCommit(null);
+    setSelectedStashId(stashId);
+  }
+
+  async function onAddIgnore(
+    target: WorkingFileTarget,
+    kind: IgnoreRuleKind,
+  ): Promise<IgnoreRuleOutcome | null> {
+    let outcome: IgnoreRuleOutcome | null = null;
+    const ok = await runRepoAction(
+      "ignore-file",
+      async () => {
+        outcome = await addIgnoreRule(repo.id, target.path, kind);
+      },
+      ["status", "working"],
+    );
+    return ok ? outcome : null;
   }
 
   return (
@@ -614,7 +1024,7 @@ export function RepoDetailContainer({
       actionPending={actionPending}
       actionSuccess={actionSuccess}
       actionNoticeSuppressed={actionNoticeSuppressed}
-      onPopRetainedStash={() => setDestructiveAction({ kind: "stashPop", index: 0 })}
+      onPopRetainedStash={() => requestTopStashAction("pop")}
       actionError={actionError}
       operationProgress={toToolbarProgress(activeOperation)}
       branchScrollRequest={branchScrollRequest}
@@ -623,6 +1033,7 @@ export function RepoDetailContainer({
         if (actionOperationId) void cancelOperation(actionOperationId);
       }}
       selectedCommit={selectedCommit}
+      selectedStashId={selectedStashId}
       workingSelected={workingSelected}
       changes={changes}
       changesLoading={changesLoading}
@@ -631,12 +1042,16 @@ export function RepoDetailContainer({
       onOpenRecoveryCenter={() => setRecoveryCenterOpen(true)}
       onAction={onAction}
       actionConfirmation={actionConfirmation}
-      onConfirmAction={() => {
+      onConfirmAction={(remote) => {
         if (!actionConfirmation) return;
         const confirmation = actionConfirmation;
         setActionConfirmation(null);
         if (confirmation.kind === "origin") executeAction(confirmation.action);
-        else if (confirmation.kind === "publish") publishCurrentBranch();
+        else if (confirmation.kind === "remote") {
+          if (!remote) return;
+          if (confirmation.action === "fetch") executeAction("fetch", remote);
+          else publishCurrentBranch(remote);
+        }
         else performCheckoutAndScrollToBranch(confirmation.branch);
       }}
       onCancelActionConfirmation={() => setActionConfirmation(null)}
@@ -645,19 +1060,28 @@ export function RepoDetailContainer({
       onCreateBranch={onCreateBranch}
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
+      onRebaseBranch={onRebaseBranch}
+      onMergeBranch={onMergeBranch}
+      onSquashMergeBranch={onSquashMergeBranch}
       onPreflightAction={setDestructiveAction}
+      onApplyStash={onApplyStash}
+      onCreateBranchFromStash={onCreateBranchFromStash}
+      onStashError={(error) => setActionError(userErrorMessage(error))}
+      stashActionRequest={stashActionRequest}
       onSetBranchUpstream={onSetBranchUpstream}
       onUnsetBranchUpstream={onUnsetBranchUpstream}
-      onPublishBranch={(branch) => setActionConfirmation({ kind: "publish", branch })}
+      onPublishBranch={(branch) => setActionConfirmation({ kind: "remote", action: "publish", branch })}
       onPushToRemotes={pushCurrentBranchToRemotes}
       onCreateTag={onCreateTag}
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}
       utilities={utilities}
       onSelectCommit={onSelectCommit}
+      onSelectStash={onSelectStash}
       onRevealCommit={onRevealCommit}
       onSelectWorking={() => {
         setSelectedCommit(null);
+        setSelectedStashId(null);
         setWorkingSelected(true);
       }}
       onStage={onStage}
@@ -665,9 +1089,41 @@ export function RepoDetailContainer({
       onPrepareAmend={onPrepareAmend}
       onApplyHunk={onApplyHunk}
       onDiscardPatch={onDiscardPatch}
+      onWorkingFileAction={(action, context) => workingFileActions.dispatch(action, context)}
       onCommit={onCommit}
+      pendingDraftMessage={pendingDraftMessage}
+      onPendingDraftMessageConsumed={() => setPendingDraftMessage(null)}
+      openWorkingDiffWhitespace={openWorkingDiffWhitespace}
+      onWorkingDiffWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
+      diffToolDisabledReason={diffToolAvailable ? undefined : t("workingFile.disabled.noDiffTool")}
+      stashFileDisabledReason={stashPathsSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
     />
     )}
+    {stashDialog ? (
+      <CreateStashDialog
+        initialScope={stashDialog.kind === "all"
+          ? { kind: "all" }
+          : { kind: "paths", paths: stashDialog.paths }}
+        selectedPaths={stashDialog.kind === "paths"
+          ? stashDialog.paths.map((path) => ({
+              path,
+              untracked: changes.unstaged.find((file) => file.path === path)?.tracked === false,
+            }))
+          : []}
+        pathsSupported={stashPathsSupported}
+        onClose={() => setStashDialog(null)}
+        onConfirm={(request) => {
+          const action = request.scope.kind === "all" ? "stash" : "stash-file";
+          void runWorkingAction(
+            action,
+            async () => { await createStash(repo.id, request); },
+            ["status", "working", "stashes"],
+          ).then((ok) => {
+            if (ok) setStashDialog(null);
+          });
+        }}
+      />
+    ) : null}
     {forcePushPreflight ? (
       <DestructivePreflightDialog
         repoId={repo.id}
@@ -685,6 +1141,32 @@ export function RepoDetailContainer({
           );
           if (ok) setForcePushPreflight(false);
         }}
+      />
+    ) : null}
+    {rebaseTarget?.repoId === repo.id ? (
+      <RebaseDialog repoId={repo.id} onto={rebaseTarget.onto} currentBranch={status?.branch ?? "HEAD"}
+        pending={actionPending === "rebase"} executionError={rebaseError} progress={activeOperation?.message}
+        onConfirm={executeRebase} onClose={() => setRebaseTarget(null)}
+        onCancel={() => { if (actionOperationId) void cancelOperation(actionOperationId); }} />
+    ) : null}
+    {mergeSource && status?.branch ? (
+      <MergeDialog
+        repoId={repo.id}
+        source={mergeSource}
+        currentBranch={status.branch}
+        pending={actionPending === "merge"}
+        onClose={() => setMergeSource(null)}
+        onConfirm={executeMerge}
+      />
+    ) : null}
+    {squashMergeSource && status?.branch ? (
+      <SquashMergeDialog
+        repoId={repo.id}
+        source={squashMergeSource}
+        currentBranch={status.branch}
+        pending={actionPending === "squash-merge"}
+        onClose={() => setSquashMergeSource(null)}
+        onConfirm={executeSquashMerge}
       />
     ) : null}
     {checkoutOverwrite ? (
@@ -735,17 +1217,52 @@ export function RepoDetailContainer({
                 confirmationToken,
               );
               setActionOperationId(task.operationId);
-              const nextState = await task.promise;
-              if (nextState) {
-                queryClient.setQueryData(queryKeys.repos.operationState(repo.id), nextState);
-              }
+              const result = await task.promise;
+              handleDestructiveResult(action, result);
             },
             scopesForDestructiveAction(action),
             undefined,
             action.kind === "abortOperation" || action.kind === "stashPop",
           );
-          if (ok) setDestructiveAction(null);
+          if (ok) {
+            if (action.kind === "stashDrop") {
+              setSelectedStashId((selected) => selected === action.id ? null : selected);
+            }
+            setDestructiveAction(null);
+          }
         }}
+      />
+    ) : null}
+    {workingFileDiscard ? (
+      <DestructivePreflightDialog
+        repoId={repo.id}
+        action={workingFileDiscard.action}
+        patchSelections={workingFileDiscard.selections}
+        onClose={() => setWorkingFileDiscard(null)}
+        onConfirm={async (generations, confirmationToken) => {
+          const request = workingFileDiscard;
+          const ok = request.selections.length === 1
+            ? await onDiscardPatch(
+                request.action,
+                request.selections[0],
+                generations,
+                confirmationToken,
+              )
+            : await onDiscardPatches(
+                request.action,
+                request.selections,
+                generations,
+                confirmationToken,
+              );
+          if (ok) setWorkingFileDiscard(null);
+        }}
+      />
+    ) : null}
+    {workingFileActions.ignoreRule ? (
+      <IgnoreRuleDialog
+        state={workingFileActions.ignoreRule}
+        onClose={workingFileActions.closeIgnoreRule}
+        onConfirm={() => void workingFileActions.confirmIgnoreRule()}
       />
     ) : null}
     </> : (
@@ -758,17 +1275,21 @@ export function RepoDetailContainer({
   );
 }
 
-type ConfirmableAction = "fetch" | "pull" | "push";
+type ConfirmableAction = "pull" | "push";
 const FORCE_WITH_LEASE_ACTION: DestructiveAction = { kind: "forceWithLease" };
 type NetworkRepoAction = "fetch" | "pull" | "push";
 type CheckoutOverwrite = { branch: string; paths: string[] };
+type WorkingFileDiscard = {
+  action: DestructiveAction;
+  selections: PatchSelection[];
+};
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "publish"; branch: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
-  return action === "fetch" || action === "pull" || action === "push";
+  return action === "pull" || action === "push";
 }
 
 function isNetworkAction(action: RepoAction): action is NetworkRepoAction {
@@ -783,16 +1304,27 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
       return ["status", "history", "refs"];
     case "stashPop":
       return ["status", "working", "stashes"];
+    case "stashDrop":
+      return ["stashes"];
     case "reset":
     case "checkoutDiscard":
     case "recoveryRestore":
       return ["status", "working", "history", "refs", "reflog"];
     case "abortOperation":
       return ["status", "operation", "working", "history", "refs"];
+    case "deleteFile":
+      return ["status", "working"];
     case "discard":
+    case "discardFiles":
     case "forceWithLease":
       return [];
   }
+}
+
+function mergeSourceLabel(source: MergeSource) {
+  return source.refName
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "");
 }
 
 function scopesForRepoAction(action: RepoAction): RepoDataScope[] {

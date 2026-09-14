@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import { loadUiState, saveOverviewFilters } from "@/infrastructure/uiState";
 import { RepoCard } from "@/presentation/RepoCard";
+import { HealthFilterBar } from "@/presentation/HealthFilterBar";
 import { Button, Muted, ScreenSurface, Surface, TYPOGRAPHY } from "@/presentation/ui";
 import { OverflowMenu } from "@/presentation/OverflowMenu";
-import type { RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
+import { countOnExpectedBranch, filterRepositoriesByHealth } from "@/application/repoHealth";
+import type { ExpectedBranchSummary } from "@/application/repoHealth";
+import type { UiOverviewFilter } from "@/domain/generated";
+import type { RepoHealth, RepositoryEntry, RepoStatusSummary, Workspace } from "@/domain/workspace";
 
 interface OverviewProps {
   workspace: Workspace | null;
   repositories: RepositoryEntry[];
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   selectedRepoId: string | null;
   metrics: { total: number; attention: number; behind: number };
   bulkPending: string | null;
@@ -26,17 +30,19 @@ interface OverviewProps {
   onSelectRepo: (repoId: string) => void;
   onWarmRepo: (repoId: string) => void;
   onRemoveRepo: (repoId: string) => void;
+  activeFilters: ReadonlySet<UiOverviewFilter>;
+  onToggleFilter: (filter: UiOverviewFilter) => void;
+  onClearFilters: () => void;
   utilities: ReactNode;
 }
 
 const CARD_ROW_HEIGHT = 112;
 const CARD_GRID_GAP = 12;
-type OverviewFilter = "attention" | "behind";
-
 export function OverviewView({
   workspace,
   repositories,
   statusByRepo,
+  healthByRepo,
   selectedRepoId,
   metrics,
   bulkPending,
@@ -47,45 +53,27 @@ export function OverviewView({
   onSelectRepo,
   onWarmRepo,
   onRemoveRepo,
+  activeFilters,
+  onToggleFilter,
+  onClearFilters,
   utilities,
 }: OverviewProps) {
   const { t } = useTranslation("workspace");
-  const [activeFilters, setActiveFilters] = useState<Set<OverviewFilter>>(() => new Set());
-  const uiStateRestoredRef = useRef(false);
-
-  useEffect(() => {
-    if (uiStateRestoredRef.current) return;
-    uiStateRestoredRef.current = true;
-    void loadUiState()
-      .then((state) => setActiveFilters(new Set(state.overview.filters)))
-      .catch(() => undefined);
-  }, []);
-  const filteredRepositories = useMemo(() => {
-    const attentionActive = metrics.attention > 0 && activeFilters.has("attention");
-    const behindActive = metrics.behind > 0 && activeFilters.has("behind");
-    if (!attentionActive && !behindActive) return repositories;
-    return repositories.filter((repo) => {
-      const status = statusByRepo[repo.id]?.status;
-      return (
-        (attentionActive && Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind)) ||
-        (behindActive && (status?.behind ?? 0) > 0)
-      );
-    });
-  }, [activeFilters, metrics.attention, metrics.behind, repositories, statusByRepo]);
-
-  function toggleFilter(filter: OverviewFilter) {
-    setActiveFilters((current) => {
-      const next = new Set(current);
-      if (next.has(filter)) next.delete(filter);
-      else next.add(filter);
-      void saveOverviewFilters([...next]).catch(() => undefined);
-      return next;
-    });
-  }
+  // Computed from the health set that is already loaded for this screen — the
+  // expected-branch summary never costs an extra backend request.
+  const expectedBranchSummary = useMemo(
+    () =>
+      workspace?.expectedBranch ? countOnExpectedBranch(repositories, healthByRepo) : null,
+    [healthByRepo, repositories, workspace?.expectedBranch],
+  );
+  const filteredRepositories = useMemo(
+    () => filterRepositoriesByHealth(repositories, healthByRepo, activeFilters),
+    [activeFilters, healthByRepo, repositories],
+  );
 
   return (
     <ScreenSurface screen="overview" className="flex min-h-0 flex-1 flex-col gap-5">
-      <header className="flex items-center gap-3">
+      <header className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className={`truncate ${TYPOGRAPHY.screenTitle}`}>
             {workspace?.name ?? t("dashboard.title")}
@@ -122,9 +110,17 @@ export function OverviewView({
 
       <SummaryLine
         metrics={metrics}
-        attentionActive={metrics.attention > 0 && activeFilters.has("attention")}
-        behindActive={metrics.behind > 0 && activeFilters.has("behind")}
-        onToggle={toggleFilter}
+        expectedBranch={workspace?.expectedBranch ?? null}
+        expectedBranchSummary={expectedBranchSummary}
+        attentionActive={activeFilters.has("attention")}
+        behindActive={activeFilters.has("behind")}
+        onToggle={onToggleFilter}
+      />
+
+      <HealthFilterBar
+        filters={activeFilters}
+        onToggle={onToggleFilter}
+        onClear={onClearFilters}
       />
 
       {filteredRepositories.length === 0 ? (
@@ -145,6 +141,7 @@ export function OverviewView({
         <VirtualRepoGrid
           repositories={filteredRepositories}
           statusByRepo={statusByRepo}
+          healthByRepo={healthByRepo}
           selectedRepoId={selectedRepoId}
           onSelectRepo={onSelectRepo}
           onWarmRepo={onWarmRepo}
@@ -192,6 +189,7 @@ function BulkProgressStrip({
 function VirtualRepoGrid({
   repositories,
   statusByRepo,
+  healthByRepo,
   selectedRepoId,
   onSelectRepo,
   onWarmRepo,
@@ -199,6 +197,7 @@ function VirtualRepoGrid({
 }: {
   repositories: RepositoryEntry[];
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   selectedRepoId: string | null;
   onSelectRepo: (repoId: string) => void;
   onWarmRepo: (repoId: string) => void;
@@ -263,6 +262,7 @@ function VirtualRepoGrid({
                 key={repo.id}
                 repo={repo}
                 status={statusByRepo[repo.id]?.status}
+                health={healthByRepo[repo.id]}
                 selected={repo.id === selectedRepoId}
                 onSelect={() => onSelectRepo(repo.id)}
                 onWarm={() => onWarmRepo(repo.id)}
@@ -278,18 +278,25 @@ function VirtualRepoGrid({
 
 function SummaryLine({
   metrics,
+  expectedBranch,
+  expectedBranchSummary,
   attentionActive,
   behindActive,
   onToggle,
 }: {
   metrics: { total: number; attention: number; behind: number };
+  expectedBranch: string | null;
+  expectedBranchSummary: ExpectedBranchSummary | null;
   attentionActive: boolean;
   behindActive: boolean;
-  onToggle: (filter: OverviewFilter) => void;
+  onToggle: (filter: UiOverviewFilter) => void;
 }) {
   const { t } = useTranslation("workspace");
   return (
-    <div className={`flex min-h-7 items-center gap-2 ${TYPOGRAPHY.body}`} style={{ color: "var(--slate)" }}>
+    <div
+      className={`flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 ${TYPOGRAPHY.body}`}
+      style={{ color: "var(--slate)" }}
+    >
       <span className="font-medium tabular-nums" style={{ color: "var(--ink)" }}>
         {t("dashboard.repoCountValue", { count: metrics.total })}
       </span>
@@ -307,6 +314,29 @@ function SummaryLine({
           <SummaryFilter active={behindActive} onClick={() => onToggle("behind")}>
             {t("dashboard.behindOriginValue", { count: metrics.behind })}
           </SummaryFilter>
+        </>
+      ) : null}
+      {expectedBranch && expectedBranchSummary ? (
+        <>
+          <span aria-hidden="true">·</span>
+          {/*
+            Compact non-interactive text. Making this segment a filter is
+            P10-10's job (workspace filter chips, including *wrong branch*);
+            wiring it here would prejudge that composition model.
+          */}
+          <span className="min-w-0 max-w-full truncate font-medium tabular-nums">
+            {expectedBranchSummary.known === expectedBranchSummary.total
+              ? t("dashboard.onExpectedBranchValue", {
+                  count: expectedBranchSummary.onExpected,
+                  total: expectedBranchSummary.total,
+                  branch: expectedBranch,
+                })
+              : t("dashboard.onExpectedBranchKnownValue", {
+                  count: expectedBranchSummary.onExpected,
+                  total: expectedBranchSummary.known,
+                  branch: expectedBranch,
+                })}
+          </span>
         </>
       ) : null}
     </div>

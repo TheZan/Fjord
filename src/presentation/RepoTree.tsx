@@ -3,16 +3,20 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
+import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
 import { Input, Surface } from "@/presentation/ui";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
-import type { BranchInfo, TagInfo } from "@/domain/git";
+import { StashContextMenu } from "@/presentation/StashContextMenu";
+import type { StashAction } from "@/application/stashActions";
+import { formatRelativeTime } from "@/presentation/formatRelativeTime";
+import type { BranchInfo, StashEntry, StashId, TagInfo } from "@/domain/git";
 
-type SectionKey = "local" | "remote" | "tags";
+type SectionKey = "local" | "remote" | "tags" | "stashes";
 const TREE_ROW_HEIGHT = 40;
 
 /**
- * Branches + tags: collapsible sections with a filter box, each section's body
+ * Branches, tags, and stashes: collapsible sections with a filter box, each section's body
  * capped at a fixed height so a repo with a hundred branches stays a compact
  * scrollable list instead of stretching the whole column — the flat
  * always-expanded `BranchesPanel` it replaces didn't.
@@ -26,6 +30,11 @@ export function RepoTree({
   onBranchContextAction,
   onPublishBranch,
   onTagContextAction,
+  selectedStashId,
+  onSelectStash,
+  onStashContextMenu,
+  onRevealStashInGraph,
+  onStashAction,
 }: {
   repoId: string;
   focusedBranch?: string | null;
@@ -35,30 +44,39 @@ export function RepoTree({
   onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo, upstreamChoices: string[]) => void;
   onPublishBranch?: (branch: string) => void;
   onTagContextAction?: (action: TagContextAction, tag: TagInfo) => void;
+  selectedStashId?: StashId | null;
+  onSelectStash?: (stashId: StashId) => void;
+  onStashContextMenu?: (stashId: StashId) => void;
+  onRevealStashInGraph?: (stashId: StashId) => void;
+  onStashAction?: (action: StashAction, stash: StashEntry) => void;
 }) {
-  const { t } = useTranslation("workspace");
+  const { t, i18n } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
   const { tags, loading: tagsLoading, error: tagsError } = useTags(repoId);
+  const { stashes, loading: stashesLoading, error: stashesError } = useStashes(repoId);
   const treeRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
     local: true,
     remote: false,
     tags: false,
+    stashes: false,
   });
   const [menu, setMenu] = useState<
     | { kind: "branch"; branch: BranchInfo; x: number; y: number }
     | { kind: "tag"; tag: TagInfo; x: number; y: number }
+    | { kind: "stash"; stash: StashEntry; x: number; y: number }
     | null
   >(null);
 
-  const loading = branchesLoading || tagsLoading;
-  const error = branchesError ?? tagsError;
+  const loading = branchesLoading || tagsLoading || stashesLoading;
+  const error = branchesError ?? tagsError ?? stashesError;
 
   const normalizedFilter = filter.trim().toLocaleLowerCase();
   const matches = (name: string) => !normalizedFilter || name.toLocaleLowerCase().includes(normalizedFilter);
 
   const visibleLocalBranches = branches.filter((branch) => !branch.isRemote);
+  const currentBranch = visibleLocalBranches.find((branch) => branch.isCurrent)?.name ?? null;
   const local = visibleLocalBranches.filter((branch) => matches(branch.name));
   const visibleRemoteBranches = branches.filter(
     (branch) => branch.isRemote && remoteBranchDisplayName(branch.name) !== null,
@@ -67,15 +85,20 @@ export function RepoTree({
     matches(remoteBranchDisplayName(branch.name) ?? branch.name),
   );
   const filteredTags = tags.filter((tag) => matches(tag.name));
+  const filteredStashes = stashes.filter(
+    (entry) => matches(entry.title) || matches(entry.message),
+  );
 
-  const totalCount = visibleLocalBranches.length + visibleRemoteBranches.length + tags.length;
-  const matchedCount = local.length + remote.length + filteredTags.length;
+  const totalCount = visibleLocalBranches.length + visibleRemoteBranches.length + tags.length + stashes.length;
+  const matchedCount = local.length + remote.length + filteredTags.length + filteredStashes.length;
 
   function toggle(key: SectionKey) {
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  if (loading && branches.length === 0 && tags.length === 0) return <RepoTreeSkeleton />;
+  if (loading && branches.length === 0 && tags.length === 0 && stashes.length === 0) {
+    return <RepoTreeSkeleton />;
+  }
   if (error) {
     return (
       <p className="text-sm" style={{ color: "var(--rust-ink)" }}>
@@ -83,18 +106,10 @@ export function RepoTree({
       </p>
     );
   }
-  if (totalCount === 0) {
-    return (
-      <p className="text-sm" style={{ color: "var(--slate)" }}>
-        {t("tree.empty")}
-      </p>
-    );
-  }
-
   return (
     <Surface
       ref={treeRef}
-      className="flex w-full max-w-sm flex-col text-sm"
+      className="repo-tree-container flex w-full max-w-sm flex-col text-sm"
       style={{ background: "var(--paper)" }}
       onKeyDown={handleTreeKeyDown}
     >
@@ -145,7 +160,7 @@ export function RepoTree({
                   onCheckout={onCheckout}
                   checkoutDisabledReason={checkoutDisabledReason}
                   onPublishBranch={onPublishBranch}
-                  onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                  onContextMenu={(position) => setMenu({ kind: "branch", branch, ...position })}
                 />
               );
             }}
@@ -174,7 +189,7 @@ export function RepoTree({
                     onCheckout={onCheckout}
                     checkoutDisabledReason={checkoutDisabledReason}
                     onPublishBranch={onPublishBranch}
-                    onContextMenu={(event) => setMenu({ kind: "branch", branch, x: event.clientX, y: event.clientY })}
+                    onContextMenu={(position) => setMenu({ kind: "branch", branch, ...position })}
                   />
                 );
               }}
@@ -199,11 +214,60 @@ export function RepoTree({
             />
           </TreeSection>
         )}
+
+        <TreeSection
+          label={t("tree.stashes")}
+          count={filteredStashes.length}
+          expanded={expanded.stashes}
+          onToggle={() => toggle("stashes")}
+          noMatches={normalizedFilter !== "" && stashes.length > 0 && filteredStashes.length === 0}
+        >
+          {stashes.length === 0 ? (
+            <p className="px-2 py-1 pl-3 text-xs" style={{ color: "var(--slate)" }}>
+              {t("stash.empty")}
+            </p>
+          ) : (
+            <VirtualTreeItems
+              count={filteredStashes.length}
+              getItemKey={(index) => filteredStashes[index].id}
+              renderItem={(index) => {
+                const entry = filteredStashes[index];
+                return (
+                  <StashRow
+                    entry={entry}
+                    locale={i18n.language}
+                    selected={entry.id === selectedStashId}
+                    onSelect={() => onSelectStash?.(entry.id)}
+                    onContextMenu={(position, invoker) => {
+                      invoker.focus();
+                      onStashContextMenu?.(entry.id);
+                      setMenu({ kind: "stash", stash: entry, ...position });
+                    }}
+                  />
+                );
+              }}
+            />
+          )}
+        </TreeSection>
       </div>
-      {menu && (
+      {menu?.kind === "stash" ? (
+        <StashContextMenu
+          state={menu}
+          onClose={() => setMenu(null)}
+          canRevealInGraph={Boolean(onRevealStashInGraph)}
+          onAction={(action, stash) => {
+            if (onStashAction) onStashAction(action, stash);
+            else if (action === "revealInGraph") onRevealStashInGraph?.(stash.id);
+          }}
+        />
+      ) : menu ? (
         <ContextMenu
           position={menu}
-          items={menu.kind === "branch" ? branchMenuItems(menu.branch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason) : tagMenuItems(menu.tag, t)}
+          items={
+            menu.kind === "branch"
+              ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
+              : tagMenuItems(menu.tag, t)
+          }
           onClose={() => setMenu(null)}
           onSelect={(action) => {
             const selection = menu;
@@ -215,10 +279,12 @@ export function RepoTree({
                 visibleRemoteBranches.map((branch) => branch.name),
               );
             }
-            else onTagContextAction?.(action as TagContextAction, selection.tag);
+            else {
+              onTagContextAction?.(action as TagContextAction, selection.tag);
+            }
           }}
         />
-      )}
+      ) : null}
     </Surface>
   );
 
@@ -303,7 +369,7 @@ function BranchRow({
   onCheckout?: (branch: string) => void;
   checkoutDisabledReason?: string;
   onPublishBranch?: (branch: string) => void;
-  onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
+  onContextMenu: (position: { x: number; y: number }) => void;
 }) {
   const displayName = branch.isRemote ? remoteBranchDisplayName(branch.name) : branch.name;
   if (displayName === null) return null;
@@ -320,6 +386,12 @@ function BranchRow({
           if (!branch.isCurrent && !checkoutDisabledReason) onCheckout?.(branch.name);
         }}
         onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onContextMenu({ x: bounds.left + 12, y: bounds.top + 12 });
+            return;
+          }
           if (event.key !== "Enter") return;
           event.preventDefault();
           onSelectBranch?.(branch.name);
@@ -327,7 +399,7 @@ function BranchRow({
         }}
         onContextMenu={(event) => {
           event.preventDefault();
-          onContextMenu(event);
+          onContextMenu({ x: event.clientX, y: event.clientY });
         }}
         data-selected={branch.isCurrent}
         data-focused={focused}
@@ -384,18 +456,98 @@ function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: M
   );
 }
 
+function StashRow({
+  entry,
+  locale,
+  selected,
+  onSelect,
+  onContextMenu,
+}: {
+  entry: StashEntry;
+  locale: string;
+  selected: boolean;
+  onSelect: () => void;
+  onContextMenu: (
+    position: { x: number; y: number },
+    invoker: HTMLButtonElement,
+  ) => void;
+}) {
+  const source = entry.branch ?? entry.base.slice(0, 7);
+  const relativeTime = formatRelativeTime(entry.createdAt, locale);
+
+  function openKeyboardMenu(event: KeyboardEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    onContextMenu(
+      { x: bounds.left + 12, y: bounds.top + 12 },
+      event.currentTarget,
+    );
+  }
+
+  return (
+    <li className="h-10">
+      <button
+        data-tree-item
+        data-stash-id={entry.id}
+        data-selected={selected}
+        type="button"
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            openKeyboardMenu(event);
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu(
+            { x: event.clientX, y: event.clientY },
+            event.currentTarget,
+          );
+        }}
+        className="interactive-row flex h-10 w-full min-w-0 items-center gap-2 rounded px-2 text-left"
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-5 w-4 shrink-0 items-center justify-center text-sm"
+          style={{ color: "var(--fjord-ink)" }}
+        >
+          ◈
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-xs font-medium">{entry.title}</span>
+          <span className="flex min-w-0 items-center gap-2 text-[10px]" style={{ color: "var(--mist)" }}>
+            <span className="min-w-0 flex-1 truncate font-mono">
+              {source} · {entry.refName}
+            </span>
+            <time
+              className="stash-relative-time shrink-0"
+              dateTime={entry.createdAt}
+              title={entry.createdAt}
+            >
+              {relativeTime}
+            </time>
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
 function VirtualTreeItems({
   count,
   renderItem,
+  getItemKey,
 }: {
   count: number;
   renderItem: (index: number) => ReactNode;
+  getItemKey?: (index: number) => string | number;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => TREE_ROW_HEIGHT,
+    getItemKey,
     overscan: 6,
   });
 
@@ -424,12 +576,13 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "rebase" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "delete" | "copy";
 
 function branchMenuItems(
   branch: BranchInfo,
-  t: (key: string) => string,
+  currentBranch: string | null,
+  t: (key: string, values?: Record<string, unknown>) => string,
   hasRemoteBranches: boolean,
   checkoutDisabledReason?: string,
 ): ContextMenuItem[] {
@@ -443,10 +596,46 @@ function branchMenuItems(
       disabledReason: checkoutDisabledReason,
     },
     {
+      id: "merge",
+      label: t("context.mergeInto", {
+        source: branch.name,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
+      separatorBefore: true,
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent
+        ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
+    },
+    {
+      id: "rebase",
+      label: t("rebase.entry", { current: currentBranch ?? "HEAD", onto: branch.name }),
+      icon: "merge",
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent ? t("rebase.blocked.target_is_current_branch")
+        : !currentBranch ? t("rebase.blocked.detached_head") : checkoutDisabledReason,
+    },
+    {
+      id: "squashMerge",
+      label: t("context.squashMergeInto", {
+        source: branch.name,
+        target: currentBranch ?? "HEAD",
+      }),
+      icon: "merge",
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent
+        ? t("merge.blocked.sourceIsCurrentBranch", { target: currentBranch ?? branch.name })
+        : !currentBranch
+          ? t("merge.blocked.detachedHead")
+          : checkoutDisabledReason,
+    },
+    {
       id: "createBranch",
       label: t("context.createBranchHere"),
       icon: "branch",
-      separatorBefore: true,
       disabled: Boolean(checkoutDisabledReason),
       disabledReason: checkoutDisabledReason,
     },

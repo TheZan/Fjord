@@ -10,6 +10,7 @@
 //! the worktree.
 
 use super::*;
+use git2::Oid;
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -21,6 +22,22 @@ const FINGERPRINT_BUFFER_BYTES: usize = 64 * 1024;
 enum IndexFingerprint {
     Missing,
     Present([u8; 32]),
+}
+
+/// Opaque snapshot of the complete real index. Callers that construct a
+/// mutation speculatively can bind the later `index.lock` acquisition to the
+/// exact bytes they observed before doing any user-state mutation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct IndexSnapshot(IndexFingerprint);
+
+impl IndexSnapshot {
+    pub(super) fn capture(repo: &RepoPath) -> Result<Self, GitError> {
+        Ok(Self(fingerprint(&resolved_index_path(repo)?)?))
+    }
+
+    pub(super) fn is_missing(self) -> bool {
+        self.0 == IndexFingerprint::Missing
+    }
 }
 
 /// Holds Git's real index lock without changing the index. Used by discard so
@@ -91,6 +108,19 @@ impl IndexTransaction {
         })
     }
 
+    pub(super) fn begin_expected(
+        commands: &GitCommandFactory,
+        repo: &RepoPath,
+        expected: IndexSnapshot,
+    ) -> Result<Self, GitError> {
+        let transaction = Self::begin(commands, repo)?;
+        if transaction.original == expected.0 {
+            Ok(transaction)
+        } else {
+            Err(GitError::PatchStale)
+        }
+    }
+
     pub(super) fn alternate_index_path(&self) -> &Path {
         self.marker
             .as_ref()
@@ -103,6 +133,36 @@ impl IndexTransaction {
             Ok(())
         } else {
             Err(GitError::PatchStale)
+        }
+    }
+
+    /// Atomically replaces the real index from `source` while retaining the
+    /// standard `index.lock`. This lets a caller coordinate another Git-owned
+    /// resource before releasing external index writers.
+    pub(super) fn replace_real_while_locked(&self, source: &Path) -> Result<(), GitError> {
+        let parent = self
+            .index_path
+            .parent()
+            .ok_or_else(patch_transaction_failed)?;
+        let mut temporary = gix_tempfile::new(
+            parent,
+            gix_tempfile::ContainingDirectory::Exists,
+            gix_tempfile::AutoRemove::Tempfile,
+        )
+        .map_err(|_| patch_transaction_failed())?;
+        let mut source = std::fs::File::open(source).map_err(|_| patch_transaction_failed())?;
+        std::io::copy(&mut source, &mut temporary).map_err(|_| patch_transaction_failed())?;
+        temporary
+            .persist(&self.index_path)
+            .map_err(|_| patch_transaction_failed())?;
+        Ok(())
+    }
+
+    pub(super) fn remove_real_while_locked(&self) -> Result<(), GitError> {
+        match std::fs::remove_file(&self.index_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(patch_transaction_failed()),
         }
     }
 
@@ -130,6 +190,14 @@ impl HeadLock {
         let expected = LocalGitBackend::with_runtime_git2(repo, |git| {
             Ok(LocalGitBackend::current_head_commit(git)?.map(|commit| commit.id()))
         })?;
+        Self::acquire_expected(commands, repo, expected)
+    }
+
+    pub(super) fn acquire_expected(
+        commands: &GitCommandFactory,
+        repo: &RepoPath,
+        expected: Option<Oid>,
+    ) -> Result<Self, GitError> {
         let mut command = commands.command()?;
         command
             .args(["update-ref", "--stdin"])

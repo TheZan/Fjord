@@ -115,7 +115,11 @@ fn command_args(
     Ok(args.iter().map(OsString::from).collect())
 }
 
-fn command_spec(executable: PathBuf, repo: &RepoPath, args: Vec<OsString>) -> GitCommandSpec {
+pub(super) fn command_spec(
+    executable: PathBuf,
+    repo: &RepoPath,
+    args: Vec<OsString>,
+) -> GitCommandSpec {
     GitCommandSpec {
         executable,
         cwd: repo.0.clone(),
@@ -152,7 +156,7 @@ fn step_diagnostics(stderr: &str, stdout: &str) -> String {
     }
 }
 
-fn map_process_error(error: GitRemoteError) -> GitError {
+pub(super) fn map_process_error(error: GitRemoteError) -> GitError {
     match error {
         GitRemoteError::Cancelled => GitError::Cancelled,
         GitRemoteError::GitExecutableNotFound => GitError::ExecutableNotFound,

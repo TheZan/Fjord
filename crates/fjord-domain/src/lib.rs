@@ -54,6 +54,11 @@ pub struct Workspace {
     pub id: WorkspaceId,
     pub name: String,
     pub sort_order: i32,
+    /// Optional literal branch name every repository in this workspace is
+    /// expected to be on (`workspaces.expected_branch`, P10-09). `None` means
+    /// the workspace has no convention and no `WrongBranch` condition is ever
+    /// derived for it — see docs/specs/workspace-workflows.md §5.
+    pub expected_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -115,6 +120,20 @@ pub struct RemoteInfo {
     pub name: String,
     pub fetch_url: String,
     pub push_url: Option<String>,
+}
+
+/// Confirmation facts for deleting one configured remote. The token is
+/// backend-issued and bound to this repository, remote name, affected branch
+/// set, and config generation; callers must not construct one themselves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RemoveRemotePreflight {
+    pub remote: String,
+    pub orphaned_upstreams: Vec<String>,
+    #[ts(type = "number")]
+    pub config_generation: u64,
+    pub confirmation_token: String,
 }
 
 /// Result of pushing the current branch to one explicitly selected remote.
@@ -279,6 +298,60 @@ pub struct RepoStatusSummary {
     pub last_synced_at: Option<OffsetDateTime>,
 }
 
+/// Backend-derived repository health. Conditions are emitted in the canonical
+/// display severity order and may contain more than one applicable fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RepoCondition {
+    Clean,
+    Dirty {
+        count: u32,
+    },
+    Ahead {
+        count: u32,
+    },
+    Behind {
+        count: u32,
+    },
+    Diverged {
+        ahead: u32,
+        behind: u32,
+    },
+    Conflict,
+    OperationInProgress {
+        operation: RepoOperation,
+    },
+    WrongBranch {
+        expected: String,
+        actual: Option<String>,
+    },
+    Unreadable {
+        reason_code: String,
+    },
+}
+
+/// A point-in-time health projection derived from authoritative cached inputs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepoHealth {
+    pub repo_id: RepositoryId,
+    pub conditions: Vec<RepoCondition>,
+    pub needs_attention: bool,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub as_of: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
@@ -324,6 +397,197 @@ pub struct BranchInfo {
     pub target_commit_id: CommitId,
 }
 
+/// The only reference kinds accepted by the branch-integration contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeSourceKind {
+    LocalBranch,
+    RemoteTracking,
+}
+
+/// A merge source is always a canonical, fully-qualified Git ref name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeSource {
+    pub ref_name: String,
+    pub kind: MergeSourceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeMode {
+    Default,
+    FastForwardOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeDirtyPolicy {
+    Refuse,
+    StashFirst,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergePrediction {
+    AlreadyUpToDate,
+    FastForward { commits: u32 },
+    MergeCommit { ahead: u32, behind: u32 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeDirtyState {
+    pub staged: u32,
+    pub modified: u32,
+    pub untracked: u32,
+    pub would_overwrite: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergePreflight {
+    pub source: MergeSource,
+    pub source_label: String,
+    pub source_commit: CommitId,
+    pub target_branch: String,
+    pub target_commit: CommitId,
+    pub prediction: MergePrediction,
+    pub dirty: MergeDirtyState,
+    pub blockers: Vec<String>,
+    pub generations: GenerationSet,
+}
+
+/// Shared integration blockers. Merge's shipped string codes remain compatible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum IntegrationBlocker {
+    TargetIsCurrentBranch,
+    TargetNotFound,
+    TargetUnsupported,
+    OperationAlreadyInProgress,
+    DetachedHead,
+    UnbornHead,
+    IndexHasStagedChanges,
+    WouldOverwrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct PublishedRewriteConsequence {
+    pub upstream: String,
+    pub commits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RebasePreflight {
+    pub onto: MergeSource,
+    pub onto_label: String,
+    pub onto_commit: CommitId,
+    pub current_branch: String,
+    pub current_commit: CommitId,
+    pub dirty: MergeDirtyState,
+    pub blockers: Vec<IntegrationBlocker>,
+    pub commits: u32,
+    pub already_up_to_date: bool,
+    pub published_rewrite: Option<PublishedRewriteConsequence>,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RebaseResult {
+    pub state: RepoOperationState,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum MergeOutcome {
+    AlreadyUpToDate,
+    FastForwarded { head: CommitId },
+    Merged { commit: CommitId },
+    Conflicted { state: RepoOperationState },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct MergeResult {
+    pub outcome: MergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
+/// `git merge --squash`: stages the combined diff (or leaves it conflicted)
+/// without creating a merge commit or moving any ref. See P10-MERGE-03.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum SquashMergeOutcome {
+    AlreadyUpToDate,
+    Staged { message: String },
+    Conflicted { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct SquashMergeResult {
+    pub outcome: SquashMergeOutcome,
+    pub source: MergeSource,
+    pub source_label: String,
+    pub target_branch: String,
+    /// `HEAD` before the squash ran — unmoved by any outcome. Lets the
+    /// caller offer a plain Reset (Hard) to this commit as the discard path,
+    /// reusing the existing destructive-preflight `Reset` action rather than
+    /// inventing a second abort mechanism.
+    pub target_commit: CommitId,
+    pub stash_ref: Option<String>,
+    pub generations: GenerationSet,
+}
+
 /// A reference advertised by a remote repository. `symbolic_target` is set
 /// for entries such as `HEAD` returned by `git ls-remote --symref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -343,14 +607,117 @@ pub struct TagInfo {
     pub target_commit_id: CommitId,
 }
 
-/// One entry of the stash stack. `index` is the `stash@{n}` position — 0 is
-/// the most recent, which is what a plain "pop" applies.
+/// The stash commit's object id. This is deliberately distinct from
+/// `CommitId`: a stash object is not ordinary checkout/history input.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct StashId(pub String);
+
+/// One repository-derived entry of the stash stack. `id` is immutable;
+/// `index` and `ref_name` are current display positions recomputed per read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub struct StashEntry {
+    pub id: StashId,
     pub index: u32,
+    pub ref_name: String,
     pub message: String,
+    pub title: String,
+    pub base: CommitId,
+    pub branch: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    #[ts(type = "string")]
+    pub created_at: OffsetDateTime,
+    pub files_changed: u32,
+    pub has_index_state: bool,
+    pub has_untracked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum StashFileGroup {
+    Index,
+    Worktree,
+    Untracked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct StashFiles {
+    pub staged: Vec<FileDiff>,
+    pub worktree: Vec<FileDiff>,
+    pub untracked: Vec<FileDiff>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StashScope {
+    All,
+    Paths { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateStashRequest {
+    pub scope: StashScope,
+    pub message: String,
+    pub include_untracked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateStashResult {
+    pub entry: StashEntry,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum StashApplyOutcome {
+    Applied,
+    Conflicted { paths: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct StashApplyResult {
+    pub outcome: StashApplyOutcome,
+    pub entry_removed: bool,
+    pub generations: GenerationSet,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct CreateBranchFromStashResult {
+    pub branch: String,
+    pub outcome: Option<StashApplyOutcome>,
+    pub stash_kept: bool,
+    pub generations: GenerationSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -464,8 +831,15 @@ pub struct FileDiff {
 pub struct WorkingFile {
     pub path: String,
     pub change_type: FileChangeType,
+    /// `true` when the path already has an index entry.
+    #[serde(default = "tracked_by_default")]
+    pub tracked: bool,
     /// `true` when the entry is an unresolved merge conflict.
     pub conflicted: bool,
+}
+
+const fn tracked_by_default() -> bool {
+    true
 }
 
 /// Split of the working directory into what a commit would include (`staged`)
@@ -487,6 +861,66 @@ pub enum PatchSource {
     Worktree,
     /// HEAD-to-index diff, used for unstaging.
     Index,
+}
+
+/// Logical identity of one Working Changes row. The source is part of the
+/// identity because a partially staged path appears in both sections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct WorkingFileTarget {
+    pub path: String,
+    pub source: PatchSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RepositoryFilePath {
+    pub relative: String,
+    #[ts(type = "string")]
+    pub absolute: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum OpenTarget {
+    ConfiguredEditor { line: Option<u32> },
+    DefaultApplication,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleKind {
+    File,
+    Extension,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct IgnoreRulePreview {
+    pub rule: String,
+    pub already_present: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum IgnoreRuleOutcome {
+    Added,
+    AlreadyPresent,
 }
 
 /// Coordinates for one selected hunk in the complete rendered diff.
@@ -582,16 +1016,47 @@ pub enum ResetMode {
     rename_all_fields = "camelCase"
 )]
 pub enum DestructiveAction {
-    Discard { selection: DiscardSelection },
+    Discard {
+        selection: DiscardSelection,
+    },
+    /// One whole-file worktree discard, confirmed and applied atomically for
+    /// the exact ordered path vector. Per-file coordinates and digests remain
+    /// in the accompanying `Vec<PatchSelection>` execution contract.
+    DiscardFiles {
+        paths: Vec<String>,
+    },
     ForceWithLease,
-    Reset { commit_id: String, mode: ResetMode },
-    DeleteBranch { name: String },
-    DeleteRemoteBranch { remote: String, branch: String },
-    DeleteTag { name: String },
-    StashPop { index: u32 },
-    CheckoutDiscard { branch: String },
+    Reset {
+        commit_id: String,
+        mode: ResetMode,
+    },
+    DeleteBranch {
+        name: String,
+    },
+    DeleteRemoteBranch {
+        remote: String,
+        branch: String,
+    },
+    DeleteTag {
+        name: String,
+    },
+    StashPop {
+        id: StashId,
+        restore_index: bool,
+    },
+    StashDrop {
+        id: StashId,
+    },
+    CheckoutDiscard {
+        branch: String,
+    },
     AbortOperation,
-    RecoveryRestore { commit_id: String },
+    RecoveryRestore {
+        commit_id: String,
+    },
+    DeleteFile {
+        path: String,
+    },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only
@@ -612,6 +1077,10 @@ pub enum Recoverability {
     Reflog,
     Stash,
     NotRecoverable,
+    /// The content is still in `HEAD` and can be restored from there. Used
+    /// only where an action's *complete* consequence set leaves nothing else
+    /// uncommitted lost — see `DestructiveAction::DeleteFile`.
+    Committed,
 }
 
 /// A concrete, bounded consequence. Every sample is capped by the service at
@@ -656,13 +1125,21 @@ pub enum Consequence {
         target_commit_id: Option<CommitId>,
     },
     StashEntryConsumed {
-        index: u32,
-        message: String,
+        id: StashId,
+        ref_name: String,
+        title: String,
+        files_changed: u32,
+        base: CommitId,
+        branch: Option<String>,
     },
     RemoteRefUpdated {
         remote: String,
         ref_name: String,
         dropped_commits: u32,
+    },
+    FileRemoved {
+        path: String,
+        tracked: bool,
     },
 }
 
@@ -683,6 +1160,26 @@ pub struct DestructivePreflight {
     // Backend-issued bearer proof for this exact destructive scope. Blocked
     // preflights do not receive a confirmation.
     pub confirmation_token: Option<String>,
+}
+
+/// Typed result of the shared destructive executor. Most actions simply
+/// complete; operation abort returns the freshly detected state, while stash
+/// Pop returns its apply/conflict outcome without inventing a Git operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DestructiveExecutionResult {
+    Completed,
+    OperationState { state: RepoOperationState },
+    StashApply { result: StashApplyResult },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -942,6 +1439,53 @@ pub struct Settings {
     pub performance_diagnostics: bool,
     #[ts(type = "string | null")]
     pub git_executable_path: Option<PathBuf>,
+    /// A Git difftool **name** only — never a path, shell command, or command
+    /// line. `None` means "let Git resolve `diff.tool` /
+    /// `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+    /// --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+    pub diff_tool: Option<String>,
+}
+
+/// Whether `name` is a Git difftool name rather than a path or command line.
+///
+/// This is shared by the settings and Git backend boundaries so values that
+/// bypass persisted settings are held to the same contract before Git is run.
+pub fn is_valid_diff_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+/// Whether `name` is a valid **local** Git branch name, following the rules
+/// `git check-ref-format --branch` enforces for `refs/heads/<name>`.
+///
+/// This is the shared branch-name contract for user-entered branch inputs
+/// (P10-09's workspace expected branch is the first one). It is a pure
+/// predicate over the string: no Git process is spawned, so the value is
+/// never interpolated into a command line to find out whether it is legal.
+pub fn is_valid_branch_name(name: &str) -> bool {
+    // `-` would be read as an option by Git's own CLI, and a bare `@` is
+    // reserved. Empty is rejected by the caller too, but not every caller.
+    if name.is_empty() || name.starts_with('-') || name == "@" {
+        return false;
+    }
+    // Path-shaped rules: no leading/trailing separator and no empty component.
+    if name.starts_with('/') || name.ends_with('/') || name.contains("//") {
+        return false;
+    }
+    if name.ends_with('.') || name.contains("..") || name.contains("@{") {
+        return false;
+    }
+    if name.chars().any(|character| {
+        character.is_ascii_control()
+            || matches!(character, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+    }) {
+        return false;
+    }
+    name.split('/').all(|component| {
+        !component.is_empty() && !component.starts_with('.') && !component.ends_with(".lock")
+    })
 }
 
 impl Default for Settings {
@@ -953,6 +1497,7 @@ impl Default for Settings {
             auto_fetch: false,
             performance_diagnostics: false,
             git_executable_path: None,
+            diff_tool: None,
         }
     }
 }
@@ -1000,7 +1545,11 @@ pub enum UiFileViewMode {
 #[ts(rename_all = "camelCase")]
 pub enum UiOverviewFilter {
     Attention,
+    Dirty,
+    Ahead,
     Behind,
+    Conflicts,
+    WrongBranch,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
@@ -1148,6 +1697,78 @@ mod tests {
     use super::*;
 
     #[test]
+    fn overview_filters_round_trip_with_stable_camel_case_ids() {
+        let filters = [
+            UiOverviewFilter::Attention,
+            UiOverviewFilter::Dirty,
+            UiOverviewFilter::Ahead,
+            UiOverviewFilter::Behind,
+            UiOverviewFilter::Conflicts,
+            UiOverviewFilter::WrongBranch,
+        ];
+
+        assert_eq!(
+            serde_json::to_value(filters).unwrap(),
+            serde_json::json!([
+                "attention",
+                "dirty",
+                "ahead",
+                "behind",
+                "conflicts",
+                "wrongBranch"
+            ])
+        );
+        assert_eq!(
+            serde_json::from_value::<Vec<UiOverviewFilter>>(serde_json::json!([
+                "attention",
+                "dirty",
+                "ahead",
+                "behind",
+                "conflicts",
+                "wrongBranch"
+            ]))
+            .unwrap(),
+            filters
+        );
+    }
+
+    #[test]
+    fn legacy_overview_filters_remain_compatible() {
+        let state: UiState = serde_json::from_value(serde_json::json!({
+            "version": UI_STATE_VERSION,
+            "overview": { "filters": ["attention", "behind"] }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            state.overview.filters,
+            vec![UiOverviewFilter::Attention, UiOverviewFilter::Behind]
+        );
+    }
+
+    #[test]
+    fn overview_filter_patch_accepts_the_expanded_set() {
+        let mut state = UiState::default();
+        let filters = vec![
+            UiOverviewFilter::Attention,
+            UiOverviewFilter::Dirty,
+            UiOverviewFilter::Ahead,
+            UiOverviewFilter::Behind,
+            UiOverviewFilter::Conflicts,
+            UiOverviewFilter::WrongBranch,
+        ];
+
+        state.apply(UiStatePatch {
+            overview: Some(OverviewUiStatePatch {
+                filters: Some(filters.clone()),
+            }),
+            ..UiStatePatch::default()
+        });
+
+        assert_eq!(state.overview.filters, filters);
+    }
+
+    #[test]
     fn commit_summary_serializes_authored_at_as_rfc3339() {
         let commit = CommitSummary {
             id: CommitId("deadbeef".to_string()),
@@ -1162,6 +1783,32 @@ mod tests {
         let value = serde_json::to_value(commit).unwrap();
 
         assert_eq!(value["authoredAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn stash_entry_serializes_the_rich_camel_case_contract() {
+        let entry = StashEntry {
+            id: StashId("1111111111111111111111111111111111111111".to_string()),
+            index: 2,
+            ref_name: "stash@{2}".to_string(),
+            message: "On main: work".to_string(),
+            title: "work".to_string(),
+            base: CommitId("0000000000000000000000000000000000000000".to_string()),
+            branch: Some("main".to_string()),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            files_changed: 3,
+            has_index_state: true,
+            has_untracked: false,
+        };
+
+        let value = serde_json::to_value(entry).unwrap();
+
+        assert_eq!(value["id"], "1111111111111111111111111111111111111111");
+        assert_eq!(value["refName"], "stash@{2}");
+        assert_eq!(value["createdAt"], "1970-01-01T00:00:00Z");
+        assert_eq!(value["filesChanged"], 3);
+        assert_eq!(value["hasIndexState"], true);
+        assert_eq!(value["hasUntracked"], false);
     }
 
     #[test]
@@ -1181,6 +1828,16 @@ mod tests {
         let value = serde_json::to_value(summary).unwrap();
 
         assert_eq!(value["lastSyncedAt"], "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn legacy_working_files_default_to_tracked_for_safe_ignore_behavior() {
+        let file: WorkingFile = serde_json::from_str(
+            r#"{"path":"README.md","changeType":"modified","conflicted":false}"#,
+        )
+        .unwrap();
+
+        assert!(file.tracked);
     }
 
     #[test]
@@ -1226,5 +1883,51 @@ mod tests {
         assert_eq!(window.offset, 2);
         assert!(window.truncated);
         assert_eq!(window.next_offset, Some(4));
+    }
+
+    #[test]
+    fn branch_names_follow_check_ref_format_branch_rules() {
+        for valid in [
+            "develop",
+            "main",
+            "release/2026.08",
+            "feature/auth",
+            "v1.0.0-rc1",
+            "user/feature/deep/nesting",
+        ] {
+            assert!(
+                is_valid_branch_name(valid),
+                "expected {valid:?} to be valid"
+            );
+        }
+
+        for invalid in [
+            "",
+            " ",
+            "feature branch",
+            "feature..x",
+            "-develop",
+            "/develop",
+            "develop/",
+            "feature//x",
+            "develop.lock",
+            "feature/.hidden",
+            "develop~1",
+            "develop^",
+            "head:name",
+            "what?",
+            "star*",
+            "brack[et",
+            "back\\slash",
+            "@",
+            "ref@{0}",
+            "trailing.",
+            "new\nline",
+        ] {
+            assert!(
+                !is_valid_branch_name(invalid),
+                "expected {invalid:?} to be rejected"
+            );
+        }
     }
 }

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { resolveRestoredSelection } from "@/application/uiSelection";
 
 const workspaces = [
-  { id: "first", name: "First", sortOrder: 0 },
-  { id: "second", name: "Second", sortOrder: 1 },
+  { id: "first", name: "First", sortOrder: 0, expectedBranch: null },
+  { id: "second", name: "Second", sortOrder: 1, expectedBranch: null },
 ];
 const repositories = {
   first: [{ id: "repo-1", workspaceId: "first", name: "One", path: "/one", sortOrder: 0 }],

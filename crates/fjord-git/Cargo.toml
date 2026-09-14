@@ -19,6 +19,7 @@ uuid.workspace = true
 
 gix = "0.86"
 gix-lock = "24"
+gix-tempfile = "24"
 git2 = "0.21"
 
 [target.'cfg(unix)'.dependencies]
@@ -31,4 +32,5 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile = "3"

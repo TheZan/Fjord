@@ -1,7 +1,9 @@
 //! Confirmation-bound execution for local destructive actions.
 
 use super::*;
-use fjord_domain::{DestructiveAction, GenerationSet, RepoOperationState, ResetMode};
+use fjord_domain::{
+    DestructiveAction, DestructiveExecutionResult, GenerationSet, ResetMode, StashApplyResult,
+};
 use fjord_ports::{GitError, GitOperationContext, RepoPath};
 
 pub(super) struct ExecutionDependencies<'a> {
@@ -17,7 +19,7 @@ pub(super) async fn execute(
     expected_generations: GenerationSet,
     confirmation_token: &str,
     context: GitOperationContext,
-) -> Result<Option<RepoOperationState>, GitError> {
+) -> Result<DestructiveExecutionResult, GitError> {
     let repo = repo.clone();
     let action = action.clone();
     let commands = dependencies.commands.clone();
@@ -43,7 +45,56 @@ pub(super) async fn execute(
             context,
         )
         .await
-        .map(Some);
+        .map(|state| DestructiveExecutionResult::OperationState { state });
+    }
+
+    if let DestructiveAction::DeleteFile { path } = &action {
+        let delete_repo = repo.clone();
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || {
+            LocalGitBackend::with_runtime_git2(&delete_repo, |git| {
+                super::delete_file::execute(git, &delete_repo, &path)
+            })
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))??;
+        runtime::bump_mutation(&repo, MutationKind::DeleteFile);
+        return Ok(DestructiveExecutionResult::Completed);
+    }
+
+    if let DestructiveAction::StashPop { id, restore_index } = &action {
+        let pop_repo = repo.clone();
+        let id = id.clone();
+        let restore_index = *restore_index;
+        let popped = tokio::task::spawn_blocking(move || {
+            super::stash::apply_locked(
+                &commands,
+                &pop_repo,
+                &id,
+                restore_index,
+                super::stash::ApplyMode::Pop,
+            )
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))??;
+        runtime::bump_mutation(&repo, MutationKind::StashPop);
+        return Ok(DestructiveExecutionResult::StashApply {
+            result: StashApplyResult {
+                outcome: popped.outcome,
+                entry_removed: popped.entry_removed,
+                generations: runtime::generations(&repo)?,
+            },
+        });
+    }
+
+    if let DestructiveAction::StashDrop { id } = &action {
+        let drop_repo = repo.clone();
+        let id = id.clone();
+        tokio::task::spawn_blocking(move || super::stash::drop_locked(&commands, &drop_repo, &id))
+            .await
+            .map_err(|error| GitError::Git2(error.to_string()))??;
+        runtime::bump_mutation(&repo, MutationKind::StashDrop);
+        return Ok(DestructiveExecutionResult::Completed);
     }
 
     let (args, mutation) = command(&action)?;
@@ -60,7 +111,7 @@ pub(super) async fn execute(
     // error.
     runtime::bump_mutation(&repo, mutation);
     result?;
-    Ok(None)
+    Ok(DestructiveExecutionResult::Completed)
 }
 
 fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), GitError> {
@@ -86,10 +137,6 @@ fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), Gi
             vec!["tag".into(), "-d".into(), name.clone()],
             MutationKind::DeleteTag,
         ),
-        DestructiveAction::StashPop { index } => (
-            vec!["stash".into(), "pop".into(), format!("stash@{{{index}}}")],
-            MutationKind::StashPop,
-        ),
         DestructiveAction::CheckoutDiscard { branch } => (
             vec!["checkout".into(), "-f".into(), branch.clone()],
             MutationKind::Checkout,
@@ -101,9 +148,13 @@ fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), Gi
             },
         ),
         DestructiveAction::Discard { .. }
+        | DestructiveAction::DiscardFiles { .. }
         | DestructiveAction::ForceWithLease
         | DestructiveAction::DeleteRemoteBranch { .. }
-        | DestructiveAction::AbortOperation => return Err(GitError::PreflightStale),
+        | DestructiveAction::AbortOperation
+        | DestructiveAction::DeleteFile { .. }
+        | DestructiveAction::StashPop { .. }
+        | DestructiveAction::StashDrop { .. } => return Err(GitError::PreflightStale),
     };
     Ok(command)
 }

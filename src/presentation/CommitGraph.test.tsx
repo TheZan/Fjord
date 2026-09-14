@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BranchInfo, CommitSummary, TagInfo } from "@/domain/git";
+import type { BranchInfo, CommitSummary, StashEntry, TagInfo } from "@/domain/git";
 import { CommitGraph } from "@/presentation/CommitGraph";
 
 const graphState = vi.hoisted(() => ({
@@ -12,6 +12,7 @@ const graphState = vi.hoisted(() => ({
   loadingUntilCommitId: null as string | null,
   scrollToIndex: vi.fn(),
   searchResults: [] as CommitSummary[],
+  stashes: [] as StashEntry[],
   tags: [] as TagInfo[],
 }));
 
@@ -32,8 +33,14 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     i18n: { language: "en" },
-    t: (key: string, values?: Record<string, number>) =>
-      values && "count" in values ? `${key}:${values.count}` : key,
+    t: (key: string, values?: Record<string, unknown>) =>
+      key === "context.mergeInto"
+        ? `Merge ${values?.source} into ${values?.target}…`
+        : key === "context.squashMergeInto"
+          ? `Squash merge ${values?.source} into ${values?.target}…`
+          : key === "stash.markerLabel"
+            ? `Stash ${values?.title}, ${values?.ref}`
+          : values && "count" in values ? `${key}:${values.count}` : key,
   }),
 }));
 
@@ -65,6 +72,10 @@ vi.mock("@/application/useTags", () => ({
   useTags: () => ({ tags: graphState.tags, error: null, loading: false }),
 }));
 
+vi.mock("@/application/useStashes", () => ({
+  useStashes: () => ({ stashes: graphState.stashes, error: null, loading: false }),
+}));
+
 describe("CommitGraph", () => {
   beforeEach(() => {
     graphState.branches = [];
@@ -75,6 +86,7 @@ describe("CommitGraph", () => {
     graphState.loadingUntilCommitId = null;
     graphState.scrollToIndex.mockClear();
     graphState.searchResults = [];
+    graphState.stashes = [];
     graphState.tags = [];
     Element.prototype.scrollTo = vi.fn();
   });
@@ -120,6 +132,116 @@ describe("CommitGraph", () => {
     fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
 
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
+  });
+
+  it("attaches a stash marker to entry.base rather than the stash commit id", () => {
+    graphState.commits = [
+      commit("commit-a", "Commit A"),
+      commit("commit-b", "Commit B"),
+      commit("commit-c", "Commit C"),
+    ];
+    graphState.stashes = [stash("stash-storage-commit", "commit-b", "Payment validation WIP")];
+
+    const { container } = render(<CommitGraph repoId="repo-1" />);
+
+    const marker = container.querySelector<HTMLElement>("[data-stash-id='stash-storage-commit']")!;
+    expect(marker).toBeInTheDocument();
+    expect(marker.closest<HTMLElement>("[data-commit-id]")?.dataset.commitId).toBe("commit-b");
+    expect(container.querySelector("[data-commit-id='commit-a'] [data-stash-id]")).toBeNull();
+    expect(container.querySelector("[data-commit-id='commit-c'] [data-stash-id]")).toBeNull();
+    expect(container.querySelector("[data-commit-id='stash-storage-commit']")).toBeNull();
+  });
+
+  it("keeps same-base stash identities selectable through inline and overflow badges", () => {
+    const onSelectStash = vi.fn();
+    const onStashContextMenu = vi.fn();
+    graphState.commits = [commit("commit-b", "Commit B")];
+    graphState.stashes = [
+      stash("stash-first", "commit-b", "Same title", 0),
+      stash("stash-second", "commit-b", "Same title", 1),
+    ];
+
+    const { container } = render(
+      <CommitGraph
+        repoId="repo-1"
+        onSelectStash={onSelectStash}
+        onStashContextMenu={onStashContextMenu}
+      />,
+    );
+
+    fireEvent.click(container.querySelector("[data-stash-id='stash-first']")!);
+    expect(onSelectStash).toHaveBeenLastCalledWith("stash-first");
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    const second = container.querySelector<HTMLElement>("[data-stash-id='stash-second']")!;
+    fireEvent.click(second);
+    expect(onSelectStash).toHaveBeenLastCalledWith("stash-second");
+
+    fireEvent.contextMenu(second, { clientX: 24, clientY: 36 });
+    expect(onStashContextMenu).toHaveBeenLastCalledWith("stash-second");
+    expect(onStashContextMenu).not.toHaveBeenCalledWith("stash-first");
+  });
+
+  it("dispatches graph-marker Apply with the exact stable stash entry and omits Reveal", () => {
+    const onStashAction = vi.fn();
+    graphState.commits = [commit("commit-b", "Commit B")];
+    graphState.stashes = [stash("stash-selected", "commit-b", "Same title", 2)];
+    const { container } = render(<CommitGraph repoId="repo-1" onStashAction={onStashAction} />);
+
+    fireEvent.contextMenu(container.querySelector("[data-stash-id='stash-selected']")!, { clientX: 10, clientY: 20 });
+    expect(screen.queryByRole("menuitem", { name: "stash.action.revealInGraph" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "stash.action.apply" }));
+    expect(onStashAction).toHaveBeenCalledWith("apply", graphState.stashes[0]);
+  });
+
+  it("does not render or seek an unloaded stash base until Reveal in graph is requested", async () => {
+    const onRevealStashNotFound = vi.fn();
+    graphState.commits = [commit("commit-a", "Commit A")];
+    graphState.stashes = [stash("stash-hidden", "commit-missing", "Hidden stash")];
+    graphState.loadUntilCommit.mockResolvedValue(false);
+
+    const view = render(<CommitGraph repoId="repo-1" />);
+
+    expect(view.container.querySelector("[data-stash-id='stash-hidden']")).toBeNull();
+    expect(view.container.querySelector<HTMLElement>("[data-commit-id='commit-a']")?.style.height).toBe("30px");
+    expect(graphState.loadUntilCommit).not.toHaveBeenCalled();
+
+    view.rerender(
+      <CommitGraph
+        repoId="repo-1"
+        revealStashRequest={{ id: 1, stashId: "stash-hidden", base: "commit-missing" }}
+        onRevealStashNotFound={onRevealStashNotFound}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(graphState.loadUntilCommit).toHaveBeenCalledWith("commit-missing");
+      expect(onRevealStashNotFound).toHaveBeenCalledWith("stash-hidden");
+    });
+    expect(graphState.loadUntilCommit).not.toHaveBeenCalledWith("stash-hidden");
+  });
+
+  it("scrolls to a loaded revealed base and selects the same stable stash id", async () => {
+    const onSelectStash = vi.fn();
+    graphState.commits = [commit("commit-a", "Commit A"), commit("commit-b", "Commit B")];
+    graphState.stashes = [stash("stash-revealed", "commit-b", "Reveal me")];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        onSelectStash={onSelectStash}
+        revealStashRequest={{ id: 1, stashId: "stash-revealed", base: "commit-b" }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(graphState.scrollToIndex).toHaveBeenCalledWith(1, {
+        align: "center",
+        behavior: "smooth",
+      });
+      expect(onSelectStash).toHaveBeenCalledWith("stash-revealed");
+    });
+    expect(graphState.loadUntilCommit).not.toHaveBeenCalled();
   });
 
   it("scrolls to the requested branch target commit", async () => {
@@ -305,6 +427,92 @@ describe("CommitGraph", () => {
     });
     expect(screen.queryByText("feature/x")).not.toBeInTheDocument();
   });
+
+  it("merges the exact ref selected from a multi-ref commit", () => {
+    const onMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Shared tip")];
+    graphState.branches = [
+      branch("develop", true),
+      branch("feature/first", false),
+      branch("feature/second", false),
+    ];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+2").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature/second"));
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Merge feature/second into develop…",
+    }));
+    expect(onMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/heads/feature/second",
+      kind: "localBranch",
+    });
+  });
+
+  it("offers an enabled merge entry for a remote-tracking branch label", () => {
+    const onMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Remote tip")];
+    graphState.branches = [branch("develop", true), branch("origin/feature", false, true)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature"));
+    const mergeItem = screen.getByRole("menuitem", {
+      name: "Merge feature into develop…",
+    });
+    expect(mergeItem).toBeEnabled();
+    fireEvent.click(mergeItem);
+    expect(onMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/remotes/origin/feature",
+      kind: "remoteTracking",
+    });
+  });
+
+  it("offers a separate squash-merge entry dispatching onSquashMergeBranch, not onMergeBranch", () => {
+    const onMergeBranch = vi.fn();
+    const onSquashMergeBranch = vi.fn();
+    graphState.commits = [commit("commit-1", "Shared tip")];
+    graphState.branches = [branch("develop", true), branch("feature/x", false)];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onCheckout={vi.fn()}
+        onMergeBranch={onMergeBranch}
+        onSquashMergeBranch={onSquashMergeBranch}
+      />,
+    );
+
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    fireEvent.contextMenu(screen.getByText("feature/x"));
+    expect(screen.getByRole("menuitem", { name: "Merge feature/x into develop…" })).toBeInTheDocument();
+    const squashItem = screen.getByRole("menuitem", {
+      name: "Squash merge feature/x into develop…",
+    });
+    fireEvent.click(squashItem);
+    expect(onSquashMergeBranch).toHaveBeenCalledWith({
+      refName: "refs/heads/feature/x",
+      kind: "localBranch",
+    });
+    expect(onMergeBranch).not.toHaveBeenCalled();
+  });
 });
 
 function commit(id: string, message: string): CommitSummary {
@@ -316,5 +524,38 @@ function commit(id: string, message: string): CommitSummary {
     authorEmail: "fjord@example.com",
     authoredAt: "2026-08-06T10:00:00Z",
     refs: [],
+  };
+}
+
+function stash(
+  id: string,
+  base: string,
+  title: string,
+  index = 0,
+): StashEntry {
+  return {
+    id,
+    index,
+    refName: `stash@{${index}}`,
+    message: `On develop: ${title}`,
+    title,
+    base,
+    branch: "develop",
+    createdAt: "2026-08-24T10:00:00Z",
+    filesChanged: 1,
+    hasIndexState: false,
+    hasUntracked: false,
+  };
+}
+
+function branch(name: string, isCurrent: boolean, isRemote = false): BranchInfo {
+  return {
+    name,
+    isCurrent,
+    isRemote,
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    targetCommitId: "commit-1",
   };
 }

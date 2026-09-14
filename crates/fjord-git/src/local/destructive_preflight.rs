@@ -9,7 +9,7 @@ const BLOCKER_ACTION_UNSUPPORTED: &str = "destructive_action_unsupported";
 const BLOCKER_CURRENT_BRANCH: &str = "current_branch_cannot_be_deleted";
 const BLOCKER_OPERATION_NOT_IN_PROGRESS: &str = "operation_not_in_progress";
 const BLOCKER_REF_NOT_FOUND: &str = "ref_not_found";
-const BLOCKER_STASH_NOT_FOUND: &str = "stash_not_found";
+const BLOCKER_OPERATION_IN_PROGRESS: &str = "operation_already_in_progress";
 
 pub(super) async fn facts(
     repo: &RepoPath,
@@ -21,7 +21,9 @@ pub(super) async fn facts(
     let sample_limit = sample_limit.min(5) as usize;
     let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
     tokio::task::spawn_blocking(move || {
-        LocalGitBackend::with_runtime_git2(&repo, |git| assemble_facts(git, &action, sample_limit))
+        LocalGitBackend::with_runtime_git2(&repo, |git| {
+            assemble_facts(git, &repo, &action, sample_limit)
+        })
     })
     .await
     .map_err(|error| GitError::Git2(error.to_string()))?
@@ -29,6 +31,7 @@ pub(super) async fn facts(
 
 fn assemble_facts(
     git: &git2::Repository,
+    repo: &RepoPath,
     action: &DestructiveAction,
     sample_limit: usize,
 ) -> Result<DestructiveActionFacts, GitError> {
@@ -44,14 +47,16 @@ fn assemble_facts(
             delete_remote_branch_facts(git, remote, branch, sample_limit)
         }
         DestructiveAction::DeleteTag { name } => delete_tag_facts(git, name),
-        DestructiveAction::StashPop { index } => stash_pop_facts(git, *index),
+        DestructiveAction::StashPop { id, .. } => stash_facts(git, id, true),
+        DestructiveAction::StashDrop { id } => stash_facts(git, id, false),
         DestructiveAction::CheckoutDiscard { branch } => {
             checkout_discard_facts(git, branch, sample_limit)
         }
         DestructiveAction::AbortOperation => abort_facts(git, sample_limit),
-        DestructiveAction::Discard { .. } | DestructiveAction::ForceWithLease => {
-            Ok(blocked(BLOCKER_ACTION_UNSUPPORTED))
-        }
+        DestructiveAction::DeleteFile { path } => super::delete_file::facts(git, repo, path),
+        DestructiveAction::Discard { .. }
+        | DestructiveAction::DiscardFiles { .. }
+        | DestructiveAction::ForceWithLease => Ok(blocked(BLOCKER_ACTION_UNSUPPORTED)),
     }
 }
 
@@ -173,29 +178,31 @@ fn delete_tag_facts(
     }]))
 }
 
-fn stash_pop_facts(git: &git2::Repository, index: u32) -> Result<DestructiveActionFacts, GitError> {
-    let mut found = None;
-    // libgit2 requires a mutable handle for stash enumeration even though it
-    // does not change repository state.
-    let mut reopened =
-        git2::Repository::open(git.path()).map_err(LocalGitBackend::map_git2_error)?;
-    reopened
-        .stash_foreach(|stash_index, message, _| {
-            if stash_index as u32 == index {
-                found = Some(message.to_string());
-                false
-            } else {
-                true
-            }
-        })
-        .map_err(LocalGitBackend::map_git2_error)?;
-    let Some(message) = found else {
-        return Ok(blocked(BLOCKER_STASH_NOT_FOUND));
+fn stash_facts(
+    git: &git2::Repository,
+    id: &fjord_domain::StashId,
+    block_during_operation: bool,
+) -> Result<DestructiveActionFacts, GitError> {
+    let entry = super::stash::current_entry(git, id)?;
+    let blockers = if block_during_operation
+        && (git.state() != git2::RepositoryState::Clean || git.path().join("BISECT_LOG").exists())
+    {
+        vec![BLOCKER_OPERATION_IN_PROGRESS.to_string()]
+    } else {
+        Vec::new()
     };
-    Ok(not_recoverable(vec![Consequence::StashEntryConsumed {
-        index,
-        message,
-    }]))
+    Ok(DestructiveActionFacts {
+        consequences: vec![Consequence::StashEntryConsumed {
+            id: entry.id,
+            ref_name: entry.ref_name,
+            title: entry.title,
+            files_changed: entry.files_changed,
+            base: entry.base,
+            branch: entry.branch,
+        }],
+        recoverable: Recoverability::NotRecoverable,
+        blockers,
+    })
 }
 
 fn checkout_discard_facts(

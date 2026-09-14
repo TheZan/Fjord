@@ -20,6 +20,7 @@ export interface ContextMenuItem {
   disabledReason?: string;
   danger?: boolean;
   separatorBefore?: boolean;
+  children?: ContextMenuItem[];
 }
 
 export type ContextMenuIcon =
@@ -29,16 +30,19 @@ export type ContextMenuIcon =
   | "delete"
   | "reset"
   | "revert"
-  | "tag";
+  | "tag"
+  | "merge";
 
 export function ContextMenu({
   position,
   items,
+  ariaLabel,
   onSelect,
   onClose,
 }: {
   position: { x: number; y: number };
   items: ContextMenuItem[];
+  ariaLabel?: string;
   onSelect: (id: string) => void;
   onClose: () => void;
 }) {
@@ -46,6 +50,12 @@ export function ContextMenu({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [menuPosition, setMenuPosition] = useState(position);
   const [activeIndex, setActiveIndex] = useState(() => firstEnabledIndex(items));
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+
+  useEffect(() => {
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => invoker?.focus();
+  }, []);
 
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -58,9 +68,13 @@ export function ContextMenu({
   }, [position]);
 
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => itemRefs.current[activeIndex]?.focus());
+    if (openSubmenu) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (items.length === 0) menuRef.current?.focus();
+      else itemRefs.current[activeIndex]?.focus();
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeIndex]);
+  }, [activeIndex, items.length, openSubmenu]);
 
   function moveActive(direction: 1 | -1) {
     if (items.every((item) => item.disabled)) return;
@@ -76,7 +90,9 @@ export function ContextMenu({
       <div
         ref={menuRef}
         role="menu"
-        className="desktop-popover absolute min-w-52 overflow-hidden rounded-md border py-1"
+        aria-label={ariaLabel}
+        tabIndex={items.length === 0 ? -1 : undefined}
+        className="desktop-popover absolute min-w-52 rounded-md border py-1"
         style={{
           left: menuPosition.x,
           top: menuPosition.y,
@@ -88,6 +104,14 @@ export function ContextMenu({
           if (event.key === "Escape") {
             event.preventDefault();
             onClose();
+            return;
+          }
+          if (event.key === "ArrowRight") {
+            const item = items[activeIndex];
+            if (item?.children?.some((child) => !child.disabled)) {
+              event.preventDefault();
+              setOpenSubmenu(item.id);
+            }
             return;
           }
           const shortcutItem = items.find(
@@ -114,12 +138,28 @@ export function ContextMenu({
           } else if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             const item = items[activeIndex];
-            if (item && !item.disabled) onSelect(item.id);
+            if (item && !item.disabled) {
+              if (item.children) setOpenSubmenu(item.id);
+              else onSelect(item.id);
+            }
           }
         }}
       >
-        {items.map((item, index) => (
-          <div key={item.id} className={item.separatorBefore ? "mt-1 border-t pt-1" : ""} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
+        {items.map((item, index) => {
+          // The menu's own `overflow-hidden` used to clip its rounded
+          // corners to the row highlight — but that also clipped any
+          // submenu, which renders outside this row's box via `left-full`/
+          // `right-full`. Rounding the edge rows individually keeps the
+          // corners tidy without hiding submenus.
+          const edgeRounding = item.children
+            ? ""
+            : index === 0
+              ? "overflow-hidden rounded-t-md"
+              : index === items.length - 1
+                ? "overflow-hidden rounded-b-md"
+                : "";
+          return (
+          <div key={item.id} className={`relative ${edgeRounding} ${item.separatorBefore ? "mt-1 border-t pt-1" : ""}`} style={item.separatorBefore ? { borderColor: "var(--hairline)" } : undefined}>
             <button
               ref={(element) => {
                 itemRefs.current[index] = element;
@@ -132,10 +172,15 @@ export function ContextMenu({
               className="interactive-row flex h-8 w-full items-center gap-2 px-2.5 text-left text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
               style={{ color: item.danger ? "var(--rust-ink)" : "var(--ink)" }}
               onMouseEnter={() => {
-                if (!item.disabled) setActiveIndex(index);
+                if (!item.disabled) {
+                  setActiveIndex(index);
+                  setOpenSubmenu(item.children ? item.id : null);
+                }
               }}
               onClick={() => {
-                if (!item.disabled) onSelect(item.id);
+                if (item.disabled) return;
+                if (item.children) setOpenSubmenu(item.id);
+                else onSelect(item.id);
               }}
             >
               <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
@@ -147,10 +192,119 @@ export function ContextMenu({
                   {item.shortcut}
                 </kbd>
               ) : null}
+              {item.children ? <span aria-hidden="true">›</span> : null}
             </button>
+            {item.children && openSubmenu === item.id ? (
+              <ContextSubmenu
+                items={item.children}
+                onSelect={onSelect}
+                onClose={() => {
+                  setOpenSubmenu(null);
+                  itemRefs.current[index]?.focus();
+                }}
+              />
+            ) : null}
           </div>
-        ))}
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+function ContextSubmenu({
+  items,
+  onSelect,
+  onClose,
+}: {
+  items: ContextMenuItem[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(() => firstEnabledIndex(items));
+  const [placement, setPlacement] = useState<{ side: "right" | "left"; offsetY: number }>({ side: "right", offsetY: 0 });
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const bounds = menu.getBoundingClientRect();
+    const overflowBottom = bounds.bottom - (window.innerHeight - 8);
+    // Runs once per mount: the submenu remounts fresh every time it opens
+    // (conditionally rendered by the parent), so there is no later point at
+    // which re-measuring is needed. Re-running on every `items` identity
+    // change instead caused a render/measure feedback loop — `items` is a
+    // fresh array on every parent render, so this effect fired every time
+    // the submenu was open, calling `setPlacement` again and again until
+    // React's nested-update limit tripped ("Maximum update depth exceeded").
+    setPlacement({
+      side: bounds.right > window.innerWidth - 8 ? "left" : "right",
+      offsetY: overflowBottom > 0 ? -overflowBottom : 0,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => refs.current[active]?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
+
+  function move(direction: 1 | -1) {
+    if (items.every((item) => item.disabled)) return;
+    let next = active;
+    do next = (next + direction + items.length) % items.length;
+    while (items[next].disabled);
+    setActive(next);
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      className={`desktop-popover absolute top-0 min-w-52 rounded-md border py-1 ${placement.side === "right" ? "left-full" : "right-full"}`}
+      style={{
+        background: "var(--paper)",
+        borderColor: "var(--hairline-strong)",
+        transform: placement.offsetY ? `translateY(${placement.offsetY}px)` : undefined,
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        } else if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          onClose();
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          move(1);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          move(-1);
+        } else if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          const item = items[active];
+          if (item && !item.disabled) onSelect(item.id);
+        }
+      }}
+    >
+      {items.map((item, index) => (
+        <button
+          key={item.id}
+          ref={(element) => { refs.current[index] = element; }}
+          type="button"
+          role="menuitem"
+          tabIndex={index === active ? 0 : -1}
+          disabled={item.disabled}
+          title={item.disabled ? item.disabledReason : undefined}
+          className="interactive-row flex h-8 w-full items-center px-2.5 text-left text-[13px] disabled:opacity-40"
+          onMouseEnter={() => { if (!item.disabled) setActive(index); }}
+          onClick={() => { if (!item.disabled) onSelect(item.id); }}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -199,6 +353,7 @@ function MenuIcon({ kind }: { kind: ContextMenuIcon }) {
       {kind === "reset" ? <><path d="M3 5V2L1 4" /><path d="M3 3a6 6 0 1 1-1 7" /><path d="M8 5v3l2 1" /></> : null}
       {kind === "revert" ? <><path d="m5 4-3 3 3 3" /><path d="M2 7h7a4 4 0 0 1 4 4v2" /></> : null}
       {kind === "tag" ? <><path d="M2 2h5l7 7-5 5-7-7V2Z" /><circle cx="5" cy="5" r="1" /></> : null}
+      {kind === "merge" ? <><path d="M3 2v3a3 3 0 0 0 3 3h4" /><path d="m8 5 3 3-3 3" /><circle cx="3" cy="2" r="1.25" /><circle cx="3" cy="13" r="1.25" /><path d="M3 12V8" /></> : null}
     </svg>
   );
 }
@@ -209,6 +364,9 @@ export function TextActionDialog({
   label,
   initialValue = "",
   confirmLabel,
+  children,
+  disabled = false,
+  disabledReason,
   onConfirm,
   onClose,
 }: {
@@ -217,6 +375,9 @@ export function TextActionDialog({
   label: string;
   initialValue?: string;
   confirmLabel: string;
+  children?: ReactNode;
+  disabled?: boolean;
+  disabledReason?: string;
   onConfirm: (value: string) => void;
   onClose: () => void;
 }) {
@@ -237,13 +398,19 @@ export function TextActionDialog({
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && value.trim()) onConfirm(value.trim());
+            if (event.key === "Enter" && value.trim() && !disabled) onConfirm(value.trim());
           }}
         />
       </label>
+      {children}
+      {disabledReason ? (
+        <p role="status" className="text-[12px]" style={{ color: "var(--rust-ink)" }}>
+          {disabledReason}
+        </p>
+      ) : null}
       <DialogActions
         confirmLabel={confirmLabel}
-        disabled={!value.trim()}
+        disabled={!value.trim() || disabled}
         onConfirm={() => onConfirm(value.trim())}
         onClose={onClose}
       />
@@ -329,7 +496,7 @@ export function ConfirmActionDialog({
   );
 }
 
-function DialogFrame({
+export function DialogFrame({
   title,
   description,
   children,
@@ -362,15 +529,17 @@ function DialogFrame({
   );
 }
 
-function DialogActions({
+export function DialogActions({
   confirmLabel,
   disabled = false,
+  closeDisabled = false,
   danger = false,
   onConfirm,
   onClose,
 }: {
   confirmLabel: string;
   disabled?: boolean;
+  closeDisabled?: boolean;
   danger?: boolean;
   onConfirm: () => void;
   onClose: () => void;
@@ -378,7 +547,7 @@ function DialogActions({
   const { t } = useTranslation("workspace");
   return (
     <div className="flex justify-end gap-2">
-      <Button onClick={onClose}>{t("context.cancel")}</Button>
+      <Button disabled={closeDisabled} onClick={onClose}>{t("context.cancel")}</Button>
       <Button variant={danger ? "danger" : "primary"} disabled={disabled} onClick={onConfirm}>
         {confirmLabel}
       </Button>

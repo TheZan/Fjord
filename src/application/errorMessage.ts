@@ -12,6 +12,9 @@ const USER_ERROR_CODES = new Set([
   "create_repository_registration_failed",
   "create_repository_request_invalid",
   "database_error",
+  "diff_tool_name_invalid",
+  "diff_tool_not_configured",
+  "expected_branch_invalid",
   "git_error",
   "git_auth_failed",
   "git_auth_required",
@@ -47,12 +50,28 @@ const USER_ERROR_CODES = new Set([
   "operation_has_conflicts",
   "operation_not_in_progress",
   "operation_step_failed",
+  "preflight_stale",
   "repository_already_added",
   "repository_discovery_failed",
   "repository_not_found",
   "remote_name_exists",
+  "remote_name_invalid",
+  "remote_not_found",
+  "remote_rename_target_exists",
   "remote_request_invalid",
+  "remote_url_invalid",
   "stash_empty",
+  "stash_not_found",
+  "stash_ambiguous",
+  "stash_apply_would_overwrite",
+  "stash_apply_index_refused",
+  "stash_apply_failed",
+  "stash_file_conflicted",
+  "stash_file_unsupported_git",
+  "stash_scope_empty",
+  "stash_concurrent_update",
+  "stash_recovery_failed",
+  "stash_scope_unrepresentable",
   "workspace_not_found",
 ]);
 
@@ -62,7 +81,12 @@ export function errorTranslationKey(error: unknown): string {
 }
 
 export function userErrorMessage(error: unknown): string {
-  return i18n.t(errorTranslationKey(error), { ns: "common" });
+  const key = errorTranslationKey(error);
+  const path = readErrorPath(error);
+  if (key === "errors.stash_scope_unrepresentable" && path === null) {
+    return i18n.t("errors.unexpected", { ns: "common" });
+  }
+  return i18n.t(key, { ns: "common", tool: readErrorTool(error), path });
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -71,6 +95,21 @@ function readErrorCode(error: unknown): string | null {
   }
   if (error instanceof DOMException && error.name === "AbortError") {
     return "operation_cancelled";
+  }
+  return null;
+}
+
+function readErrorTool(error: unknown): string | null {
+  if (error && typeof error === "object" && "tool" in error && typeof error.tool === "string") {
+    return error.tool;
+  }
+  return null;
+}
+
+function readErrorPath(error: unknown): string | null {
+  if (error && typeof error === "object" && "paths" in error && Array.isArray(error.paths) && error.paths.length > 0) {
+    const path = error.paths[0];
+    return typeof path === "string" && path.length > 0 ? path : null;
   }
   return null;
 }

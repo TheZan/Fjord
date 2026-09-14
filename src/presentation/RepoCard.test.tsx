@@ -35,6 +35,7 @@ describe("RepoCard", () => {
       <RepoCard
         repo={repo}
         status={dirtyStatus}
+        health={{ repoId: repo.id, conditions: [{ kind: "dirty", count: 3 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" }}
         selected={false}
         onSelect={onSelect}
         onRemove={onRemove}
@@ -55,6 +56,7 @@ describe("RepoCard", () => {
       <RepoCard
         repo={repo}
         status={{ ...dirtyStatus, dirtyCount: 0, hasConflict: true }}
+        health={{ repoId: repo.id, conditions: [{ kind: "conflict" }], needsAttention: true, asOf: "1970-01-01T00:00:00Z" }}
         selected={false}
         onSelect={vi.fn()}
         onRemove={vi.fn()}

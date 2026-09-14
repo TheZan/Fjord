@@ -21,6 +21,7 @@ const russianSettings: Settings = {
   autoFetch: false,
   performanceDiagnostics: false,
   gitExecutablePath: null,
+  diffTool: null,
 };
 
 function Status() {

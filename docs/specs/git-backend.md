@@ -1,6 +1,8 @@
 # Spec: Git backend ports
 
-Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04, P9R-06.
+Referenced by: P0-02, P0-03, P1-01–P1-08, P9-01–P9-03, P9-08–P9-09, P9R-04,
+P9R-06; extended by P10-06, P10-MERGE-01, P10-WC-01–P10-WC-06, and
+P10-STASH-01–P10-STASH-06.
 
 ## Purpose
 
@@ -18,12 +20,19 @@ pub trait GitBackend: Send + Sync {
     async fn init_repository(&self, repo: &RepoPath, initial_branch: &str) -> Result<(), GitError>;
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     async fn operation_state(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
+    async fn rebase_preflight(&self, repo: &RepoPath, onto: &MergeSource) -> Result<RebasePreflight, GitError>;
+    async fn start_rebase_preflighted(&self, repo: &RepoPath, expected: &RebasePreflight, policy: MergeDirtyPolicy, context: GitOperationContext) -> Result<RebaseResult, GitError>;
+    async fn start_rebase(&self, repo: &RepoPath, onto: &str) -> Result<RepoOperationState, GitError>;
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn skip_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn abort_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError>;
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
     async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError>;
     async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<RemoteInfo, GitError>;
+    async fn set_remote_url(&self, repo: &RepoPath, name: &str, fetch: &str, push: Option<&str>) -> Result<RemoteInfo, GitError>;
+    async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<RemoteInfo, GitError>;
+    async fn preflight_remove_remote(&self, repo: &RepoPath, name: &str) -> Result<RemoveRemotePreflight, GitError>;
+    async fn remove_remote(&self, repo: &RepoPath, name: &str, expected_config_generation: u64, confirmation_token: &str) -> Result<(), GitError>;
     async fn log(&self, repo: &RepoPath, from: Option<LogCursor>, limit: u32) -> Result<CommitPage, GitError>;
     async fn reflog(&self, repo: &RepoPath, ref_name: Option<&str>, from: Option<LogCursor>, limit: u32) -> Result<ReflogPage, GitError>;
     async fn reflog_refs(&self, repo: &RepoPath) -> Result<Vec<String>, GitError>;
@@ -71,9 +80,12 @@ at 200 entries per response.
 | `init_repository` | `git2` | Creates one local non-bare repository without transport or an initial commit. Fjord initializes in an app-owned sibling staging directory and publishes only after success, so a failed initialization does not leave a partial target. |
 | `status` | `gix` | Hot path, run per-repo on every dashboard refresh — this is the operation the "fast on large repos" claim lives or dies on. |
 | `operation_state` | filesystem markers + `git2` index | Reads the resolved per-worktree git-dir for operation kind/progress and refreshes the index for authoritative conflict paths; it performs no subprocess or network access. |
+| `rebase_preflight` / `start_rebase_preflighted` | shared integration engine + read-only system Git history / existing rebase runner | `P10-05`: reuse merge's ref/HEAD, dirty, staged, overwrite and operation checks; add typed blockers and an exact published rewrite count. Read lock for display, complete fact comparison under write lock at execution. Explicit shared stash primitive retains tracked/untracked work and reports its actual selector on success, conflict, failure and cancellation. `RebaseWithStash` adds stash to the existing rebase generation mask once. The IPC start command uses this checked path; the lower-level P10-04 entry below remains available for backend callers. See workspace-workflows §2. |
+| `start_rebase` | system Git + existing operation detector | Uses `GitCommandFactory` and the shared cancellable runner/editor environment under the repository write lock. Targets are separate arguments after `--`; no autostash or implicit transport. A detected rebase after non-zero exit is a typed result; other execution failures use `operation_step_failed`, unavailable Git uses `git_executable_not_found`, and cancellation remains cancellation. `MutationKind::Rebase` advances only working-tree/refs/history generations when observable state changes; unchanged refusal/no-op/spawn failure does not invalidate. (`P10-04`) |
 | `continue_operation` / `skip_operation` / `abort_operation` | system Git + filesystem markers + `git2` index | Lets Git own its sequencer formats, uses the shared resolved executable and cancellable process runner with non-interactive editors, then detects and returns the new state under the repository write lock. |
 | `branches` | `gix` | Read-only, cheap, no gaps in gix. |
-| `remotes` / `add_remote` | `git2` | Reads and writes only local Git configuration under repository locks. Duplicate names are refused, unrelated keys are preserved, and returned URLs are sanitized before crossing IPC. |
+| `remotes` / `add_remote` / `set_remote_url` / removal preflight | `git2` | Reads and writes only local Git configuration under repository locks. Names use libgit2 validation; URL edits inspect all URL values and reject unsupported multi-valued configuration before the first write, then publish the complete fetch/push URL state through one atomic config replacement. A failed edit leaves the config byte-for-byte unchanged. Unrelated keys are preserved, absent `pushurl` stays distinct from an explicit value, and returned URLs are sanitized before crossing IPC. Affected branches come from actual `branch.*.remote` configuration. |
+| `rename_remote` / confirmed `remove_remote` | system Git (local `git remote rename/remove`) + `git2` validation/readback | Uses Git's native whole-remote semantics so refspecs, remote-tracking refs, and branch upstream configuration are updated together, including Windows local-path remotes. Commands run under the repository write lock with only validated remote names as arguments, perform no transport, and consume removal confirmation before delete. Rename advances `refs + config`; removal advances `refs + history + config` because it deletes remote-tracking refs and can change reachable history. |
 | `reflog` / `reflog_refs` | `git2` | Reads Git's native newest-first reflog entries and signatures directly, under the repository read lock, without parsing localized CLI output. |
 | `log` | `gix` | Read-only traversal; gix's commit-graph handling is the reason large-history performance is realistic at all. |
 | `diff` | `gix` | Read-only. |
@@ -89,6 +101,50 @@ at 200 entries per response.
 | `pull` network phase | system Git | Fetch through `GitRemoteBackend`, then local fast-forward/merge through `git2`; never delegated to configurable `git pull`. |
 | `push` / remote branch deletion | system Git | Same user Git environment; no libgit2 credential callbacks in the final path. |
 | `open_merge_tool` | system `git mergetool` | Explicit escape hatch for P1-08 conflict flow; launches the user's configured external merge tool and is not used in hot-path status/log/diff operations. |
+
+Phase 10 routing. These rows record the engine choice and its reasoning per task;
+`P10-MERGE-01` and `P10-WC-01`–`P10-WC-06` are now **implemented**, and the
+rationale is kept because it is the reason the code looks the way it does:
+
+| Method | Engine | Why | Task |
+|---|---|---|---|
+| `merge_preflight` | `gix` refs + `git2` status/index | Read-only: merge-base, bounded ahead/behind counts, index-vs-`HEAD` comparison, and the same bounded overwrite intersection `checkout_overwrite_paths` already computes. No subprocess, no network. | `P10-MERGE-01` |
+| `merge_branch` | system Git (`merge --no-edit [--ff-only]`) | Symmetry with `continue_operation` / `abort_operation`: the process that starts a merge must speak the same on-disk protocol as the one that finishes it, so a conflicted merge is the same state whether Fjord, the CLI, or another client began it. It also honors the user's `merge.*` configuration, hooks, and commit signing, which a libgit2 merge would bypass. `integrate_upstream` keeps its existing `git2` analysis for `pull` unchanged — the divergence is deliberate and recorded in [`branch-merge.md`](branch-merge.md) §7. | `P10-MERGE-01` |
+| `resolve_repository_file_path` | `fjord-fs` path normalization | Canonicalizes the repository root and the target's **parent**, asserts containment, and returns both forms. Not a Git operation; it is the single authority for absolute paths crossing IPC. | `P10-WC-01` |
+| `add_ignore_rule` / `preview_ignore_rule` | plain filesystem + `git2` tracked-state check | The tracked check must be authoritative (a `.gitignore` rule cannot untrack a file); the write is a bounded read-modify-append on one working-tree file. Decoding is UTF-8 only, BOM tolerated and preserved; invalid UTF-8 fails closed with `ignore_file_encoding_unsupported` and no charset-detection dependency is introduced. | `P10-WC-02` |
+| `export_patch` | `git2` diff + the `P8-01` patch constructor | Reuses the shipped deterministic constructor and digest verification rather than adding a second patch implementation; the resulting bytes are the same ones `git apply` accepts. | `P10-WC-03` |
+| `delete_file` (via `execute_confirmed_destructive_action`) | `git2` status/index + filesystem unlink | Status classifies the path's tracked, worktree-modified, and **staged** state for the preflight; a path with independent staged content is a blocker, not a consequence, and is re-checked under the repository write lock before execution. The removal itself unlinks one path (never a directory, never a symlink's target). | `P10-WC-04` |
+| `open_external_diff` | system `git difftool --no-prompt` (plus `--cached` for a staged row, plus `--tool=<name>` when `Settings.diff_tool` holds one) | Git resolves the tool from `diff.tool` / `difftool.<name>.cmd`, so Fjord stores a tool **name** at most and never a command line — the same reason `open_merge_tool` stores no merge-tool command. The merge tool is *not* assumed to be the diff tool. | `P10-WC-06` |
+
+Stash routing (`P10-STASH-01`–`P10-STASH-06`,
+[`stash-management.md`](stash-management.md)):
+
+| Method | Engine | Why | Task |
+|---|---|---|---|
+| `stashes` | `git2` refs + reflog + commit/tree reads | The whole model is repository-derived: `refs/stash`'s reflog gives the stack and its order, the stash commit's first parent gives the base, and comparing its parents' trees gives the staged/untracked structure and the file count. No subprocess, no parsing of `git stash list` output, and nothing persisted — Git owns stash state. | `P10-STASH-01` |
+| `stash_files` / `stash_file_diff` | `gix`/`git2` tree diff + the existing bounded diff pipeline | Read-only tree-to-tree diffs between the exact parent pairs each group names, fed through the shipped `FileDiffWindow` construction so ceilings, whitespace modes, digests, and generation envelopes are the ones already proven. No second diff implementation. | `P10-STASH-04` |
+| `create_stash` | system Git | The only interactive creation engine. `All` is ordinary `stash push [-u] -m …`. `Paths` (Git ≥ 2.23) uses private `GIT_INDEX_FILE` indexes to compose exact selected-only index/worktree/untracked trees and creates Git's standard stash parent topology with `write-tree`/`commit-tree`. Its final boundary holds the real per-worktree `index.lock` plus a prepared expected-HEAD ref transaction, revalidates the captured raw index and selected trees, cleans through the alternate transaction index, atomically replaces the real index while its lock remains present, and publishes `refs/stash` with one reflog-creating `update-ref` compare-and-swap against the expected old OID. A losing CAS restores the raw original index under the same lock. Plain `git stash list`/`show`/`apply`/`pop` accept the result; direct pathspec stash is not used because its entry can record unrelated staged content. | `P10-STASH-02` |
+| `apply_stash` | system Git (`stash apply [--index] stash@{n}`) | Symmetry with creation, and `--index` restoration is Git's own semantics rather than something to reimplement over the index. The `stash@{n}` is constructed from a fresh identity re-resolution under the write lock, never accepted from the caller. A conflict is classified by a live index read, not by the exit code. | `P10-STASH-06` |
+| `stash pop` / `stash drop` (via `execute_confirmed_destructive_action`) | system Git | Already the executor's path; `P10-STASH-06` only retypes the action on the stash commit OID and re-resolves the position under the write lock after the token is consumed. The dead `git2`-backed `GitBackend::stash_pop` (index 0, test-only) is deleted so one pop implementation remains. | `P10-STASH-06` |
+| `create_branch_from_stash` | `git2` branch create + checkout, then system Git apply | Composes two shipped mutations rather than delegating to `git stash branch`, which drops the entry on success — a destructive side effect Fjord will not put inside a constructive action. | `P10-STASH-06` |
+
+Every stash mutation re-resolves the caller's `StashId` to a current
+`stash@{n}` **inside** the write-locked section and fails closed
+(`stash_not_found` / `stash_ambiguous`) rather than acting on a stale position.
+Stash reads take the repository read lock and write nothing.
+
+`merge_branch` is a mutation on the operation pipeline: it holds the repository
+write lock across blocker re-evaluation, ref resolution, the subprocess,
+generation invalidation, and the final operation-state redetection. It does not
+take Git's `index.lock` itself — the `git merge` subprocess acquires and releases
+Git's own locks, which is the same cross-process boundary the patch mutations
+rely on. Once Git has been launched, `working_tree`, `refs`, and `history`
+advance even on failure or cancellation, matching `P9-03`.
+
+Every planned method above takes arguments individually through the shared
+resolved executable. None constructs a shell string, and none accepts a
+caller-supplied ref, command, or absolute path as authority: refs are re-resolved
+against the repository and paths are re-derived from the canonicalized root.
 
 For patch mutations, Git-native locking is the cross-process transaction
 boundary. Fjord's per-repository write lock serializes operations within the

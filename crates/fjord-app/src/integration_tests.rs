@@ -118,6 +118,7 @@ async fn settings_round_trip_through_the_real_store() {
             auto_fetch: true,
             performance_diagnostics: true,
             git_executable_path: None,
+            diff_tool: None,
         })
         .await
         .unwrap();
@@ -499,6 +500,118 @@ async fn snapshot_refresh_reports_a_cli_created_rebase_without_restart() {
     );
 }
 
+#[tokio::test]
+async fn start_rebase_service_returns_serializable_conflict_and_updates_the_snapshot() {
+    let (_dir, services) = services().await;
+    let (_repo_dir, repo_path) = fixture_repo("start-rebase");
+    run_git_success(&repo_path, &["config", "core.autocrlf", "false"]);
+    run_git_success(&repo_path, &["branch", "feature"]);
+    commit_with_system_git(&repo_path, b"main\n", "main change");
+    run_git_success(&repo_path, &["checkout", "feature"]);
+    commit_with_system_git(&repo_path, b"feature\n", "feature change");
+    let workspace = services
+        .workspaces
+        .create_workspace("Backend")
+        .await
+        .unwrap();
+    let repo = services
+        .workspaces
+        .add_repository(workspace.id, repo_path.clone())
+        .await
+        .unwrap();
+    services
+        .repos
+        .revalidate_repository_snapshot(repo.id)
+        .await
+        .unwrap();
+    let before = services.repos.get_generations(repo.id).await.unwrap();
+
+    let preflight = services
+        .repos
+        .get_rebase_preflight(
+            repo.id,
+            &fjord_domain::MergeSource {
+                ref_name: "refs/heads/main".into(),
+                kind: fjord_domain::MergeSourceKind::LocalBranch,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(preflight.blockers.is_empty());
+    assert_eq!(preflight.current_branch, "feature");
+    let result = services
+        .repos
+        .start_rebase_preflighted(
+            repo.id,
+            &preflight,
+            fjord_domain::MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(result.stash_ref.is_none());
+    let state = result.state;
+
+    assert!(matches!(state.operation, RepoOperation::Rebase { .. }));
+    assert_eq!(state.conflicted_paths, ["README.md"]);
+    assert!(!state.detected_externally);
+    assert_eq!(
+        services.repos.get_generations(repo.id).await.unwrap(),
+        fjord_domain::GenerationSet {
+            working_tree: before.working_tree + 1,
+            refs: before.refs + 1,
+            history: before.history + 1,
+            ..before
+        }
+    );
+    let payload = serde_json::to_value(&state).unwrap();
+    assert_eq!(payload["operation"]["kind"], "rebase");
+    assert_eq!(payload["conflictedPaths"], serde_json::json!(["README.md"]));
+    assert_eq!(payload["detectedExternally"], false);
+    assert_eq!(
+        serde_json::to_value(crate::operations::OperationKind::Rebase).unwrap(),
+        "rebase"
+    );
+    assert_eq!(
+        services
+            .repos
+            .revalidate_repository_snapshot(repo.id)
+            .await
+            .unwrap()
+            .snapshot
+            .snapshot
+            .operation_state,
+        state
+    );
+
+    let action = fjord_domain::DestructiveAction::AbortOperation;
+    let preflight = services
+        .repos
+        .preflight_destructive_action(repo.id, action.clone(), None)
+        .await
+        .unwrap();
+    services
+        .repos
+        .execute_destructive_action(
+            repo.id,
+            &action,
+            preflight.generations,
+            preflight.confirmation_token.as_deref().unwrap(),
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        services
+            .repos
+            .get_operation_state(repo.id)
+            .await
+            .unwrap()
+            .operation,
+        RepoOperation::Normal
+    );
+}
+
 /// An unknown id fails before any Git work, with the code the frontend uses to
 /// drop a stale selection.
 #[tokio::test]
@@ -618,11 +731,51 @@ async fn remote_connection_lists_adds_preserves_config_and_can_fetch() {
         .await
         .expect_err("empty remote inputs must fail before config mutation")
         .into();
-    assert_eq!(invalid.code, "remote_request_invalid");
+    assert_eq!(invalid.code, "remote_name_invalid");
     assert_eq!(
         services.repos.list_remotes(entry.id).await.unwrap().len(),
         1
     );
+
+    let edited = services
+        .repos
+        .set_remote_url(entry.id, " origin ", bare.to_str().unwrap(), None)
+        .await
+        .unwrap();
+    assert_eq!(edited.name, "origin");
+    let renamed = services
+        .repos
+        .rename_remote(entry.id, " origin ", " upstream ")
+        .await
+        .unwrap();
+    assert_eq!(renamed.name, "upstream");
+    let mut config = Repository::open(&local).unwrap().config().unwrap();
+    config.set_str("branch.main.remote", "upstream").unwrap();
+    config
+        .set_str("branch.main.merge", "refs/heads/main")
+        .unwrap();
+    let preflight = services
+        .repos
+        .preflight_remove_remote(entry.id, " upstream ")
+        .await
+        .unwrap();
+    assert_eq!(preflight.orphaned_upstreams, ["main"]);
+    services
+        .repos
+        .remove_remote(
+            entry.id,
+            " upstream ",
+            preflight.config_generation,
+            &preflight.confirmation_token,
+        )
+        .await
+        .unwrap();
+    assert!(services
+        .repos
+        .list_remotes(entry.id)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

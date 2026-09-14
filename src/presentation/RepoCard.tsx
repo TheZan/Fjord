@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
+import { primaryRepoCondition } from "@/application/repoHealth";
 import { Card, Pill } from "@/presentation/ui";
-import type { RepositoryEntry, RepoStatusSummary } from "@/domain/workspace";
+import type { RepoCondition, RepoHealth, RepositoryEntry, RepoStatusSummary } from "@/domain/workspace";
 
 /**
  * One repository at a glance. The previous card printed a 2×2
@@ -12,6 +13,7 @@ import type { RepositoryEntry, RepoStatusSummary } from "@/domain/workspace";
 export function RepoCard({
   repo,
   status,
+  health,
   selected,
   onSelect,
   onWarm,
@@ -19,6 +21,7 @@ export function RepoCard({
 }: {
   repo: RepositoryEntry;
   status: RepoStatusSummary["status"] | undefined;
+  health: RepoHealth | undefined;
   selected: boolean;
   onSelect: () => void;
   onWarm?: () => void;
@@ -30,15 +33,8 @@ export function RepoCard({
   const behind = status?.behind ?? 0;
   const dirty = status?.dirtyCount ?? 0;
 
-  const state = status?.hasConflict
-    ? { tone: "rust" as const, glyph: "⚠", label: t("cardStatus.conflict") }
-    : dirty > 0
-      ? { tone: "amber" as const, glyph: "●", label: t("cardStatus.dirty") }
-      : ahead > 0
-        ? { tone: "fjord" as const, glyph: "↑", label: t("cardStatus.ahead") }
-        : behind > 0
-          ? { tone: "amber" as const, glyph: "↓", label: t("cardStatus.behind") }
-          : { tone: "moss" as const, glyph: "✓", label: t("cardStatus.synced") };
+  const primary = primaryRepoCondition(health);
+  const state = conditionPresentation(primary, t);
 
   return (
     <Card selected={selected} className="interactive-card group relative h-full">
@@ -48,6 +44,8 @@ export function RepoCard({
         onPointerEnter={onWarm}
         onFocus={onWarm}
         data-selected={selected}
+        data-health-condition={primary?.kind ?? "unknown"}
+        data-needs-attention={health?.needsAttention ?? false}
         className="interactive-row flex h-full w-full flex-col gap-2 p-3 text-left"
       >
         <div className="flex items-center justify-between gap-2">
@@ -81,4 +79,32 @@ export function RepoCard({
       </button>
     </Card>
   );
+}
+
+function conditionPresentation(
+  condition: RepoCondition | undefined,
+  t: (key: string) => string,
+) {
+  switch (condition?.kind) {
+    case "conflict":
+      return { tone: "rust" as const, glyph: "⚠", label: t("cardStatus.conflict") };
+    case "operationInProgress":
+      return { tone: "rust" as const, glyph: "◆", label: t("cardStatus.operation") };
+    case "unreadable":
+      return { tone: "rust" as const, glyph: "!", label: t("cardStatus.unreadable") };
+    case "wrongBranch":
+      return { tone: "amber" as const, glyph: "↯", label: t("cardStatus.wrongBranch") };
+    case "diverged":
+      return { tone: "rust" as const, glyph: "↕", label: t("cardStatus.diverged") };
+    case "behind":
+      return { tone: "amber" as const, glyph: "↓", label: t("cardStatus.behind") };
+    case "ahead":
+      return { tone: "fjord" as const, glyph: "↑", label: t("cardStatus.ahead") };
+    case "dirty":
+      return { tone: "amber" as const, glyph: "●", label: t("cardStatus.dirty") };
+    case "clean":
+      return { tone: "moss" as const, glyph: "✓", label: t("cardStatus.synced") };
+    default:
+      return { tone: "neutral" as const, glyph: "·", label: t("dashboard.unknown") };
+  }
 }

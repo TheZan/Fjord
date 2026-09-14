@@ -2,16 +2,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { createAppShortcutBindings } from "@/application/appShortcuts";
+import { commandPaletteMergeBranches, mergeSourceForBranch } from "@/application/mergeBranchAction";
 import { userErrorMessage } from "@/application/errorMessage";
 import { useStartup } from "@/application/StartupProvider";
 import { updateCoordinator } from "@/application/update/UpdateCoordinator";
 import { useOperationProgress } from "@/application/useOperationProgress";
 import { useGitAuthPrompts } from "@/application/useGitAuthPrompts";
+import { useBranches } from "@/application/useBranches";
 import { useRepositoryChangeEvents } from "@/application/useRepositoryChangeEvents";
 import { queryKeys } from "@/application/queryKeys";
 import { resolveRestoredSelection } from "@/application/uiSelection";
 import { useRepositories } from "@/application/useRepositories";
 import { useShortcutRegistry } from "@/application/useShortcutRegistry";
+import { useOverviewFilters } from "@/application/useOverviewFilters";
+import { repoIsBehind, repoNeedsAttention } from "@/application/repoHealth";
 import { warmRepositoryData } from "@/application/warmRepositoryData";
 import type { GlobalSearchResult } from "@/domain/git";
 import type { BulkRepoResult } from "@/domain/workspace";
@@ -52,6 +56,7 @@ import { ResizableSidebar } from "@/presentation/ResizableSidebar";
 import { RepositorySwitcher, type RepositorySwitcherItem } from "@/presentation/RepositorySwitcher";
 import { RepositoryOnboardingDialog } from "@/presentation/RepositoryOnboardingDialog";
 import { Sidebar } from "@/presentation/Sidebar";
+import { WorkspaceSettingsDialog } from "@/presentation/WorkspaceSettingsDialog";
 import { Button } from "@/presentation/ui";
 import { useCommandPaletteState } from "@/presentation/useCommandPaletteState";
 import type { View } from "@/presentation/view";
@@ -75,6 +80,7 @@ export function App() {
     selectedWorkspaceId,
     repositoriesByWorkspace,
     statusByRepo,
+    healthByRepo,
     loading,
     error,
     workspaceActionPending,
@@ -82,6 +88,7 @@ export function App() {
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
+    setWorkspaceExpectedBranch,
     deleteWorkspace,
     moveWorkspace,
     moveWorkspaceTo,
@@ -91,11 +98,17 @@ export function App() {
     importRepositories,
     removeRepository,
   } = useRepositories();
+  const {
+    filters: overviewFilters,
+    toggleFilter: toggleOverviewFilter,
+    clearFilters: clearOverviewFilters,
+  } = useOverviewFilters();
 
   const operations = useOperationProgress();
   const gitAuth = useGitAuthPrompts();
   const [view, setView] = useState<View>("overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceSettingsId, setWorkspaceSettingsId] = useState<string | null>(null);
   const [repositoryOnboardingStep, setRepositoryOnboardingStep] = useState<
     "choices" | "clone" | "create" | null
   >(null);
@@ -130,6 +143,7 @@ export function App() {
   );
   useRepositoryChangeEvents(allRepositories);
   const selectedRepo = allRepositories.find((repo) => repo.id === selectedRepoId) ?? null;
+  const { branches: selectedRepoBranches } = useBranches(selectedRepoId);
   const shortcutBindings = createAppShortcutBindings({
     workspaceCount: workspaces.length,
     actions: {
@@ -175,6 +189,11 @@ export function App() {
         : [],
   );
   const workspaceRepos = selectedWorkspaceId ? (repositoriesByWorkspace[selectedWorkspaceId] ?? []) : [];
+  // The SQLite-backed workspace row is the single source of truth for the
+  // expected branch; the dialog reads it from here rather than keeping its own
+  // copy of the preference.
+  const workspaceSettingsWorkspace =
+    workspaces.find((workspace) => workspace.id === workspaceSettingsId) ?? null;
   const isFirstRun = !loading && workspaces.length === 0;
   const activeBulkOperation = bulkOperationId ? (operations[bulkOperationId] ?? null) : null;
 
@@ -182,15 +201,10 @@ export function App() {
     (repositoriesByWorkspace[workspace.id] ?? []).map((repo) => ({ workspace, repo })),
   );
 
-  const needsAttention = (repoId: string) => {
-    const status = statusByRepo[repoId]?.status;
-    return Boolean(status?.hasConflict || status?.dirtyCount || status?.ahead || status?.behind);
-  };
-
   const metrics = {
     total: workspaceRepos.length,
-    attention: workspaceRepos.filter((repo) => needsAttention(repo.id)).length,
-    behind: workspaceRepos.filter((repo) => (statusByRepo[repo.id]?.status.behind ?? 0) > 0).length,
+    attention: workspaceRepos.filter((repo) => repoNeedsAttention(healthByRepo[repo.id])).length,
+    behind: workspaceRepos.filter((repo) => repoIsBehind(healthByRepo[repo.id])).length,
   };
 
   const repoCountByWorkspace = Object.fromEntries(
@@ -199,17 +213,10 @@ export function App() {
   const attentionByWorkspace = Object.fromEntries(
     workspaces.map((workspace) => [
       workspace.id,
-      (repositoriesByWorkspace[workspace.id] ?? []).filter((repo) => needsAttention(repo.id)).length,
+      (repositoriesByWorkspace[workspace.id] ?? []).filter((repo) =>
+        repoNeedsAttention(healthByRepo[repo.id]),
+      ).length,
     ]),
-  );
-
-  const normalizedFilter = repoFilter.trim().toLocaleLowerCase();
-  const filteredRows = flatRows.filter(({ workspace, repo }) =>
-    !normalizedFilter
-      ? true
-      : [repo.name, repo.path, workspace.name].some((value) =>
-          value.toLocaleLowerCase().includes(normalizedFilter),
-        ),
   );
 
   useEffect(() => {
@@ -367,6 +374,29 @@ export function App() {
   }
 
   const paletteItems: PaletteItem[] = [
+    ...(selectedRepo && selectedRepoBranches.some((branch) => branch.isCurrent)
+      ? selectedRepoBranches.filter((branch) => !branch.isCurrent).map((branch) => ({
+          id: `rebase:${branch.isRemote ? "remote" : "local"}:${branch.name}`,
+          label: tw("rebase.entry", { current: selectedRepoBranches.find((candidate) => candidate.isCurrent)?.name, onto: branch.name }),
+          detail: tw("rebase.palette"), group: tw("commandPalette.activeRepositoryGroup"),
+          run: () => sendRepoDetailCommand({ kind: "rebase", onto: mergeSourceForBranch(branch), repoId: selectedRepo.id }),
+        })) : []),
+    ...(selectedRepo
+      ? commandPaletteMergeBranches(selectedRepoBranches)
+          .map((branch) => ({
+            id: `merge:${branch.name}`,
+            label: `${tw("commandPalette.mergeBranch")} ${branch.name}`,
+            detail: tw("context.mergeInto", {
+              source: branch.name,
+              target: selectedRepoBranches.find((candidate) => candidate.isCurrent)?.name ?? "HEAD",
+            }),
+            group: tw("commandPalette.activeRepositoryGroup"),
+            run: () => sendRepoDetailCommand({
+              kind: "merge",
+              source: mergeSourceForBranch(branch),
+            }),
+          }))
+      : []),
     ...(selectedRepo
       ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
           id: `action:${action}`,
@@ -463,6 +493,7 @@ export function App() {
         workspaces={workspaces}
         repositoriesByWorkspace={repositoriesByWorkspace}
         statusByRepo={statusByRepo}
+        healthByRepo={healthByRepo}
         repoCountByWorkspace={repoCountByWorkspace}
         attentionByWorkspace={attentionByWorkspace}
         selectedWorkspaceId={selectedWorkspaceId}
@@ -475,6 +506,7 @@ export function App() {
         }}
         onCreateWorkspace={(name) => void createWorkspace(name)}
         onRenameWorkspace={(id, name) => void renameWorkspace(id, name)}
+        onOpenWorkspaceSettings={setWorkspaceSettingsId}
         onDeleteWorkspace={(id) => void deleteWorkspace(id)}
         onMoveWorkspace={(id, direction) => void moveWorkspace(id, direction)}
         onMoveWorkspaceTo={(id, targetId) => void moveWorkspaceTo(id, targetId)}
@@ -530,6 +562,7 @@ export function App() {
             workspace={selectedWorkspace}
             repositories={workspaceRepos}
             statusByRepo={statusByRepo}
+            healthByRepo={healthByRepo}
             selectedRepoId={selectedRepoId}
             metrics={metrics}
             bulkPending={bulkActionPending}
@@ -544,6 +577,9 @@ export function App() {
             }
             onWarmRepo={queueRepositoryWarm}
             onRemoveRepo={(repoId) => void removeRepository(repoId)}
+            activeFilters={overviewFilters}
+            onToggleFilter={toggleOverviewFilter}
+            onClearFilters={clearOverviewFilters}
             utilities={
               <ShellUtilities
                 searchLabel={tw("toolbar.search")}
@@ -555,11 +591,15 @@ export function App() {
           />
         ) : (
           <AllReposView
-            rows={filteredRows}
+            rows={flatRows}
             statusByRepo={statusByRepo}
+            healthByRepo={healthByRepo}
             selectedRepoId={selectedRepoId}
             filter={repoFilter}
             onFilterChange={setRepoFilter}
+            activeFilters={overviewFilters}
+            onToggleFilter={toggleOverviewFilter}
+            onClearFilters={clearOverviewFilters}
             onSelect={(workspaceId, repoId) => void selectRepository(workspaceId, repoId)}
             onWarm={(_workspaceId, repoId) => queueRepositoryWarm(repoId)}
             utilities={
@@ -614,6 +654,16 @@ export function App() {
           onSettingsChange={(settings) => {
             setInteractionDiagnosticsEnabled(settings.performanceDiagnostics);
           }}
+        />
+      )}
+
+      {workspaceSettingsWorkspace && (
+        <WorkspaceSettingsDialog
+          workspace={workspaceSettingsWorkspace}
+          onSave={(expectedBranch) =>
+            setWorkspaceExpectedBranch(workspaceSettingsWorkspace.id, expectedBranch)
+          }
+          onClose={() => setWorkspaceSettingsId(null)}
         />
       )}
 

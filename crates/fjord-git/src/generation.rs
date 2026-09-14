@@ -21,6 +21,7 @@ impl GenerationMask {
     pub const WORKING_REFS: Self = Self::new(true, true, false, false, false);
     pub const WORKING_REFS_HISTORY: Self = Self::new(true, true, true, false, false);
     pub const WORKING_STASH: Self = Self::new(true, false, false, true, false);
+    pub const STASH: Self = Self::new(false, false, false, true, false);
     pub const CONFIG: Self = Self::new(false, false, false, false, true);
     pub const REFS_CONFIG: Self = Self::new(false, true, false, false, true);
     pub const REFS_HISTORY_CONFIG: Self = Self::new(false, true, true, false, true);
@@ -131,18 +132,30 @@ pub(crate) enum MutationKind {
     Revert,
     Reset { touches_working_tree: bool },
     StashPush,
+    StashApply,
     StashPop,
+    StashDrop,
+    CreateBranchFromStash,
     Stage,
     Unstage,
     Discard,
+    Ignore,
+    DeleteFile,
     Commit,
     IntegrateUpstream,
+    Merge { stash: bool },
+    SquashMerge { stash: bool },
     Fetch,
     Push,
     PublishBranch,
     DeleteRemoteBranch,
     AddRemote,
+    SetRemoteUrl,
+    RenameRemote,
+    RemoveRemote,
     OperationStep,
+    Rebase,
+    RebaseWithStash,
 }
 
 pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
@@ -160,7 +173,15 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::CherryPick
         | MutationKind::Revert
         | MutationKind::Commit
-        | MutationKind::IntegrateUpstream => GenerationMask::WORKING_REFS_HISTORY,
+        | MutationKind::IntegrateUpstream
+        | MutationKind::Merge { stash: false } => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::RebaseWithStash | MutationKind::Merge { stash: true } => {
+            GenerationMask::new(true, true, true, true, false)
+        }
+        MutationKind::SquashMerge { stash: false } => GenerationMask::WORKING_TREE,
+        MutationKind::SquashMerge { stash: true } => {
+            GenerationMask::new(true, false, false, true, false)
+        }
         MutationKind::Reset {
             touches_working_tree: false,
         } => GenerationMask::REFS_HISTORY,
@@ -168,15 +189,22 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
             touches_working_tree: true,
         } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::StashPush | MutationKind::StashPop => GenerationMask::WORKING_STASH,
-        MutationKind::Stage | MutationKind::Unstage | MutationKind::Discard => {
-            GenerationMask::WORKING_TREE
-        }
+        MutationKind::StashApply => GenerationMask::WORKING_TREE,
+        MutationKind::StashDrop => GenerationMask::STASH,
+        MutationKind::CreateBranchFromStash => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::Stage
+        | MutationKind::Unstage
+        | MutationKind::Discard
+        | MutationKind::Ignore
+        | MutationKind::DeleteFile => GenerationMask::WORKING_TREE,
         MutationKind::Fetch | MutationKind::Push | MutationKind::DeleteRemoteBranch => {
             GenerationMask::REFS_HISTORY
         }
         MutationKind::PublishBranch => GenerationMask::REFS_HISTORY_CONFIG,
-        MutationKind::AddRemote => GenerationMask::CONFIG,
-        MutationKind::OperationStep => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::AddRemote | MutationKind::SetRemoteUrl => GenerationMask::CONFIG,
+        MutationKind::RenameRemote => GenerationMask::REFS_CONFIG,
+        MutationKind::RemoveRemote => GenerationMask::REFS_HISTORY_CONFIG,
+        MutationKind::OperationStep | MutationKind::Rebase => GenerationMask::WORKING_REFS_HISTORY,
     }
 }
 
@@ -188,6 +216,7 @@ mod tests {
     fn every_mutation_bumps_exactly_its_observable_domains() {
         let cases = [
             (MutationKind::Checkout, GenerationMask::WORKING_REFS),
+            (MutationKind::Rebase, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::CreateBranch { checkout: false },
                 GenerationMask::REFS,
@@ -227,14 +256,38 @@ mod tests {
                 GenerationMask::WORKING_REFS_HISTORY,
             ),
             (MutationKind::StashPush, GenerationMask::WORKING_STASH),
+            (MutationKind::StashApply, GenerationMask::WORKING_TREE),
             (MutationKind::StashPop, GenerationMask::WORKING_STASH),
+            (MutationKind::StashDrop, GenerationMask::STASH),
+            (
+                MutationKind::CreateBranchFromStash,
+                GenerationMask::WORKING_REFS_HISTORY,
+            ),
             (MutationKind::Stage, GenerationMask::WORKING_TREE),
             (MutationKind::Unstage, GenerationMask::WORKING_TREE),
             (MutationKind::Discard, GenerationMask::WORKING_TREE),
+            (MutationKind::Ignore, GenerationMask::WORKING_TREE),
+            (MutationKind::DeleteFile, GenerationMask::WORKING_TREE),
             (MutationKind::Commit, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::IntegrateUpstream,
                 GenerationMask::WORKING_REFS_HISTORY,
+            ),
+            (
+                MutationKind::Merge { stash: false },
+                GenerationMask::WORKING_REFS_HISTORY,
+            ),
+            (
+                MutationKind::Merge { stash: true },
+                GenerationMask::new(true, true, true, true, false),
+            ),
+            (
+                MutationKind::SquashMerge { stash: false },
+                GenerationMask::WORKING_TREE,
+            ),
+            (
+                MutationKind::SquashMerge { stash: true },
+                GenerationMask::new(true, false, false, true, false),
             ),
             (MutationKind::Fetch, GenerationMask::REFS_HISTORY),
             (MutationKind::Push, GenerationMask::REFS_HISTORY),
@@ -251,6 +304,12 @@ mod tests {
                 GenerationMask::REFS_HISTORY,
             ),
             (MutationKind::AddRemote, GenerationMask::CONFIG),
+            (MutationKind::SetRemoteUrl, GenerationMask::CONFIG),
+            (MutationKind::RenameRemote, GenerationMask::REFS_CONFIG),
+            (
+                MutationKind::RemoveRemote,
+                GenerationMask::REFS_HISTORY_CONFIG,
+            ),
         ];
 
         for (mutation, expected) in cases {

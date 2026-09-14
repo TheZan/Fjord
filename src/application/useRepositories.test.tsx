@@ -6,7 +6,7 @@ import { useRepositories } from "@/application/useRepositories";
 import * as dialog from "@/infrastructure/dialog";
 import { initI18n } from "@/infrastructure/i18n";
 import * as tauriClient from "@/infrastructure/tauriClient";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoHealth, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 
 vi.mock("@/infrastructure/dialog", () => ({
   pickFolder: vi.fn(),
@@ -19,17 +19,19 @@ vi.mock("@/infrastructure/tauriClient", () => ({
   createWorkspace: vi.fn(),
   deleteWorkspace: vi.fn(),
   getWorkspaceStatus: vi.fn(),
+  getWorkspaceHealth: vi.fn(),
   importRepositories: vi.fn(),
   listRepositories: vi.fn(),
   listWorkspaces: vi.fn(),
   removeRepository: vi.fn(),
   renameWorkspace: vi.fn(),
+  setWorkspaceExpectedBranch: vi.fn(),
   reorderWorkspaces: vi.fn(),
 }));
 
 const workspaces: Workspace[] = [
-  { id: "backend", name: "Backend", sortOrder: 1 },
-  { id: "frontend", name: "Frontend", sortOrder: 0 },
+  { id: "backend", name: "Backend", sortOrder: 1, expectedBranch: null },
+  { id: "frontend", name: "Frontend", sortOrder: 0, expectedBranch: null },
 ];
 
 const repositoriesByWorkspace: Record<string, RepositoryEntry[]> = {
@@ -72,6 +74,16 @@ const statusByWorkspace: Record<string, RepoStatusSummary[]> = {
   mobile: [],
 };
 
+const healthByWorkspace: Record<string, RepoHealth[]> = {
+  backend: [
+    { repoId: "api", conditions: [{ kind: "behind", count: 1 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+  ],
+  frontend: [
+    { repoId: "web", conditions: [{ kind: "ahead", count: 2 }, { kind: "dirty", count: 3 }], needsAttention: false, asOf: "1970-01-01T00:00:00Z" },
+  ],
+  mobile: [],
+};
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -94,10 +106,14 @@ describe("useRepositories", () => {
     vi.mocked(tauriClient.getWorkspaceStatus).mockImplementation(
       async (workspaceId) => statusByWorkspace[workspaceId] ?? [],
     );
+    vi.mocked(tauriClient.getWorkspaceHealth).mockImplementation(
+      async (workspaceId) => healthByWorkspace[workspaceId] ?? [],
+    );
     vi.mocked(tauriClient.createWorkspace).mockResolvedValue({
       id: "mobile",
       name: "Mobile",
       sortOrder: 2,
+      expectedBranch: null,
     });
   });
 
@@ -109,6 +125,7 @@ describe("useRepositories", () => {
     expect(tauriClient.listWorkspaces).toHaveBeenCalledTimes(1);
     expect(tauriClient.listRepositories).toHaveBeenCalledWith("frontend");
     expect(tauriClient.getWorkspaceStatus).toHaveBeenCalledWith("backend");
+    expect(tauriClient.getWorkspaceHealth).toHaveBeenCalledWith("backend");
     expect(result.current.workspaces.map((workspace) => workspace.id)).toEqual([
       "frontend",
       "backend",
@@ -116,6 +133,7 @@ describe("useRepositories", () => {
     expect(result.current.selectedWorkspaceId).toBe("frontend");
     expect(result.current.repositories.map((repo) => repo.id)).toEqual(["web"]);
     expect(result.current.statusByRepo.web.status.dirtyCount).toBe(3);
+    expect(result.current.healthByRepo.web.needsAttention).toBe(false);
   });
 
   it("creates a workspace through a mutation and selects it", async () => {
@@ -244,5 +262,62 @@ describe("useRepositories", () => {
 
     expect(tauriClient.addRepository).not.toHaveBeenCalled();
     expect(tauriClient.importRepositories).not.toHaveBeenCalled();
+  });
+  it("refreshes the workspace row and its health after an expected-branch change", async () => {
+    const updated: Workspace = {
+      id: "backend",
+      name: "Backend",
+      sortOrder: 1,
+      expectedBranch: "develop",
+    };
+    vi.mocked(tauriClient.setWorkspaceExpectedBranch).mockResolvedValue(updated);
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const healthCallsBefore = vi.mocked(tauriClient.getWorkspaceHealth).mock.calls.length;
+    const repositoryCallsBefore = vi.mocked(tauriClient.listRepositories).mock.calls.length;
+    const statusCallsBefore = vi.mocked(tauriClient.getWorkspaceStatus).mock.calls.length;
+
+    await act(async () => result.current.setWorkspaceExpectedBranch("backend", "develop"));
+
+    expect(tauriClient.setWorkspaceExpectedBranch).toHaveBeenCalledExactlyOnceWith(
+      "backend",
+      "develop",
+    );
+    // The workspace query now carries the persisted value, so the summary can
+    // render it without a restart...
+    await waitFor(() =>
+      expect(
+        result.current.workspaces.find((workspace) => workspace.id === "backend")?.expectedBranch,
+      ).toBe("develop"),
+    );
+    // ...and health is recomputed, because WrongBranch depends on it.
+    await waitFor(() =>
+      expect(vi.mocked(tauriClient.getWorkspaceHealth).mock.calls.length).toBeGreaterThan(
+        healthCallsBefore,
+      ),
+    );
+    // Repository lists and statuses are untouched: expected branch changes no
+    // repository state.
+    expect(vi.mocked(tauriClient.listRepositories).mock.calls.length).toBe(repositoryCallsBefore);
+    expect(vi.mocked(tauriClient.getWorkspaceStatus).mock.calls.length).toBe(statusCallsBefore);
+  });
+
+  it("surfaces an expected-branch validation failure to the caller", async () => {
+    vi.mocked(tauriClient.setWorkspaceExpectedBranch).mockRejectedValue({
+      code: "expected_branch_invalid",
+      message: "invalid setting: expected_branch_invalid",
+    });
+    const { result } = renderHook(() => useRepositories(), { wrapper: createWrapper() });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await expect(
+        result.current.setWorkspaceExpectedBranch("backend", "not a branch"),
+      ).rejects.toMatchObject({ code: "expected_branch_invalid" });
+    });
+
+    // The dialog owns this error; the app-level strip must stay clean.
+    expect(result.current.error).toBeNull();
   });
 });

@@ -5,7 +5,14 @@ export type WorkspaceId = string;
 
 export type RepositoryId = string;
 
-export type Workspace = { id: WorkspaceId, name: string, sortOrder: number, };
+export type Workspace = { id: WorkspaceId, name: string, sortOrder: number, 
+/**
+ * Optional literal branch name every repository in this workspace is
+ * expected to be on (`workspaces.expected_branch`, P10-09). `None` means
+ * the workspace has no convention and no `WrongBranch` condition is ever
+ * derived for it — see docs/specs/workspace-workflows.md §5.
+ */
+expectedBranch: string | null, };
 
 export type RepositoryEntry = { id: RepositoryId, workspaceId: WorkspaceId, name: string, 
 /**
@@ -25,6 +32,8 @@ export type CreateRepositoryResult = { repository: RepositoryEntry, };
 
 export type RemoteInfo = { name: string, fetchUrl: string, pushUrl: string | null, };
 
+export type RemoveRemotePreflight = { remote: string, orphanedUpstreams: Array<string>, configGeneration: number, confirmationToken: string, };
+
 export type RemotePushResult = { remote: string, ok: boolean, errorCode: string | null, };
 
 export type GenerationSet = { workingTree: number, refs: number, history: number, stash: number, config: number, };
@@ -38,6 +47,10 @@ export type SnapshotRevalidation = { snapshot: StoredRepositorySnapshot, changed
 export type RepoStatus = { branch: string | null, ahead: number, behind: number, dirtyCount: number, hasConflict: boolean, };
 
 export type RepoStatusSummary = { repoId: RepositoryId, status: RepoStatus, lastSyncedAt: string | null, };
+
+export type RepoCondition = { "kind": "clean" } | { "kind": "dirty", count: number, } | { "kind": "ahead", count: number, } | { "kind": "behind", count: number, } | { "kind": "diverged", ahead: number, behind: number, } | { "kind": "conflict" } | { "kind": "operationInProgress", operation: RepoOperation, } | { "kind": "wrongBranch", expected: string, actual: string | null, } | { "kind": "unreadable", reasonCode: string, };
+
+export type RepoHealth = { repoId: RepositoryId, conditions: Array<RepoCondition>, needsAttention: boolean, asOf: string, };
 
 export type OperationControl = "continue" | "skip" | "abort";
 
@@ -55,11 +68,66 @@ export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId,
 
 export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, ahead: number, behind: number, targetCommitId: CommitId, };
 
+export type MergeSourceKind = "localBranch" | "remoteTracking";
+
+export type MergeSource = { refName: string, kind: MergeSourceKind, };
+
+export type MergeMode = "default" | "fastForwardOnly";
+
+export type MergeDirtyPolicy = "refuse" | "stashFirst";
+
+export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, };
+
+export type MergeDirtyState = { staged: number, modified: number, untracked: number, wouldOverwrite: Array<string>, };
+
+export type IntegrationBlocker = "target_is_current_branch" | "target_not_found" | "target_unsupported" | "operation_already_in_progress" | "detached_head" | "unborn_head" | "index_has_staged_changes" | "would_overwrite";
+
+export type PublishedRewriteConsequence = { upstream: string, commits: number, };
+
+export type RebasePreflight = { onto: MergeSource, ontoLabel: string, ontoCommit: CommitId, currentBranch: string, currentCommit: CommitId, dirty: MergeDirtyState, blockers: Array<IntegrationBlocker>, commits: number, alreadyUpToDate: boolean, publishedRewrite: PublishedRewriteConsequence | null, generations: GenerationSet, };
+
+export type RebaseResult = { state: RepoOperationState, stashRef: string | null, generations: GenerationSet, };
+
+export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
+
+export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };
+
+export type MergeResult = { outcome: MergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, stashRef: string | null, generations: GenerationSet, };
+
+export type SquashMergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "staged", message: string, } | { "kind": "conflicted", paths: Array<string>, };
+
+export type SquashMergeResult = { outcome: SquashMergeOutcome, source: MergeSource, sourceLabel: string, targetBranch: string, 
+/**
+ * `HEAD` before the squash ran — unmoved by any outcome. Lets the
+ * caller offer a plain Reset (Hard) to this commit as the discard path,
+ * reusing the existing destructive-preflight `Reset` action rather than
+ * inventing a second abort mechanism.
+ */
+targetCommit: CommitId, stashRef: string | null, generations: GenerationSet, };
+
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };
 
-export type StashEntry = { index: number, message: string, };
+export type StashId = string;
+
+export type StashEntry = { id: StashId, index: number, refName: string, message: string, title: string, base: CommitId, branch: string | null, createdAt: string, filesChanged: number, hasIndexState: boolean, hasUntracked: boolean, };
+
+export type StashFileGroup = "index" | "worktree" | "untracked";
+
+export type StashFiles = { staged: Array<FileDiff>, worktree: Array<FileDiff>, untracked: Array<FileDiff>, truncated: boolean, };
+
+export type StashScope = { "kind": "all" } | { "kind": "paths", paths: Array<string>, };
+
+export type CreateStashRequest = { scope: StashScope, message: string, includeUntracked: boolean, };
+
+export type CreateStashResult = { entry: StashEntry, generations: GenerationSet, };
+
+export type StashApplyOutcome = { "kind": "applied" } | { "kind": "conflicted", paths: Array<string>, };
+
+export type StashApplyResult = { outcome: StashApplyOutcome, entryRemoved: boolean, generations: GenerationSet, };
+
+export type CreateBranchFromStashResult = { branch: string, outcome: StashApplyOutcome | null, stashKept: boolean, generations: GenerationSet, };
 
 export type CommitId = string;
 
@@ -81,7 +149,11 @@ export type FileChangeType = "added" | "modified" | "deleted" | "renamed";
 
 export type FileDiff = { path: string, changeType: FileChangeType, additions: number, deletions: number, };
 
-export type WorkingFile = { path: string, changeType: FileChangeType, 
+export type WorkingFile = { path: string, changeType: FileChangeType,
+/**
+ * `true` when the path already has an index entry.
+ */
+tracked: boolean,
 /**
  * `true` when the entry is an unresolved merge conflict.
  */
@@ -90,6 +162,18 @@ conflicted: boolean, };
 export type WorkingChanges = { staged: Array<WorkingFile>, unstaged: Array<WorkingFile>, };
 
 export type PatchSource = "worktree" | "index";
+
+export type WorkingFileTarget = { path: string, source: PatchSource, };
+
+export type RepositoryFilePath = { relative: string, absolute: string, };
+
+export type OpenTarget = { "kind": "configuredEditor", line: number | null, } | { "kind": "defaultApplication" };
+
+export type IgnoreRuleKind = "file" | "extension" | "directory";
+
+export type IgnoreRulePreview = { rule: string, alreadyPresent: boolean, };
+
+export type IgnoreRuleOutcome = "added" | "alreadyPresent";
 
 export type HunkSelection = { oldStart: number, oldLines: number, newStart: number, newLines: number,
 /**
@@ -112,13 +196,15 @@ export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hu
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", index: number, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, };
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "discardFiles", paths: Array<string>, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
+
+export type DestructiveExecutionResult = { "kind": "completed" } | { "kind": "operationState", state: RepoOperationState, } | { "kind": "stashApply", result: StashApplyResult, };
 
 export type ForceWithLeaseDetails = { remote: string, refName: string, expectedOid: CommitId, };
 
-export type Recoverability = "reflog" | "stash" | "notRecoverable";
+export type Recoverability = "reflog" | "stash" | "notRecoverable" | "committed";
 
-export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", index: number, message: string, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, };
+export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", id: StashId, refName: string, title: string, filesChanged: number, base: CommitId, branch: string | null, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, };
 
 export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, forceWithLease: ForceWithLeaseDetails | null, confirmationToken: string | null, };
 
@@ -200,13 +286,20 @@ export type Settings = {
 /**
  * BCP-47-ish locale code, e.g. "en", "ru". See docs/specs/i18n.md.
  */
-locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, };
+locale: string, theme: Theme, defaultIde: string | null, autoFetch: boolean, performanceDiagnostics: boolean, gitExecutablePath: string | null, 
+/**
+ * A Git difftool **name** only — never a path, shell command, or command
+ * line. `None` means "let Git resolve `diff.tool` /
+ * `difftool.<name>.cmd`"; `Some("meld")` means invoke `git difftool
+ * --tool=meld`. See docs/specs/working-tree-and-diff.md §6.4.
+ */
+diffTool: string | null, };
 
 export type UiDiffMode = "unified" | "split";
 
 export type UiFileViewMode = "path" | "tree";
 
-export type UiOverviewFilter = "attention" | "behind";
+export type UiOverviewFilter = "attention" | "dirty" | "ahead" | "behind" | "conflicts" | "wrongBranch";
 
 export type SidebarUiState = { width: number | null, collapsedWorkspaces: Array<WorkspaceId>, };
 

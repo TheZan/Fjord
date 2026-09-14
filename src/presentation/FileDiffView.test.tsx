@@ -669,12 +669,12 @@ describe("FileDiffView windowing", () => {
           newLines: 2,
         },
       },
-      {
+      [{
         path: "large.txt",
         source: "worktree",
         baseDigest: "digest-1",
         hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
-      },
+      }],
     ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "context.cancel" }));
@@ -745,12 +745,12 @@ describe("FileDiffView windowing", () => {
         kind: "discard",
         selection: { kind: "file", path: "large.txt" },
       },
-      {
+      [{
         path: "large.txt",
         source: "worktree",
         baseDigest: "digest-1",
         hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [] }],
-      },
+      }],
     ));
     expect(onDiscardPatch).not.toHaveBeenCalled();
 
@@ -830,6 +830,30 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText("diff.loaded")).toBeInTheDocument();
   });
 
+  it("keeps stash diffs read-only while reusing the normal diff renderer", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="both.txt"
+        source={{ kind: "stash", stashId: "stash-oid", group: "index" }}
+      />,
+    );
+
+    expect(state.useFileDiff).toHaveBeenCalledWith(
+      "repo-1",
+      "both.txt",
+      { kind: "stash", stashId: "stash-oid", group: "index" },
+      "show",
+      false,
+    );
+    expect(screen.getByText("@@ -4,2 +4,2 @@")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.stageFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.unstageFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.discardFile" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "diff.stageHunk" })).not.toBeInTheDocument();
+  });
+
   it("requires an explicit load-anyway action above the display ceiling", () => {
     state.hasMore = false;
     state.diff = { ...textDiff(), tooLarge: true, fileBytes: 12 * 1024 * 1024, hunks: [] };
@@ -867,6 +891,32 @@ describe("FileDiffView windowing", () => {
     expect(screen.getByText(message)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "diff.stageFile" }));
     expect(onApplyFile).toHaveBeenCalledOnce();
+  });
+
+  it("wraps localized diff controls as complete buttons instead of splitting their labels", () => {
+    state.hasMore = false;
+    render(
+      <FileDiffView
+        repoId="repo-1"
+        path="large.txt"
+        source={{ kind: "working", staged: false }}
+        onApplyFile={vi.fn()}
+        onApplyHunk={vi.fn()}
+        onDiscardPatch={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("file-diff-header-actions")).toHaveClass("flex-wrap");
+    for (const name of [
+      "diff.stageFile",
+      "diff.discardFile",
+      "diff.stageSelectedLines",
+      "diff.discardSelectedLines",
+      "diff.stageHunk",
+      "diff.discardHunk",
+    ]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("shrink-0", "whitespace-nowrap");
+    }
   });
 
   it("measures the giant-file metadata viewport with React in the loop", () => {

@@ -64,6 +64,23 @@ test("defaults to the project's own version when none is given", () => {
   }
 });
 
+test("passes for fully populated release notes with CRLF line endings", () => {
+  // docs/ is checked in with CRLF for most files (not `eol=lf`-pinned in
+  // .gitattributes), so a real release-notes file on a normal Windows
+  // checkout has \r\n endings — the heading-presence check must tolerate
+  // that instead of reporting every section missing.
+  const root = createReleaseFixture({ version: "0.2.0" });
+  try {
+    const crlfContent = populatedReleaseNotes("0.2.0").replace(/\n/g, "\r\n");
+    fs.writeFileSync(path.join(root, "docs/releases/fjord-v0.2.0.md"), crlfContent);
+
+    const result = run(root, "0.2.0");
+    assert.equal(result.status, 0, result.stderr);
+  } finally {
+    cleanupFixture(root);
+  }
+});
+
 test("falls back to the legacy -early-preview filename", () => {
   const root = createReleaseFixture({ version: "0.1.0" });
   try {

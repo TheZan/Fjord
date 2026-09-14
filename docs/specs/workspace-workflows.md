@@ -3,7 +3,16 @@
 Referenced by: P10-01–P10-11, SDD §2 (G1), §15.
 Related: [`repository-safety.md`](repository-safety.md),
 [`data-model.md`](data-model.md), [`ipc-commands.md`](ipc-commands.md),
-[`performance.md`](performance.md), [`ui-shell.md`](ui-shell.md).
+[`performance.md`](performance.md), [`ui-shell.md`](ui-shell.md),
+[`branch-merge.md`](branch-merge.md).
+
+**Merge is not in this spec.** Starting a branch merge is owned by
+[`branch-merge.md`](branch-merge.md) (`P10-MERGE-01`–`P10-MERGE-03`), because it
+is daily-driver branch integration rather than advanced workspace management and
+is scheduled ahead of everything here. The integration preflight rules it defines
+(§4 there: operation-in-progress, detached/unborn `HEAD`, staged changes, the
+bounded overwrite set, and the no-autostash / explicit named-stash policy) are
+**shared**, and §2 below reuses them for rebase rather than restating them.
 
 ## Problem
 
@@ -17,13 +26,13 @@ most are the ones still missing:
    has no representation in Fjord at all. Worktrees of a tracked repository appear
    either as unrelated repositories (if imported separately) or not at all, and
    their shared `.git` relationship is never modeled.
-2. **Rebase cannot be started.** Phase 9 makes Fjord able to *finish* a rebase;
-   it still cannot begin one. "Rebase my branch onto develop" is a daily
-   operation, and its absence sends the user to a terminal, where they will also
-   do the next five things.
-3. **Remotes are read-only.** Fjord resolves upstreams and pushes to them, but
-   cannot list, add, edit, or remove a remote. Adding a fork or an internal mirror
-   requires another tool.
+2. **Basic rebase is available through shared preflight and UI (`P10-04`–`05`).** System Git
+   starts it and Phase 9 handles conflicts and finishing. User-facing preflight
+   and entry points are shipped; interactive rebase remains `P10-11`.
+3. **Remote management is now complete (`P10-06`–`07`).** The repository section
+   supports list/add/edit/rename and confirmation-bound removal. Publish, fetch,
+   and set-upstream reuse a single-remote picker; explicit multi-push remains a
+   separate flow that never changes upstream.
 4. **Workspace state is a flat list of numbers.** The dashboard shows counts, not
    conditions. With 40 repositories, the question is never "how many are dirty" but
    "which ones need me, and why". There is no filtering, and no concept of a
@@ -41,7 +50,9 @@ most are the ones still missing:
   the user filter to the ones that need action.
 - Per-workspace expected branch, so "which repositories drifted off `develop`" is
   answerable at a glance.
-- Interactive rebase specified but deliberately scheduled last.
+- Interactive rebase specified but deliberately scheduled last — after basic
+  merge ([`branch-merge.md`](branch-merge.md)), which is the more fundamental
+  daily-driver capability and therefore precedes every task in this spec.
 
 ## Non-goals
 
@@ -57,17 +68,20 @@ most are the ones still missing:
   shipped first.
 - Rebase strategies and options beyond the basic form (`--onto`, `--interactive`
   in the final task). No `--rebase-merges`, no autosquash configuration in v1.
+- Starting a merge. Owned by [`branch-merge.md`](branch-merge.md); referenced
+  here only where rebase shares its preflight and entry-point layout.
 
 ## Current state
 
 | Area | State |
 |---|---|
 | Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
-| Rebase | ⚠️ Detection and finishing arrive in Phase 9; starting is absent. `pull` is deliberately fetch + local integration and never delegates to `git pull` ([`system-git-transport.md`](system-git-transport.md)). |
-| Remotes | ⚠️ The v0.1 slice lists configured remotes and adds one without overwriting existing config; URLs are redacted before IPC and an explicit optional fetch reuses the existing operation path. When two or more remotes exist, the section can push the current branch to an explicit multi-selection with a result per destination and without changing upstream. Local upstream selection, remote inspection/deletion, and publish already exist. URL editing, rename, remove, generalized pickers, and full CRUD remain Phase 10. |
-| Workspace status | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`. Dashboard computes `needsAttention` in the frontend as `hasConflict \|\| dirtyCount \|\| ahead \|\| behind` (`src/presentation/App.tsx`). |
-| Filters | 🚧 None. The All-repositories view filters by name/path/workspace text only. |
-| Expected branch | 🚧 No concept; `workspaces` has `{ id, name, sort_order, created_at }`. |
+| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Shared preflight, branch-menu and palette entry points are shipped (`P10-05`); interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
+| Merge | ✅ Initiation is shipped by `P10-MERGE-01`–`03`, owned by [`branch-merge.md`](branch-merge.md). Conflicts use the Phase 9 controls. |
+| Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
+| Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
+| Filters | ✅ Overview and All Repositories share the six persisted health filters (needs attention, dirty, ahead, behind, conflicts, wrong branch). Health filters compose with OR; All Repositories text search composes with the health result using AND. Filtering is client-side over the loaded `RepoHealth` map, so WrongBranch is one click away without Git or IPC work. The application-level Playwright scenario verifies the rendered All Repositories flow against the backend-shaped `ws-100` fixture, including detached/unborn `actual: null`. |
+| Expected branch | ✅ `workspaces.expected_branch` (nullable, `0008_expected_branch.sql`) is set per workspace in a small Workspace settings dialog and feeds the existing `RepoHealth` derivation, so an off-branch repository reports `WrongBranch` and the Overview summary line shows `28 of 31 on develop`. Matching is literal; nothing is ever checked out. |
 
 ## Proposed design
 
@@ -141,19 +155,71 @@ conflicted one returns `Rebase { .. }` and the Phase 9 banner takes over
 immediately. Continue/skip/abort are already specified there and are not
 reimplemented here.
 
-Preflight before starting:
+`P10-04` originally shipped the backend, service, registered command and typed client; `P10-05` extends that command as described below.
+It passes the exact target as one argument after `--`, explicitly disables
+autostash (including configured autostash), and disables implicit object fetch.
+The shared operation runner supplies non-interactive editors and process-tree
+cancellation. Existing operations are refused under the write lock. After every
+runner outcome, the existing detector remains authoritative; a non-zero exit
+with rebase metadata is a typed state, while cancellation remains an error and
+leaves any metadata intact for explicit Abort. Before/after HEAD, reflog, semantic
+index, tracked worktree status and operation observations control one
+`WORKING_REFS_HISTORY` bump, including partial execution. Config and stash are
+not invalidated by the lower-level P10-04 primitive; an unchanged refusal or no-op does not bump generations.
 
-- refuse with a blocker when an operation is already in progress;
-- when the working tree is dirty, offer the same options as safe checkout
-  ([`repository-safety.md`](repository-safety.md) §4): cancel, or stash and
-  rebase. No autostash;
+**Shipped in `P10-05`:** preflight before starting **reuses** the shared integration preflight in
+[`branch-merge.md`](branch-merge.md) §4 — the same blocker codes
+(`operation_already_in_progress`, detached/unborn `HEAD`, staged changes, the
+bounded overwrite set), the same dirty-tree policy, and the same explicit
+Cancel / *Stash changes and rebase* choice with an Fjord-named stash that is
+never auto-popped and whose location is always reported. No autostash. Those
+rules are not restated here; only the rebase-specific addition is:
+
 - when the branch is published and rebasing would rewrite pushed commits, state
   that a force-with-lease push will be required afterwards
   ([`working-tree-and-diff.md`](working-tree-and-diff.md) §3), with the commit
   count.
 
+`get_rebase_preflight(onto: MergeSource)` reuses the extracted
+`local/integration.rs` engine, including `MergeDirtyState` and the bounded
+checkout overwrite intersection. The existing merge model and error codes are
+preserved; rebase exposes typed `IntegrationBlocker` values and neutral
+`integration_*` errors. Missing refs and detached/unborn HEAD fail with typed
+read errors, as in the merge contract.
+
+`start_rebase` now takes the displayed `RebasePreflight` and explicit
+`MergeDirtyPolicy`, and returns `RebaseResult { state, stash_ref, generations }`.
+It recomputes all facts under the write lock, including HEAD identity, target,
+index, overwrite set, generations, and published consequence. A mismatch fails
+closed before mutation. Git receives the immutable resolved target commit.
+While open, the preview refreshes when any dependency generation advances;
+confirmation stays disabled during the refresh or a read error.
+
+The published count intersects affected current-branch commits with locally
+known upstream reachability, excluding commits already reachable from the target.
+Git's read-only `rev-list --reverse --topo-order --right-only --cherry-mark
+--no-merges` supplies its pick order and patch-equivalence facts. The merge
+backend can fast-forward a linear prefix even when flattening a merge: those
+unchanged ids are excluded. Dropped published cherry-equivalent commits and
+flattened merge commits are counted as replaced history. A linear already-based
+history is a no-op and produces no warning; no upstream or an entirely
+unpublished affected range also produces no warning. The dialog reports the
+exact published count and force-with-lease requirement; it performs no push.
+History capture is capped at 64 MiB and 30 seconds and fails closed on overflow.
+
+Stash-first uses the same explicit primitive as merge and squash, including
+tracked and untracked work, with `Fjord rebase: <current> -> <onto>`. The backend
+resolves the created stash id to its actual reflog selector, including on failure
+or cancellation; it never restores or pops it. Unrelated dirty paths remain
+outside the shared blocker set. Because system Git requires clean tracked files,
+the dialog also offers explicit stash-and-rebase for unrelated tracked edits.
+No stash is created for a no-op. A started mutation advances working-tree, refs
+and history once, plus stash only if created; refusals/no-ops do not advance them.
+
 Entry points: branch context menu ("Rebase current branch onto <branch>") and the
-command palette. Rebase runs through the operation pipeline with progress and
+command palette — the same two surfaces the merge action uses, sharing the
+context-menu slot layout in [`branch-merge.md`](branch-merge.md) §8, and
+dispatching one application action per operation. Rebase runs through the operation pipeline with progress and
 cancellation; cancelling a rebase leaves a detectable in-progress state, which the
 banner then offers to abort — cancellation is not silently equivalent to abort.
 
@@ -167,26 +233,50 @@ have all been proven.
 ### 3. Remote management
 
 ```rust
-pub struct Remote { pub name: String, pub fetch_url: String, pub push_url: Option<String> }
+pub struct RemoteInfo { pub name: String, pub fetch_url: String, pub push_url: Option<String> }
+pub struct RemoveRemotePreflight {
+    pub remote: String,
+    pub orphaned_upstreams: Vec<String>,
+    pub config_generation: u64,
+    pub confirmation_token: String,
+}
 
-async fn remotes(&self, repo: &RepoPath) -> Result<Vec<Remote>, GitError>;
-async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<(), GitError>;
-async fn set_remote_url(&self, repo: &RepoPath, name: &str, fetch: &str, push: Option<&str>) -> Result<(), GitError>;
-async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<(), GitError>;
-async fn remove_remote(&self, repo: &RepoPath, name: &str) -> Result<(), GitError>;
+async fn remotes(&self, repo: &RepoPath) -> Result<Vec<RemoteInfo>, GitError>;
+async fn add_remote(&self, repo: &RepoPath, name: &str, url: &str) -> Result<RemoteInfo, GitError>;
+async fn set_remote_url(&self, repo: &RepoPath, name: &str, fetch: &str, push: Option<&str>) -> Result<RemoteInfo, GitError>;
+async fn rename_remote(&self, repo: &RepoPath, old: &str, new: &str) -> Result<RemoteInfo, GitError>;
+async fn preflight_remove_remote(&self, repo: &RepoPath, name: &str) -> Result<RemoveRemotePreflight, GitError>;
+async fn remove_remote(&self, repo: &RepoPath, name: &str, expected_config_generation: u64, confirmation_token: &str) -> Result<(), GitError>;
 ```
 
-Listing and adding are shipped by `P9R-06`; the remaining mutations stay in
-Phase 10. Configuration writes are local and never imply network access. The
+Backend CRUD is shipped by `P10-06`; its configuration writes are local and
+never imply network access. Editing with `push = None` removes an explicit
+`pushurl`; a remote with multiple fetch or push URLs is rejected before the
+first write because the single-URL edit contract cannot represent it safely.
+`set_remote_url` publishes either the complete requested fetch/push URL state
+or no config change at all; every failed edit leaves config bytes and the
+config generation unchanged.
+Rename preserves the remote section/refspecs and updates configured
+branch upstream names, and native removal clears the associated branch upstream
+configuration. Renaming a remote to its current literal name is a no-op and does
+not advance the config generation. Removal requires the focused preflight token above: it is bound
+to the repository, exact remote, deterministic affected-branch set, and current
+config generation, so a stale confirmation cannot mutate config. The
 v0.1 add flow may start a separate fetch only when the user selects that option;
 it never pulls, merges unrelated histories, overwrites another remote, or pushes.
-IPC mirrors the shipped methods one-to-one.
+Add and URL edit advance only `config`; rename advances `refs + config`; removal
+advances `refs + history + config`, matching the remote-tracking refs changed by
+native Git. IPC mirrors the shipped methods one-to-one.
 
-UI: a Remotes section in the repository tree with add/edit/remove, and a
-remote picker wherever a remote is chosen (publish, fetch, set upstream). URLs are
-displayed with userinfo redacted using the existing sanitizer
+UI: the shipped Remotes section in the repository tree supports add, URL edit,
+rename, and confirmation-bound remove. One shipped single-remote picker is reused
+wherever a remote is chosen (publish, fetch, set upstream), while multi-push keeps
+its separate multi-selection control. URLs are displayed with userinfo redacted
+using the existing sanitizer
 ([`system-git-transport.md`](system-git-transport.md) §"Redaction") — a URL with an
-embedded token must never be rendered verbatim.
+embedded token is never rendered verbatim or copied into an editable mutation
+field. URL editing requires the user to enter the complete desired fetch URL and
+explicit push-URL state.
 
 The shipped multi-push slice is deliberately narrower than that shared picker:
 when at least two remotes exist, the Remotes section exposes unchecked
@@ -227,10 +317,20 @@ pub struct RepoHealth {
 }
 ```
 
-Computation moves to the backend (`WorkspaceService`), from the same
-`repo_status_cache` row plus the expected branch and the operation state. Today
-`needsAttention` is computed in `App.tsx`; centralizing it means the dashboard,
-the sidebar badge, the filters, and any future surface agree by construction.
+Computation is owned by the backend (`WorkspaceService`), from the same
+`repo_status_cache` row plus cached operation state and a future expected-branch
+input. `get_workspace_health` returns one batch for a workspace without Git
+reads or per-repository IPC. The dashboard, sidebar badge, existing Overview
+attention filter, and any future surface agree by consuming that projection.
+
+`as_of` uses the oldest timestamp among the status-cache row and the selected
+operation observation (in-memory when available, otherwise the persisted
+repository snapshot). A never-refreshed row uses `UNIX_EPOCH` and carries the
+stable `status_unavailable` unreadable reason rather than pretending to be
+fresh. The expected branch is now persisted and connected (P10-09):
+`get_workspace_health` reads `workspaces.expected_branch` once per request and
+feeds it to the single `derive_repo_health` rule through the `Option<&str>`
+seam, so the projection stays O(repositories) over cached data.
 
 Severity order for display: `Conflict` > `OperationInProgress` > `Unreadable` >
 `WrongBranch` > `Diverged` > `Behind` > `Ahead` > `Dirty` > `Clean`. A repository
@@ -244,14 +344,24 @@ progress. This is a deliberate behavior change and is called out in the task.
 
 ### 5. Expected branch
 
-`workspaces` gains a nullable `expected_branch TEXT` column (forward-only
-migration, per [`data-model.md`](data-model.md)). It is set in workspace settings,
-empty by default, and matched literally against the repository's current branch.
+`workspaces` has a nullable `expected_branch TEXT` column (`0008_expected_branch.sql`,
+forward-only, per [`data-model.md`](data-model.md)). It is set in a compact
+**Workspace settings** dialog reached from the workspace's overflow menu, empty by
+default, and matched literally against the repository's current branch — no case
+folding, no glob, no remote-name interpretation, and no `refs/heads/` prefixing.
+The input is trimmed and an empty value clears the convention; anything else must
+be a valid local branch name (`expected_branch_invalid`), validated in the
+backend, which is authoritative.
 
-Display: the workspace header shows `28 of 31 on develop`, and the three
-off-branch repositories are one click away through the `WrongBranch` filter. A
-repository in a detached HEAD or unborn state reports `WrongBranch` with
-`actual: None`.
+Display: the Overview summary line shows `28 of 31 on develop` as compact,
+non-interactive text, counted from the already-loaded `RepoHealth` projection —
+never from an independent comparison of `RepoStatus.branch` in the frontend. A
+repository whose health is `Unreadable` has no trustworthy branch state and is
+counted as neither on nor off the branch; the summary then reads
+`28 of 30 known on develop` rather than claiming a match it cannot establish.
+The off-branch repositories become one click away once the `WrongBranch` filter
+lands with P10-10. A repository in a detached HEAD or unborn state reports
+`WrongBranch` with `actual: None`, and never `OperationInProgress`.
 
 No automatic checkout is offered from the summary. A bulk "check out the expected
 branch" action is possible later, but only behind the safe-checkout preflight for
@@ -374,3 +484,12 @@ enumerated conditions, and the text query already handles names and paths.
 14. Interactive rebase (P10-11) writes a todo list Git accepts and drives the
     resulting sequence through the same operation-state controls, with every
     action reversible via abort until the sequence completes.
+
+P10-05 verification uses real-repository adapter and composed-service tests,
+component and generation-refresh tests, and Playwright at the existing Tauri
+boundary. The rebase E2E bridges the critical calls to the actual Rust
+`LocalGitBackend`, invokes system Git and a configured fixture merge tool, then
+continues through the existing operation banner and verifies Git history. Only
+shell/workspace IPC and watcher delivery are fixtures; conflict and resolution
+results are never fabricated. `npm run test:e2e` builds the lightweight Rust
+bridge before Playwright, including in CI.

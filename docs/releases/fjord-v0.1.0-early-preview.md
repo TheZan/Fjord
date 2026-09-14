@@ -62,7 +62,11 @@ and working tree without losing the workspace context.
   rename, remove, generalized remote pickers, and full CRUD are not included.
 - No worktree management, interactive rebase editor, plugins, cloud sync, or
   team collaboration. Fjord can detect and help continue/skip/abort an existing
-  rebase but does not yet start the Phase 10 rebase workflow.
+  merge, rebase, cherry-pick, or revert, but does not yet **start** a merge or a
+  rebase; both are Phase 10 workflows.
+- Working Changes has no right-click file menu in v0.1. Files can be staged,
+  unstaged, and discarded; opening, revealing, ignoring, patch export, per-file
+  stash, and delete are Phase 10.
 - Linux is distributed as an AppImage; there is no signed apt/rpm repository.
 - The updater plugin is packaged and signed metadata is produced, but v0.1 does
   not perform background update checks or automatic installation.

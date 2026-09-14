@@ -53,7 +53,7 @@ describe("DestructivePreflightDialog", () => {
       <DestructivePreflightDialog
         repoId="repo-1"
         action={action}
-        patchSelection={patchSelection}
+        patchSelections={[patchSelection]}
         loadPreflight={loadPreflight}
         onConfirm={onConfirm}
         onClose={vi.fn()}
@@ -77,7 +77,7 @@ describe("DestructivePreflightDialog", () => {
       <DestructivePreflightDialog
         repoId="repo-1"
         action={action}
-        patchSelection={patchSelection}
+        patchSelections={[patchSelection]}
         loadPreflight={vi.fn().mockResolvedValue(preflight(1, 0, ["selection_changed"]))}
         onConfirm={vi.fn()}
         onClose={vi.fn()}
@@ -91,12 +91,62 @@ describe("DestructivePreflightDialog", () => {
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
+  it("shows one counted batch dialog with the exact total and revalidates the vector", async () => {
+    const batchAction: DestructiveAction = {
+      kind: "discardFiles",
+      paths: ["a.txt", "b.txt", "c.txt"],
+    };
+    const selections: PatchSelection[] = batchAction.paths.map((path) => ({
+      path,
+      source: "worktree",
+      baseDigest: `digest-${path}`,
+      hunks: [],
+    }));
+    const facts = preflight(
+      8,
+      0,
+      [],
+      "batch-token",
+      batchAction,
+      [
+        { kind: "modifiedFilesDiscarded", count: 3, sample: batchAction.paths },
+        { kind: "modifiedLinesDiscarded", path: "a.txt", count: 2 },
+        { kind: "modifiedLinesDiscarded", path: "b.txt", count: 5 },
+        { kind: "modifiedLinesDiscarded", path: "c.txt", count: 4 },
+      ],
+    );
+    const loadPreflight = vi.fn().mockResolvedValue(facts);
+    const onConfirm = vi.fn();
+    render(
+      <DestructivePreflightDialog
+        repoId="repo-1"
+        action={batchAction}
+        patchSelections={selections}
+        loadPreflight={loadPreflight}
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("dialog", { name: "preflight.discardFiles.title:3" })).toBeInTheDocument();
+    expect(screen.getByText("preflight.discardFiles.changedLines:11")).toBeInTheDocument();
+    expect(screen.getByText("preflight.discardFiles.stagedUnaffected")).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "preflight.discardFiles.confirm" }));
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(facts.generations, "batch-token"));
+    expect(loadPreflight).toHaveBeenCalledTimes(2);
+    expect(loadPreflight).toHaveBeenNthCalledWith(1, "repo-1", batchAction, selections);
+    expect(loadPreflight).toHaveBeenNthCalledWith(2, "repo-1", batchAction, selections);
+  });
+
   it.each([
     [{ kind: "reset", commitId: "abc", mode: "hard" }, { kind: "commitsUnreachable", count: 2, sample: [] }],
     [{ kind: "deleteBranch", name: "topic" }, { kind: "branchDeleted", name: "topic", unmergedInto: "main" }],
     [{ kind: "deleteRemoteBranch", remote: "origin", branch: "topic" }, { kind: "remoteRefUpdated", remote: "origin", refName: "refs/heads/topic", droppedCommits: 1 }],
     [{ kind: "deleteTag", name: "v1" }, { kind: "tagDeleted", name: "v1", targetCommitId: "abc" }],
-    [{ kind: "stashPop", index: 0 }, { kind: "stashEntryConsumed", index: 0, message: "WIP" }],
+    [{ kind: "stashPop", id: "stash-id", restoreIndex: false }, { kind: "stashEntryConsumed", id: "stash-id", refName: "stash@{0}", title: "WIP", filesChanged: 2, base: "abc", branch: "main" }],
+    [{ kind: "stashDrop", id: "stash-id" }, { kind: "stashEntryConsumed", id: "stash-id", refName: "stash@{0}", title: "WIP", filesChanged: 2, base: "abc", branch: "main" }],
     [{ kind: "checkoutDiscard", branch: "topic" }, { kind: "modifiedFilesDiscarded", count: 1, sample: ["a.txt"] }],
     [{ kind: "abortOperation" }, { kind: "stagedChangesDiscarded", count: 1 }],
     [{ kind: "recoveryRestore", commitId: "abc" }, { kind: "commitsUnreachable", count: 1, sample: [] }],
@@ -117,7 +167,9 @@ describe("DestructivePreflightDialog", () => {
     expect(screen.getByRole("button", { name: `preflight.${requestedAction.kind}.confirm` })).toBeEnabled();
     const consequenceKey = consequence.kind === "branchDeleted" && consequence.unmergedInto
       ? "branchDeletedUnmerged"
-      : consequence.kind;
+      : consequence.kind === "stashEntryConsumed"
+        ? requestedAction.kind === "stashDrop" ? "stashEntryDropped" : "stashEntryPopped"
+        : consequence.kind;
     expect(screen.getByText(`preflight.consequences.${consequenceKey}${"count" in consequence ? `:${consequence.count}` : ""}`)).toBeInTheDocument();
   });
 

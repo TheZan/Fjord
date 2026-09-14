@@ -44,6 +44,9 @@ export function useRepositoryChangeEvents(repositories: RepositoryEntry[]) {
           queryKeys.workspaces.status(repo.workspaceId),
           (current) => replaceStatusSummary(current, statusSummary),
         );
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.workspaces.health(repo.workspaceId),
+        });
         observeRepositoryGenerations(repo.id, event.generations, "status");
       }
 

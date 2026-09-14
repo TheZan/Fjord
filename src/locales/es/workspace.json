@@ -2,7 +2,18 @@
   "allRepositories": {
     "title": "Todos los repositorios",
     "filterPlaceholder": "Filtrar por repositorio o workspace",
-    "empty": "Ningún repositorio coincide con el filtro."
+    "empty": "Todavía no hay repositorios."
+  },
+  "filters": {
+    "label": "Filtros de repositorios",
+    "attention": "Requiere atención",
+    "dirty": "Con cambios",
+    "ahead": "Adelantado",
+    "behind": "Atrasado",
+    "conflicts": "Conflictos",
+    "wrongBranch": "Rama incorrecta",
+    "clear": "Borrar",
+    "noMatches": "Ningún repositorio coincide con los filtros actuales."
   },
   "branches": {
     "current": "actual"
@@ -22,6 +33,10 @@
     "ahead": "Adelantado",
     "behind": "Atrasado",
     "conflict": "Conflicto",
+    "diverged": "Divergente",
+    "operation": "Operación en curso",
+    "unreadable": "No se puede leer",
+    "wrongBranch": "Rama incorrecta",
     "upToDate": "Actualizado",
     "changes": "{{count}} cambios"
   },
@@ -32,7 +47,8 @@
     "activeRepositoryGroup": "Repositorio activo",
     "workspaceGroup": "Espacio de trabajo",
     "globalGroup": "Global",
-    "viewDetail": "Cambiar vista"
+    "viewDetail": "Cambiar vista",
+    "mergeBranch": "Fusionar rama…"
   },
   "repositorySwitcher": {
     "placeholder": "Cambiar de repositorio o espacio de trabajo",
@@ -106,7 +122,53 @@
     "updatingGraph": "Actualizando el gráfico de commits…",
     "rowLabel": "{{message}}, por {{author}}, commit {{sha}}"
   },
+  "rebase": {
+    "title": "Rebase de {{current}} sobre {{onto}}",
+    "entry": "Hacer rebase de {{current}} sobre {{onto}}…",
+    "palette": "Rebase de la rama actual…",
+    "prediction": "Commits seleccionados para rebase sobre {{onto}}: {{count}}. Git omite cambios ya presentes en el destino.",
+    "published": "Rebase reemplazará {{count}} commits publicados. Después se necesitará un push con force-with-lease.",
+    "noOp": "{{current}} ya se basa en {{onto}}. No es necesario rebase.",
+    "stashExplanation": "Git requiere archivos rastreados sin cambios. Guarda explícitamente los cambios rastreados y no rastreados en un stash antes del rebase; permanecerá hasta que lo restaures manualmente.",
+    "stashAndRebase": "Guardar cambios en stash y hacer rebase",
+    "confirm": "Rebase",
+    "running": "Rebase en curso…",
+    "cancelOperation": "Cancelar operación",
+    "completed": "Rebase completado.",
+    "conflicted": "Rebase detenido por conflictos. Resuélvelos en Cambios de trabajo y después continúa, omite o aborta.",
+    "stale": "El repositorio ha cambiado. Revisa la vista previa actualizada antes de volver a intentarlo.",
+    "failed": "No se pudo iniciar rebase.",
+    "blocked": {
+      "target_is_current_branch": "El destino ya es la rama actual.",
+      "target_not_found": "{{onto}} ya no existe.",
+      "target_unsupported": "Elige una rama local o de seguimiento remoto.",
+      "operation_already_in_progress": "Ya hay otra operación Git en curso.",
+      "detached_head": "HEAD está separado. Cambia a una rama antes de rebase.",
+      "unborn_head": "La rama actual aún no tiene commits.",
+      "index_has_staged_changes": "El índice contiene cambios preparados.",
+      "would_overwrite": "Rebase sobrescribiría cambios locales en los siguientes archivos."
+    }
+  },
+  "merge": {
+    "title": "Fusionar {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Fusionando…", "dismiss": "Cerrar",
+    "mode": { "label": "Modo", "default": "Fusión predeterminada", "fastForwardOnly": "Solo fast-forward" }, "confirm": "Fusionar", "cancel": "Cancelar",
+    "prediction": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que fusionar.", "fastForward_one": "{{source}} está {{count}} commit por delante de {{target}}. Se hará fast-forward.", "fastForward_other": "{{source}} está {{count}} commits por delante de {{target}}. Se hará fast-forward.", "mergeCommit": "{{source}} está {{ahead}} commits por delante y {{behind}} por detrás de {{target}}. Se creará un commit de fusión." },
+    "dirty": { "title": "Hay cambios locales.", "stashAndMerge": "Guardar cambios en stash y fusionar", "stashRetained": "Tus cambios están en {{stash}}." },
+    "remote": { "knownCommit": "Commit conocido: {{sha}}", "explanation": "Esta es la rama de seguimiento remoto tal como Fjord la vio por última vez.", "fetchFirst": "Hacer fetch de {{remote}} antes de fusionar" },
+    "outcome": { "alreadyUpToDate": "{{target}} ya estaba actualizada.", "fastForwarded": "{{target}} avanzó por fast-forward hasta {{source}}.", "merged": "Se fusionó {{source}} en {{target}}.", "conflicted": "{{source}} entra en conflicto con {{target}}. Resuelve los conflictos y continúa o cancela la fusión." },
+    "blocked": { "sourceIsCurrentBranch": "{{target}} ya es la rama actual.", "sourceNotFound": "{{source}} ya no existe.", "remoteSourceNotSupported": "La fusión de una rama remota aún no está disponible. Haz checkout o fetch y fusiona la rama local.", "sourceKindUnsupported": "Solo se pueden fusionar ramas.", "operationInProgress": "Ya hay otra operación Git en curso.", "detachedHead": "HEAD está separado. Haz checkout de una rama antes de fusionar.", "unbornHead": "{{target}} aún no tiene commits.", "stagedChanges_one": "Hay que confirmar o guardar en stash {{count}} cambio preparado antes de fusionar.", "stagedChanges_other": "Hay que confirmar o guardar en stash {{count}} cambios preparados antes de fusionar.", "wouldOverwrite_one": "La fusión sobrescribiría {{count}} archivo con cambios locales.", "wouldOverwrite_other": "La fusión sobrescribiría {{count}} archivos con cambios locales." },
+    "error": { "notFastForward": "{{source}} no puede avanzar por fast-forward en {{target}}. Usa una fusión predeterminada o rebase primero.", "failed": "No se pudo completar la fusión. El repositorio no cambió más allá de lo indicado por Git." }
+  },
+  "squashMerge": {
+    "title": "Fusión squash de {{source}} en {{target}}", "loading": "Comprobando el repositorio…", "running": "Realizando fusión squash…", "dismiss": "Cerrar", "confirm": "Fusión squash", "cancel": "Cancelar",
+    "explanation": "Esto dejará preparados en el índice los cambios combinados de {{source}} sin crear un commit. Revísalos y confírmalos desde Cambios en curso.",
+    "dirty": { "stashAndSquashMerge": "Guardar cambios en stash y hacer fusión squash" },
+    "outcome": { "alreadyUpToDate": "{{target}} ya contiene {{source}}. No hay nada que aplastar.", "staged": "Se fusionó {{source}} en {{target}} con squash: cambios preparados para confirmar.", "conflicted_one": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivo en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual.", "conflicted_other": "{{source}} entra en conflicto con {{target}}: hay que resolver {{count}} archivos en Cambios en curso y luego confirmar. Para descartar el squash, usa Reset (Hard) al commit actual." },
+    "error": { "failed": "No se pudo completar la fusión squash. El repositorio no cambió más allá de lo indicado por Git." }
+  },
   "context": {
+    "mergeInto": "Fusionar {{source}} en {{target}}…",
+    "squashMergeInto": "Fusión squash de {{source}} en {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",
     "createTagHere": "Create tag here",
@@ -209,6 +271,8 @@
     "repoCountValue": "{{count}} repos",
     "needAttentionValue": "{{count}} requieren atención",
     "behindOriginValue": "{{count}} detrás",
+    "onExpectedBranchValue": "{{count}} de {{total}} en {{branch}}",
+    "onExpectedBranchKnownValue": "{{count}} de {{total}} conocidos en {{branch}}",
     "noFilterMatches": "Ningún repositorio coincide con los filtros activos.",
     "branch": "Rama",
     "dirty": "Cambios",
@@ -438,6 +502,14 @@
       "title": "¿Descartar cambios?",
       "confirm": "Descartar cambios"
     },
+    "discardFiles": {
+      "title_one": "¿Descartar cambios en este archivo?",
+      "title_other": "¿Descartar cambios en {{count}} archivos?",
+      "confirm": "Descartar cambios",
+      "changedLines_one": "Se descartará {{count}} línea modificada.",
+      "changedLines_other": "Se descartarán {{count}} líneas modificadas.",
+      "stagedUnaffected": "Los cambios preparados no se modifican."
+    },
     "forceWithLease": {
       "title": "¿Forzar push con lease?",
       "confirm": "Forzar push",
@@ -463,6 +535,10 @@
       "title": "¿Aplicar y eliminar este stash?",
       "confirm": "Aplicar stash"
     },
+    "stashDrop": {
+      "title": "¿Eliminar este stash?",
+      "confirm": "Eliminar stash"
+    },
     "checkoutDiscard": {
       "title": "¿Descartar cambios y cambiar de rama?",
       "confirm": "Descartar y cambiar"
@@ -475,10 +551,15 @@
       "title": "¿Restaurar HEAD a este estado?",
       "confirm": "Restaurar HEAD"
     },
+    "deleteFile": {
+      "title": "¿Eliminar este archivo?",
+      "confirm": "Eliminar archivo"
+    },
     "recoverability": {
       "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
       "stash": "Tus cambios se guardarán en el stash.",
-      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración."
+      "notRecoverable": "Git no conserva una copia de recuperación garantizada de estos cambios. Fjord no puede prometer su restauración.",
+      "committed": "La versión confirmada permanece en HEAD y puede restaurarse desde allí."
     },
     "blockers": {
       "binary_changes_unsupported": "Los cambios binarios no se pueden descartar con esta granularidad.",
@@ -487,7 +568,10 @@
       "current_branch_cannot_be_deleted": "No se puede eliminar la rama actualmente activa.",
       "operation_not_in_progress": "No hay ninguna operación de Git que abortar.",
       "ref_not_found": "La referencia de destino ya no existe.",
-      "stash_not_found": "La entrada de stash seleccionada ya no existe."
+      "stash_not_found": "La entrada de stash seleccionada ya no existe.",
+      "delete_target_not_a_file": "Desde este menú solo se pueden eliminar archivos.",
+      "delete_file_partially_staged": "{{path}} también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
+      "delete_file_conflicted": "{{path}} tiene conflictos sin resolver. Resuélvelos primero."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
@@ -502,8 +586,11 @@
       "branchDeleted": "Eliminar la rama {{name}}.",
       "branchDeletedUnmerged": "Eliminar la rama {{name}}, que no está fusionada en {{unmergedInto}}.",
       "tagDeleted": "Eliminar la etiqueta {{name}}.",
-      "stashEntryConsumed": "Aplicar y consumir stash {{index}}: {{message}}.",
-      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos."
+      "stashEntryPopped": "Aplicar «{{title}}» ({{refName}}) a la rama actual, cambiar {{filesChanged}} archivos y eliminarlo solo si la aplicación termina correctamente. Creado desde {{branch}} en {{base}}.",
+      "stashEntryDropped": "Eliminar definitivamente «{{title}}» ({{refName}}), con {{filesChanged}} archivos modificados. Creado desde {{branch}} en {{base}}.",
+      "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos.",
+      "fileRemovedTracked": "Quitar {{path}} del árbol de trabajo; aparecerá como una eliminación de Git.",
+      "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo."
     }
   },
   "repoActions": {
@@ -557,7 +644,8 @@
     "local": "Local",
     "remote": "Remoto",
     "tags": "Tags",
-    "filterPlaceholder": "Filtrar ramas y tags",
+    "stashes": "Stashes",
+    "filterPlaceholder": "Filtrar ramas, tags y stashes",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Limpiar",
     "noMatches": "Sin coincidencias.",
@@ -581,7 +669,191 @@
     "pushPending": "Enviando…",
     "pushResults": "Resultados del envío",
     "pushSuccess": "Enviado",
-    "pushFailure": "Error: {{error}}"
+    "pushFailure": "Error: {{error}}",
+    "fetchUrl": "URL de fetch",
+    "pushUrl": "URL de push",
+    "edit": "Editar",
+    "editLabel": "Editar {{remote}}",
+    "rename": "Renombrar",
+    "renameLabel": "Renombrar {{remote}}",
+    "remove": "Eliminar",
+    "removeLabel": "Eliminar {{remote}}",
+    "removeChecking": "Comprobando…",
+    "editTitle": "Editar {{remote}}",
+    "editDescription": "Introduce el estado completo de URL deseado. Las URL ocultas mostradas nunca se reutilizan como configuración.",
+    "currentFetchUrl": "URL de fetch actual (solo lectura)",
+    "currentPushUrl": "URL de push actual (solo lectura)",
+    "noExplicitPushUrl": "Sin URL de push explícita",
+    "newFetchUrl": "Nueva URL de fetch",
+    "useSeparatePushUrl": "Usar una URL de push separada",
+    "newPushUrl": "Nueva URL de push",
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "renameTitle": "Renombrar {{remote}}",
+    "renameDescription": "El cambio de nombre conserva la configuración y actualiza los upstream de las ramas.",
+    "renaming": "Renombrando…",
+    "removeTitle": "¿Eliminar {{remote}}?",
+    "removeDescription": "Elimina la configuración local y sus referencias remotas. No contacta con el servidor.",
+    "orphanedBranches": "Estas ramas locales perderán su upstream:",
+    "noOrphanedBranches": "Ninguna rama local perderá su upstream.",
+    "removing": "Eliminando…",
+    "picker": {
+      "fetchTitle": "Obtener remoto",
+      "fetchDescription": "Elige un único remoto para fetch.",
+      "fetchConfirm": "Obtener",
+      "publishTitle": "Enviar y definir upstream",
+      "publishDescription": "Elige dónde publicar {{branch}} y define su upstream.",
+      "publishConfirm": "Enviar y definir upstream",
+      "setUpstreamTitle": "Definir upstream",
+      "setUpstreamDescription": "Elige un remoto y una rama remota para {{branch}}.",
+      "setUpstreamConfirm": "Definir upstream",
+      "remoteLabel": "Remoto",
+      "branchLabel": "Rama remota",
+      "loading": "Cargando remotos…",
+      "empty": "Añade un remoto antes de ejecutar esta acción.",
+      "noBranches": "{{remote}} no tiene ramas remotas conocidas. Ejecuta fetch primero."
+    }
+  },
+  "stash": {
+    "empty": "No hay stashes.",
+    "markerLabel": "Stash {{title}}, {{ref}}",
+    "action": {
+      "apply": "Aplicar stash",
+      "pop": "Aplicar y eliminar stash…",
+      "createBranch": "Crear rama desde el stash…",
+      "copyRef": "Copiar referencia del stash",
+      "copySha": "Copiar SHA del stash",
+      "copyBaseSha": "Copiar SHA del commit base",
+      "revealInGraph": "Mostrar en el gráfico",
+      "drop": "Eliminar stash…",
+      "more": "Más acciones del stash"
+    },
+    "options": {
+      "applyTitle": "Aplicar stash",
+      "popTitle": "Aplicar y eliminar stash",
+      "applyDescription": "Aplicar «{{title}}» a la rama actual y conservarlo en el stash.",
+      "popDescription": "Aplicar «{{title}}» a la rama actual y eliminarlo si termina correctamente.",
+      "restoreIndex": "Restaurar estado preparado",
+      "restoreIndexUnavailable": "Este stash no contiene un estado preparado guardado.",
+      "cancel": "Cancelar",
+      "applyConfirm": "Aplicar",
+      "popConfirm": "Continuar"
+    },
+    "branch": {
+      "title": "Crear rama desde el stash",
+      "description": "Crear y cambiar a una rama en la base del stash {{base}}.",
+      "name": "Nombre de rama",
+      "confirm": "Crear",
+      "base": "Base: {{base}}",
+      "applyAfterCheckout": "Aplicar stash después del cambio",
+      "kept": "El stash se conserva. Puedes eliminarlo después."
+    },
+    "notice": {
+      "applied": "El stash se aplicó y se conservó.",
+      "applyConflicted": "El stash se aplicó con conflictos en {{count}} archivos y se conservó. Resuélvelos en Cambios de trabajo o con la herramienta de fusión.",
+      "popped": "El stash se aplicó y se eliminó.",
+      "popConflicted": "El stash se aplicó con conflictos en {{count}} archivos y se conservó. Resuélvelos en Cambios de trabajo o con la herramienta de fusión.",
+      "dropped": "El stash se eliminó.",
+      "branchCreated": "La rama {{branch}} se creó y se activó. El stash se conservó.",
+      "branchConflicted": "La rama {{branch}} se creó y se activó. La aplicación produjo conflictos en {{count}} archivos; el stash se conservó."
+    },
+    "error": {
+      "empty": "No hay stashes que aplicar."
+    },
+    "revealNotFound": "El commit desde el que se creó este stash no está en este historial.",
+    "inspector": {
+      "createdFrom": "Creado desde {{branch}}",
+      "createdDetached": "Creado con HEAD separado",
+      "baseCommit": "Commit base",
+      "files_one": "{{count}} archivo",
+      "files_other": "{{count}} archivos",
+      "groupStaged": "Cambios preparados",
+      "groupWorktree": "Cambios de trabajo",
+      "groupUntracked": "Sin seguimiento",
+      "applyIsUnstaged": "Aplicar restaura estos cambios como no preparados salvo que se restaure el estado preparado.",
+      "truncated": "Este stash es demasiado grande para mostrar todos los archivos.",
+      "empty": "Este stash no contiene cambios de archivos."
+    },
+    "create": {
+      "title": "Guardar cambios en el stash",
+      "name": "Nombre",
+      "scope": "Ámbito",
+      "all": "Todos los archivos modificados",
+      "selected": "Archivos seleccionados ({{count}})",
+      "selectedFiles": "Archivos seleccionados",
+      "includeUntracked": "Incluir archivos sin seguimiento",
+      "untrackedExcluded": "Se excluyeron {{count}} archivo(s) sin seguimiento: {{paths}}",
+      "emptyEffectiveScope": "No quedan archivos con seguimiento seleccionados. Incluye los archivos sin seguimiento para continuar.",
+      "unsupportedGit": "El stash con ámbito limitado requiere Git 2.23 o posterior.",
+      "defaultAll": "Fjord: guardar cambios",
+      "defaultPaths": "Fjord: guardar {{count}} archivos",
+      "andMore": "y {{count}} más",
+      "confirm": "Guardar"
+    }
+  },
+  "workingFile": {
+    "stage": "Preparar",
+    "stageFiles_one": "Preparar",
+    "stageFiles_other": "Preparar {{count}} archivos",
+    "unstage": "Quitar de preparados",
+    "unstageFiles_one": "Quitar de preparados",
+    "unstageFiles_other": "Quitar {{count}} archivos de preparados",
+    "discard": "Descartar cambios de trabajo…",
+    "discardFiles_one": "Descartar cambios de trabajo…",
+    "discardFiles_other": "Descartar cambios en {{count}} archivos…",
+    "discardIncomplete": "Abre el diff del archivo para descartar cambios en un archivo tan grande.",
+    "openInConfiguredEditor": "Abrir en el editor configurado",
+    "openWithDefault": "Abrir con la aplicación predeterminada",
+    "showInFolder": "Mostrar en carpeta",
+    "openMergeTool": "Abrir herramienta de fusión",
+    "openExternalDiff": "Abrir en la herramienta de diff externa",
+    "copyPath": { "label": "Copiar ruta", "relative": "Ruta relativa", "absolute": "Ruta absoluta" },
+    "copyPaths": "Copiar rutas",
+    "stashFiles_one": "Guardar archivo en stash…",
+    "stashFiles_other": "Guardar {{count}} archivos en stash…",
+    "createPatch": "Crear parche a partir de los cambios…",
+    "createPatchStaged": "Crear parche a partir de los cambios preparados…",
+    "copyPatch": "Copiar parche al portapapeles",
+    "createPatchFiles_one": "Crear parche a partir de los cambios…",
+    "createPatchFiles_other": "Crear parche a partir de {{count}} archivos…",
+    "createPatchFilesStaged_one": "Crear parche a partir de los cambios preparados…",
+    "createPatchFilesStaged_other": "Crear parche a partir de {{count}} archivos preparados…",
+    "copyPatchFiles_one": "Copiar parche al portapapeles",
+    "copyPatchFiles_other": "Copiar parche para {{count}} archivos",
+    "patchSaved": "Parche guardado en {{path}}.",
+    "delete": "Eliminar archivo…",
+    "stashFile": {
+      "label": "Guardar archivo en stash…",
+      "title": "Guardar en stash los cambios de {{path}}",
+      "message": "Mensaje",
+      "defaultMessage": "Fjord: stash de {{path}}",
+      "stagedNotPreserved": "El estado preparado no se conserva: al restaurar este stash, los cambios vuelven como no preparados.",
+      "unsupportedGit": "El stash con ámbito limitado requiere Git 2.23 o posterior.",
+      "confirm": "Guardar archivo en stash"
+    },
+    "disabled": {
+      "whitespaceMode": "El diff mostrado no coincide con el parche que aplicaría Git.",
+      "deleteAlsoStaged": "Este archivo también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
+      "noDiffTool": "No hay ninguna herramienta de diff externa configurada. Configure diff.tool en Git o elija una en Configuración → Herramientas.",
+      "conflictedSelection": "{{path}} tiene un conflicto. Resuélvalo antes de actuar sobre esta selección."
+    },
+    "ignore": {
+      "label": "Ignorar",
+      "file": "Ignorar este archivo",
+      "extension": "Ignorar todos los archivos .{{extension}}",
+      "directory": "Ignorar esta carpeta ({{directory}})",
+      "title": "Añadir regla a .gitignore",
+      "description": "Revise la regla exacta para {{path}} antes de escribirla.",
+      "loading": "Comprobando .gitignore…",
+      "rulePreview": "Regla que se añadirá",
+      "confirm": "Añadir regla",
+      "adding": "Añadiendo…",
+      "close": "Cerrar",
+      "added": "Regla añadida a .gitignore.",
+      "alreadyPresent": "Esta regla exacta ya existe en .gitignore.",
+      "trackedFile": "Los archivos rastreados no se pueden ignorar. Git debe dejar de rastrearlos primero.",
+      "encodingUnsupported": ".gitignore debe estar en UTF-8, con o sin BOM. El archivo no se modificó."
+    }
   },
   "working": {
     "title": "Cambios sin commit",
@@ -606,6 +878,23 @@
     "descriptionPlaceholder": "Descripción (opcional)",
     "commit_one": "Commit de {{count}} archivo",
     "commit_other": "Commit de {{count}} archivos"
+  },
+  "workingChanges": {
+    "selectionAnnouncement_one": "{{count}} de {{total}} archivo seleccionado",
+    "selectionAnnouncement_other": "{{count}} de {{total}} archivos seleccionados",
+    "selectedCount_one": "{{count}} seleccionado",
+    "selectedCount_other": "{{count}} seleccionados",
+    "selectionActions_one": "Acciones para {{count}} archivo seleccionado",
+    "selectionActions_other": "Acciones para {{count}} archivos seleccionados",
+    "clearSelection": "Limpiar"
+  },
+  "workspaceSettings": {
+    "title": "Ajustes del workspace",
+    "forWorkspace": "Ajustes de {{workspace}}.",
+    "expectedBranch": "Rama esperada",
+    "expectedBranchPlaceholder": "develop",
+    "expectedBranchDescription": "Se espera que los repositorios de este workspace estén en esta rama.",
+    "expectedBranchEmpty": "Déjalo vacío para desactivar la comprobación de rama."
   },
   "workspaces": {
     "label": "Workspaces",

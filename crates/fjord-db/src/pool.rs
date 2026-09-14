@@ -16,6 +16,16 @@ pub enum DbError {
 /// pending migrations. `db_path` is expected to be inside the app data dir
 /// resolved by `fjord-app` — this crate has no opinion on where that is.
 pub async fn connect(db_path: &Path) -> Result<SqlitePool, DbError> {
+    let pool = open_pool(db_path).await?;
+    run_migrations(&pool, None).await?;
+    Ok(pool)
+}
+
+/// Opens the pool without migrating. Split out so the migration tests can
+/// build a database at an *older* schema version and then step forward,
+/// which is the only way to prove a forward-only migration preserves rows
+/// an existing install already has.
+pub(crate) async fn open_pool(db_path: &Path) -> Result<SqlitePool, DbError> {
     let options = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true);
@@ -30,16 +40,32 @@ pub async fn connect(db_path: &Path) -> Result<SqlitePool, DbError> {
         5
     };
 
-    let pool = SqlitePoolOptions::new()
+    SqlitePoolOptions::new()
         .max_connections(max_connections)
         .connect_with(options)
         .await
-        .map_err(|e| DbError::Connect(e.to_string()))?;
+        .map_err(|e| DbError::Connect(e.to_string()))
+}
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
+/// Runs the embedded migrations, optionally stopping before `stop_before`.
+/// `None` applies everything — the only behavior production uses.
+pub(crate) async fn run_migrations(
+    pool: &SqlitePool,
+    stop_before: Option<i64>,
+) -> Result<(), DbError> {
+    let mut migrator = sqlx::migrate!("./migrations");
+    if let Some(version) = stop_before {
+        migrator.migrations = migrator
+            .migrations
+            .iter()
+            .filter(|migration| migration.version < version)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into();
+    }
+
+    migrator
+        .run(pool)
         .await
-        .map_err(|e| DbError::Migrate(e.to_string()))?;
-
-    Ok(pool)
+        .map_err(|e| DbError::Migrate(e.to_string()))
 }

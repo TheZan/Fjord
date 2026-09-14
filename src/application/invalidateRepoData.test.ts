@@ -20,6 +20,7 @@ describe("invalidateRepoData", () => {
       queryKeys.repos.operationState("repo-1"),
       queryKeys.repos.workingChanges("repo-1"),
       queryKeys.repos.fileDiffs("repo-1"),
+      queryKeys.workspaces.health("workspace-1"),
     ]);
     expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.commits("repo-1"));
     expect(invalidatedKeys).not.toContainEqual(queryKeys.repos.branches("repo-1"));
@@ -30,12 +31,15 @@ describe("invalidateRepoData", () => {
 
     await invalidateRepoData(queryClient.client, "repo-1", "workspace-1", ["refs", "operation"]);
 
-    expect(queryClient.cancelQueries).toHaveBeenCalledTimes(3);
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(3);
+    expect(queryClient.cancelQueries).toHaveBeenCalledTimes(4);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4);
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({ queryKey: queryKeys.repos.branches("repo-1") });
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({ queryKey: queryKeys.repos.tags("repo-1") });
     expect(queryClient.cancelQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.repos.operationState("repo-1"),
+    });
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.workspaces.health("workspace-1"),
     });
   });
 
@@ -50,6 +54,25 @@ describe("invalidateRepoData", () => {
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
       queryKey: queryKeys.repos.reflogs("repo-1"),
     });
+  });
+
+  it("invalidates the stash scope that owns list, inspector files, and file diffs", async () => {
+    const queryClient = fakeQueryClient();
+
+    await invalidateRepoData(queryClient.client, "repo-1", "workspace-1", ["stashes"]);
+
+    expect(queryClient.cancelQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.stashes("repo-1"),
+    });
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: queryKeys.repos.stashes("repo-1"),
+    });
+    expect(queryKeys.repos.stashFiles("repo-1", "stash-oid").slice(0, 3)).toEqual(
+      queryKeys.repos.stashes("repo-1"),
+    );
+    expect(queryKeys.repos.stashFileDiff("repo-1", "stash-oid", "index", "a.txt").slice(0, 3)).toEqual(
+      queryKeys.repos.stashes("repo-1"),
+    );
   });
 });
 

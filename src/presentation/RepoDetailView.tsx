@@ -1,8 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
-import { CommitGraph, type BranchGraphScrollRequest } from "@/presentation/CommitGraph";
+import { mergeSourceForBranch } from "@/application/mergeBranchAction";
+import type {
+  WorkingFileAction,
+  WorkingFileActionContext,
+} from "@/application/useWorkingFileActions";
+import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
+import { useStashActions } from "@/application/useStashActions";
+import type { StashAction } from "@/application/stashActions";
+import { useStashes } from "@/application/useStashes";
+import {
+  CommitGraph,
+  type BranchGraphScrollRequest,
+  type StashGraphRevealRequest,
+} from "@/presentation/CommitGraph";
 import { CommitInspector } from "@/presentation/CommitInspector";
+import { StashInspector, type StashFileSelection } from "@/presentation/StashInspector";
 import { FileDiffView } from "@/presentation/FileDiffView";
 import { PerformanceBoundary } from "@/presentation/performance";
 import { ResizableRepoLayout } from "@/presentation/ResizableRepoLayout";
@@ -10,27 +24,34 @@ import { RepoToolbar, type RepoAction } from "@/presentation/RepoToolbar";
 import { RepoTree } from "@/presentation/RepoTree";
 import { RemoteSection } from "@/presentation/RemoteSection";
 import type { BranchContextAction, TagContextAction } from "@/presentation/RepoTree";
-import { ConfirmActionDialog, SelectActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import { ConfirmActionDialog, TextActionDialog } from "@/presentation/GitContextMenu";
+import { RemotePickerDialog } from "@/presentation/RemotePickerDialog";
 import type { CommitContextAction } from "@/presentation/CommitGraph";
-import { WorkingChangesPanel, type SelectedWorkingFile } from "@/presentation/WorkingChangesPanel";
+import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
+import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
+import { StashApplyOptionsDialog } from "@/presentation/StashApplyOptionsDialog";
+import { CreateBranchFromStashDialog } from "@/presentation/CreateBranchFromStashDialog";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
   AmendInfo,
   DestructiveAction,
+  DiffWhitespaceMode,
   GenerationSet,
+  MergeSource,
   PatchSelection,
   RepoStatus,
+  StashId,
   WorkingChanges,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 
 type ActionConfirmation =
-  | { kind: "origin"; action: "fetch" | "pull" | "push" | "stash-pop" }
+  | { kind: "origin"; action: "pull" | "push" | "stash-pop" }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "publish"; branch: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
 
 /**
  * A selected repository used to render *below* the dashboard, so clicking a
@@ -60,6 +81,7 @@ export function RepoDetailView({
   branchScrollRequest,
   commitSearchRequestId,
   selectedCommit,
+  selectedStashId,
   workingSelected,
   changes,
   changesLoading,
@@ -76,7 +98,14 @@ export function RepoDetailView({
   onCreateBranch,
   onCreateBranchAt,
   onRenameBranch,
+  onRebaseBranch,
+  onMergeBranch,
+  onSquashMergeBranch,
   onPreflightAction,
+  onApplyStash,
+  onCreateBranchFromStash,
+  onStashError,
+  stashActionRequest,
   onSetBranchUpstream,
   onUnsetBranchUpstream,
   onPublishBranch,
@@ -86,6 +115,7 @@ export function RepoDetailView({
   onRevertCommit,
   utilities,
   onSelectCommit,
+  onSelectStash,
   onRevealCommit,
   onSelectWorking,
   onStage,
@@ -93,7 +123,14 @@ export function RepoDetailView({
   onPrepareAmend,
   onApplyHunk,
   onDiscardPatch,
+  onWorkingFileAction,
   onCommit,
+  pendingDraftMessage,
+  onPendingDraftMessageConsumed,
+  openWorkingDiffWhitespace,
+  onWorkingDiffWhitespaceModeChange,
+  diffToolDisabledReason,
+  stashFileDisabledReason,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -120,6 +157,7 @@ export function RepoDetailView({
   branchScrollRequest: BranchGraphScrollRequest | null;
   commitSearchRequestId: number | null;
   selectedCommit: CommitSummary | null;
+  selectedStashId: StashId | null;
   workingSelected: boolean;
   changes: WorkingChanges;
   changesLoading: boolean;
@@ -128,7 +166,7 @@ export function RepoDetailView({
   onOpenRecoveryCenter: () => void;
   onAction: (action: RepoAction) => void;
   onOperationControl: (control: OperationControl) => void;
-  onConfirmAction: () => void;
+  onConfirmAction: (remote?: string) => void;
   onCancelActionConfirmation: () => void;
   onCancelOperation: () => void;
   onCheckout: (branch: string) => void;
@@ -136,7 +174,18 @@ export function RepoDetailView({
   onCreateBranch: (name: string) => void;
   onCreateBranchAt: (name: string, target: string) => void;
   onRenameBranch: (oldName: string, newName: string) => void;
+  onRebaseBranch?: (onto: MergeSource) => void;
+  onMergeBranch: (source: MergeSource) => void;
+  onSquashMergeBranch: (source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
+  onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void | Promise<void>;
+  onCreateBranchFromStash: (
+    stash: import("@/domain/git").StashEntry,
+    name: string,
+    apply: boolean,
+  ) => void | Promise<void>;
+  onStashError: (error: unknown) => void;
+  stashActionRequest?: { id: number; action: StashAction; stash: import("@/domain/git").StashEntry } | null;
   onSetBranchUpstream: (branch: string, upstream: string) => void;
   onUnsetBranchUpstream: (branch: string) => void;
   onPublishBranch: (branch: string) => void;
@@ -146,6 +195,7 @@ export function RepoDetailView({
   onRevertCommit: (commitId: string) => void;
   utilities: ReactNode;
   onSelectCommit: (commit: CommitSummary) => void;
+  onSelectStash: (stashId: StashId) => void;
   onRevealCommit: (commit: CommitSummary) => void;
   onSelectWorking: () => void;
   onStage: (paths: string[]) => void;
@@ -158,16 +208,80 @@ export function RepoDetailView({
     expectedGenerations: GenerationSet,
     confirmationToken: string,
   ) => Promise<boolean>;
+  onWorkingFileAction: (
+    action: WorkingFileAction,
+    context: WorkingFileActionContext,
+  ) => Promise<boolean | void>;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
+  pendingDraftMessage: string | null;
+  onPendingDraftMessageConsumed: () => void;
+  openWorkingDiffWhitespace: { path: string; staged: boolean; mode: DiffWhitespaceMode } | null;
+  onWorkingDiffWhitespaceModeChange: (
+    target: { path: string; source: DiffSource } | null,
+    mode: DiffWhitespaceMode,
+  ) => void;
+  /** Set when no external diff tool currently resolves. */
+  diffToolDisabledReason?: string;
+  /** Set when the resolved Git cannot run a pathspec-scoped `stash push`. */
+  stashFileDisabledReason?: string;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
-  const [selectedWorkingFile, setSelectedWorkingFile] = useState<SelectedWorkingFile | null>(null);
+  const [selectedStashFile, setSelectedStashFile] = useState<StashFileSelection | null>(null);
+  const { stashes, loading: stashesLoading, error: stashesError } = useStashes(repo.id);
+  const selectedStash = selectedStashId
+    ? stashes.find((stash) => stash.id === selectedStashId) ?? null
+    : null;
+  const workingSelection = useWorkingFileSelection(repo.id, changes);
+  const selectedWorkingEntries = [...workingSelection.targets]
+    .map((target) => {
+      const section = target.source === "index" ? changes.staged : changes.unstaged;
+      const file = section.find((candidate) => candidate.path === target.path);
+      return file ? { file, target } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const selectedWorkingFile = workingSelection.active
+    ? {
+        path: workingSelection.active.path,
+        staged: workingSelection.active.source === "index",
+      }
+    : null;
+  const patchExportDisabledTarget = openWorkingDiffWhitespace
+    && openWorkingDiffWhitespace.mode !== "show"
+    ? {
+        path: openWorkingDiffWhitespace.path,
+        source: openWorkingDiffWhitespace.staged ? "index" as const : "worktree" as const,
+      }
+    : undefined;
   const [dialog, setDialog] = useState<ContextDialog | null>(null);
+  const [workingFileMenu, setWorkingFileMenu] = useState<WorkingFileMenuState | null>(null);
   const [compactLayout, setCompactLayout] = useState(false);
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false);
   const [notice, setNotice] = useState<{ id: number; message: string; tone: "success" | "error"; retainedStash: boolean } | null>(null);
+  const [stashRevealRequest, setStashRevealRequest] = useState<StashGraphRevealRequest | null>(null);
+  const stashRevealSequence = useRef(0);
   const previousPendingAction = useRef<string | null>(null);
+  const stashActions = useStashActions({
+    onApply: onApplyStash,
+    onDestructive: (action) => onPreflightAction(action),
+    onCreateBranch: onCreateBranchFromStash,
+    onRevealInGraph: (stash) => requestRevealStashInGraph(stash.id),
+    onError: onStashError,
+  });
+
+  useEffect(() => {
+    if (!stashActionRequest) return;
+    dispatchFreshStashAction(stashActionRequest.action, stashActionRequest.stash);
+  }, [stashActionRequest?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function dispatchFreshStashAction(action: StashAction, requested: import("@/domain/git").StashEntry) {
+    const current = stashes.find((stash) => stash.id === requested.id);
+    if (!current) {
+      onStashError({ code: "stash_not_found" });
+      return;
+    }
+    void stashActions.dispatch(action, current);
+  }
 
   const workingFileCount = changes.staged.length + changes.unstaged.length;
 
@@ -176,18 +290,31 @@ export function RepoDetailView({
   }, [selectedCommit?.id]);
 
   useEffect(() => {
+    setSelectedStashFile(null);
+  }, [selectedStashId]);
+
+  useEffect(() => {
+    setStashRevealRequest(null);
+    stashRevealSequence.current = 0;
+  }, [repo.id]);
+
+  useEffect(() => {
+    if (!workingSelected) workingSelection.clear();
+  }, [workingSelected, workingSelection.clear]);
+
+  useEffect(() => {
+    if (!workingFileMenu) return;
+    const section = workingFileMenu.target.source === "index" ? changes.staged : changes.unstaged;
+    if (!section.some((file) => file.path === workingFileMenu.target.path)) {
+      setWorkingFileMenu(null);
+    }
+  }, [changes, workingFileMenu]);
+
+  useEffect(() => {
     if (!branchScrollRequest) return;
     setSelectedCommitFile(null);
-    setSelectedWorkingFile(null);
-  }, [branchScrollRequest]);
-
-  // A file that just got staged moves to the other list; keeping the old
-  // selection would show a diff that no longer exists on that side.
-  useEffect(() => {
-    if (!selectedWorkingFile) return;
-    const list = selectedWorkingFile.staged ? changes.staged : changes.unstaged;
-    if (!list.some((file) => file.path === selectedWorkingFile.path)) setSelectedWorkingFile(null);
-  }, [changes, selectedWorkingFile]);
+    workingSelection.clear();
+  }, [branchScrollRequest, workingSelection.clear]);
 
   useEffect(() => {
     const completedAction = previousPendingAction.current;
@@ -200,7 +327,7 @@ export function RepoDetailView({
         id: Date.now(),
         message: actionError ?? actionSuccess ?? t("notifications.operationCompleted"),
         tone: actionError ? "error" : "success",
-        retainedStash: Boolean(actionSuccess),
+        retainedStash: actionSuccess?.includes("stash@{") ?? false,
       });
     }
     previousPendingAction.current = actionPending;
@@ -213,9 +340,14 @@ export function RepoDetailView({
           source: { kind: "working", staged: selectedWorkingFile.staged },
         }
       : null
-    : selectedCommit && selectedCommitFile
-      ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
-      : null;
+    : selectedStashId && selectedStashFile?.stashId === selectedStashId
+      ? {
+          path: selectedStashFile.path,
+          source: { kind: "stash", stashId: selectedStashFile.stashId, group: selectedStashFile.group },
+        }
+      : selectedCommit && selectedCommitFile
+        ? { path: selectedCommitFile, source: { kind: "commit", commitId: selectedCommit.id } }
+        : null;
   const applyDiffFile = diffTarget?.source.kind === "working"
     ? diffTarget.source.staged
       ? () => onUnstage([diffTarget.path])
@@ -229,13 +361,33 @@ export function RepoDetailView({
       error={changesError}
       busy={actionPending !== null}
       validated={actionsValidated}
-      selectedFile={selectedWorkingFile}
-      onSelectFile={setSelectedWorkingFile}
+      selection={workingSelection}
       onStage={onStage}
       onUnstage={onUnstage}
+      onSelectionAction={handleWorkingFileAction}
+      patchExportDisabledTarget={patchExportDisabledTarget}
+      stashFileDisabledReason={stashFileDisabledReason}
+      onFileContextMenu={(file, target, position) => {
+        setWorkingFileMenu({ file, target, position });
+      }}
       onPrepareAmend={onPrepareAmend}
       onCommit={onCommit}
+      pendingDraftMessage={pendingDraftMessage}
+      onPendingDraftMessageConsumed={onPendingDraftMessageConsumed}
     />
+  ) : selectedStash ? (
+    <StashInspector
+      repoId={repo.id}
+      stash={selectedStash}
+      selectedFile={selectedStashFile}
+      onSelectFile={setSelectedStashFile}
+      canRevealInGraph
+      onStashAction={dispatchFreshStashAction}
+    />
+  ) : selectedStashId && stashesLoading ? (
+    <Muted className="text-[12px]">{t("commits.loading")}</Muted>
+  ) : selectedStashId && stashesError ? (
+    <Muted className="text-[12px]">{stashesError}</Muted>
   ) : selectedCommit ? (
     <CommitInspector
       repoId={repo.id}
@@ -263,7 +415,7 @@ export function RepoDetailView({
         onCreateBranch={onCreateBranch}
         utilities={utilities}
         onOpenInspector={
-          compactLayout && (workingSelected || selectedCommit)
+          compactLayout && (workingSelected || selectedCommit || selectedStashId)
             ? () => setInspectorDrawerOpen(true)
             : undefined
         }
@@ -325,7 +477,12 @@ export function RepoDetailView({
             <RepoTree
               repoId={repo.id}
               focusedBranch={branchScrollRequest?.branch ?? null}
+              selectedStashId={selectedStashId}
               onSelectBranch={onSelectBranch}
+              onSelectStash={handleSelectStash}
+              onStashContextMenu={handleSelectStash}
+              onRevealStashInGraph={requestRevealStashInGraph}
+              onStashAction={dispatchFreshStashAction}
               onCheckout={onCheckout}
               checkoutDisabledReason={
                 operationInProgress ? t("operationBanner.blockedActions") : undefined
@@ -353,9 +510,12 @@ export function RepoDetailView({
                   ? onDiscardPatch
                   : undefined
               }
-              onBack={() =>
-                workingSelected ? setSelectedWorkingFile(null) : setSelectedCommitFile(null)
-              }
+              onBack={() => {
+                if (workingSelected) workingSelection.clear();
+                else if (selectedStashId) setSelectedStashFile(null);
+                else setSelectedCommitFile(null);
+              }}
+              onWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
             />
           )}
           {/* Kept mounted (just hidden) rather than unmounted while a diff is
@@ -372,7 +532,22 @@ export function RepoDetailView({
                 onSelectCommit={handleSelectCommit}
                 onRevealCommit={handleRevealCommit}
                 onCheckout={operationInProgress ? undefined : onCheckout}
+                onMergeBranch={onMergeBranch}
+                onSquashMergeBranch={onSquashMergeBranch}
                 onCommitContextAction={handleCommitContextAction}
+                selectedStashId={selectedStashId}
+                onSelectStash={handleSelectStash}
+                onStashContextMenu={handleSelectStash}
+                onStashAction={dispatchFreshStashAction}
+                revealStashRequest={stashRevealRequest}
+                onRevealStashNotFound={() => {
+                  setNotice({
+                    id: Date.now(),
+                    message: t("stash.revealNotFound"),
+                    tone: "error",
+                    retainedStash: false,
+                  });
+                }}
                 workingFileCount={workingFileCount}
                 workingSelected={workingSelected}
                 onSelectWorking={handleSelectWorking}
@@ -382,6 +557,22 @@ export function RepoDetailView({
           </div>
         }
       />
+      {stashActions.options ? (
+        <StashApplyOptionsDialog
+          action={stashActions.options.action}
+          stash={stashActions.options.stash}
+          pending={actionPending !== null}
+          onClose={stashActions.closeOptions}
+          onConfirm={(restoreIndex) => void stashActions.confirmOptions(restoreIndex)}
+        />
+      ) : null}
+      {stashActions.branch ? (
+        <CreateBranchFromStashDialog
+          stash={stashActions.branch.stash}
+          onClose={stashActions.closeBranch}
+          onConfirm={(name, apply) => void stashActions.confirmBranch(name, apply)}
+        />
+      ) : null}
       {dialog?.kind === "createBranch" && (
         <TextActionDialog
           title={t("context.createBranchHere")}
@@ -423,14 +614,14 @@ export function RepoDetailView({
         />
       )}
       {dialog?.kind === "setUpstream" && (
-        <SelectActionDialog
-          title={t("context.setUpstream")}
-          description={t("context.setUpstreamDescription", { branch: dialog.branch })}
-          label={t("context.upstreamBranch")}
-          options={dialog.options}
-          confirmLabel={t("context.setUpstream")}
+        <RemotePickerDialog
+          repoId={repo.id}
+          kind="setUpstream"
+          branch={dialog.branch}
+          remoteBranches={dialog.options}
           onClose={() => setDialog(null)}
-          onConfirm={(upstream) => {
+          onConfirm={({ upstream }) => {
+            if (!upstream) return;
             setDialog(null);
             onSetBranchUpstream(dialog.branch, upstream);
           }}
@@ -454,18 +645,24 @@ export function RepoDetailView({
           }}
         />
       )}
-      {actionConfirmation && (
+      {actionConfirmation?.kind === "remote" ? (
+        <RemotePickerDialog
+          repoId={repo.id}
+          kind={actionConfirmation.action}
+          branch={actionConfirmation.branch}
+          onClose={onCancelActionConfirmation}
+          onConfirm={({ remote }) => onConfirmAction(remote)}
+        />
+      ) : actionConfirmation ? (
         <ConfirmActionDialog
           title={t(`context.confirm.${confirmationKey(actionConfirmation)}.title`)}
           description={t(`context.confirm.${confirmationKey(actionConfirmation)}.description`, { target: actionConfirmation.kind === "origin" ? undefined : actionConfirmation.branch })}
-          confirmLabel={actionConfirmation.kind === "publish"
-            ? t("remotes.pushAndSetUpstream")
-            : t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
+          confirmLabel={t(`context.confirm.${confirmationKey(actionConfirmation)}.button`)}
           danger={actionConfirmation.kind === "origin" && actionConfirmation.action === "stash-pop"}
           onClose={onCancelActionConfirmation}
-          onConfirm={onConfirmAction}
+          onConfirm={() => onConfirmAction()}
         />
-      )}
+      ) : null}
       {notice ? (
         <NotificationToast
           key={notice.id}
@@ -480,8 +677,52 @@ export function RepoDetailView({
           } : undefined}
         />
       ) : null}
+      {workingFileMenu ? (
+        <WorkingFileContextMenu
+          state={workingFileMenu}
+          selection={selectedWorkingEntries}
+          busy={!actionsValidated || actionPending !== null}
+          patchExportDisabledReason={
+            patchExportDisabledTarget
+              && (selectedWorkingEntries.length > 0
+                ? selectedWorkingEntries.some((entry) => (
+                    entry.target.path === patchExportDisabledTarget.path
+                    && entry.target.source === patchExportDisabledTarget.source
+                  ))
+                : workingFileMenu.target.path === patchExportDisabledTarget.path
+                  && workingFileMenu.target.source === patchExportDisabledTarget.source)
+              ? t("workingFile.disabled.whitespaceMode")
+              : undefined
+          }
+          deleteDisabledReason={
+            workingFileMenu.target.source === "worktree"
+              && changes.staged.some((file) => file.path === workingFileMenu.target.path)
+              ? t("workingFile.disabled.deleteAlsoStaged")
+              : undefined
+          }
+          diffToolDisabledReason={diffToolDisabledReason}
+          stashFileDisabledReason={stashFileDisabledReason}
+          onClose={() => setWorkingFileMenu(null)}
+          onAction={handleWorkingFileAction}
+        />
+      ) : null}
     </ScreenSurface>
   );
+
+  async function handleWorkingFileAction(
+    action: WorkingFileAction,
+    context: WorkingFileActionContext,
+  ) {
+    const destination = action === "stage"
+      ? "index" as const
+      : action === "unstage"
+        ? "worktree" as const
+        : null;
+    const remapPrepared = destination !== null
+      && workingSelection.beginSourceRemap(context.targets, destination);
+    const result = await onWorkingFileAction(action, context);
+    if (remapPrepared) workingSelection.completeSourceRemap(result === true);
+  }
 
   function handleBranchContextAction(
     action: BranchContextAction,
@@ -490,6 +731,9 @@ export function RepoDetailView({
   ) {
     switch (action) {
       case "checkout": onCheckout(branch.name); break;
+      case "rebase": onRebaseBranch?.(mergeSourceForBranch(branch)); break;
+      case "merge": onMergeBranch(mergeSourceForBranch(branch)); break;
+      case "squashMerge": onSquashMergeBranch(mergeSourceForBranch(branch)); break;
       case "createBranch": setDialog({ kind: "createBranch", target: branch.targetCommitId }); break;
       case "rename": setDialog({ kind: "renameBranch", branch: branch.name }); break;
       case "setUpstream": setDialog({ kind: "setUpstream", branch: branch.name, options: upstreamChoices }); break;
@@ -534,6 +778,22 @@ export function RepoDetailView({
     onSelectWorking();
     if (compactLayout) setInspectorDrawerOpen(true);
   }
+
+  function handleSelectStash(stashId: StashId) {
+    onSelectStash(stashId);
+    if (compactLayout) setInspectorDrawerOpen(true);
+  }
+
+  function requestRevealStashInGraph(stashId: StashId) {
+    const stash = stashes.find((entry) => entry.id === stashId);
+    if (!stash) return;
+    stashRevealSequence.current += 1;
+    setStashRevealRequest({
+      id: stashRevealSequence.current,
+      stashId: stash.id,
+      base: stash.base,
+    });
+  }
 }
 
 export function RepositorySnapshotMarker({
@@ -577,6 +837,5 @@ async function copyText(value: string) {
 
 function confirmationKey(action: ActionConfirmation) {
   if (action.kind === "remote-checkout") return "remoteCheckout";
-  if (action.kind === "publish") return "publishBranch";
   return action.action === "stash-pop" ? "stashPop" : action.action;
 }

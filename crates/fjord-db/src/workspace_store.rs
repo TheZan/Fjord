@@ -31,7 +31,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         // `ensureDefaultWorkspace` treats as "the" first workspace is
         // implementation-defined SQLite behavior, not a real guarantee.
         let rows = sqlx::query(
-            "SELECT id, name, sort_order FROM workspaces ORDER BY sort_order, created_at",
+            "SELECT id, name, sort_order, expected_branch FROM workspaces ORDER BY sort_order, created_at",
         )
         .fetch_all(&self.pool)
         .await
@@ -45,6 +45,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                     id: WorkspaceId(id),
                     name: row.get("name"),
                     sort_order: row.get("sort_order"),
+                    expected_branch: row.get("expected_branch"),
                 })
             })
             .collect()
@@ -69,6 +70,26 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             id,
             name: name.to_string(),
             sort_order,
+            // A new workspace never inherits a convention; expected branch is
+            // opt-in per workspace (docs/specs/workspace-workflows.md §5).
+            expected_branch: None,
+        })
+    }
+
+    async fn get_workspace(&self, id: WorkspaceId) -> Result<Workspace, StoreError> {
+        let row =
+            sqlx::query("SELECT name, sort_order, expected_branch FROM workspaces WHERE id = ?")
+                .bind(id.0.to_string())
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| StoreError::Database(e.to_string()))?
+                .ok_or(StoreError::WorkspaceNotFound(id))?;
+
+        Ok(Workspace {
+            id,
+            name: row.get("name"),
+            sort_order: row.get("sort_order"),
+            expected_branch: row.get("expected_branch"),
         })
     }
 
@@ -84,7 +105,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             return Err(StoreError::WorkspaceNotFound(id));
         }
 
-        let row = sqlx::query("SELECT sort_order FROM workspaces WHERE id = ?")
+        let row = sqlx::query("SELECT sort_order, expected_branch FROM workspaces WHERE id = ?")
             .bind(id.0.to_string())
             .fetch_one(&self.pool)
             .await
@@ -94,7 +115,27 @@ impl WorkspaceStore for SqliteWorkspaceStore {
             id,
             name: name.to_string(),
             sort_order: row.get("sort_order"),
+            expected_branch: row.get("expected_branch"),
         })
+    }
+
+    async fn set_workspace_expected_branch(
+        &self,
+        id: WorkspaceId,
+        expected_branch: Option<&str>,
+    ) -> Result<Workspace, StoreError> {
+        let result = sqlx::query("UPDATE workspaces SET expected_branch = ? WHERE id = ?")
+            .bind(expected_branch)
+            .bind(id.0.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| StoreError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(StoreError::WorkspaceNotFound(id));
+        }
+
+        self.get_workspace(id).await
     }
 
     async fn reorder_workspaces(&self, ids: &[WorkspaceId]) -> Result<(), StoreError> {
@@ -373,6 +414,42 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         }))
     }
 
+    async fn list_workspace_snapshots(
+        &self,
+        workspace_id: WorkspaceId,
+        schema_version: u32,
+    ) -> Result<Vec<StoredRepositorySnapshot>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT s.repo_id, s.payload, s.captured_at \
+             FROM repo_snapshot s \
+             INNER JOIN repositories r ON r.id = s.repo_id \
+             WHERE r.workspace_id = ? AND s.schema_version = ? \
+             ORDER BY r.sort_order, r.created_at",
+        )
+        .bind(workspace_id.0.to_string())
+        .bind(i64::from(schema_version))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|error| StoreError::Database(error.to_string()))?;
+
+        rows.into_iter()
+            .map(|row| {
+                let repo_id = Uuid::from_str(row.get::<String, _>("repo_id").as_str())
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                let snapshot = serde_json::from_str::<RepositorySnapshot>(row.get("payload"))
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                let captured_at = OffsetDateTime::parse(row.get("captured_at"), &Rfc3339)
+                    .map_err(|error| StoreError::Database(error.to_string()))?;
+                Ok(StoredRepositorySnapshot {
+                    repo_id: RepositoryId(repo_id),
+                    snapshot,
+                    captured_at,
+                    validated: false,
+                })
+            })
+            .collect()
+    }
+
     async fn upsert_repository_snapshot(
         &self,
         repo_id: RepositoryId,
@@ -611,6 +688,11 @@ mod tests {
         assert_eq!(loaded.snapshot, snapshot);
         assert_eq!(loaded.captured_at, captured.captured_at);
         assert!(!loaded.validated);
+
+        let workspace_snapshots = store.list_workspace_snapshots(ws.id, 1).await.unwrap();
+        assert_eq!(workspace_snapshots.len(), 1);
+        assert_eq!(workspace_snapshots[0].repo_id, repo.id);
+        assert_eq!(workspace_snapshots[0].snapshot, snapshot);
     }
 
     #[tokio::test]
@@ -637,5 +719,170 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    // ---- P10-09: workspace expected branch -------------------------------
+
+    #[tokio::test]
+    async fn a_new_workspace_has_no_expected_branch() {
+        let store = store().await;
+        let created = store.create_workspace("Backend").await.unwrap();
+
+        assert_eq!(created.expected_branch, None);
+        assert_eq!(
+            store
+                .get_workspace(created.id)
+                .await
+                .unwrap()
+                .expected_branch,
+            None
+        );
+        assert_eq!(
+            store.list_workspaces().await.unwrap()[0].expected_branch,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn expected_branch_round_trips_through_set_change_and_clear() {
+        let store = store().await;
+        let ws = store.create_workspace("Backend").await.unwrap();
+
+        let set = store
+            .set_workspace_expected_branch(ws.id, Some("develop"))
+            .await
+            .unwrap();
+        assert_eq!(set.expected_branch.as_deref(), Some("develop"));
+        assert_eq!(
+            store.list_workspaces().await.unwrap()[0]
+                .expected_branch
+                .as_deref(),
+            Some("develop")
+        );
+
+        let changed = store
+            .set_workspace_expected_branch(ws.id, Some("main"))
+            .await
+            .unwrap();
+        assert_eq!(changed.expected_branch.as_deref(), Some("main"));
+        assert_eq!(
+            store.list_workspaces().await.unwrap()[0]
+                .expected_branch
+                .as_deref(),
+            Some("main")
+        );
+
+        let cleared = store
+            .set_workspace_expected_branch(ws.id, None)
+            .await
+            .unwrap();
+        assert_eq!(cleared.expected_branch, None);
+        assert_eq!(
+            store.list_workspaces().await.unwrap()[0].expected_branch,
+            None
+        );
+        assert_eq!(
+            store.get_workspace(ws.id).await.unwrap().expected_branch,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn setting_expected_branch_leaves_the_rest_of_the_row_alone() {
+        let store = store().await;
+        let first = store.create_workspace("Backend").await.unwrap();
+        let second = store.create_workspace("Frontend").await.unwrap();
+
+        store
+            .set_workspace_expected_branch(second.id, Some("release/2026.08"))
+            .await
+            .unwrap();
+
+        let all = store.list_workspaces().await.unwrap();
+        assert_eq!(
+            all,
+            vec![
+                Workspace {
+                    expected_branch: None,
+                    ..first
+                },
+                Workspace {
+                    expected_branch: Some("release/2026.08".to_string()),
+                    ..second
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn expected_branch_mutation_reports_an_unknown_workspace() {
+        let store = store().await;
+        let missing = WorkspaceId::new();
+
+        let result = store
+            .set_workspace_expected_branch(missing, Some("develop"))
+            .await;
+
+        assert!(matches!(result, Err(StoreError::WorkspaceNotFound(id)) if id == missing));
+    }
+
+    #[tokio::test]
+    async fn get_workspace_reports_an_unknown_workspace() {
+        let store = store().await;
+        let result = store.get_workspace(WorkspaceId::new()).await;
+
+        assert!(matches!(result, Err(StoreError::WorkspaceNotFound(_))));
+    }
+
+    /// The migration is forward-only and must not reinterpret existing data:
+    /// a workspace created before `0008_expected_branch.sql` keeps its name
+    /// and order and comes back with no convention, so no repository can
+    /// suddenly become `WrongBranch` because the app was updated.
+    #[tokio::test]
+    async fn existing_workspaces_survive_the_expected_branch_migration_as_none() {
+        let pool = crate::pool::open_pool(std::path::Path::new(":memory:"))
+            .await
+            .unwrap();
+        crate::pool::run_migrations(&pool, Some(8)).await.unwrap();
+
+        let id = WorkspaceId::new();
+        sqlx::query(
+            "INSERT INTO workspaces (id, name, sort_order, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(id.0.to_string())
+        .bind("Backend")
+        .bind(3)
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        crate::pool::run_migrations(&pool, None).await.unwrap();
+
+        let store = SqliteWorkspaceStore::new(pool);
+        assert_eq!(
+            store.list_workspaces().await.unwrap(),
+            vec![Workspace {
+                id,
+                name: "Backend".to_string(),
+                sort_order: 3,
+                expected_branch: None,
+            }]
+        );
+
+        let updated = store
+            .set_workspace_expected_branch(id, Some("develop"))
+            .await
+            .unwrap();
+        assert_eq!(updated.expected_branch.as_deref(), Some("develop"));
+        assert_eq!(
+            store
+                .get_workspace(id)
+                .await
+                .unwrap()
+                .expected_branch
+                .as_deref(),
+            Some("develop")
+        );
     }
 }

@@ -10,20 +10,8 @@ import {
 } from "@/presentation/FileEntryList";
 import { CHANGE_TYPE_COLOR } from "@/presentation/diffFormatting";
 import { directoryPathsOf } from "@/presentation/fileTree";
+import { formatDateTime } from "@/presentation/formatDateTime";
 import type { CommitSummary } from "@/domain/git";
-
-function formatAuthoredAt(value: string, locale: string): string {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
 
 /**
  * The selected commit: metadata on top, its changed files below. The panel
@@ -49,8 +37,12 @@ export function CommitInspector({
     [files, viewMode],
   );
   const collapse = useFileTreeCollapse(directoryPaths);
+  const selectedPaths = useMemo(
+    () => new Set(selectedFilePath ? [selectedFilePath] : []),
+    [selectedFilePath],
+  );
 
-  const authoredAt = formatAuthoredAt(commit.authoredAt, i18n.language);
+  const authoredAt = formatDateTime(commit.authoredAt, i18n.language);
 
   return (
     <div
@@ -110,7 +102,8 @@ export function CommitInspector({
             files={files}
             mode={viewMode}
             collapse={collapse}
-            selectedPath={selectedFilePath}
+            selectedPaths={selectedPaths}
+            activePath={selectedFilePath}
             onSelect={(file) => onSelectFile(file.path)}
             renderMark={(file) => (
               <span

@@ -7,10 +7,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, DestructiveAction,
-    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, LogCursor,
-    PatchSelection, Recoverability, ReflogPage, RemoteInfo, RepoOperationState, RepoStatus,
-    StashEntry, TagInfo, WorkingChanges,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, CreateBranchFromStashResult,
+    CreateStashRequest, CreateStashResult, DestructiveAction, DestructiveExecutionResult,
+    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
+    RemoveRemotePreflight, RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult,
+    StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
 };
 use thiserror::Error;
 
@@ -208,14 +211,59 @@ pub enum GitError {
     RepositoryDestinationNotEmpty,
     #[error("remote already exists: {0}")]
     RemoteAlreadyExists(String),
+    #[error("remote not found: {0}")]
+    RemoteNotFound(String),
+    #[error("invalid remote name")]
+    InvalidRemoteName,
+    #[error("invalid remote URL")]
+    InvalidRemoteUrl,
+    #[error("remote rename target already exists: {0}")]
+    RemoteRenameTargetExists(String),
     #[error("invalid remote configuration: {0}")]
     InvalidRemote(String),
     #[error("nothing to stash")]
     NothingToStash,
-    #[error("stash is empty")]
-    StashEmpty,
+    #[error("the selected stash no longer exists")]
+    StashNotFound,
+    #[error("more than one stash entry points at the selected stash commit")]
+    StashAmbiguous,
+    #[error("stash apply would overwrite local changes in {paths:?}")]
+    StashApplyWouldOverwrite { paths: Vec<String> },
+    #[error("Git refused to restore the stash's staged state")]
+    StashApplyIndexRefused,
+    #[error("stash apply failed: {0}")]
+    StashApplyFailed(String),
     #[error("checkout would overwrite local changes in {paths:?}")]
     CheckoutWouldOverwrite { paths: Vec<String> },
+    #[error("merge source was not found")]
+    MergeSourceNotFound,
+    #[error("the merge source is the current branch")]
+    MergeSourceIsCurrentBranch,
+    #[error("the merge source kind is not supported")]
+    MergeSourceUnsupported,
+    #[error("the merge cannot be completed as a fast-forward")]
+    MergeNotFastForward,
+    #[error("merge would overwrite local changes in {paths:?}")]
+    MergeWouldOverwrite { paths: Vec<String> },
+    #[error("the index contains staged changes")]
+    MergeIndexHasStagedChanges,
+    #[error("HEAD is detached")]
+    MergeDetachedHead,
+    #[error("HEAD is unborn")]
+    MergeUnbornHead,
+    #[error("another repository operation is already in progress")]
+    OperationAlreadyInProgress,
+    #[error("merge failed: {0}")]
+    MergeFailed(String),
+    #[error("{0}")]
+    MergeStashRetained(Box<GitError>),
+    #[error("integration blocked: {0:?}")]
+    IntegrationBlocked(fjord_domain::IntegrationBlocker),
+    #[error("{source}; local work retained in {stash_ref}")]
+    IntegrationStashRetained {
+        stash_ref: String,
+        source: Box<GitError>,
+    },
     #[error("failed to launch merge tool: {0}")]
     MergeToolFailed(String),
     #[error("operation cancelled")]
@@ -234,6 +282,34 @@ pub enum GitError {
     PatchApplyFailed(String),
     #[error("the selected change cannot be represented as a line patch: {0}")]
     PatchUnsupported(String),
+    #[error("ignore rules are unavailable for tracked file: {0}")]
+    IgnoreRuleUnsupportedForTrackedFile(String),
+    #[error(".gitignore is not valid UTF-8")]
+    IgnoreFileEncodingUnsupported,
+    #[error("failed to update .gitignore: {0}")]
+    IgnoreWriteFailed(String),
+    #[error("only files can be deleted from this menu")]
+    DeleteTargetNotAFile,
+    #[error("{path} also has staged changes")]
+    DeleteFilePartiallyStaged { path: String },
+    #[error("{path} has unresolved conflicts")]
+    DeleteFileConflicted { path: String },
+    #[error("Git could not resolve the difftool {tool}")]
+    DiffToolNotConfigured { tool: String },
+    #[error("the diff tool name is invalid")]
+    DiffToolNameInvalid,
+    #[error("exact path-scoped stash creation requires Git 2.23 or newer")]
+    StashFileUnsupportedGit,
+    #[error("{path} has unresolved conflicts")]
+    StashFileConflicted { path: String },
+    #[error("the scoped stash path set is empty")]
+    StashScopeEmpty,
+    #[error("the repository changed while the exact stash was being created")]
+    StashConcurrentUpdate,
+    #[error("stash creation failed and repository state could not be fully restored")]
+    StashRecoveryFailed,
+    #[error("the selected state cannot be represented exactly: {path}")]
+    StashScopeUnrepresentable { path: String },
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -277,11 +353,84 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("add_remote"))
     }
 
+    async fn set_remote_url(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _fetch: &str,
+        _push: Option<&str>,
+    ) -> Result<RemoteInfo, GitError> {
+        Err(GitError::NotImplemented("set_remote_url"))
+    }
+
+    async fn rename_remote(
+        &self,
+        _repo: &RepoPath,
+        _old: &str,
+        _new: &str,
+    ) -> Result<RemoteInfo, GitError> {
+        Err(GitError::NotImplemented("rename_remote"))
+    }
+
+    async fn preflight_remove_remote(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+    ) -> Result<RemoveRemotePreflight, GitError> {
+        Err(GitError::NotImplemented("preflight_remove_remote"))
+    }
+
+    /// Deletes one remote only after consuming the exact backend-issued
+    /// preflight binding under the repository write lock.
+    async fn remove_remote(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _expected_config_generation: u64,
+        _confirmation_token: &str,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("remove_remote"))
+    }
+
     async fn status(&self, repo: &RepoPath) -> Result<RepoStatus, GitError>;
     /// Reads the operation markers in the resolved per-worktree git-dir.
     /// Implementations must not infer this solely from cached status.
     async fn operation_state(&self, _repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         Err(GitError::NotImplemented("operation_state"))
+    }
+    /// Starts a local, non-interactive rebase of the current branch onto a
+    /// commit-ish. A stopped rebase is a typed state; cancellation never aborts it.
+    async fn start_rebase(
+        &self,
+        repo: &RepoPath,
+        onto: &str,
+    ) -> Result<RepoOperationState, GitError> {
+        self.start_rebase_with_context(repo, onto, GitOperationContext::default())
+            .await
+    }
+    async fn start_rebase_with_context(
+        &self,
+        _repo: &RepoPath,
+        _onto: &str,
+        _context: GitOperationContext,
+    ) -> Result<RepoOperationState, GitError> {
+        Err(GitError::NotImplemented("start_rebase"))
+    }
+    async fn rebase_preflight(
+        &self,
+        _repo: &RepoPath,
+        _onto: &MergeSource,
+    ) -> Result<fjord_domain::RebasePreflight, GitError> {
+        Err(GitError::NotImplemented("rebase_preflight"))
+    }
+    async fn start_rebase_preflighted(
+        &self,
+        _repo: &RepoPath,
+        _expected: &fjord_domain::RebasePreflight,
+        _policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, GitError> {
+        Err(GitError::NotImplemented("start_rebase_preflighted"))
     }
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         self.continue_operation_with_context(repo, GitOperationContext::default())
@@ -317,6 +466,35 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("abort_operation"))
     }
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
+    async fn merge_preflight(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+    ) -> Result<MergePreflight, GitError> {
+        Err(GitError::NotImplemented("merge_preflight"))
+    }
+    async fn merge_branch(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+        _mode: MergeMode,
+        _dirty_policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<MergeResult, GitError> {
+        Err(GitError::NotImplemented("merge_branch"))
+    }
+    /// `merge --squash`: stages the combined diff (or leaves it conflicted)
+    /// without a merge commit or moving any ref. Shares `merge_preflight`'s
+    /// blockers and dirty-tree rules.
+    async fn squash_merge_branch(
+        &self,
+        _repo: &RepoPath,
+        _source: &MergeSource,
+        _dirty_policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<SquashMergeResult, GitError> {
+        Err(GitError::NotImplemented("squash_merge_branch"))
+    }
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(
         &self,
@@ -420,6 +598,22 @@ pub trait GitBackend: Send + Sync {
             .await?
             .into_window(options.offset, options.limit))
     }
+    async fn preview_ignore_rule(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRulePreview, GitError> {
+        Err(GitError::NotImplemented("preview_ignore_rule"))
+    }
+    async fn add_ignore_rule(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _kind: IgnoreRuleKind,
+    ) -> Result<IgnoreRuleOutcome, GitError> {
+        Err(GitError::NotImplemented("add_ignore_rule"))
+    }
 
     async fn checkout(&self, repo: &RepoPath, branch: &str) -> Result<(), GitError>;
     /// Returns the bounded repository-relative dirty paths that checkout would
@@ -512,9 +706,54 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("reset"))
     }
     async fn stashes(&self, repo: &RepoPath) -> Result<Vec<StashEntry>, GitError>;
-    async fn stash_push(&self, repo: &RepoPath, message: Option<&str>) -> Result<(), GitError>;
-    /// Applies and drops `stash@{0}`, the most recent entry.
-    async fn stash_pop(&self, repo: &RepoPath) -> Result<(), GitError>;
+    async fn stash_files(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _limit: u32,
+    ) -> Result<StashFiles, GitError> {
+        Err(GitError::NotImplemented("stash_files"))
+    }
+    async fn stash_file_diff_window(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _group: StashFileGroup,
+        _path: &str,
+        _options: DiffWindowOptions,
+    ) -> Result<FileDiffWindow, GitError> {
+        Err(GitError::NotImplemented("stash_file_diff_window"))
+    }
+    async fn create_stash(
+        &self,
+        _repo: &RepoPath,
+        _request: &CreateStashRequest,
+    ) -> Result<CreateStashResult, GitError> {
+        Err(GitError::NotImplemented("create_stash"))
+    }
+    async fn apply_stash(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _restore_index: bool,
+    ) -> Result<StashApplyResult, GitError> {
+        Err(GitError::NotImplemented("apply_stash"))
+    }
+    async fn create_branch_from_stash(
+        &self,
+        _repo: &RepoPath,
+        _stash_id: &StashId,
+        _name: &str,
+        _apply: bool,
+        _keep: bool,
+    ) -> Result<CreateBranchFromStashResult, GitError> {
+        Err(GitError::NotImplemented("create_branch_from_stash"))
+    }
+    /// Whether the resolved Git executable supports exact scoped stash
+    /// construction (currently Git >= 2.23).
+    async fn stash_paths_supported(&self) -> Result<bool, GitError> {
+        Err(GitError::NotImplemented("stash_paths_supported"))
+    }
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
     /// Stages a verified line selection against the exact repository
     /// generation from which it was rendered.
@@ -537,12 +776,13 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("unstage_patch"))
     }
-    /// Issues a short-lived backend confirmation for one exact discard scope.
+    /// Issues a short-lived backend confirmation for one exact ordered discard
+    /// scope. A single-file discard is represented by a one-element slice.
     async fn issue_discard_confirmation(
         &self,
         _repo: &RepoPath,
         _action: &DestructiveAction,
-        _selection: &PatchSelection,
+        _selections: &[PatchSelection],
         _generations: GenerationSet,
     ) -> Result<String, GitError> {
         Err(GitError::NotImplemented("issue_discard_confirmation"))
@@ -578,7 +818,7 @@ pub trait GitBackend: Send + Sync {
         _expected_generations: GenerationSet,
         _confirmation_token: &str,
         _context: GitOperationContext,
-    ) -> Result<Option<RepoOperationState>, GitError> {
+    ) -> Result<DestructiveExecutionResult, GitError> {
         Err(GitError::NotImplemented(
             "execute_confirmed_destructive_action",
         ))
@@ -594,6 +834,30 @@ pub trait GitBackend: Send + Sync {
         _confirmation_token: &str,
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("discard_patch"))
+    }
+    /// Discards an exact ordered vector of whole-file worktree selections in
+    /// one confirmation-bound Git apply transaction.
+    async fn discard_patches(
+        &self,
+        _repo: &RepoPath,
+        _action: &DestructiveAction,
+        _selections: &[PatchSelection],
+        _expected_generations: GenerationSet,
+        _confirmation_token: &str,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("discard_patches"))
+    }
+    /// Read-only: constructs the patch bytes for an exact non-empty vector of
+    /// source-homogeneous working-file selections (unstaged
+    /// `INDEX -> WORKTREE` or staged `HEAD -> INDEX`) without
+    /// mutating the repository. Reuses the same deterministic constructor
+    /// and digest verification as the mutating patch commands.
+    async fn export_patch(
+        &self,
+        _repo: &RepoPath,
+        _selections: &[PatchSelection],
+    ) -> Result<Vec<u8>, GitError> {
+        Err(GitError::NotImplemented("export_patch"))
     }
     /// Returns the current commit message and whether the current branch's
     /// locally known upstream already contains `HEAD`.
@@ -651,6 +915,32 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("integrate_upstream"))
     }
     async fn open_merge_tool(&self, repo: &RepoPath) -> Result<(), GitError>;
+    /// Whether the given diff-tool preference (`None` = Auto, `Some(name)` =
+    /// an explicit Git difftool name) currently resolves to something Git can
+    /// run: `Auto` resolves when `diff.tool` is configured, and a named tool
+    /// resolves when Git recognizes it (`git difftool --tool-help`), whether
+    /// or not its underlying binary happens to be installed. Read-only.
+    async fn diff_tool_availability(
+        &self,
+        _repo: &RepoPath,
+        _preference: Option<&str>,
+    ) -> Result<bool, GitError> {
+        Err(GitError::NotImplemented("diff_tool_availability"))
+    }
+    /// Launches `git difftool` for one file and one diff side (`P10-WC-06`).
+    /// `source == Worktree` diffs `INDEX -> WORKTREE`; `source == Index` adds
+    /// `--cached` to diff `HEAD -> INDEX`, matching the row the user
+    /// right-clicked. Fails with [`GitError::DiffToolNotConfigured`] rather
+    /// than falling back to Git's interactive tool chooser.
+    async fn open_external_diff(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _source: PatchSource,
+        _preference: Option<&str>,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("open_external_diff"))
+    }
     /// Points the backend's own Git subprocess calls at a resolved executable,
     /// so a path chosen in Settings applies to local operations too and not
     /// only to remote transport. [`GitExecutableResolution::Unavailable`] makes

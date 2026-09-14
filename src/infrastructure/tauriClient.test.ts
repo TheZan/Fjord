@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RepoOperationState } from "@/domain/generated";
 
 const tauri = vi.hoisted(() => ({ invoke: vi.fn() }));
 
@@ -9,8 +10,13 @@ import {
   cloneRepository,
   getBranches,
   getFileDiffPage,
+  getStashFileDiffPage,
   getWorkingFileDiffPage,
   revealLogFolder,
+  removeRemote,
+  runStartRebase,
+  renameRemote,
+  setRemoteUrl,
   setRepositoryActivity,
   stagePatch,
   unstagePatch,
@@ -113,6 +119,74 @@ describe("abortable Tauri queries", () => {
       offset: 0,
       limit: 1_000,
       whitespace: "show",
+      loadAnyway: true,
+    });
+  });
+
+  it("starts rebase with the exact repository and commit-ish and returns the typed state", async () => {
+    const state: RepoOperationState = {
+      operation: { kind: "rebase", rebaseKind: "merge", onto: "abc", current: 1, total: 2, headName: "refs/heads/feature" },
+      conflictedPaths: ["file.txt"], available: ["skip", "abort"], detectedExternally: false,
+    };
+    tauri.invoke.mockResolvedValue(state);
+    const preflight = { onto: { refName: "refs/remotes/origin/develop", kind: "remoteTracking" } } as import("@/domain/git").RebasePreflight;
+    const task = runStartRebase("repo-1", preflight, "stashFirst");
+    await expect(task.promise).resolves.toEqual(state);
+    expect(task.operationId).toMatch(/^rebase:/);
+    expect(tauri.invoke).toHaveBeenCalledWith("start_rebase", {
+      repoId: "repo-1", preflight, dirtyPolicy: "stashFirst", operationId: task.operationId,
+    });
+  });
+
+  it("keeps remote mutations explicit and binds removal confirmation fields", async () => {
+    tauri.invoke.mockResolvedValue(undefined);
+
+    await setRemoteUrl("repo-1", "origin", "https://fetch.test/repo.git", null);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("set_remote_url", {
+      repoId: "repo-1",
+      name: "origin",
+      fetch: "https://fetch.test/repo.git",
+      push: null,
+    });
+
+    await renameRemote("repo-1", "origin", "upstream");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("rename_remote", {
+      repoId: "repo-1",
+      old: "origin",
+      new: "upstream",
+    });
+
+    await removeRemote("repo-1", "upstream", 7, "confirmation-token");
+    expect(tauri.invoke).toHaveBeenLastCalledWith("remove_remote", {
+      repoId: "repo-1",
+      name: "upstream",
+      expectedConfigGeneration: 7,
+      confirmationToken: "confirmation-token",
+    });
+  });
+
+  it("keys stash diff requests by stable stash id and file group", async () => {
+    tauri.invoke.mockResolvedValue({ data: {}, generations: zeroGenerations() });
+
+    await getStashFileDiffPage(
+      "repo-1",
+      "stash-oid",
+      "worktree",
+      "both.txt",
+      1_000,
+      2_000,
+      "ignoreTrailing",
+      true,
+    );
+
+    expect(tauri.invoke).toHaveBeenCalledWith("get_stash_file_diff", {
+      repoId: "repo-1",
+      stashId: "stash-oid",
+      group: "worktree",
+      path: "both.txt",
+      offset: 1_000,
+      limit: 2_000,
+      whitespace: "ignoreTrailing",
       loadAnyway: true,
     });
   });

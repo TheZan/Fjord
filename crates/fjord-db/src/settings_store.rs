@@ -34,7 +34,7 @@ fn theme_from_str(s: &str) -> Theme {
 impl SettingsStore for SqliteSettingsStore {
     async fn get_settings(&self) -> Result<Settings, StoreError> {
         let row =
-            sqlx::query("SELECT locale, theme, default_ide, auto_fetch, performance_diagnostics, git_executable_path FROM settings WHERE id = 1")
+            sqlx::query("SELECT locale, theme, default_ide, auto_fetch, performance_diagnostics, git_executable_path, diff_tool FROM settings WHERE id = 1")
                 .fetch_one(&self.pool)
                 .await
                 .map_err(|e| StoreError::Database(e.to_string()))?;
@@ -48,12 +48,13 @@ impl SettingsStore for SqliteSettingsStore {
             git_executable_path: row
                 .get::<Option<String>, _>("git_executable_path")
                 .map(Into::into),
+            diff_tool: row.get::<Option<String>, _>("diff_tool"),
         })
     }
 
     async fn update_settings(&self, settings: &Settings) -> Result<Settings, StoreError> {
         sqlx::query(
-            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, auto_fetch = ?, performance_diagnostics = ?, git_executable_path = ?, updated_at = ? WHERE id = 1",
+            "UPDATE settings SET locale = ?, theme = ?, default_ide = ?, auto_fetch = ?, performance_diagnostics = ?, git_executable_path = ?, diff_tool = ?, updated_at = ? WHERE id = 1",
         )
         .bind(&settings.locale)
         .bind(theme_to_str(settings.theme))
@@ -66,6 +67,7 @@ impl SettingsStore for SqliteSettingsStore {
                 .as_ref()
                 .map(|path| path.to_string_lossy().into_owned()),
         )
+        .bind(&settings.diff_tool)
         .bind(OffsetDateTime::now_utc().to_string())
         .execute(&self.pool)
         .await
@@ -105,6 +107,7 @@ mod tests {
         settings.auto_fetch = true;
         settings.performance_diagnostics = true;
         settings.git_executable_path = Some("C:/Program Files/Git/cmd/git.exe".into());
+        settings.diff_tool = Some("meld".to_string());
         store.update_settings(&settings).await.unwrap();
 
         let fetched = store.get_settings().await.unwrap();
@@ -113,5 +116,13 @@ mod tests {
         assert!(fetched.auto_fetch);
         assert!(fetched.performance_diagnostics);
         assert_eq!(fetched.git_executable_path, settings.git_executable_path);
+        assert_eq!(fetched.diff_tool.as_deref(), Some("meld"));
+    }
+
+    #[tokio::test]
+    async fn diff_tool_defaults_to_none() {
+        let store = SqliteSettingsStore::new(in_memory_pool().await);
+        let settings = store.get_settings().await.unwrap();
+        assert_eq!(settings.diff_tool, None);
     }
 }

@@ -11,12 +11,14 @@ import {
   createWorkspace as createWorkspaceCommand,
   deleteWorkspace as deleteWorkspaceCommand,
   getWorkspaceStatus,
+  getWorkspaceHealth,
   importRepositories as importRepositoriesCommand,
   listRepositories,
   listWorkspaces,
   removeRepository as removeRepositoryCommand,
   renameWorkspace as renameWorkspaceCommand,
   reorderWorkspaces,
+  setWorkspaceExpectedBranch as setWorkspaceExpectedBranchCommand,
   type OperationTask,
 } from "@/infrastructure/tauriClient";
 import type {
@@ -25,6 +27,7 @@ import type {
   CreateRepositoryRequest,
   CreateRepositoryResult,
   RepoStatusSummary,
+  RepoHealth,
   RepositoryEntry,
   Workspace,
 } from "@/domain/workspace";
@@ -49,6 +52,7 @@ export interface UseRepositoriesResult {
   repositories: RepositoryEntry[];
   repositoriesByWorkspace: Record<string, RepositoryEntry[]>;
   statusByRepo: Record<string, RepoStatusSummary>;
+  healthByRepo: Record<string, RepoHealth>;
   loading: boolean;
   error: string | null;
   workspaceActionPending: string | null;
@@ -56,6 +60,7 @@ export interface UseRepositoriesResult {
   selectWorkspace: (id: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace | null>;
   renameWorkspace: (id: string, name: string) => Promise<void>;
+  setWorkspaceExpectedBranch: (id: string, expectedBranch: string | null) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, direction: -1 | 1) => Promise<void>;
   moveWorkspaceTo: (id: string, targetId: string) => Promise<void>;
@@ -97,6 +102,14 @@ export function useRepositories(): UseRepositoriesResult {
     })),
   });
 
+  const healthQueries = useQueries({
+    queries: workspaces.map((workspace) => ({
+      queryKey: queryKeys.workspaces.health(workspace.id),
+      queryFn: () => getWorkspaceHealth(workspace.id),
+      enabled: activated,
+    })),
+  });
+
   useEffect(() => {
     if (workspaces.length === 0) {
       setSelectedWorkspaceId(null);
@@ -125,6 +138,16 @@ export function useRepositories(): UseRepositoriesResult {
     [statusQueries],
   );
 
+  const healthByRepo = useMemo(
+    () =>
+      Object.fromEntries(
+        healthQueries.flatMap((query) =>
+          (query.data ?? []).map((health) => [health.repoId, health] as const),
+        ),
+      ),
+    [healthQueries],
+  );
+
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
     [selectedWorkspaceId, workspaces],
@@ -142,6 +165,10 @@ export function useRepositories(): UseRepositoriesResult {
   });
   const deleteWorkspaceMutation = useMutation({
     mutationFn: (id: string) => deleteWorkspaceCommand(id),
+  });
+  const setWorkspaceExpectedBranchMutation = useMutation({
+    mutationFn: ({ id, expectedBranch }: { id: string; expectedBranch: string | null }) =>
+      setWorkspaceExpectedBranchCommand(id, expectedBranch),
   });
   const reorderWorkspacesMutation = useMutation({
     mutationFn: (ids: string[]) => reorderWorkspaces(ids),
@@ -163,6 +190,7 @@ export function useRepositories(): UseRepositoriesResult {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.repositories(workspaceId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.status(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.health(workspaceId) }),
       ]);
     },
     [queryClient],
@@ -219,6 +247,34 @@ export function useRepositories(): UseRepositoriesResult {
     [queryClient, renameWorkspaceMutation],
   );
 
+  /**
+   * Expected branch is a workspace-level input to the backend health
+   * projection, so the only queries that can change are the workspace row
+   * itself and that workspace's health — repository lists, statuses, and
+   * per-repository data are untouched. Errors are rethrown so the settings
+   * dialog can surface backend validation in place instead of the app-level
+   * error strip.
+   */
+  const setWorkspaceExpectedBranch = useCallback(
+    async (id: string, expectedBranch: string | null) => {
+      setLocalError(null);
+      setWorkspaceActionPending(id);
+      try {
+        const updated = await setWorkspaceExpectedBranchMutation.mutateAsync({
+          id,
+          expectedBranch,
+        });
+        queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), (current = []) =>
+          sortWorkspaces(current.map((workspace) => (workspace.id === id ? updated : workspace))),
+        );
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces.health(id) });
+      } finally {
+        setWorkspaceActionPending(null);
+      }
+    },
+    [queryClient, setWorkspaceExpectedBranchMutation],
+  );
+
   const deleteWorkspace = useCallback(
     async (id: string) => {
       setLocalError(null);
@@ -232,6 +288,7 @@ export function useRepositories(): UseRepositoriesResult {
         queryClient.setQueryData<Workspace[]>(queryKeys.workspaces.list(), remaining);
         queryClient.removeQueries({ queryKey: queryKeys.workspaces.repositories(id) });
         queryClient.removeQueries({ queryKey: queryKeys.workspaces.status(id) });
+        queryClient.removeQueries({ queryKey: queryKeys.workspaces.health(id) });
         for (const repo of repositoriesByWorkspace[id] ?? []) {
           queryClient.removeQueries({ queryKey: queryKeys.repos.detail(repo.id) });
         }
@@ -376,6 +433,9 @@ export function useRepositories(): UseRepositoriesResult {
           await queryClient.invalidateQueries({
             queryKey: queryKeys.workspaces.status(request.workspaceId),
           });
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.workspaces.health(request.workspaceId),
+          });
           return result;
         }),
       };
@@ -396,13 +456,18 @@ export function useRepositories(): UseRepositoriesResult {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.workspaces.status(request.workspaceId),
       });
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaces.health(request.workspaceId),
+      });
       return result;
     },
     [queryClient],
   );
 
   const queryBackedError =
-    workspacesQuery.error ? userErrorMessage(workspacesQuery.error) : queryError(repositoryQueries) ?? queryError(statusQueries);
+    workspacesQuery.error
+      ? userErrorMessage(workspacesQuery.error)
+      : queryError(repositoryQueries) ?? queryError(statusQueries) ?? queryError(healthQueries);
 
   return {
     workspaces,
@@ -411,17 +476,20 @@ export function useRepositories(): UseRepositoriesResult {
     repositories,
     repositoriesByWorkspace,
     statusByRepo,
+    healthByRepo,
     loading:
       !activated ||
       workspacesQuery.isLoading ||
       repositoryQueries.some((query) => query.isLoading) ||
-      statusQueries.some((query) => query.isLoading),
+      statusQueries.some((query) => query.isLoading) ||
+      healthQueries.some((query) => query.isLoading),
     error: localError ?? queryBackedError,
     workspaceActionPending,
     clearError: () => setLocalError(null),
     selectWorkspace,
     createWorkspace,
     renameWorkspace,
+    setWorkspaceExpectedBranch,
     deleteWorkspace,
     moveWorkspace,
     moveWorkspaceTo,

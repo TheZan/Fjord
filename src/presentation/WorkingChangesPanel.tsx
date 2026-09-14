@@ -8,16 +8,19 @@ import {
   FileViewTabs,
   useFileTreeCollapse,
   type FileTreeCollapse,
+  type FileContextMenuAnchor,
   type FileViewMode,
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
-import type { AmendInfo, WorkingChanges, WorkingFile } from "@/domain/git";
-
-export interface SelectedWorkingFile {
-  path: string;
-  staged: boolean;
-}
+import type { AmendInfo, WorkingChanges, WorkingFile, WorkingFileTarget } from "@/domain/git";
+import type { WorkingFileSelectionController } from "@/application/useWorkingFileSelection";
+import type { WorkingFileAction, WorkingFileActionContext } from "@/application/useWorkingFileActions";
+import { ContextMenu } from "@/presentation/GitContextMenu";
+import {
+  workingFileMenuItems,
+  type WorkingFileActionEntry,
+} from "@/presentation/WorkingFileContextMenu";
 
 /**
  * The commit panel: what's staged, what isn't, and the message that will turn
@@ -30,24 +33,39 @@ export function WorkingChangesPanel({
   error,
   busy,
   validated,
-  selectedFile,
-  onSelectFile,
+  selection,
   onStage,
   onUnstage,
+  onSelectionAction,
+  patchExportDisabledTarget,
+  stashFileDisabledReason,
+  onFileContextMenu,
   onPrepareAmend,
   onCommit,
+  pendingDraftMessage,
+  onPendingDraftMessageConsumed,
 }: {
   changes: WorkingChanges;
   loading: boolean;
   error: string | null;
   busy: boolean;
   validated: boolean;
-  selectedFile: SelectedWorkingFile | null;
-  onSelectFile: (file: SelectedWorkingFile) => void;
+  selection: WorkingFileSelectionController;
   onStage: (paths: string[]) => void;
   onUnstage: (paths: string[]) => void;
+  onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  patchExportDisabledTarget?: WorkingFileTarget;
+  stashFileDisabledReason?: string;
+  onFileContextMenu?: (
+    file: WorkingFile,
+    target: WorkingFileTarget,
+    anchor: FileContextMenuAnchor,
+  ) => void;
   onPrepareAmend: () => Promise<AmendInfo | null>;
   onCommit: (message: string, amend: boolean, push: boolean) => Promise<boolean>;
+  /** A suggested message set from outside (e.g. a squash merge's SQUASH_MSG). */
+  pendingDraftMessage?: string | null;
+  onPendingDraftMessageConsumed?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
@@ -72,6 +90,12 @@ export function WorkingChangesPanel({
   }, []);
 
   const total = changes.staged.length + changes.unstaged.length;
+  const selectedSource = selection.source ?? selection.active?.source;
+  const selectionTotal = selectedSource === "index"
+    ? changes.staged.length
+    : selectedSource === "worktree"
+      ? changes.unstaged.length
+      : total;
   const canCommit = validated
     && (amend || changes.staged.length > 0)
     && summary.trim().length > 0
@@ -124,6 +148,16 @@ export function WorkingChangesPanel({
     return () => document.removeEventListener("fjord:commit", onShortcutCommit);
   });
 
+  useEffect(() => {
+    if (pendingDraftMessage === null || pendingDraftMessage === undefined) return;
+    const message = splitCommitMessage(pendingDraftMessage);
+    setSummary(message.summary);
+    setDescription(message.description);
+    onPendingDraftMessageConsumed?.();
+    // Runs exactly once per pending message: the effect's own consumption
+    // callback clears the prop before this could re-fire.
+  }, [pendingDraftMessage]);
+
   function changeViewMode(mode: FileViewMode) {
     setViewMode(mode);
     void saveRepoModes(null, mode).catch(() => undefined);
@@ -131,6 +165,12 @@ export function WorkingChangesPanel({
 
   return (
     <Surface className="flex h-full min-h-0 w-full flex-col text-sm" style={{ background: "var(--paper)" }}>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {t("workingChanges.selectionAnnouncement", {
+          count: selection.targets.size,
+          total: selectionTotal,
+        })}
+      </p>
       <div
         className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2"
         style={{ borderColor: "var(--hairline)" }}
@@ -173,9 +213,12 @@ export function WorkingChangesPanel({
           actionLabel={t("working.stage")}
           bulkLabel={t("working.stageAll")}
           busy={busy || !validated}
-          selectedFile={selectedFile}
-          onSelectFile={onSelectFile}
+          selection={selection}
           onAct={onStage}
+          onSelectionAction={onSelectionAction}
+          patchExportDisabledTarget={patchExportDisabledTarget}
+          stashFileDisabledReason={stashFileDisabledReason}
+          onFileContextMenu={onFileContextMenu}
         />
         <FileSection
           label={t("working.staged")}
@@ -186,9 +229,12 @@ export function WorkingChangesPanel({
           actionLabel={t("working.unstage")}
           bulkLabel={t("working.unstageAll")}
           busy={busy || !validated}
-          selectedFile={selectedFile}
-          onSelectFile={onSelectFile}
+          selection={selection}
           onAct={onUnstage}
+          onSelectionAction={onSelectionAction}
+          patchExportDisabledTarget={patchExportDisabledTarget}
+          stashFileDisabledReason={stashFileDisabledReason}
+          onFileContextMenu={onFileContextMenu}
         />
       </div>
 
@@ -267,9 +313,12 @@ function FileSection({
   actionLabel,
   bulkLabel,
   busy,
-  selectedFile,
-  onSelectFile,
+  selection,
   onAct,
+  onSelectionAction,
+  patchExportDisabledTarget,
+  stashFileDisabledReason,
+  onFileContextMenu,
 }: {
   label: string;
   files: WorkingFile[];
@@ -279,39 +328,168 @@ function FileSection({
   actionLabel: string;
   bulkLabel: string;
   busy: boolean;
-  selectedFile: SelectedWorkingFile | null;
-  onSelectFile: (file: SelectedWorkingFile) => void;
+  selection: WorkingFileSelectionController;
   onAct: (paths: string[]) => void;
+  onSelectionAction: (action: WorkingFileAction, context: WorkingFileActionContext) => void;
+  patchExportDisabledTarget?: WorkingFileTarget;
+  stashFileDisabledReason?: string;
+  onFileContextMenu?: (
+    file: WorkingFile,
+    target: WorkingFileTarget,
+    anchor: FileContextMenuAnchor,
+  ) => void;
 }) {
   const { t } = useTranslation("workspace");
+  const [selectionMenuPosition, setSelectionMenuPosition] = useState<{ x: number; y: number } | null>(null);
   if (files.length === 0) return null;
 
-  const selectedPath =
-    selectedFile && selectedFile.staged === staged ? selectedFile.path : null;
+  const source = staged ? "index" as const : "worktree" as const;
+  const selectedPaths = selection.selectedPaths(source);
+  const activePath = selection.active?.source === source ? selection.active.path : null;
+  const targetFor = (path: string): WorkingFileTarget => ({ path, source });
+  const selectedEntries: WorkingFileActionEntry[] = files
+    .filter((file) => selectedPaths.has(file.path))
+    .map((file) => ({ file, target: targetFor(file.path) }));
+  const patchExportDisabledReason = patchExportDisabledTarget
+    && selectedEntries.some((entry) => (
+      entry.target.path === patchExportDisabledTarget.path
+      && entry.target.source === patchExportDisabledTarget.source
+    ))
+    ? t("workingFile.disabled.whitespaceMode")
+    : undefined;
+  const selectionItems = selectedEntries.length >= 2
+    ? workingFileMenuItems({
+        clicked: selectedEntries[0],
+        selection: selectedEntries,
+        busy,
+        patchExportDisabledReason,
+        stashFileDisabledReason,
+      }, t)
+    : [];
+  const primaryIds = source === "worktree" ? ["stage", "stashFile"] : ["unstage"];
+  const primaryItems = primaryIds
+    .map((id) => selectionItems.find((item) => item.id === id))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const actionContext: WorkingFileActionContext | null = selectedEntries.length >= 2
+    ? {
+        clickedTarget: selectedEntries[0].target,
+        targets: selectedEntries.map((entry) => entry.target),
+      }
+    : null;
+
+  function dispatchSelectionAction(action: WorkingFileAction) {
+    if (actionContext) onSelectionAction(action, actionContext);
+  }
 
   return (
     <div className="p-2">
-      <div className="mb-1 flex items-center justify-between gap-2 px-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
+      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 px-1">
+        <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--mist)" }}>
           {label} ({files.length})
         </span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onAct(files.map((file) => file.path))}
-          className="interactive-control rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
-          style={{ color: "var(--fjord-ink)" }}
-        >
-          {bulkLabel}
-        </button>
+        {selectedEntries.length >= 2 ? (
+          <div
+            className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"
+            data-testid={`${source}-selection-toolbar`}
+          >
+            <span className="mr-1 whitespace-nowrap text-[11px]" style={{ color: "var(--slate)" }}>
+              {t("workingChanges.selectedCount", { count: selectedEntries.length })}
+            </span>
+            {primaryItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={item.label}
+                title={item.disabledReason}
+                disabled={item.disabled}
+                onClick={() => dispatchSelectionAction(item.id as WorkingFileAction)}
+                className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+                style={{ color: "var(--fjord-ink)" }}
+              >
+                {item.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-label={t("workingChanges.selectionActions", { count: selectedEntries.length })}
+              onClick={(event) => {
+                const bounds = event.currentTarget.getBoundingClientRect();
+                setSelectionMenuPosition({ x: bounds.right, y: bounds.bottom });
+              }}
+              className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: "var(--fjord-ink)" }}
+            >
+              ⋯
+            </button>
+            <button
+              type="button"
+              aria-label={t("workingChanges.clearSelection")}
+              onClick={selection.clear}
+              className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
+              style={{ color: "var(--fjord-ink)" }}
+            >
+              {t("workingChanges.clearSelection")}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAct(files.map((file) => file.path))}
+            className="interactive-control ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+            style={{ color: "var(--fjord-ink)" }}
+          >
+            {bulkLabel}
+          </button>
+        )}
       </div>
+
+      {selectionMenuPosition ? (
+        <ContextMenu
+          position={selectionMenuPosition}
+          items={selectionItems}
+          onClose={() => setSelectionMenuPosition(null)}
+          onSelect={(id) => {
+            setSelectionMenuPosition(null);
+            dispatchSelectionAction(id as WorkingFileAction);
+          }}
+        />
+      ) : null}
 
       <FileEntryList
         files={files}
         mode={viewMode}
         collapse={collapse}
-        selectedPath={selectedPath}
-        onSelect={(file) => onSelectFile({ path: file.path, staged })}
+        selectedPaths={selectedPaths}
+        activePath={activePath}
+        multiselectable
+        ariaLabel={label}
+        onSelect={(file, intent, visibleFiles) => {
+          selection.select(
+            targetFor(file.path),
+            intent.range
+              ? visibleFiles.map((visibleFile) => targetFor(visibleFile.path))
+              : [],
+            intent,
+          );
+        }}
+        onActivate={(file) => selection.activate(targetFor(file.path))}
+        onSelectAll={(visibleFiles, focusedFile) => selection.selectAll(
+          source,
+          visibleFiles.map((visibleFile) => targetFor(visibleFile.path)),
+          targetFor(focusedFile.path),
+        )}
+        onVisibleFilesChange={(visibleFiles) => selection.registerVisibleTargets(
+          source,
+          visibleFiles.map((visibleFile) => targetFor(visibleFile.path)),
+        )}
+        onFileContextMenu={onFileContextMenu
+          ? (file, anchor) => {
+              const target = targetFor(file.path);
+              selection.prepareContextMenu(target);
+              onFileContextMenu(file, target, anchor);
+            }
+          : undefined}
         renderMark={(file) => (
           <span
             style={{ color: CHANGE_TYPE_COLOR[file.changeType] }}

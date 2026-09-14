@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/presentation/Sidebar";
-import type { RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
+import type { RepoHealth, RepoStatusSummary, RepositoryEntry, Workspace } from "@/domain/workspace";
 
 const loadUiState = vi.fn();
 const saveCollapsedWorkspaces = vi.fn();
@@ -19,8 +19,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 const workspaces: Workspace[] = [
-  { id: "one", name: "One", sortOrder: 0 },
-  { id: "two", name: "Two", sortOrder: 1 },
+  { id: "one", name: "One", sortOrder: 0, expectedBranch: null },
+  { id: "two", name: "Two", sortOrder: 1, expectedBranch: null },
 ];
 const repo: RepositoryEntry = {
   id: "repo-1",
@@ -34,6 +34,12 @@ const status: RepoStatusSummary = {
   status: { branch: "main", ahead: 1, behind: 2, dirtyCount: 3, hasConflict: false },
   lastSyncedAt: null,
 };
+const health: RepoHealth = {
+  repoId: "repo-1",
+  conditions: [{ kind: "diverged", ahead: 1, behind: 2 }, { kind: "dirty", count: 3 }],
+  needsAttention: true,
+  asOf: "1970-01-01T00:00:00Z",
+};
 
 function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
   return {
@@ -42,6 +48,7 @@ function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     workspaces,
     repositoriesByWorkspace: { one: [repo], two: [] },
     statusByRepo: { "repo-1": status },
+    healthByRepo: { "repo-1": health },
     repoCountByWorkspace: { one: 1, two: 0 },
     attentionByWorkspace: { one: 1, two: 0 },
     selectedWorkspaceId: "one",
@@ -51,6 +58,7 @@ function props(overrides: Partial<React.ComponentProps<typeof Sidebar>> = {}) {
     onWarmRepository: vi.fn(),
     onCreateWorkspace: vi.fn(),
     onRenameWorkspace: vi.fn(),
+    onOpenWorkspaceSettings: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onMoveWorkspace: vi.fn(),
     onMoveWorkspaceTo: vi.fn(),
@@ -158,5 +166,15 @@ describe("Sidebar", () => {
     fireEvent.click(menuButton);
     fireEvent.mouseDown(screen.getByText("workspaces.moveUp"));
     expect(screen.getByText("workspaces.rename")).toBeInTheDocument();
+  });
+  it("opens workspace settings from the workspace overflow menu", () => {
+    const sidebarProps = props();
+    render(<Sidebar {...sidebarProps} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "workspaces.rename" })[0]);
+    fireEvent.click(screen.getByText("workspaceSettings.title"));
+
+    expect(sidebarProps.onOpenWorkspaceSettings).toHaveBeenCalledExactlyOnceWith("one");
+    expect(screen.queryByText("workspaceSettings.title")).not.toBeInTheDocument();
   });
 });
