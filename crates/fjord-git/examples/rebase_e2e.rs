@@ -43,6 +43,21 @@ async fn dispatch(
         "get_tags" => json!(backend.tags(repo).await?),
         "get_commit_log" => json!(backend.log(repo, None, 30).await?),
         "get_working_changes" => json!(backend.working_changes(repo).await?),
+        "get_working_file_diff" => json!(
+            backend
+                .working_file_diff_window(
+                    repo,
+                    args["path"].as_str().unwrap(),
+                    args["staged"].as_bool().unwrap_or(false),
+                    fjord_ports::DiffWindowOptions {
+                        offset: 0,
+                        limit: 10_000,
+                        max_file_bytes: 10 * 1024 * 1024,
+                        whitespace: fjord_domain::DiffWhitespaceMode::Show,
+                    },
+                )
+                .await?
+        ),
         "get_rebase_preflight" => json!(
             backend
                 .rebase_preflight(repo, &serde_json::from_value(args["onto"].clone())?)
