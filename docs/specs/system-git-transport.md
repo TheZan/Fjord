@@ -176,6 +176,7 @@ logged. Tokens and passwords are never process arguments.
 - Clone: `git clone --progress [--branch <branch>] -- <url> <destination>`.
 - Fetch: `git fetch --progress --prune <remote> [refspecs...]`.
 - Push: `git push --progress <remote> [refspecs...]`.
+- Push a selected tag: `git push --progress <remote> refs/tags/<tag>:refs/tags/<tag>` after validating that the tag and remote still exist locally. No `--tags` or force fallback.
 - Publish a branch: `git push --progress --set-upstream <remote> <ref>:<ref>`.
 - Delete remote branch: `git push <remote> --delete <branch>`.
 - Inspect remote: `git ls-remote` (and `--symref` for connection tests).

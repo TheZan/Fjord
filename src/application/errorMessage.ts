@@ -62,6 +62,7 @@ const USER_ERROR_CODES = new Set([
   "remote_url_invalid",
   "stash_empty",
   "stash_not_found",
+  "tag_not_found",
   "stash_ambiguous",
   "stash_apply_would_overwrite",
   "stash_apply_index_refused",

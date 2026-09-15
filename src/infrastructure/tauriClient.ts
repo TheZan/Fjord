@@ -1023,6 +1023,10 @@ export function runPushBranchToRemotes(
   return invokeOperation("push", "push_branch_to_remotes", { repoId, remotes });
 }
 
+export function runPushTag(repoId: string, tag: string, remote: string): OperationTask<void> {
+  return invokeOperation("push", "push_tag", { repoId, tag, remote });
+}
+
 // Publishes the current branch and sets its upstream. The remote is chosen by
 // the caller; the backend never guesses one for a plain push.
 export function runPublishBranch(repoId: string, remote: string | null = null): OperationTask<void> {

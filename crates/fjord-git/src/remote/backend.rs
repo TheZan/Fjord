@@ -742,6 +742,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn push_exact_tag_ref_does_not_push_the_branch() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let remote = temp.path().join("remote.git");
+        std::fs::create_dir(&source).unwrap();
+        run_git(&source, &["init", "-b", "main"]);
+        configure_identity(&source);
+        std::fs::write(source.join("README.md"), "initial\n").unwrap();
+        run_git(&source, &["add", "."]);
+        run_git(&source, &["commit", "-m", "initial"]);
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(
+            &source,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        let tagged_commit = git_output(&source, &["rev-parse", "HEAD"]);
+        run_git(&source, &["tag", "v1.0.0"]);
+
+        SystemGitRemoteBackend::new()
+            .push(
+                &RepoPath::new(source.clone()),
+                "origin",
+                &["refs/tags/v1.0.0:refs/tags/v1.0.0".into()],
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            git_output(&remote, &["rev-parse", "refs/tags/v1.0.0"]),
+            tagged_commit
+        );
+        assert!(!std::process::Command::new("git")
+            .args(["rev-parse", "--verify", "refs/heads/main"])
+            .current_dir(&remote)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
+
+    #[tokio::test]
     async fn composed_pull_fast_forwards_merges_and_reports_conflicts() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");

@@ -76,6 +76,7 @@
     "remote_name_exists": "Ya existe un remoto con este nombre.",
     "remote_name_invalid": "Elige un nombre de remoto de Git válido.",
     "remote_not_found": "Ese remoto ya no existe. Actualiza y vuelve a intentarlo.",
+    "tag_not_found": "Esa etiqueta ya no existe. Actualiza y vuelve a intentarlo.",
     "remote_rename_target_exists": "Ya hay un remoto que usa el nombre nuevo.",
     "remote_request_invalid": "Comprueba el nombre del remoto y la URL del repositorio.",
     "remote_url_invalid": "Introduce una URL de repositorio remoto que no esté vacía.",

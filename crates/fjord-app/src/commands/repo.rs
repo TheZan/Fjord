@@ -1189,6 +1189,30 @@ pub async fn push_branch_to_remotes(
     .await
 }
 
+#[tauri::command]
+pub async fn push_tag(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    tag: String,
+    remote: String,
+    operation_id: Option<String>,
+) -> Result<(), AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::Push,
+        repo_id,
+        |context| {
+            state
+                .repos
+                .push_tag_with_context(repo_id, &tag, &remote, context)
+        },
+    )
+    .await
+}
+
 /// Publishes a branch that has no upstream yet. Separate from `push_repo`
 /// because it is the user's explicit answer to `no_upstream`.
 #[tauri::command]

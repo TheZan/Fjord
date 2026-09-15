@@ -2116,6 +2116,46 @@ impl RepoService {
             .await?)
     }
 
+    /// Pushes only the selected local tag to one explicitly chosen remote.
+    /// The exact ref is checked before transport so a stale UI selection cannot
+    /// become a different refspec or an implicit branch push.
+    pub async fn push_tag_with_context(
+        &self,
+        repo_id: RepositoryId,
+        tag: &str,
+        remote: &str,
+        context: GitOperationContext,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        let repo_path = RepoPath::new(repo.path);
+        if !self
+            .git
+            .tags(&repo_path)
+            .await?
+            .iter()
+            .any(|item| item.name == tag)
+        {
+            return Err(GitError::TagNotFound.into());
+        }
+        if !self
+            .git
+            .remotes(&repo_path)
+            .await?
+            .iter()
+            .any(|item| item.name == remote)
+        {
+            return Err(GitError::RemoteNotFound(remote.to_string()).into());
+        }
+        let tag_ref = format!("refs/tags/{tag}");
+        let refspec = format!("{tag_ref}:{tag_ref}");
+        let settings = self.settings.get_settings().await?;
+        let context = context.with_git_executable_path(settings.git_executable_path);
+        Ok(self
+            .remote
+            .push(&repo_path, remote, &[refspec], context)
+            .await?)
+    }
+
     /// Pushes the current branch to each explicitly selected configured remote
     /// without changing the branch's upstream. Destinations are attempted in
     /// caller order and ordinary failures are returned per remote; cancellation
@@ -4266,6 +4306,50 @@ mod tests {
             Err(RepoError::Git(GitError::InvalidRemote(_)))
         ));
         assert_eq!(remote.pushes.lock().unwrap().len(), push_count);
+    }
+
+    #[tokio::test]
+    async fn tag_push_uses_only_the_selected_tag_and_configured_remote() {
+        let repo = repo_entry();
+        let remote = Arc::new(FakeRemoteGit::default());
+        let service = RepoService::new(
+            Arc::new(FakeStore { repo: repo.clone() }),
+            Arc::new(FakeSettingsStore {
+                settings: Settings::default(),
+            }),
+            Arc::new(FakeGit::default()),
+            remote.clone(),
+            Arc::new(FakeEnvironment),
+            Arc::new(FakeIdeLauncher {
+                opened: Mutex::new(None),
+                terminal_opened: Mutex::new(None),
+            }),
+        );
+
+        service
+            .push_tag_with_context(repo.id, "v1.0.0", "gitlab", GitOperationContext::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            remote.pushes.lock().unwrap().as_slice(),
+            [(
+                "gitlab".to_string(),
+                vec!["refs/tags/v1.0.0:refs/tags/v1.0.0".to_string()],
+            )]
+        );
+        assert!(matches!(
+            service
+                .push_tag_with_context(repo.id, "missing", "gitlab", GitOperationContext::default())
+                .await,
+            Err(RepoError::Git(GitError::TagNotFound))
+        ));
+        assert!(matches!(
+            service
+                .push_tag_with_context(repo.id, "v1.0.0", "missing", GitOperationContext::default())
+                .await,
+            Err(RepoError::Git(GitError::RemoteNotFound(_)))
+        ));
+        assert_eq!(remote.pushes.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

@@ -4,7 +4,7 @@ import { useRemotes } from "@/application/useRemotes";
 import { DialogActions, DialogFrame } from "@/presentation/GitContextMenu";
 import { Select } from "@/presentation/ui";
 
-export type RemotePickerKind = "fetch" | "publish" | "setUpstream";
+export type RemotePickerKind = "fetch" | "publish" | "pushTag" | "setUpstream";
 
 export interface RemotePickerSelection {
   remote: string;
@@ -15,6 +15,7 @@ export function RemotePickerDialog({
   repoId,
   kind,
   branch,
+  tag,
   remoteBranches = [],
   onConfirm,
   onClose,
@@ -22,6 +23,7 @@ export function RemotePickerDialog({
   repoId: string;
   kind: RemotePickerKind;
   branch?: string;
+  tag?: string;
   remoteBranches?: string[];
   onConfirm: (selection: RemotePickerSelection) => void;
   onClose: () => void;
@@ -61,7 +63,7 @@ export function RemotePickerDialog({
   return (
     <DialogFrame
       title={t(`remotes.picker.${kind}Title`)}
-      description={t(`remotes.picker.${kind}Description`, { branch })}
+      description={t(`remotes.picker.${kind}Description`, { branch, tag })}
       onClose={onClose}
     >
       {loading ? (

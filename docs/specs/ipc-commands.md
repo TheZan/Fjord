@@ -143,6 +143,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `pull_repo` | `{ repo_id, operation_id? }` | — | System fetch + local integration; never `git pull` |
 | `push_repo` | `{ repo_id, force_with_lease, expected_generations?, confirmation_token?, operation_id? }` | — | Normal target is resolved from the branch's upstream; `no_upstream` → publish. Force mode requires the one-use preflight token and executes only its backend-bound remote/ref/OIDs. |
 | `push_branch_to_remotes` | `{ repo_id, remotes, operation_id? }` | `RemotePushResult[]` | Sequentially pushes the current branch's exact local ref to the same ref on every explicitly selected configured remote. Returns a stable result per remote, continues after ordinary failures, never forces, and never changes upstream. |
+| `push_tag` | `{ repo_id, tag, remote, operation_id? }` | — | Pushes only an existing local tag to one explicitly selected configured remote with the exact `refs/tags/<tag>:refs/tags/<tag>` refspec. Never forces or changes branch upstream. |
 | `publish_branch` | `{ repo_id, remote?, operation_id? }` | — | The only operation allowed to name a default remote |
 | `bulk_fetch` / `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Bounded worker pool; per-repo results, one failure does not abort the batch |
 

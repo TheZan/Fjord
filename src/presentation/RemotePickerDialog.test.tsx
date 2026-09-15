@@ -30,6 +30,15 @@ describe("RemotePickerDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith({ remote: "upstream", upstream: null });
   });
 
+  it("chooses one remote for an exact tag push", () => {
+    render(
+      <RemotePickerDialog repoId="repo-1" kind="pushTag" tag="v1.0" onConfirm={onConfirm} onClose={onClose} />,
+    );
+    fireEvent.change(screen.getByLabelText("remotes.picker.remoteLabel"), { target: { value: "upstream" } });
+    fireEvent.click(screen.getByRole("button", { name: "remotes.picker.pushTagConfirm" }));
+    expect(onConfirm).toHaveBeenCalledWith({ remote: "upstream", upstream: null });
+  });
+
   it("filters upstream branches through the selected remote", () => {
     render(
       <RemotePickerDialog

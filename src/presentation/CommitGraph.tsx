@@ -77,6 +77,7 @@ export function CommitGraph({
   onCheckout,
   onMergeBranch,
   onSquashMergeBranch,
+  onPushTag,
   onCommitContextAction,
   selectedStashId,
   onSelectStash,
@@ -98,6 +99,7 @@ export function CommitGraph({
   onCheckout?: (branch: string) => void;
   onMergeBranch?: (source: MergeSource) => void;
   onSquashMergeBranch?: (source: MergeSource) => void;
+  onPushTag?: (tag: string) => void;
   onCommitContextAction?: (action: CommitContextAction, commit: CommitSummary) => void;
   selectedStashId?: StashId | null;
   onSelectStash?: (stashId: StashId) => void;
@@ -562,6 +564,7 @@ export function CommitGraph({
             currentBranch ?? null,
             Boolean(onCheckout),
             Boolean(onMergeBranch),
+            Boolean(onPushTag),
             t,
           )}
           onClose={() => setRefMenu(null)}
@@ -578,6 +581,7 @@ export function CommitGraph({
               else onSquashMergeBranch?.(source);
             }
             if (action === "copy") void navigator.clipboard?.writeText(refInfo.label);
+            if (action === "push" && refInfo.kind === "tag") onPushTag?.(refInfo.label);
           }}
         />
       )}
@@ -1379,6 +1383,7 @@ function refMenuItems(
   currentBranch: string | null,
   canCheckout: boolean,
   canMerge: boolean,
+  canPushTag: boolean,
   t: (key: string, values?: Record<string, unknown>) => string,
 ): ContextMenuItem[] {
   const mergeDisabled =
@@ -1422,6 +1427,15 @@ function refMenuItems(
       disabled: mergeDisabled,
       disabledReason: mergeDisabledReason,
     },
+    ...(refInfo.kind === "tag"
+      ? [{
+          id: "push",
+          label: t("context.pushTag"),
+          icon: "tag",
+          disabled: !canPushTag,
+          disabledReason: !canPushTag ? t("operationBanner.blockedActions") : undefined,
+        } satisfies ContextMenuItem]
+      : []),
     {
       id: "copy",
       label: refInfo.kind === "tag" ? t("context.copyTagName") : t("context.copyBranchName"),

@@ -134,6 +134,30 @@ describe("CommitGraph", () => {
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
   });
 
+  it("pushes the exact tag selected from a graph badge", () => {
+    const onPushTag = vi.fn();
+    graphState.commits = [commit("commit-1", "Tagged commit")];
+    graphState.tags = [{ name: "v1.0.0", targetCommitId: "commit-1" }];
+
+    render(<CommitGraph repoId="repo-1" onPushTag={onPushTag} />);
+
+    fireEvent.contextMenu(screen.getByText("v1.0.0"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "context.pushTag" }));
+    expect(onPushTag).toHaveBeenCalledWith("v1.0.0");
+  });
+
+  it("explains why a graph tag cannot be pushed while operations are blocked", () => {
+    graphState.commits = [commit("commit-1", "Tagged commit")];
+    graphState.tags = [{ name: "v1.0.0", targetCommitId: "commit-1" }];
+
+    render(<CommitGraph repoId="repo-1" />);
+
+    fireEvent.contextMenu(screen.getByText("v1.0.0"));
+    const push = screen.getByRole("menuitem", { name: "context.pushTag" });
+    expect(push).toBeDisabled();
+    expect(push).toHaveAttribute("title", "operationBanner.blockedActions");
+  });
+
   it("distinguishes the local tip from its unpushed origin ref", () => {
     graphState.commits = [commit("local-tip", "Unpushed commit"), commit("remote-tip", "Published commit")];
     graphState.branches = [

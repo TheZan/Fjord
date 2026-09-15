@@ -49,6 +49,7 @@ import {
   runPullRepo,
   runPublishBranch,
   runPushBranchToRemotes,
+  runPushTag,
   runPushRepo,
   runContinueOperation,
   runSkipOperation,
@@ -506,6 +507,26 @@ export function RepoDetailContainer({
       ["status", "refs"],
     );
     return succeeded ? results : null;
+  }
+
+  function pushSelectedTag(tag: string, remote: string) {
+    void runRepoAction(
+      "push-tag",
+      async () => {
+        const task = runPushTag(repo.id, tag, remote);
+        setActionOperationId(task.operationId);
+        await task.promise;
+      },
+      ["refs", "history"],
+    );
+  }
+
+  function requestPushTag(tag: string) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return;
+    }
+    setActionConfirmation({ kind: "remote", action: "pushTag", tag });
   }
 
   function onCreateBranch(name: string) {
@@ -1050,7 +1071,8 @@ export function RepoDetailContainer({
         else if (confirmation.kind === "remote") {
           if (!remote) return;
           if (confirmation.action === "fetch") executeAction("fetch", remote);
-          else publishCurrentBranch(remote);
+          else if (confirmation.action === "publish") publishCurrentBranch(remote);
+          else if (confirmation.action === "pushTag") pushSelectedTag(confirmation.tag, remote);
         }
         else performCheckoutAndScrollToBranch(confirmation.branch);
       }}
@@ -1072,6 +1094,7 @@ export function RepoDetailContainer({
       onUnsetBranchUpstream={onUnsetBranchUpstream}
       onPublishBranch={(branch) => setActionConfirmation({ kind: "remote", action: "publish", branch })}
       onPushToRemotes={pushCurrentBranchToRemotes}
+      onPushTag={requestPushTag}
       onCreateTag={onCreateTag}
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}
@@ -1286,7 +1309,8 @@ type WorkingFileDiscard = {
 type ActionConfirmation =
   | { kind: "origin"; action: ConfirmableAction }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string }
+  | { kind: "remote"; action: "pushTag"; tag: string };
 
 function needsConfirmation(action: RepoAction): action is ConfirmableAction {
   return action === "pull" || action === "push";

@@ -168,6 +168,7 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::pull_repo,
             commands::push_repo,
             commands::push_branch_to_remotes,
+            commands::push_tag,
             commands::publish_branch,
             commands::open_merge_tool,
             commands::diff_tool_availability,

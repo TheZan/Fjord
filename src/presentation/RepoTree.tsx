@@ -266,7 +266,7 @@ export function RepoTree({
           items={
             menu.kind === "branch"
               ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
-              : tagMenuItems(menu.tag, t)
+              : tagMenuItems(menu.tag, t, checkoutDisabledReason)
           }
           onClose={() => setMenu(null)}
           onSelect={(action) => {
@@ -577,7 +577,7 @@ function VirtualTreeItems({
 }
 
 export type BranchContextAction = "checkout" | "rebase" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
-export type TagContextAction = "createBranch" | "delete" | "copy";
+export type TagContextAction = "createBranch" | "push" | "delete" | "copy";
 
 function branchMenuItems(
   branch: BranchInfo,
@@ -654,9 +654,10 @@ function branchMenuItems(
   ];
 }
 
-function tagMenuItems(_tag: TagInfo, t: (key: string) => string): ContextMenuItem[] {
+function tagMenuItems(_tag: TagInfo, t: (key: string) => string, pushDisabledReason?: string): ContextMenuItem[] {
   return [
     { id: "createBranch", label: t("context.createBranchHere"), icon: "branch" },
+    { id: "push", label: t("context.pushTag"), icon: "tag", disabled: Boolean(pushDisabledReason), disabledReason: pushDisabledReason },
     { id: "delete", label: t("context.deleteTag"), icon: "delete", danger: true },
     { id: "copy", label: t("context.copyTagName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
   ];

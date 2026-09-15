@@ -76,6 +76,7 @@
     "remote_name_exists": "Un dépôt distant portant ce nom existe déjà.",
     "remote_name_invalid": "Choisissez un nom de dépôt distant Git valide.",
     "remote_not_found": "Ce dépôt distant n’existe plus. Actualisez puis réessayez.",
+    "tag_not_found": "Ce tag n’existe plus. Actualisez puis réessayez.",
     "remote_rename_target_exists": "Un dépôt distant utilise déjà le nouveau nom.",
     "remote_request_invalid": "Vérifiez le nom du dépôt distant et l’URL du dépôt.",
     "remote_url_invalid": "Saisissez une URL de dépôt distant non vide.",

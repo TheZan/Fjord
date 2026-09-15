@@ -213,6 +213,8 @@ pub enum GitError {
     RemoteAlreadyExists(String),
     #[error("remote not found: {0}")]
     RemoteNotFound(String),
+    #[error("the selected tag no longer exists")]
+    TagNotFound,
     #[error("invalid remote name")]
     InvalidRemoteName,
     #[error("invalid remote URL")]

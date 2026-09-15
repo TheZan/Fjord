@@ -264,6 +264,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::RepositoryDestinationNotEmpty => "create_repository_destination_not_empty",
         GitError::RemoteAlreadyExists(_) => "remote_name_exists",
         GitError::RemoteNotFound(_) => "remote_not_found",
+        GitError::TagNotFound => "tag_not_found",
         GitError::InvalidRemoteName => "remote_name_invalid",
         GitError::InvalidRemoteUrl => "remote_url_invalid",
         GitError::RemoteRenameTargetExists(_) => "remote_rename_target_exists",
@@ -453,6 +454,10 @@ mod tests {
 
     #[test]
     fn remote_crud_failures_have_stable_non_secret_codes() {
+        assert_eq!(
+            git_error_to_app_error(GitError::TagNotFound).code,
+            "tag_not_found"
+        );
         assert_eq!(
             git_error_to_app_error(GitError::RemoteNotFound("origin".into())).code,
             "remote_not_found"

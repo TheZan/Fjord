@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runPushTag, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -142,6 +142,7 @@ vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
     generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
   })),
   runPushRepo: vi.fn(() => ({ operationId: "operation-1", promise: Promise.resolve() })),
+  runPushTag: vi.fn(() => ({ operationId: "push-tag-1", promise: Promise.resolve() })),
   runPublishBranch: vi.fn(() => ({ operationId: "publish-1", promise: Promise.resolve() })),
   runPushBranchToRemotes: vi.fn(() => ({
     operationId: "push-remotes-1",
@@ -257,6 +258,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter,
     onPublishBranch,
     onPushToRemotes,
+    onPushTag,
     onRebaseBranch,
     onMergeBranch,
     onSquashMergeBranch,
@@ -269,7 +271,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onPreflightAction,
     onApplyStash,
   }: {
-    actionConfirmation: { kind: string; action?: string; branch?: string } | null;
+    actionConfirmation: { kind: string; action?: string; branch?: string; tag?: string } | null;
     onAction: (action: "fetch" | "push" | "stash" | "stash-pop") => void;
     onCheckout: (branch: string) => void;
     onConfirmAction: (remote?: string) => void;
@@ -289,6 +291,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     onOpenRecoveryCenter: () => void;
     onPublishBranch: (branch: string) => void;
     onPushToRemotes: (remotes: string[]) => Promise<import("@/domain/workspace").RemotePushResult[] | null>;
+    onPushTag: (tag: string) => void;
     onRebaseBranch: (source: import("@/domain/git").MergeSource) => void;
     onMergeBranch: (source: import("@/domain/git").MergeSource) => void;
     onSquashMergeBranch: (source: import("@/domain/git").MergeSource) => void;
@@ -318,6 +321,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onAction("stash")}>stash all</button>
       <button type="button" onClick={() => onPublishBranch("main")}>push and set upstream</button>
       <button type="button" onClick={() => void onPushToRemotes(["origin", "gitlab"])}>push to remotes</button>
+      <button type="button" onClick={() => onPushTag("v1.0.0")}>push selected tag</button>
       <button type="button" onClick={() => onAction("stash-pop")}>stash pop</button>
       {stashActionRequest?.action === "pop" ? (
         <button type="button" onClick={() => onPreflightAction({ kind: "stashPop", id: stashActionRequest.stash.id, restoreIndex: false })}>
@@ -364,7 +368,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
           type="button"
           onClick={() => onConfirmAction(actionConfirmation.kind === "remote" ? "gitlab" : undefined)}
         >
-          confirm {actionConfirmation.kind} {actionConfirmation.action} {actionConfirmation.branch}
+          confirm {actionConfirmation.kind} {actionConfirmation.action} {actionConfirmation.tag ?? actionConfirmation.branch}
         </button>
       ) : null}
     </div>
@@ -436,6 +440,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       generations: { workingTree: 2, refs: 1, history: 1, stash: 1, config: 0 },
     });
     vi.mocked(runPushRepo).mockClear();
+    vi.mocked(runPushTag).mockClear();
     vi.mocked(runPublishBranch).mockReset();
     vi.mocked(runPublishBranch).mockReturnValue({
       operationId: "publish-1",
@@ -567,6 +572,30 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "workspace-1",
       ["status", "refs"],
     ));
+  });
+
+  it("validates the snapshot before pushing only the selected tag to the chosen remote", async () => {
+    snapshotMock.validated = false;
+    const order: string[] = [];
+    snapshotMock.ensureValidated.mockImplementation(async () => {
+      order.push("validated");
+      return true;
+    });
+    vi.mocked(runPushTag).mockImplementation(() => {
+      order.push("operation-created");
+      return { operationId: "push-tag-1", promise: Promise.resolve() };
+    });
+    renderContainer();
+
+    fireEvent.click(screen.getByRole("button", { name: "push selected tag" }));
+    expect(runPushTag).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "confirm remote pushTag v1.0.0" }));
+
+    await waitFor(() => expect(runPushTag).toHaveBeenCalledWith("repo-1", "v1.0.0", "gitlab"));
+    expect(order).toEqual(["validated", "operation-created"]);
+    expect(invalidateRepoData).toHaveBeenCalledWith(
+      queryClientMock, "repo-1", "workspace-1", ["refs", "history"],
+    );
   });
 
   it("fetches only after confirming the selected remote", async () => {

@@ -51,7 +51,8 @@ import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 type ActionConfirmation =
   | { kind: "origin"; action: "pull" | "push" | "stash-pop" }
   | { kind: "remote-checkout"; branch: string }
-  | { kind: "remote"; action: "fetch" | "publish"; branch?: string };
+  | { kind: "remote"; action: "fetch" | "publish"; branch?: string }
+  | { kind: "remote"; action: "pushTag"; tag: string };
 
 /**
  * A selected repository used to render *below* the dashboard, so clicking a
@@ -110,6 +111,7 @@ export function RepoDetailView({
   onUnsetBranchUpstream,
   onPublishBranch,
   onPushToRemotes,
+  onPushTag,
   onCreateTag,
   onCherryPick,
   onRevertCommit,
@@ -190,6 +192,7 @@ export function RepoDetailView({
   onUnsetBranchUpstream: (branch: string) => void;
   onPublishBranch: (branch: string) => void;
   onPushToRemotes: (remotes: string[]) => Promise<RemotePushResult[] | null>;
+  onPushTag: (tag: string) => void;
   onCreateTag: (name: string, target: string) => void;
   onCherryPick: (commitId: string) => void;
   onRevertCommit: (commitId: string) => void;
@@ -534,6 +537,7 @@ export function RepoDetailView({
                 onCheckout={operationInProgress ? undefined : onCheckout}
                 onMergeBranch={onMergeBranch}
                 onSquashMergeBranch={onSquashMergeBranch}
+                onPushTag={operationInProgress ? undefined : onPushTag}
                 onCommitContextAction={handleCommitContextAction}
                 selectedStashId={selectedStashId}
                 onSelectStash={handleSelectStash}
@@ -649,7 +653,8 @@ export function RepoDetailView({
         <RemotePickerDialog
           repoId={repo.id}
           kind={actionConfirmation.action}
-          branch={actionConfirmation.branch}
+          branch={actionConfirmation.action === "pushTag" ? undefined : actionConfirmation.branch}
+          tag={actionConfirmation.action === "pushTag" ? actionConfirmation.tag : undefined}
           onClose={onCancelActionConfirmation}
           onConfirm={({ remote }) => onConfirmAction(remote)}
         />
@@ -751,6 +756,7 @@ export function RepoDetailView({
 
   function handleTagContextAction(action: TagContextAction, tag: import("@/domain/git").TagInfo) {
     if (action === "createBranch") setDialog({ kind: "createBranch", target: tag.targetCommitId });
+    if (action === "push") onPushTag(tag.name);
     if (action === "delete") onPreflightAction({ kind: "deleteTag", name: tag.name });
     if (action === "copy") void copyText(tag.name);
   }

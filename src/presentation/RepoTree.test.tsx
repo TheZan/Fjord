@@ -285,6 +285,23 @@ describe("RepoTree", () => {
     fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!, { clientX: 8, clientY: 16 });
     fireEvent.click(screen.getByRole("menuitem", { name: "context.deleteTag" }));
     expect(onTagContextAction).toHaveBeenCalledWith("delete", tags[0]);
+
+    fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!, { clientX: 8, clientY: 16 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "context.pushTag" }));
+    expect(onTagContextAction).toHaveBeenCalledWith("push", tags[0]);
+  });
+
+  it("explains why a tag cannot be pushed during another operation", () => {
+    const onTagContextAction = vi.fn();
+    render(<RepoTree repoId="repo-1" checkoutDisabledReason="Operation in progress" onTagContextAction={onTagContextAction} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /tree.tags/ }));
+    fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!);
+    const push = screen.getByRole("menuitem", { name: "context.pushTag" });
+    expect(push).toBeDisabled();
+    expect(push).toHaveAttribute("title", "Operation in progress");
+    fireEvent.click(push);
+    expect(onTagContextAction).not.toHaveBeenCalled();
   });
 
   it("exposes upstream management from a local branch context menu", () => {
