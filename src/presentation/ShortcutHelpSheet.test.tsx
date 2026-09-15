@@ -17,7 +17,7 @@ const actions = new Proxy({}, { get: () => vi.fn() }) as AppShortcutActions;
 
 describe("ShortcutHelpSheet", () => {
   it("renders every registered binding with a localized label", () => {
-    const bindings = createAppShortcutBindings({ workspaceCount: 3, actions });
+    const bindings = createAppShortcutBindings({ workspaceCount: 3, hasOpenOverlay: true, actions });
     render(<ShortcutHelpSheet bindings={bindings} onClose={vi.fn()} />);
 
     expect(screen.getAllByRole("listitem")).toHaveLength(bindings.length);

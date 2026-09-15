@@ -334,6 +334,13 @@ Additional bindings:
 | `Shift`+Arrow | 🚧 Extend the Working Changes selection from its anchor |
 | `Ctrl/Cmd+Space` | 🚧 Toggle the focused Working Changes row without moving focus |
 
+`Esc` is handled only when the shell has an open overlay. Settings and the other
+shell dialogs dismiss on `Esc` and return focus to their invoking control. When
+no overlay or menu is open, `Esc` closes an open file diff (including a commit
+diff) and returns to the graph; focus returns to the file row that opened it.
+A confirmation dialog above the diff handles `Esc` first and leaves the diff
+open.
+
 `Ctrl/Cmd+A`, `Shift`+Arrow, and `Ctrl/Cmd+Space` are **list-scoped**, not global:
 they apply only while a Working Changes list holds focus, and `Ctrl/Cmd+A` there
 must not fall through to the document's select-all. Their exact semantics — which

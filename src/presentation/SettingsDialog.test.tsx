@@ -98,6 +98,22 @@ describe("SettingsDialog Git section", () => {
     updateCoordinator.close();
   });
 
+  it("closes with Escape and returns focus to the invoking control", () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const onClose = vi.fn();
+    const view = render(<SettingsDialog repositories={[]} onClose={onClose} />);
+
+    expect(screen.getByRole("button", { name: "General" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape", code: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+
+    view.unmount();
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
   it("uses the compact four-section product structure without automatic fetch", async () => {
     render(<SettingsDialog repositories={[]} onClose={vi.fn()} />);
 

@@ -146,6 +146,41 @@ describe("FileDiffView windowing", () => {
     vi.unstubAllGlobals();
   });
 
+  it("closes a commit diff with Escape and restores focus to its file row", () => {
+    const fileRow = document.createElement("button");
+    document.body.append(fileRow);
+    fileRow.focus();
+    const onBack = vi.fn();
+    const view = render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} onBack={onBack} />,
+    );
+
+    expect(screen.getByRole("button", { name: "← diff.back" })).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(onBack).toHaveBeenCalledOnce();
+
+    view.unmount();
+    expect(fileRow).toHaveFocus();
+    fileRow.remove();
+  });
+
+  it("lets an open dialog handle Escape before closing the diff", () => {
+    const onBack = vi.fn();
+    const view = render(
+      <FileDiffView repoId="repo-1" path="large.txt" source={{ kind: "commit", commitId: "deadbeef" }} onBack={onBack} />,
+    );
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.append(dialog);
+
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(onBack).not.toHaveBeenCalled();
+
+    dialog.remove();
+    view.unmount();
+  });
+
   it("builds unified rows and pairs changed lines in split rows", () => {
     const hunks = textDiff().hunks;
 

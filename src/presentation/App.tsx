@@ -146,6 +146,7 @@ export function App() {
   const { branches: selectedRepoBranches } = useBranches(selectedRepoId);
   const shortcutBindings = createAppShortcutBindings({
     workspaceCount: workspaces.length,
+    hasOpenOverlay: paletteOpen || switcherOpen || settingsOpen || globalSearchOpen || shortcutHelpOpen,
     actions: {
       openPalette,
       openRepositorySwitcher: () => {

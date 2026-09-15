@@ -16,9 +16,11 @@ export interface AppShortcutActions {
 
 export function createAppShortcutBindings({
   workspaceCount,
+  hasOpenOverlay,
   actions,
 }: {
   workspaceCount: number;
+  hasOpenOverlay: boolean;
   actions: AppShortcutActions;
 }): ShortcutBinding[] {
   const bindings: ShortcutBinding[] = [
@@ -28,8 +30,11 @@ export function createAppShortcutBindings({
     binding("search.global", "KeyF", { primary: true, shift: true }, "global", actions.openGlobalSearch),
     binding("refresh.workspace", "KeyR", { primary: true }, "global", actions.refreshWorkspace),
     binding("help.open", "Slash", { shift: true }, "global", actions.openHelp),
-    binding("escape", "Escape", {}, "global", actions.closeTopOverlay),
   ];
+
+  if (hasOpenOverlay) {
+    bindings.push(binding("escape", "Escape", {}, "global", actions.closeTopOverlay));
+  }
 
   for (let index = 0; index < Math.min(workspaceCount, 9); index += 1) {
     bindings.push(

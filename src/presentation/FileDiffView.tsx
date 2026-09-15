@@ -132,6 +132,7 @@ export function FileDiffView({
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(null);
   const [selectionPending, setSelectionPending] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<PendingDiscard | null>(null);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
   const sourceIdentity = diffSourceKey(source);
   const rows = useMemo(() => buildDiffRows(diff?.hunks ?? [], diffMode), [diff?.hunks, diffMode]);
   const actionsDisabled = actionDisabled || snapshotInvalid;
@@ -165,6 +166,31 @@ export function FileDiffView({
     && diff.hunks.length === 0
     && diff.oldMode !== diff.newMode,
   );
+
+  useEffect(() => {
+    if (!onBack) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    backButtonRef.current?.focus();
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+    // The diff stays mounted across file changes; focus only moves when it first opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!onBack) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.key !== "Escape" || event.defaultPrevented || pendingDiscard
+        || document.querySelector('[aria-modal="true"], [role="menu"]')
+      ) return;
+      event.preventDefault();
+      onBack();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onBack, pendingDiscard]);
 
   useEffect(() => {
     setLoadAnyway(false);
@@ -329,6 +355,7 @@ export function FileDiffView({
         <div className="flex min-w-40 flex-1 items-center gap-3">
           {onBack && (
             <button
+              ref={backButtonRef}
               type="button"
               onClick={onBack}
               className="interactive-control shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px]"
