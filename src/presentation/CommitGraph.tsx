@@ -1525,7 +1525,7 @@ function displayRefName(ref: string, remote: boolean) {
   if (remote) {
     const slash = ref.indexOf("/");
     const local = slash === -1 ? ref : ref.slice(slash + 1);
-    return local === "HEAD" || local.trim() === "" ? null : local;
+    return local === "HEAD" || local.trim() === "" ? null : ref;
   }
   return ref;
 }

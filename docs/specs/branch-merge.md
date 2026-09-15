@@ -85,7 +85,7 @@ and it has no preflight, no mode selection, and no UI entry point.
 | Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2). Squash merge is implemented by `P10-MERGE-03` (§9), reusing the same preflight/blockers/dirty policy. |
 | Local merge machinery | ⚠️ `integrate_upstream` performs a `git2` up-to-date / fast-forward / normal-merge analysis for `pull` only. Not a product action; not reused by this spec (§7). |
 | Branch context menu | ✅ Local and remote-tracking branches both expose the shared merge action with source/target labels and disabled reasons; only the current branch is disabled. |
-| Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. |
+| Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. Remote-tracking labels include the remote name (`origin/feature`), so they remain distinct from local labels when the tips diverge or coincide. |
 | Command palette | ✅ `Ctrl/Cmd+K` lists eligible local branches as **Merge branch…** actions and dispatches the same application flow. |
 
 ## Proposed design

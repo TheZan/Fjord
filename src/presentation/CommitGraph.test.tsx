@@ -134,6 +134,33 @@ describe("CommitGraph", () => {
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
   });
 
+  it("distinguishes the local tip from its unpushed origin ref", () => {
+    graphState.commits = [commit("local-tip", "Unpushed commit"), commit("remote-tip", "Published commit")];
+    graphState.branches = [
+      { ...branch("master", true), targetCommitId: "local-tip" },
+      { ...branch("origin/master", false, true), targetCommitId: "remote-tip" },
+    ];
+
+    render(<CommitGraph repoId="repo-1" currentBranch="master" />);
+
+    expect(screen.getByText("master").closest("[data-commit-id]")).toHaveAttribute("data-commit-id", "local-tip");
+    expect(screen.getByText("origin/master").closest("[data-commit-id]")).toHaveAttribute("data-commit-id", "remote-tip");
+  });
+
+  it("keeps local and origin refs distinct when they share a commit", () => {
+    graphState.commits = [commit("shared-tip", "Published commit")];
+    graphState.branches = [
+      { ...branch("master", true), targetCommitId: "shared-tip" },
+      { ...branch("origin/master", false, true), targetCommitId: "shared-tip" },
+    ];
+
+    render(<CommitGraph repoId="repo-1" currentBranch="master" />);
+
+    expect(screen.getByText("master")).toBeInTheDocument();
+    fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
+    expect(screen.getByText("origin/master")).toBeInTheDocument();
+  });
+
   it("attaches a stash marker to entry.base rather than the stash commit id", () => {
     graphState.commits = [
       commit("commit-a", "Commit A"),
@@ -472,9 +499,9 @@ describe("CommitGraph", () => {
     );
 
     fireEvent.mouseEnter(screen.getByText("+1").parentElement!);
-    fireEvent.contextMenu(screen.getByText("feature"));
+    fireEvent.contextMenu(screen.getByText("origin/feature"));
     const mergeItem = screen.getByRole("menuitem", {
-      name: "Merge feature into develop…",
+      name: "Merge origin/feature into develop…",
     });
     expect(mergeItem).toBeEnabled();
     fireEvent.click(mergeItem);
