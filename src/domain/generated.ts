@@ -329,3 +329,4 @@ export type SelectionUiStatePatch = { workspaceId: WorkspaceId | null, repositor
 export type OverviewUiStatePatch = { filters: Array<UiOverviewFilter> | null, };
 
 export type UiStatePatch = { sidebar: SidebarUiStatePatch | null, repo: RepoUiStatePatch | null, selection: SelectionUiStatePatch | null, overview: OverviewUiStatePatch | null, };
+
