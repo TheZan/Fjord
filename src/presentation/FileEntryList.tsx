@@ -295,6 +295,7 @@ export function FileEntryList<T extends { path: string }>({
               prefix={entry.prefix}
               depth={entry.depth}
               selected={selectedPaths.has(entry.file.path)}
+              hasSelection={selectedPaths.size > 0}
               active={entry.file.path === activePath}
               focusable={entry.file.path === focusablePath}
               registerRef={(element) => {
@@ -368,6 +369,7 @@ function FileRow<T extends { path: string }>({
   prefix,
   depth,
   selected,
+  hasSelection,
   active,
   focusable,
   registerRef,
@@ -384,6 +386,7 @@ function FileRow<T extends { path: string }>({
   prefix?: string;
   depth: number;
   selected: boolean;
+  hasSelection: boolean;
   active: boolean;
   focusable: boolean;
   registerRef: (element: HTMLButtonElement | null) => void;
@@ -426,7 +429,7 @@ function FileRow<T extends { path: string }>({
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            onSelect(file, { toggle: false, range: false });
+            if (hasSelection) onSelect(file, { toggle: false, range: false });
             return;
           }
           if (!onFileContextMenu) return;
