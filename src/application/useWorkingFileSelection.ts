@@ -42,6 +42,15 @@ export interface WorkingFileSelectionController extends WorkingSelection {
   completeSourceRemap: (succeeded: boolean) => void;
 }
 
+/** The focused row is a diff target only while it is also selected. */
+export function selectedActiveWorkingTarget(
+  selection: Pick<WorkingFileSelectionController, "active" | "isSelected">,
+): WorkingFileTarget | null {
+  return selection.active && selection.isSelected(selection.active)
+    ? selection.active
+    : null;
+}
+
 const TARGET_KEY_SEPARATOR = "\0";
 
 export function workingTargetKey(target: WorkingFileTarget): string {

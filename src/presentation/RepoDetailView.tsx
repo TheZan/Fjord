@@ -6,7 +6,7 @@ import type {
   WorkingFileAction,
   WorkingFileActionContext,
 } from "@/application/useWorkingFileActions";
-import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
+import { selectedActiveWorkingTarget, useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 import { useStashActions } from "@/application/useStashActions";
 import type { StashAction } from "@/application/stashActions";
 import { useStashes } from "@/application/useStashes";
@@ -255,10 +255,13 @@ export function RepoDetailView({
       return file ? { file, target } : null;
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  const selectedWorkingFile = workingSelection.active
+  // `active` is also the roving-focus target. Closing a diff restores focus
+  // to its row, so focus alone must not recreate a selection and reopen it.
+  const selectedWorkingTarget = selectedActiveWorkingTarget(workingSelection);
+  const selectedWorkingFile = selectedWorkingTarget
     ? {
-        path: workingSelection.active.path,
-        staged: workingSelection.active.source === "index",
+        path: selectedWorkingTarget.path,
+        staged: selectedWorkingTarget.source === "index",
       }
     : null;
   const patchExportDisabledTarget = openWorkingDiffWhitespace
