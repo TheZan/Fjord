@@ -156,6 +156,8 @@ pub(crate) enum MutationKind {
     OperationStep,
     Rebase,
     RebaseWithStash,
+    CreateWorktree,
+    RemoveWorktree,
 }
 
 pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
@@ -205,6 +207,7 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::RenameRemote => GenerationMask::REFS_CONFIG,
         MutationKind::RemoveRemote => GenerationMask::REFS_HISTORY_CONFIG,
         MutationKind::OperationStep | MutationKind::Rebase => GenerationMask::WORKING_REFS_HISTORY,
+        MutationKind::CreateWorktree | MutationKind::RemoveWorktree => GenerationMask::REFS,
     }
 }
 
@@ -310,6 +313,8 @@ mod tests {
                 MutationKind::RemoveRemote,
                 GenerationMask::REFS_HISTORY_CONFIG,
             ),
+            (MutationKind::CreateWorktree, GenerationMask::REFS),
+            (MutationKind::RemoveWorktree, GenerationMask::REFS),
         ];
 
         for (mutation, expected) in cases {

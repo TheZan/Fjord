@@ -26,11 +26,18 @@ pub fn discover_git_repositories(
     let mut stack = vec![root.to_path_buf()];
 
     while let Some(path) = stack.pop() {
-        if path.join(".git").exists() {
+        let dot_git = path.join(".git");
+        if dot_git.is_dir() {
             repos.push(path);
             if repos.len() >= limit {
                 break;
             }
+            continue;
+        }
+        // Linked worktrees (and submodules, deliberately outside this phase)
+        // use a `.git` indirection file. They belong to the parent repository
+        // and must never become duplicate workspace entries.
+        if is_linked_worktree(&path) {
             continue;
         }
 
@@ -62,6 +69,22 @@ pub fn discover_git_repositories(
 
     repos.sort();
     Ok(repos)
+}
+
+pub fn is_linked_worktree(path: &Path) -> bool {
+    let marker = path.join(".git");
+    marker.is_file()
+        && fs::read_to_string(marker)
+            .ok()
+            .and_then(|value| {
+                value
+                    .trim()
+                    .strip_prefix("gitdir:")
+                    .map(str::trim)
+                    .filter(|target| !target.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .is_some()
 }
 
 fn should_skip_dir(name: &str) -> bool {
@@ -97,5 +120,31 @@ mod tests {
         let repos = discover_git_repositories(root.path(), 10).unwrap();
 
         assert!(repos.is_empty());
+    }
+
+    #[test]
+    fn imports_parent_repository_but_not_its_linked_worktrees() {
+        let root = TempDir::new().unwrap();
+        let repository = root.path().join("repository");
+        let linked = root.path().join("repository-feature");
+        fs::create_dir_all(repository.join(".git").join("worktrees").join("feature")).unwrap();
+        fs::create_dir_all(&linked).unwrap();
+        fs::write(
+            linked.join(".git"),
+            format!(
+                "gitdir: {}\n",
+                repository
+                    .join(".git")
+                    .join("worktrees")
+                    .join("feature")
+                    .display()
+            ),
+        )
+        .unwrap();
+
+        let repos = discover_git_repositories(root.path(), 10).unwrap();
+
+        assert_eq!(repos, vec![repository]);
+        assert!(is_linked_worktree(&linked));
     }
 }

@@ -302,6 +302,9 @@ impl WorkspaceService {
         path: PathBuf,
     ) -> Result<RepositoryEntry, WorkspaceError> {
         let path = fjord_fs::canonicalize_path(&path).unwrap_or(path);
+        if fjord_fs::is_linked_worktree(&path) {
+            return Err(WorkspaceError::NotAGitRepository(path));
+        }
         let repositories = self.store.list_repositories(workspace_id).await?;
         if repositories.iter().any(|repository| {
             let existing = fjord_fs::canonicalize_path(&repository.path)

@@ -68,6 +68,15 @@ export type GlobalSearchResult = { kind: SearchResultKind, repoId: RepositoryId,
 
 export type BranchInfo = { name: string, isCurrent: boolean, isRemote: boolean, upstream: string | null, ahead: number, behind: number, targetCommitId: CommitId, };
 
+export type Worktree = {
+/**
+ * Git's stable linked-worktree administration name. The main worktree
+ * uses its directory name because Git does not allocate it an admin entry.
+ */
+name: string, path: string, branch: string | null, head: CommitId, isMain: boolean, isLocked: boolean, lockReason: string | null, isPrunable: boolean, };
+
+export type WorktreeBranch = { "kind": "existing", name: string, } | { "kind": "new", name: string, startPoint: string, };
+
 export type MergeSourceKind = "localBranch" | "remoteTracking";
 
 export type MergeSource = { refName: string, kind: MergeSourceKind, };
@@ -196,7 +205,7 @@ export type DiscardSelection = { "kind": "file", path: string, } | { "kind": "hu
 
 export type ResetMode = "soft" | "mixed" | "hard";
 
-export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "discardFiles", paths: Array<string>, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, };
+export type DestructiveAction = { "kind": "discard", selection: DiscardSelection, } | { "kind": "discardFiles", paths: Array<string>, } | { "kind": "forceWithLease" } | { "kind": "reset", commitId: string, mode: ResetMode, } | { "kind": "deleteBranch", name: string, } | { "kind": "deleteRemoteBranch", remote: string, branch: string, } | { "kind": "deleteTag", name: string, } | { "kind": "stashPop", id: StashId, restoreIndex: boolean, } | { "kind": "stashDrop", id: StashId, } | { "kind": "checkoutDiscard", branch: string, } | { "kind": "abortOperation" } | { "kind": "recoveryRestore", commitId: string, } | { "kind": "deleteFile", path: string, } | { "kind": "removeWorktree", name: string, force: boolean, };
 
 export type DestructiveExecutionResult = { "kind": "completed" } | { "kind": "operationState", state: RepoOperationState, } | { "kind": "stashApply", result: StashApplyResult, };
 
@@ -204,7 +213,7 @@ export type ForceWithLeaseDetails = { remote: string, refName: string, expectedO
 
 export type Recoverability = "reflog" | "stash" | "notRecoverable" | "committed";
 
-export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", id: StashId, refName: string, title: string, filesChanged: number, base: CommitId, branch: string | null, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, };
+export type Consequence = { "kind": "modifiedFilesDiscarded", count: number, sample: Array<string>, } | { "kind": "modifiedLinesDiscarded", path: string, count: number, } | { "kind": "untrackedFilesDeleted", count: number, sample: Array<string>, } | { "kind": "stagedChangesDiscarded", count: number, } | { "kind": "commitsUnreachable", count: number, sample: Array<CommitSummary>, } | { "kind": "branchDeleted", name: string, unmergedInto: string | null, } | { "kind": "tagDeleted", name: string, targetCommitId: CommitId | null, } | { "kind": "stashEntryConsumed", id: StashId, refName: string, title: string, filesChanged: number, base: CommitId, branch: string | null, } | { "kind": "remoteRefUpdated", remote: string, refName: string, droppedCommits: number, } | { "kind": "fileRemoved", path: string, tracked: boolean, } | { "kind": "worktreeRemoved", name: string, path: string, dirtyCount: number, };
 
 export type DestructivePreflight = { action: DestructiveAction, consequences: Array<Consequence>, recoverable: Recoverability, blockers: Array<string>, generations: GenerationSet, forceWithLease: ForceWithLeaseDetails | null, confirmationToken: string | null, };
 
@@ -320,4 +329,3 @@ export type SelectionUiStatePatch = { workspaceId: WorkspaceId | null, repositor
 export type OverviewUiStatePatch = { filters: Array<UiOverviewFilter> | null, };
 
 export type UiStatePatch = { sidebar: SidebarUiStatePatch | null, repo: RepoUiStatePatch | null, selection: SelectionUiStatePatch | null, overview: OverviewUiStatePatch | null, };
-

@@ -71,6 +71,8 @@ import type {
   StashId,
   TagInfo,
   WorkingChanges,
+  Worktree,
+  WorktreeBranch,
 } from "@/domain/git";
 import { writeStartupPreferences } from "@/infrastructure/startupPreferences";
 import {
@@ -400,6 +402,23 @@ export function removeRepository(id: string): Promise<void> {
 
 export function getBranches(repoId: string, signal?: AbortSignal): Promise<BranchInfo[]> {
   return invokeVersioned("get_branches", { repoId }, repoId, "refs", signal);
+}
+
+export function listWorktrees(repoId: string, signal?: AbortSignal): Promise<Worktree[]> {
+  return invokeVersioned("list_worktrees", { repoId }, repoId, "refs", signal);
+}
+
+export function createWorktree(
+  repoId: string,
+  name: string,
+  path: string,
+  branch: WorktreeBranch,
+): Promise<Worktree> {
+  return invoke("create_worktree", { repoId, name, path, branch });
+}
+
+export function removeWorktree(repoId: string, name: string, force: boolean): Promise<void> {
+  return invoke("remove_worktree", { repoId, name, force });
 }
 
 export function invokeErrorStashRef(error: unknown): string | null {
@@ -871,8 +890,8 @@ export function stashPathsSupported(): Promise<boolean> {
   return invoke("stash_paths_supported");
 }
 
-export function openTerminal(repoId: string): Promise<void> {
-  return invoke("open_terminal", { repoId });
+export function openTerminal(repoId: string, worktreePath: string | null = null): Promise<void> {
+  return invoke("open_terminal", { repoId, worktreePath });
 }
 
 export function stageFiles(repoId: string, paths: string[]): Promise<void> {
@@ -1049,8 +1068,12 @@ export function openExternalDiff(
   return invoke("open_external_diff", { repoId, path, source });
 }
 
-export function openInIde(repoId: string, ide: string | null = null): Promise<void> {
-  return invoke("open_in_ide", { repoId, ide });
+export function openInIde(
+  repoId: string,
+  ide: string | null = null,
+  worktreePath: string | null = null,
+): Promise<void> {
+  return invoke("open_in_ide", { repoId, ide, worktreePath });
 }
 
 export function resolveRepositoryFilePath(

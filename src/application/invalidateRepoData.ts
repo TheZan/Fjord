@@ -30,7 +30,11 @@ export async function invalidateRepoData(
   }
   if (requested.has("reflog")) keys.push(queryKeys.repos.reflogs(repoId));
   if (requested.has("refs")) {
-    keys.push(queryKeys.repos.branches(repoId), queryKeys.repos.tags(repoId));
+    keys.push(
+      queryKeys.repos.branches(repoId),
+      queryKeys.repos.tags(repoId),
+      queryKeys.repos.worktrees(repoId),
+    );
   }
   if (requested.has("stashes")) keys.push(queryKeys.repos.stashes(repoId));
   if (requested.has("rebase")) keys.push([...queryKeys.repos.detail(repoId), "rebasePreflight"]);

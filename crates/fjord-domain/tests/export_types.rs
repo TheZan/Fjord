@@ -23,7 +23,7 @@ use fjord_domain::{
     SquashMergeResult, StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
     StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
     UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
-    Workspace, WorkspaceId,
+    Workspace, WorkspaceId, Worktree, WorktreeBranch,
 };
 use ts_rs::{Config, TS};
 
@@ -80,6 +80,8 @@ fn generated_types() -> String {
     push::<SearchResultKind>(&mut output, &config);
     push::<GlobalSearchResult>(&mut output, &config);
     push::<BranchInfo>(&mut output, &config);
+    push::<Worktree>(&mut output, &config);
+    push_without_trailing_whitespace::<WorktreeBranch>(&mut output, &config);
     push::<MergeSourceKind>(&mut output, &config);
     push::<MergeSource>(&mut output, &config);
     push::<MergeMode>(&mut output, &config);

@@ -329,6 +329,12 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::StashConcurrentUpdate => "stash_concurrent_update",
         GitError::StashRecoveryFailed => "stash_recovery_failed",
         GitError::StashScopeUnrepresentable { .. } => unreachable!("handled above"),
+        GitError::InvalidWorktree(_) => "worktree_invalid",
+        GitError::WorktreeNotFound(_) => "worktree_not_found",
+        GitError::MainWorktreeCannotBeRemoved => "worktree_main_cannot_remove",
+        GitError::WorktreeLocked(_) => "worktree_locked",
+        GitError::WorktreeDirty => "worktree_dirty",
+        GitError::WorktreeFailed(_) => "worktree_failed",
         GitError::NotImplemented(_) | GitError::Gix(_) | GitError::Git2(_) => "git_error",
     };
     AppError::new(code, err.to_string())

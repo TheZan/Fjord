@@ -12,10 +12,23 @@ const BLOCKER_REF_NOT_FOUND: &str = "ref_not_found";
 const BLOCKER_OPERATION_IN_PROGRESS: &str = "operation_already_in_progress";
 
 pub(super) async fn facts(
+    commands: &GitCommandFactory,
     repo: &RepoPath,
     action: &DestructiveAction,
     sample_limit: u32,
 ) -> Result<DestructiveActionFacts, GitError> {
+    if let DestructiveAction::RemoveWorktree { name, force } = action {
+        let commands = commands.clone();
+        let repo = repo.clone();
+        let name = name.clone();
+        let force = *force;
+        let _repo_guard = LocalGitBackend::acquire_repo_read_lock(&repo).await;
+        return tokio::task::spawn_blocking(move || {
+            super::worktrees::removal_facts_locked(&commands, &repo, &name, force)
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))?;
+    }
     let repo = repo.clone();
     let action = action.clone();
     let sample_limit = sample_limit.min(5) as usize;
@@ -54,6 +67,7 @@ fn assemble_facts(
         }
         DestructiveAction::AbortOperation => abort_facts(git, sample_limit),
         DestructiveAction::DeleteFile { path } => super::delete_file::facts(git, repo, path),
+        DestructiveAction::RemoveWorktree { .. } => unreachable!("handled before git2 facts"),
         DestructiveAction::Discard { .. }
         | DestructiveAction::DiscardFiles { .. }
         | DestructiveAction::ForceWithLease => Ok(blocked(BLOCKER_ACTION_UNSUPPORTED)),

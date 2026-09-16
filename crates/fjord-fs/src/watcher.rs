@@ -33,6 +33,7 @@ pub struct RepoWatcher {
 /// an invalidation hint and still perform cache refreshes on demand.
 pub struct RepoEventWatcher {
     _watcher: RecommendedWatcher,
+    _watched_roots: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +199,15 @@ impl RepoEventWatcher {
             }
         });
 
-        Ok(Self { _watcher: watcher })
+        Ok(Self {
+            _watcher: watcher,
+            _watched_roots: 1,
+        })
+    }
+
+    #[cfg(test)]
+    fn watched_root_count(&self) -> usize {
+        self._watched_roots
     }
 }
 
@@ -434,6 +443,23 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("metadata edit should reach a cold watcher");
         assert!(changes.refs && changes.history);
+    }
+
+    #[test]
+    fn shared_git_metadata_is_registered_once_regardless_of_worktree_count() {
+        let dir = TempDir::new().unwrap();
+        let metadata = dir.path().join(".git");
+        fs::create_dir_all(metadata.join("worktrees/one")).unwrap();
+        fs::create_dir_all(metadata.join("worktrees/two")).unwrap();
+
+        let watcher = RepoEventWatcher::watch_repository_with_scope(
+            dir.path(),
+            RepositoryWatchScope::GitMetadata,
+            |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(watcher.watched_root_count(), 1);
     }
 
     #[test]

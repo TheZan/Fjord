@@ -7,7 +7,8 @@ use fjord_domain::{
     MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
     RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId,
     SnapshotRevalidation, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup,
-    StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree,
+    WorktreeBranch,
 };
 use serde::Serialize;
 use std::future::Future;
@@ -122,6 +123,39 @@ pub async fn get_branches(
 ) -> Result<GenerationEnvelope<Vec<BranchInfo>>, AppError> {
     let data = state.repos.get_branches(repo_id).await?;
     versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn list_worktrees(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<GenerationEnvelope<Vec<Worktree>>, AppError> {
+    let data = state.repos.list_worktrees(repo_id).await?;
+    versioned(&state, repo_id, data).await
+}
+
+#[tauri::command]
+pub async fn create_worktree(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    path: PathBuf,
+    branch: WorktreeBranch,
+) -> Result<Worktree, AppError> {
+    Ok(state
+        .repos
+        .create_worktree(repo_id, &name, &path, branch)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn remove_worktree(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    name: String,
+    force: bool,
+) -> Result<(), AppError> {
+    Ok(state.repos.remove_worktree(repo_id, &name, force).await?)
 }
 
 #[tauri::command]
@@ -745,8 +779,12 @@ pub async fn create_branch_from_stash(
 pub async fn open_terminal(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
+    worktree_path: Option<PathBuf>,
 ) -> Result<(), AppError> {
-    Ok(state.repos.open_terminal(repo_id).await?)
+    Ok(state
+        .repos
+        .open_terminal_at(repo_id, worktree_path.as_deref())
+        .await?)
 }
 
 #[tauri::command]
@@ -1281,8 +1319,12 @@ pub async fn open_in_ide(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     ide: Option<String>,
+    worktree_path: Option<PathBuf>,
 ) -> Result<(), AppError> {
-    Ok(state.repos.open_in_ide(repo_id, ide.as_deref()).await?)
+    Ok(state
+        .repos
+        .open_in_ide_at(repo_id, ide.as_deref(), worktree_path.as_deref())
+        .await?)
 }
 
 #[tauri::command]
