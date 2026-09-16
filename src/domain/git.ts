@@ -61,4 +61,6 @@ export type {
   WorkingChanges,
   WorkingFile,
   WorkingFileTarget,
+  Worktree,
+  WorktreeBranch,
 } from "@/domain/generated";

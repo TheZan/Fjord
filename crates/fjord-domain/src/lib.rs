@@ -397,6 +397,41 @@ pub struct BranchInfo {
     pub target_commit_id: CommitId,
 }
 
+/// One checkout registered in a repository's shared worktree metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct Worktree {
+    /// Git's stable linked-worktree administration name. The main worktree
+    /// uses its directory name because Git does not allocate it an admin entry.
+    pub name: String,
+    #[ts(type = "string")]
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub head: CommitId,
+    pub is_main: bool,
+    pub is_locked: bool,
+    pub lock_reason: Option<String>,
+    pub is_prunable: bool,
+}
+
+/// Branch selection for an atomic `git worktree add` operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum WorktreeBranch {
+    Existing { name: String },
+    New { name: String, start_point: String },
+}
+
 /// The only reference kinds accepted by the branch-integration contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -1057,6 +1092,10 @@ pub enum DestructiveAction {
     DeleteFile {
         path: String,
     },
+    RemoveWorktree {
+        name: String,
+        force: bool,
+    },
 }
 
 /// Authoritative lease facts resolved by the backend. These are display-only
@@ -1140,6 +1179,12 @@ pub enum Consequence {
     FileRemoved {
         path: String,
         tracked: bool,
+    },
+    WorktreeRemoved {
+        name: String,
+        #[ts(type = "string")]
+        path: PathBuf,
+        dirty_count: u32,
     },
 }
 

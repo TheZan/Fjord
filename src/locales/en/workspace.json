@@ -602,6 +602,10 @@
       "title": "Delete this file?",
       "confirm": "Delete file"
     },
+    "removeWorktree": {
+      "title": "Remove this worktree?",
+      "confirm": "Remove worktree"
+    },
     "recoverability": {
       "reflog": "The commits remain reachable through the reflog and can be restored from the Recovery Center.",
       "stash": "Your changes will be saved to the stash.",
@@ -618,7 +622,10 @@
       "stash_not_found": "The selected stash entry no longer exists.",
       "delete_target_not_a_file": "Only files can be deleted from this menu.",
       "delete_file_partially_staged": "{{path}} also has staged changes. Unstage them before deleting the file.",
-      "delete_file_conflicted": "{{path}} has unresolved conflicts. Resolve them first."
+      "delete_file_conflicted": "{{path}} has unresolved conflicts. Resolve them first.",
+      "main_worktree_cannot_be_removed": "The main worktree cannot be removed.",
+      "worktree_locked": "This worktree is locked: {{reason}}",
+      "worktree_has_uncommitted_changes": "This worktree has uncommitted changes."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Discard changes in {{count}} modified file: {{sample}}.",
@@ -637,7 +644,8 @@
       "stashEntryDropped": "Permanently drop “{{title}}” ({{refName}}), containing {{filesChanged}} changed files. Created from {{branch}} at {{base}}.",
       "remoteRefUpdated": "Update {{remote}} {{refName}}, dropping {{droppedCommits}} remote commits.",
       "fileRemovedTracked": "Remove {{path}} from the working tree; it will appear as a Git deletion.",
-      "fileRemovedUntracked": "Delete {{path}}. Git has no copy of this file."
+      "fileRemovedUntracked": "Delete {{path}}. Git has no copy of this file.",
+      "worktreeRemoved": "Remove worktree {{name}} at {{path}} with {{dirtyCount}} uncommitted changes."
     }
   },
   "repoActions": {
@@ -692,11 +700,34 @@
     "remote": "Remote",
     "tags": "Tags",
     "stashes": "Stashes",
-    "filterPlaceholder": "Filter branches, tags, and stashes",
+    "worktrees": "Worktrees",
+    "filterPlaceholder": "Filter branches, tags, stashes, and worktrees",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Clear",
     "noMatches": "No matches.",
     "empty": "No branches or tags found."
+  },
+  "worktrees": {
+    "add": "Add worktree",
+    "empty": "No linked worktrees.",
+    "main": "Main",
+    "locked": "Locked",
+    "mainCannotRemove": "The main worktree cannot be removed.",
+    "openIde": "Open in IDE",
+    "openTerminal": "Open in terminal",
+    "remove": "Remove worktree",
+    "prune": "Prune missing worktree",
+    "createTitle": "Create worktree",
+    "createDescription": "Create a linked working directory for an existing or new branch.",
+    "name": "Name",
+    "path": "Path",
+    "branch": "Branch",
+    "existingBranch": "Existing branch",
+    "newBranch": "New branch",
+    "newBranchName": "New branch name",
+    "startPoint": "Start point",
+    "create": "Create",
+    "creating": "Creating…"
   },
   "remotes": {
     "title": "Remotes",

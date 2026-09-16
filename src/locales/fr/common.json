@@ -95,6 +95,12 @@
     "stash_scope_unrepresentable": "L'état de {{path}} ne peut pas être représenté exactement ; aucune remise n'a été créée.",
     "unexpected": "Une erreur est survenue. Réessayez ou redémarrez Fjord.",
     "workspace_not_found": "L'espace de travail est introuvable. Actualisez l'application et réessayez.",
+    "worktree_invalid": "Le chemin ou la branche du worktree n’est pas valide.",
+    "worktree_not_found": "Le worktree est introuvable.",
+    "worktree_main_cannot_remove": "Le worktree principal ne peut pas être supprimé.",
+    "worktree_locked": "Le worktree est verrouillé.",
+    "worktree_dirty": "Le worktree contient des modifications non validées.",
+    "worktree_failed": "Git n’a pas pu terminer l’opération du worktree.",
     "log_folder_unavailable": "Impossible d'ouvrir le dossier des journaux. Ouvrez manuellement le dossier de données de l'application."
   },
   "settings": {

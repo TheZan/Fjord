@@ -6,6 +6,7 @@ import {
   applyWorkingSelectionIntent,
   prepareWorkingContextSelection,
   reconcileWorkingSelection,
+  selectedActiveWorkingTarget,
   useWorkingFileSelection,
   workingTargetKey,
 } from "@/application/useWorkingFileSelection";
@@ -172,6 +173,26 @@ describe("Working Changes selection transitions", () => {
     expect([...paths]).toEqual([a.path]);
     expect("add" in targets).toBe(false);
     expect("delete" in paths).toBe(false);
+  });
+
+  it("does not recreate a cleared selection when focus returns to the file row", () => {
+    const changes = workingChanges(["a.ts"], []);
+    const { result } = renderHook(() => useWorkingFileSelection("repo-1", changes));
+
+    act(() => result.current.select(a, [a], { toggle: false, range: false }));
+    expect(result.current.isSelected(result.current.active!)).toBe(true);
+
+    act(() => {
+      result.current.clear();
+      // FileDiffView restores focus during unmount; FileEntryList reports that
+      // focus through activate without selecting the row again.
+      result.current.activate(a);
+    });
+
+    expect(result.current.active).toEqual(a);
+    expect(result.current.targets.size).toBe(0);
+    expect(result.current.isSelected(result.current.active!)).toBe(false);
+    expect(selectedActiveWorkingTarget(result.current)).toBeNull();
   });
 
   it("distinguishes the same path on index and worktree by logical identity", () => {

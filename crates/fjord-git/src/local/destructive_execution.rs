@@ -97,6 +97,17 @@ pub(super) async fn execute(
         return Ok(DestructiveExecutionResult::Completed);
     }
 
+    if let DestructiveAction::RemoveWorktree { name, force } = &action {
+        let name = name.clone();
+        let force = *force;
+        tokio::task::spawn_blocking(move || {
+            super::worktrees::remove_locked(&commands, &repo, &name, force)
+        })
+        .await
+        .map_err(|error| GitError::Git2(error.to_string()))??;
+        return Ok(DestructiveExecutionResult::Completed);
+    }
+
     let (args, mutation) = command(&action)?;
     let command_repo = repo.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -154,7 +165,8 @@ fn command(action: &DestructiveAction) -> Result<(Vec<String>, MutationKind), Gi
         | DestructiveAction::AbortOperation
         | DestructiveAction::DeleteFile { .. }
         | DestructiveAction::StashPop { .. }
-        | DestructiveAction::StashDrop { .. } => return Err(GitError::PreflightStale),
+        | DestructiveAction::StashDrop { .. }
+        | DestructiveAction::RemoveWorktree { .. } => return Err(GitError::PreflightStale),
     };
     Ok(command)
 }

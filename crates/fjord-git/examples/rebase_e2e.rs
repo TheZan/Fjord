@@ -35,6 +35,7 @@ async fn dispatch(
         "get_repo_status" => json!(backend.status(repo).await?),
         "get_repo_operation_state" => json!(backend.operation_state(repo).await?),
         "get_branches" => json!(backend.branches(repo).await?),
+        "list_worktrees" => json!(backend.worktrees(repo).await?),
         "get_commit_files" => json!(
             backend
                 .diff_files(repo, args["commitId"].as_str().unwrap())

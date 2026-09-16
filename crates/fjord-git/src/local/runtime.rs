@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use fjord_domain::StashEntry;
+use fjord_domain::{StashEntry, Worktree};
 use fjord_fs::RepoChangeSet;
 use fjord_ports::{GitError, RepoPath};
 
@@ -20,6 +20,7 @@ pub(super) struct RepositoryRuntime {
     git2: Mutex<git2::Repository>,
     generations: Arc<GenerationClock>,
     stash_cache: Mutex<Option<(u64, Vec<StashEntry>)>>,
+    worktree_cache: Mutex<Option<(u64, Vec<Worktree>)>>,
 }
 
 impl RepositoryRuntime {
@@ -36,6 +37,7 @@ impl RepositoryRuntime {
             git2: Mutex::new(git2),
             generations,
             stash_cache: Mutex::new(None),
+            worktree_cache: Mutex::new(None),
         })
     }
 
@@ -101,6 +103,34 @@ impl RepositoryRuntime {
             .as_ref()
             .filter(|(cached_generation, _)| *cached_generation == generation)
             .map(|(_, entries)| entries.clone())
+    }
+
+    /// Single-flighted worktree-list cache keyed by the shared refs
+    /// generation. Worktree administration lives under the common `.git`, so
+    /// it belongs to the parent repository runtime rather than one runtime per
+    /// linked checkout.
+    pub(super) fn worktrees(
+        &self,
+        compute: impl FnOnce() -> Result<Vec<Worktree>, GitError>,
+    ) -> Result<Vec<Worktree>, GitError> {
+        let expected = self.generations.snapshot();
+        let mut cache = self
+            .worktree_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((generation, entries)) = cache.as_ref() {
+            if *generation == expected.refs {
+                return Ok(entries.clone());
+            }
+        }
+
+        let entries = compute()?;
+        let cached_entries = entries.clone();
+        self.generations
+            .commit_if_current(expected, GenerationMask::REFS, || {
+                *cache = Some((expected.refs, cached_entries))
+            });
+        Ok(entries)
     }
 
     fn bump(&self, mask: GenerationMask) {
@@ -307,6 +337,13 @@ pub(crate) fn record_watcher_changes(repo: &RepoPath, changes: RepoChangeSet) {
 
 pub(crate) fn generations(repo: &RepoPath) -> Result<GenerationSet, GitError> {
     Ok(registry().resolve(repo)?.generations())
+}
+
+pub(super) fn worktrees(
+    repo: &RepoPath,
+    compute: impl FnOnce() -> Result<Vec<Worktree>, GitError>,
+) -> Result<Vec<Worktree>, GitError> {
+    registry().resolve(repo)?.worktrees(compute)
 }
 
 pub(crate) fn set_resident(repositories: &[RepoPath]) {
@@ -559,6 +596,41 @@ mod tests {
         );
         runtime
             .stashes(|_| {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Vec::new())
+            })
+            .unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn worktree_cache_is_shared_until_the_refs_generation_changes() {
+        let directory = tempfile::TempDir::new().unwrap();
+        git2::Repository::init(directory.path()).unwrap();
+        let repo = RepoPath::new(directory.path().to_path_buf());
+        let registry = RepositoryRuntimeRegistry::new(NEGATIVE_CACHE_TTL);
+        let runtime = registry.resolve(&repo).unwrap();
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+
+        for _ in 0..2 {
+            runtime
+                .worktrees(|| {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(Vec::new())
+                })
+                .unwrap();
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        registry.bump_registered(
+            &repo,
+            watcher_mask(RepoChangeSet {
+                refs: true,
+                ..RepoChangeSet::default()
+            }),
+        );
+        runtime
+            .worktrees(|| {
                 calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(Vec::new())
             })

@@ -560,6 +560,10 @@
       "title": "Удалить этот файл?",
       "confirm": "Удалить файл"
     },
+    "removeWorktree": {
+      "title": "Удалить эту рабочую директорию?",
+      "confirm": "Удалить worktree"
+    },
     "recoverability": {
       "reflog": "Коммиты останутся доступны через reflog, и их можно будет восстановить в Центре восстановления.",
       "stash": "Изменения будут сохранены в stash.",
@@ -576,7 +580,10 @@
       "stash_not_found": "Выбранная запись stash больше не существует.",
       "delete_target_not_a_file": "Из этого меню можно удалять только файлы.",
       "delete_file_partially_staged": "У файла {{path}} есть и подготовленные изменения. Уберите их из индекса перед удалением файла.",
-      "delete_file_conflicted": "У файла {{path}} есть неразрешённые конфликты. Сначала разрешите их."
+      "delete_file_conflicted": "У файла {{path}} есть неразрешённые конфликты. Сначала разрешите их.",
+      "main_worktree_cannot_be_removed": "Основную рабочую директорию удалить нельзя.",
+      "worktree_locked": "Worktree заблокирован: {{reason}}",
+      "worktree_has_uncommitted_changes": "В worktree есть незакоммиченные изменения."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Отменить изменения в {{count}} изменённом файле: {{sample}}.",
@@ -603,7 +610,8 @@
       "stashEntryDropped": "Безвозвратно удалить «{{title}}» ({{refName}}), содержащий изменения в {{filesChanged}} файлах. Создан из {{branch}} на {{base}}.",
       "remoteRefUpdated": "Обновить {{refName}} в {{remote}}, отбросив коммиты в remote: {{droppedCommits}}.",
       "fileRemovedTracked": "Удалить {{path}} из рабочей директории; это будет выглядеть как удаление в Git.",
-      "fileRemovedUntracked": "Удалить {{path}}. У Git нет копии этого файла."
+      "fileRemovedUntracked": "Удалить {{path}}. У Git нет копии этого файла.",
+      "worktreeRemoved": "Удалить worktree {{name}} по пути {{path}} с незакоммиченными изменениями: {{dirtyCount}}."
     }
   },
   "repoActions": {
@@ -658,11 +666,34 @@
     "remote": "Удалённые",
     "tags": "Теги",
     "stashes": "Stash",
-    "filterPlaceholder": "Фильтр по веткам, тегам и stash",
+    "worktrees": "Worktrees",
+    "filterPlaceholder": "Фильтр по веткам, тегам, stash и worktree",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Очистить",
     "noMatches": "Совпадений нет.",
     "empty": "Ветки и теги не найдены."
+  },
+  "worktrees": {
+    "add": "Добавить worktree",
+    "empty": "Связанных worktree нет.",
+    "main": "Основной",
+    "locked": "Заблокирован",
+    "mainCannotRemove": "Основную рабочую директорию удалить нельзя.",
+    "openIde": "Открыть в IDE",
+    "openTerminal": "Открыть в терминале",
+    "remove": "Удалить worktree",
+    "prune": "Убрать отсутствующий worktree",
+    "createTitle": "Создать worktree",
+    "createDescription": "Создайте связанную рабочую директорию для существующей или новой ветки.",
+    "name": "Имя",
+    "path": "Путь",
+    "branch": "Ветка",
+    "existingBranch": "Существующая ветка",
+    "newBranch": "Новая ветка",
+    "newBranchName": "Имя новой ветки",
+    "startPoint": "Начальная точка",
+    "create": "Создать",
+    "creating": "Создание…"
   },
   "remotes": {
     "title": "Удалённые репозитории",

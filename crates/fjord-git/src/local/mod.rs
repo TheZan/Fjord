@@ -24,7 +24,7 @@ use fjord_domain::{
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
     PatchSource, ReflogEntry, ReflogPage, RemoteInfo, RemoveRemotePreflight, RepoStatus,
     StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
-    WorkingFile,
+    WorkingFile, Worktree, WorktreeBranch,
 };
 use fjord_ports::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitBackend, GitError,
@@ -64,6 +64,7 @@ mod runtime;
 mod stash;
 mod status;
 mod working_tree;
+mod worktrees;
 
 pub struct LocalGitBackend {
     /// Shared with the application so a Git executable chosen in Settings is
@@ -310,6 +311,29 @@ impl GitBackend for LocalGitBackend {
         refs::branches(repo).await
     }
 
+    async fn worktrees(&self, repo: &RepoPath) -> Result<Vec<Worktree>, GitError> {
+        worktrees::list(&self.commands, repo).await
+    }
+
+    async fn create_worktree(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        path: &std::path::Path,
+        branch: WorktreeBranch,
+    ) -> Result<Worktree, GitError> {
+        worktrees::create(&self.commands, repo, name, path, branch).await
+    }
+
+    async fn remove_worktree(
+        &self,
+        repo: &RepoPath,
+        name: &str,
+        force: bool,
+    ) -> Result<(), GitError> {
+        worktrees::remove(&self.commands, repo, name, force).await
+    }
+
     async fn merge_preflight(
         &self,
         repo: &RepoPath,
@@ -407,7 +431,7 @@ impl GitBackend for LocalGitBackend {
         action: &DestructiveAction,
         sample_limit: u32,
     ) -> Result<DestructiveActionFacts, GitError> {
-        destructive_preflight::facts(repo, action, sample_limit).await
+        destructive_preflight::facts(&self.commands, repo, action, sample_limit).await
     }
 
     async fn diff_files(

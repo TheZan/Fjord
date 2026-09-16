@@ -95,6 +95,12 @@
     "stash_scope_unrepresentable": "Состояние {{path}} нельзя представить точно, поэтому stash не создан.",
     "unexpected": "Что-то пошло не так. Повторите попытку или перезапустите Fjord, если ошибка повторяется.",
     "workspace_not_found": "Рабочее пространство не найдено. Обновите приложение и повторите попытку.",
+    "worktree_invalid": "Путь или ветка worktree недопустимы.",
+    "worktree_not_found": "Worktree не найден.",
+    "worktree_main_cannot_remove": "Основную рабочую директорию удалить нельзя.",
+    "worktree_locked": "Worktree заблокирован.",
+    "worktree_dirty": "В worktree есть незакоммиченные изменения.",
+    "worktree_failed": "Git не смог выполнить операцию с worktree.",
     "log_folder_unavailable": "Не удалось открыть папку логов. Откройте папку данных приложения вручную."
   },
   "settings": {

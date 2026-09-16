@@ -2,7 +2,7 @@
 //! effectively half of the frontend/backend IPC contract, and the only
 //! thing `fjord-services` is allowed to know about "how do we talk to Git".
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -13,7 +13,8 @@ use fjord_domain::{
     IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
     MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
     RemoveRemotePreflight, RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult,
-    StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges,
+    StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges, Worktree,
+    WorktreeBranch,
 };
 use thiserror::Error;
 
@@ -312,6 +313,18 @@ pub enum GitError {
     StashRecoveryFailed,
     #[error("the selected state cannot be represented exactly: {path}")]
     StashScopeUnrepresentable { path: String },
+    #[error("invalid worktree request: {0}")]
+    InvalidWorktree(String),
+    #[error("worktree not found: {0}")]
+    WorktreeNotFound(String),
+    #[error("the main worktree cannot be removed")]
+    MainWorktreeCannotBeRemoved,
+    #[error("worktree is locked: {0}")]
+    WorktreeLocked(String),
+    #[error("worktree contains uncommitted changes")]
+    WorktreeDirty,
+    #[error("worktree operation failed: {0}")]
+    WorktreeFailed(String),
     #[error("operation not yet implemented on this backend: {0}")]
     NotImplemented(&'static str),
     #[error("gix error: {0}")]
@@ -468,6 +481,26 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("abort_operation"))
     }
     async fn branches(&self, repo: &RepoPath) -> Result<Vec<BranchInfo>, GitError>;
+    async fn worktrees(&self, _repo: &RepoPath) -> Result<Vec<Worktree>, GitError> {
+        Err(GitError::NotImplemented("worktrees"))
+    }
+    async fn create_worktree(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _path: &Path,
+        _branch: WorktreeBranch,
+    ) -> Result<Worktree, GitError> {
+        Err(GitError::NotImplemented("create_worktree"))
+    }
+    async fn remove_worktree(
+        &self,
+        _repo: &RepoPath,
+        _name: &str,
+        _force: bool,
+    ) -> Result<(), GitError> {
+        Err(GitError::NotImplemented("remove_worktree"))
+    }
     async fn merge_preflight(
         &self,
         _repo: &RepoPath,

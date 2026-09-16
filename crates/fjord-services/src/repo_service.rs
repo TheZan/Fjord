@@ -14,7 +14,7 @@ use fjord_domain::{
     RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
     RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
     StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, StashScope,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -881,6 +881,38 @@ impl RepoService {
         Ok(self.git.branches(&RepoPath::new(repo.path)).await?)
     }
 
+    pub async fn list_worktrees(&self, repo_id: RepositoryId) -> Result<Vec<Worktree>, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.worktrees(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn create_worktree(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        path: &Path,
+        branch: WorktreeBranch,
+    ) -> Result<Worktree, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .create_worktree(&RepoPath::new(repo.path), name, path, branch)
+            .await?)
+    }
+
+    pub async fn remove_worktree(
+        &self,
+        repo_id: RepositoryId,
+        name: &str,
+        force: bool,
+    ) -> Result<(), RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .remove_worktree(&RepoPath::new(repo.path), name, force)
+            .await?)
+    }
+
     pub async fn get_merge_preflight(
         &self,
         repo_id: RepositoryId,
@@ -1497,7 +1529,8 @@ impl RepoService {
                 | DestructiveAction::CheckoutDiscard { .. }
                 | DestructiveAction::AbortOperation
                 | DestructiveAction::RecoveryRestore { .. }
-                | DestructiveAction::DeleteFile { .. } => {
+                | DestructiveAction::DeleteFile { .. }
+                | DestructiveAction::RemoveWorktree { .. } => {
                     let facts = self
                         .git
                         .destructive_action_facts(&path, &action, PREFLIGHT_SAMPLE_LIMIT as u32)
@@ -1841,8 +1874,17 @@ impl RepoService {
     }
 
     pub async fn open_terminal(&self, repo_id: RepositoryId) -> Result<(), RepoError> {
+        self.open_terminal_at(repo_id, None).await
+    }
+
+    pub async fn open_terminal_at(
+        &self,
+        repo_id: RepositoryId,
+        worktree_path: Option<&Path>,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
-        Ok(self.ide.open_terminal(&repo.path).await?)
+        let path = self.launch_path(&repo, worktree_path).await?;
+        Ok(self.ide.open_terminal(&path).await?)
     }
 
     pub async fn resolve_repository_file_path(
@@ -2337,10 +2379,43 @@ impl RepoService {
         repo_id: RepositoryId,
         ide: Option<&str>,
     ) -> Result<(), RepoError> {
+        self.open_in_ide_at(repo_id, ide, None).await
+    }
+
+    pub async fn open_in_ide_at(
+        &self,
+        repo_id: RepositoryId,
+        ide: Option<&str>,
+        worktree_path: Option<&Path>,
+    ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         let settings = self.settings.get_settings().await?;
         let configured_ide = ide.or(settings.default_ide.as_deref());
-        Ok(self.ide.open(&repo.path, configured_ide).await?)
+        let path = self.launch_path(&repo, worktree_path).await?;
+        Ok(self.ide.open(&path, configured_ide).await?)
+    }
+
+    async fn launch_path(
+        &self,
+        repo: &RepositoryEntry,
+        worktree_path: Option<&Path>,
+    ) -> Result<PathBuf, RepoError> {
+        let Some(requested) = worktree_path else {
+            return Ok(repo.path.clone());
+        };
+        let requested = fjord_fs::canonicalize_path(requested)
+            .map_err(|_| RepoError::PathNotFound(requested.display().to_string()))?;
+        let worktrees = self
+            .git
+            .worktrees(&RepoPath::new(repo.path.clone()))
+            .await?;
+        worktrees
+            .into_iter()
+            .find(|worktree| {
+                !worktree.is_prunable && fjord_fs::paths_equal(&worktree.path, &requested)
+            })
+            .map(|worktree| worktree.path)
+            .ok_or_else(|| RepoError::PathOutsideRepository(requested.display().to_string()))
     }
 
     pub async fn bulk_fetch(

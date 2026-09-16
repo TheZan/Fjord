@@ -6,7 +6,7 @@ import type {
   WorkingFileAction,
   WorkingFileActionContext,
 } from "@/application/useWorkingFileActions";
-import { useWorkingFileSelection } from "@/application/useWorkingFileSelection";
+import { selectedActiveWorkingTarget, useWorkingFileSelection } from "@/application/useWorkingFileSelection";
 import { useStashActions } from "@/application/useStashActions";
 import type { StashAction } from "@/application/stashActions";
 import { useStashes } from "@/application/useStashes";
@@ -32,6 +32,7 @@ import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentatio
 import { OperationBanner } from "@/presentation/OperationBanner";
 import { StashApplyOptionsDialog } from "@/presentation/StashApplyOptionsDialog";
 import { CreateBranchFromStashDialog } from "@/presentation/CreateBranchFromStashDialog";
+import type { CreateWorktreeRequest } from "@/presentation/CreateWorktreeDialog";
 import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/ui";
 import type {
   CommitSummary,
@@ -44,6 +45,7 @@ import type {
   RepoStatus,
   StashId,
   WorkingChanges,
+  Worktree,
 } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -113,6 +115,11 @@ export function RepoDetailView({
   onPushToRemotes,
   onPushTag,
   onCreateTag,
+  onCreateWorktree,
+  onOpenWorktreeInIde,
+  onOpenWorktreeTerminal,
+  onRemoveWorktree,
+  onPruneWorktree,
   onCherryPick,
   onRevertCommit,
   utilities,
@@ -194,6 +201,11 @@ export function RepoDetailView({
   onPushToRemotes: (remotes: string[]) => Promise<RemotePushResult[] | null>;
   onPushTag: (tag: string) => void;
   onCreateTag: (name: string, target: string) => void;
+  onCreateWorktree: (request: CreateWorktreeRequest) => Promise<boolean>;
+  onOpenWorktreeInIde: (worktree: Worktree) => void;
+  onOpenWorktreeTerminal: (worktree: Worktree) => void;
+  onRemoveWorktree: (worktree: Worktree) => void;
+  onPruneWorktree: (worktree: Worktree) => void;
   onCherryPick: (commitId: string) => void;
   onRevertCommit: (commitId: string) => void;
   utilities: ReactNode;
@@ -243,10 +255,13 @@ export function RepoDetailView({
       return file ? { file, target } : null;
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  const selectedWorkingFile = workingSelection.active
+  // `active` is also the roving-focus target. Closing a diff restores focus
+  // to its row, so focus alone must not recreate a selection and reopen it.
+  const selectedWorkingTarget = selectedActiveWorkingTarget(workingSelection);
+  const selectedWorkingFile = selectedWorkingTarget
     ? {
-        path: workingSelection.active.path,
-        staged: workingSelection.active.source === "index",
+        path: selectedWorkingTarget.path,
+        staged: selectedWorkingTarget.source === "index",
       }
     : null;
   const patchExportDisabledTarget = openWorkingDiffWhitespace
@@ -479,6 +494,7 @@ export function RepoDetailView({
           <PerformanceBoundary id="repo-tree">
             <RepoTree
               repoId={repo.id}
+              repoPath={repo.path}
               focusedBranch={branchScrollRequest?.branch ?? null}
               selectedStashId={selectedStashId}
               onSelectBranch={onSelectBranch}
@@ -493,6 +509,14 @@ export function RepoDetailView({
               onPublishBranch={onPublishBranch}
               onBranchContextAction={handleBranchContextAction}
               onTagContextAction={handleTagContextAction}
+              onCreateWorktree={onCreateWorktree}
+              onOpenWorktreeInIde={onOpenWorktreeInIde}
+              onOpenWorktreeTerminal={onOpenWorktreeTerminal}
+              onRemoveWorktree={onRemoveWorktree}
+              onPruneWorktree={onPruneWorktree}
+              worktreeActionsDisabledReason={
+                operationInProgress ? t("operationBanner.blockedActions") : undefined
+              }
             />
           </PerformanceBoundary>
           <RemoteSection repoId={repo.id} onPushToRemotes={onPushToRemotes} />

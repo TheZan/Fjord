@@ -72,6 +72,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_repo_operation_state` | `{ repo_id }` | `GenerationEnvelope<RepoOperationState>` | Live on-disk operation state; query validity depends on `refs` and `working_tree` |
 | `get_branches` | `{ repo_id }` | `GenerationEnvelope<BranchInfo[]>` | |
 | `get_tags` | `{ repo_id }` | `GenerationEnvelope<TagInfo[]>` | |
+| `list_worktrees` | `{ repo_id }` | `GenerationEnvelope<Worktree[]>` | Includes main, locked, and prunable entries; cached against the `refs` generation |
 | `get_stashes` | `{ repo_id }` | `GenerationEnvelope<StashEntry[]>` | Rich identity-bearing `StashEntry` from [`stash-management.md`](stash-management.md) §1.2, in exact Git stack order; read-locked and cached against the `stash` generation |
 | `get_stash_files` | `{ repo_id, stash_id }` | `GenerationEnvelope<StashFiles>` | Bounded, authoritative stash file groups: base→index, index→stash, and empty→untracked; resolved only by stable `StashId` and read-locked |
 | `get_stash_file_diff` | `{ repo_id, stash_id, group, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Read-only tree-to-tree stash diff using the existing 2,000-line, 2 MB response, and 10 MB source-file ceilings; `load_anyway` overrides only the source-file ceiling |
@@ -102,6 +103,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `start_rebase` | `{ repo_id, preflight: RebasePreflight, dirty_policy: MergeDirtyPolicy, operation_id? }` | `RebaseResult` | Validates the live snapshot before registration, then recomputes and compares the complete preview under the write lock. Stale facts fail `preflight_stale` before stash or rebase. Explicit stash is retained and its actual selector is returned alongside authoritative `RepoOperationState` and generations. Cancellation leaves the sequencer for the Phase 9 controls. No autostash, fetch or push. (`P10-05`) |
 | `squash_merge_branch` | `{ repo_id, source, dirty_policy, operation_id? }` | `SquashMergeResult` | Cancellable `merge --squash` through system Git; shares `get_merge_preflight`'s blockers and dirty-tree policy. Stages the combined diff (or leaves it conflicted) without a merge commit and without moving any ref, so a conflict is a live index read rather than a `RepoOperationState`, and any outcome can be discarded with a plain Reset (Hard) to the returned `targetCommit` (`P10-MERGE-03`) |
 | `create_branch` | `{ repo_id, name, checkout }` | — | At current `HEAD` |
+| `create_worktree` | `{ repo_id, name, path, branch }` | `Worktree` | `branch` is an existing branch or a new branch with a start point; validates the destination before invoking Git |
+| `remove_worktree` | `{ repo_id, name, force }` | — | Prunes a missing entry; live removal refuses the main or locked worktree and dirty worktrees unless `force` is confirmed through destructive preflight |
 | `create_branch_at` | `{ repo_id, name, target, checkout }` | — | At an arbitrary commit |
 | `rename_branch` | `{ repo_id, old_name, new_name }` | — | |
 | `set_branch_upstream` | `{ repo_id, branch, upstream }` | — | Local config write; `upstream` must name an existing remote-tracking branch |
@@ -154,8 +157,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `cancel_operation` | `{ operation_id }` | `boolean` | Terminates the Git process tree |
 | `answer_git_auth_prompt` | `{ operation_id, prompt_id, value }` | `boolean` | One-use; never persisted or logged |
 | `cancel_git_auth_prompt` | `{ operation_id, prompt_id }` | `boolean` | |
-| `open_in_ide` | `{ repo_id, ide? }` | — | Falls back to `Settings.default_ide`; allowlisted commands only |
-| `open_terminal` | `{ repo_id }` | — | |
+| `open_in_ide` | `{ repo_id, ide?, worktree_path? }` | — | Falls back to `Settings.default_ide`; allowlisted commands only; optional path must identify a listed live worktree |
+| `open_terminal` | `{ repo_id, worktree_path? }` | — | Optional path must identify a listed live worktree |
 | `resolve_repository_file_path` | `{ repo_id, path }` | `RepositoryFilePath` | Canonicalizes a repository-relative file path; rejects traversal, `.git`, absolute paths, and resolved parents outside the repository |
 | `open_repository_path` | `{ repo_id, path, target }` | — | Opens a contained file in the configured editor (with optional line) or its OS default application |
 | `reveal_repository_path` | `{ repo_id, path }` | — | Reveals a contained file through the platform file manager |
@@ -177,11 +180,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 
 ## Planned additions
 
-Designed but not implemented. Each is owned by a spec and a phase; nothing below exists in the shipped surface yet.
-
-| Command | Input | Output | Spec | Task |
-|---|---|---|---|---|
-| `list_worktrees` / `create_worktree` / `remove_worktree` | — | — | [`workspace-workflows.md`](workspace-workflows.md) §1 | `P10-01`/`P10-02` |
+No additional commands are currently planned in this document.
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained

@@ -172,6 +172,26 @@ describe("FileEntryList", () => {
     expect(onSelectAll).toHaveBeenCalledWith(files, files[1]);
   });
 
+  it("keeps Escape inert when focus returns to an active row with no selection", () => {
+    const files = [{ path: "a.ts" }];
+    const onSelect = vi.fn();
+    render(
+      <FileEntryList
+        files={files}
+        mode="path"
+        collapse={emptyCollapse()}
+        selectedPaths={new Set()}
+        activePath="a.ts"
+        onSelect={onSelect}
+        renderMark={() => "M"}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByTitle("a.ts"), { key: "Escape" });
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
   it("exposes multiselect listbox semantics and a roving tabindex", () => {
     render(
       <FileEntryList

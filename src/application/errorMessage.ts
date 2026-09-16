@@ -74,6 +74,12 @@ const USER_ERROR_CODES = new Set([
   "stash_recovery_failed",
   "stash_scope_unrepresentable",
   "workspace_not_found",
+  "worktree_dirty",
+  "worktree_failed",
+  "worktree_invalid",
+  "worktree_locked",
+  "worktree_main_cannot_remove",
+  "worktree_not_found",
 ]);
 
 export function errorTranslationKey(error: unknown): string {

@@ -89,6 +89,7 @@ resolution.
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
 | Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
 | File deletion | ✅ `DestructiveAction::DeleteFile` on the same §3 enum and executor ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). |
+| Worktree removal | ✅ `DestructiveAction::RemoveWorktree` reports dirty-file count, blocks the main and locked worktrees, labels forced dirty removal `NotRecoverable`, and consumes the shared one-use confirmation before `git worktree remove --force`. Missing paths use the non-destructive prune path. |
 
 The implemented Phase 8 partial-patch safety scope has passed independent final
 verification: **SAFE TO PROCEED WITH DOCUMENTED LIMITATIONS**. Its supported

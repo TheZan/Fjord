@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useBranches } from "@/application/useBranches";
 import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
+import { useWorktrees } from "@/application/useWorktrees";
 import { RepoTree } from "@/presentation/RepoTree";
-import type { BranchInfo, StashEntry, TagInfo } from "@/domain/git";
+import type { BranchInfo, StashEntry, TagInfo, Worktree } from "@/domain/git";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -25,6 +26,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/application/useBranches", () => ({ useBranches: vi.fn() }));
 vi.mock("@/application/useStashes", () => ({ useStashes: vi.fn() }));
 vi.mock("@/application/useTags", () => ({ useTags: vi.fn() }));
+vi.mock("@/application/useWorktrees", () => ({ useWorktrees: vi.fn() }));
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 30,
@@ -85,12 +87,53 @@ const stashes: StashEntry[] = [
     hasUntracked: false,
   },
 ];
+const worktrees: Worktree[] = [
+  { name: "fjord", path: "C:/code/fjord", branch: "main", head: "aaa", isMain: true, isLocked: false, lockReason: null, isPrunable: false },
+  { name: "feature-ui", path: "C:/code/fjord-feature-ui", branch: "feature/ui", head: "bbb", isMain: false, isLocked: false, lockReason: null, isPrunable: false },
+  { name: "missing", path: "C:/code/fjord-missing", branch: "old", head: "ccc", isMain: false, isLocked: false, lockReason: null, isPrunable: true },
+];
 
 describe("RepoTree", () => {
   beforeEach(() => {
     vi.mocked(useBranches).mockReturnValue({ branches, loading: false, error: null });
     vi.mocked(useTags).mockReturnValue({ tags, loading: false, error: null });
     vi.mocked(useStashes).mockReturnValue({ stashes, loading: false, error: null });
+    vi.mocked(useWorktrees).mockReturnValue({ worktrees: [], loading: false, error: null });
+  });
+
+  it("renders worktrees after stashes and dispatches path-scoped actions", () => {
+    vi.mocked(useWorktrees).mockReturnValue({ worktrees, loading: false, error: null });
+    const onOpenWorktreeInIde = vi.fn();
+    const onRemoveWorktree = vi.fn();
+    const onPruneWorktree = vi.fn();
+    render(
+      <RepoTree
+        repoId="repo-1"
+        repoPath="C:/code/fjord"
+        onOpenWorktreeInIde={onOpenWorktreeInIde}
+        onRemoveWorktree={onRemoveWorktree}
+        onPruneWorktree={onPruneWorktree}
+      />,
+    );
+
+    const stashesHeader = screen.getByRole("button", { name: /tree.stashes/ });
+    const worktreesHeader = screen.getByRole("button", { name: /tree.worktrees.*3/ });
+    expect(stashesHeader.compareDocumentPosition(worktreesHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(worktreesHeader);
+    const feature = document.querySelector<HTMLElement>('[data-worktree-name="feature-ui"]')!;
+    fireEvent.contextMenu(feature);
+    fireEvent.click(screen.getByRole("menuitem", { name: "worktrees.openIde" }));
+    expect(onOpenWorktreeInIde).toHaveBeenCalledWith(worktrees[1]);
+
+    fireEvent.contextMenu(feature);
+    fireEvent.click(screen.getByRole("menuitem", { name: "worktrees.remove" }));
+    expect(onRemoveWorktree).toHaveBeenCalledWith(worktrees[1]);
+
+    const missing = document.querySelector<HTMLElement>('[data-worktree-name="missing"]')!;
+    fireEvent.contextMenu(missing);
+    fireEvent.click(screen.getByRole("menuitem", { name: "worktrees.prune" }));
+    expect(onPruneWorktree).toHaveBeenCalledWith(worktrees[2]);
   });
 
   it("groups refs, suppresses remote HEAD, and filters case-insensitively", () => {
