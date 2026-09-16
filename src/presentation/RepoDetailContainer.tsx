@@ -20,7 +20,7 @@ import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import { useStashes } from "@/application/useStashes";
 import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget } from "@/domain/git";
+import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -35,6 +35,7 @@ import {
   createBranchAt,
   createBranchFromStash,
   createTag,
+  createWorktree,
   discardPatch,
   discardPatches,
   getAmendInfo,
@@ -44,6 +45,7 @@ import {
   openInIde,
   openMergeTool,
   openTerminal,
+  removeWorktree,
   runFetchRepo,
   runCommitAndPushRepo,
   runPullRepo,
@@ -85,6 +87,7 @@ import { isOperationInProgress } from "@/presentation/OperationBanner";
 import { queryKeys } from "@/application/queryKeys";
 import { useDiffToolAvailability } from "@/application/useDiffToolAvailability";
 import { useStashPathsSupported } from "@/application/useStashPathsSupported";
+import type { CreateWorktreeRequest } from "@/presentation/CreateWorktreeDialog";
 
 export type RepoDetailCommandPayload =
   | { kind: "checkout"; branch: string }
@@ -210,7 +213,7 @@ export function RepoDetailContainer({
     setActionNoticeSuppressed(false);
     setActionPending(action);
     try {
-      if (action !== "terminal" && action !== "open-ide") {
+      if (!["terminal", "open-ide", "open-worktree-ide", "open-worktree-terminal"].includes(action)) {
         let validatedOperationState = operationState;
         if (!snapshot.validated) {
           if (!(await snapshot.ensureValidated())) {
@@ -567,6 +570,34 @@ export function RepoDetailContainer({
 
   function onCreateTag(name: string, target: string) {
     void runRepoAction("create-tag", () => createTag(repo.id, name, target), ["refs"]);
+  }
+
+  function onCreateWorktree(request: CreateWorktreeRequest) {
+    if (operationInProgress) {
+      setActionError(t("operationBanner.blockedActions"));
+      return Promise.resolve(false);
+    }
+    return runRepoAction(
+      "create-worktree",
+      () => createWorktree(repo.id, request.name, request.path, request.branch).then(() => undefined),
+      ["refs"],
+    );
+  }
+
+  function onOpenWorktreeInIde(worktree: Worktree) {
+    void runRepoAction("open-worktree-ide", () => openInIde(repo.id, null, worktree.path));
+  }
+
+  function onOpenWorktreeTerminal(worktree: Worktree) {
+    void runRepoAction("open-worktree-terminal", () => openTerminal(repo.id, worktree.path));
+  }
+
+  function onPruneWorktree(worktree: Worktree) {
+    void runRepoAction(
+      "prune-worktree",
+      () => removeWorktree(repo.id, worktree.name, false),
+      ["refs"],
+    );
   }
 
   function onRebaseBranch(onto: MergeSource) {
@@ -1096,6 +1127,11 @@ export function RepoDetailContainer({
       onPushToRemotes={pushCurrentBranchToRemotes}
       onPushTag={requestPushTag}
       onCreateTag={onCreateTag}
+      onCreateWorktree={onCreateWorktree}
+      onOpenWorktreeInIde={onOpenWorktreeInIde}
+      onOpenWorktreeTerminal={onOpenWorktreeTerminal}
+      onRemoveWorktree={(worktree) => setDestructiveAction({ kind: "removeWorktree", name: worktree.name, force: true })}
+      onPruneWorktree={onPruneWorktree}
       onCherryPick={onCherryPick}
       onRevertCommit={onRevertCommit}
       utilities={utilities}
@@ -1338,6 +1374,8 @@ function scopesForDestructiveAction(action: DestructiveAction): RepoDataScope[] 
       return ["status", "operation", "working", "history", "refs"];
     case "deleteFile":
       return ["status", "working"];
+    case "removeWorktree":
+      return ["refs"];
     case "discard":
     case "discardFiles":
     case "forceWithLease":

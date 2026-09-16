@@ -238,6 +238,8 @@ function ConsequenceItem({ consequence, action }: { consequence: Consequence; ac
           : "preflight.consequences.fileRemovedUntracked",
         consequence,
       )}</li>;
+    case "worktreeRemoved":
+      return <li>{t("preflight.consequences.worktreeRemoved", consequence)}</li>;
   }
 }
 

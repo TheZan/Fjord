@@ -5,14 +5,16 @@ import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
 import { useStashes } from "@/application/useStashes";
 import { useTags } from "@/application/useTags";
+import { useWorktrees } from "@/application/useWorktrees";
 import { Input, Surface } from "@/presentation/ui";
 import { ContextMenu, type ContextMenuItem } from "@/presentation/GitContextMenu";
 import { StashContextMenu } from "@/presentation/StashContextMenu";
 import type { StashAction } from "@/application/stashActions";
 import { formatRelativeTime } from "@/presentation/formatRelativeTime";
-import type { BranchInfo, StashEntry, StashId, TagInfo } from "@/domain/git";
+import { CreateWorktreeDialog, type CreateWorktreeRequest } from "@/presentation/CreateWorktreeDialog";
+import type { BranchInfo, StashEntry, StashId, TagInfo, Worktree } from "@/domain/git";
 
-type SectionKey = "local" | "remote" | "tags" | "stashes";
+type SectionKey = "local" | "remote" | "tags" | "stashes" | "worktrees";
 const TREE_ROW_HEIGHT = 40;
 
 /**
@@ -23,6 +25,7 @@ const TREE_ROW_HEIGHT = 40;
  */
 export function RepoTree({
   repoId,
+  repoPath,
   focusedBranch,
   onSelectBranch,
   onCheckout,
@@ -35,8 +38,15 @@ export function RepoTree({
   onStashContextMenu,
   onRevealStashInGraph,
   onStashAction,
+  onCreateWorktree,
+  onOpenWorktreeInIde,
+  onOpenWorktreeTerminal,
+  onRemoveWorktree,
+  onPruneWorktree,
+  worktreeActionsDisabledReason,
 }: {
   repoId: string;
+  repoPath?: string;
   focusedBranch?: string | null;
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
@@ -49,11 +59,18 @@ export function RepoTree({
   onStashContextMenu?: (stashId: StashId) => void;
   onRevealStashInGraph?: (stashId: StashId) => void;
   onStashAction?: (action: StashAction, stash: StashEntry) => void;
+  onCreateWorktree?: (request: CreateWorktreeRequest) => Promise<boolean>;
+  onOpenWorktreeInIde?: (worktree: Worktree) => void;
+  onOpenWorktreeTerminal?: (worktree: Worktree) => void;
+  onRemoveWorktree?: (worktree: Worktree) => void;
+  onPruneWorktree?: (worktree: Worktree) => void;
+  worktreeActionsDisabledReason?: string;
 }) {
   const { t, i18n } = useTranslation("workspace");
   const { branches, loading: branchesLoading, error: branchesError } = useBranches(repoId);
   const { tags, loading: tagsLoading, error: tagsError } = useTags(repoId);
   const { stashes, loading: stashesLoading, error: stashesError } = useStashes(repoId);
+  const { worktrees, loading: worktreesLoading, error: worktreesError } = useWorktrees(repoId);
   const treeRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Record<SectionKey, boolean>>({
@@ -61,16 +78,19 @@ export function RepoTree({
     remote: false,
     tags: false,
     stashes: false,
+    worktrees: false,
   });
+  const [createWorktreeOpen, setCreateWorktreeOpen] = useState(false);
   const [menu, setMenu] = useState<
     | { kind: "branch"; branch: BranchInfo; x: number; y: number }
     | { kind: "tag"; tag: TagInfo; x: number; y: number }
     | { kind: "stash"; stash: StashEntry; x: number; y: number }
+    | { kind: "worktree"; worktree: Worktree; x: number; y: number }
     | null
   >(null);
 
-  const loading = branchesLoading || tagsLoading || stashesLoading;
-  const error = branchesError ?? tagsError ?? stashesError;
+  const loading = branchesLoading || tagsLoading || stashesLoading || worktreesLoading;
+  const error = branchesError ?? tagsError ?? stashesError ?? worktreesError;
 
   const normalizedFilter = filter.trim().toLocaleLowerCase();
   const matches = (name: string) => !normalizedFilter || name.toLocaleLowerCase().includes(normalizedFilter);
@@ -88,15 +108,18 @@ export function RepoTree({
   const filteredStashes = stashes.filter(
     (entry) => matches(entry.title) || matches(entry.message),
   );
+  const filteredWorktrees = worktrees.filter((worktree) => (
+    matches(worktree.name) || matches(worktree.branch ?? "") || matches(worktree.path)
+  ));
 
-  const totalCount = visibleLocalBranches.length + visibleRemoteBranches.length + tags.length + stashes.length;
-  const matchedCount = local.length + remote.length + filteredTags.length + filteredStashes.length;
+  const totalCount = visibleLocalBranches.length + visibleRemoteBranches.length + tags.length + stashes.length + worktrees.length;
+  const matchedCount = local.length + remote.length + filteredTags.length + filteredStashes.length + filteredWorktrees.length;
 
   function toggle(key: SectionKey) {
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  if (loading && branches.length === 0 && tags.length === 0 && stashes.length === 0) {
+  if (loading && branches.length === 0 && tags.length === 0 && stashes.length === 0 && worktrees.length === 0) {
     return <RepoTreeSkeleton />;
   }
   if (error) {
@@ -249,6 +272,38 @@ export function RepoTree({
             />
           )}
         </TreeSection>
+
+        <TreeSection
+          label={t("tree.worktrees")}
+          count={filteredWorktrees.length}
+          expanded={expanded.worktrees}
+          onToggle={() => toggle("worktrees")}
+          noMatches={normalizedFilter !== "" && worktrees.length > 0 && filteredWorktrees.length === 0}
+          actionLabel={onCreateWorktree && repoPath ? t("worktrees.add") : undefined}
+          onAction={onCreateWorktree && repoPath ? () => setCreateWorktreeOpen(true) : undefined}
+          actionDisabledReason={worktreeActionsDisabledReason}
+        >
+          {worktrees.length === 0 ? (
+            <p className="px-2 py-1 pl-3 text-xs" style={{ color: "var(--slate)" }}>
+              {t("worktrees.empty")}
+            </p>
+          ) : (
+            <VirtualTreeItems
+              count={filteredWorktrees.length}
+              getItemKey={(index) => filteredWorktrees[index].name}
+              renderItem={(index) => {
+                const worktree = filteredWorktrees[index];
+                return (
+                  <WorktreeRow
+                    worktree={worktree}
+                    mainLabel={t("worktrees.main")}
+                    onContextMenu={(position) => setMenu({ kind: "worktree", worktree, ...position })}
+                  />
+                );
+              }}
+            />
+          )}
+        </TreeSection>
       </div>
       {menu?.kind === "stash" ? (
         <StashContextMenu
@@ -266,7 +321,9 @@ export function RepoTree({
           items={
             menu.kind === "branch"
               ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
-              : tagMenuItems(menu.tag, t, checkoutDisabledReason)
+              : menu.kind === "tag"
+                ? tagMenuItems(menu.tag, t, checkoutDisabledReason)
+                : worktreeMenuItems(menu.worktree, t, worktreeActionsDisabledReason)
           }
           onClose={() => setMenu(null)}
           onSelect={(action) => {
@@ -279,10 +336,22 @@ export function RepoTree({
                 visibleRemoteBranches.map((branch) => branch.name),
               );
             }
-            else {
+            else if (selection.kind === "tag") {
               onTagContextAction?.(action as TagContextAction, selection.tag);
             }
+            else if (action === "openIde") onOpenWorktreeInIde?.(selection.worktree);
+            else if (action === "openTerminal") onOpenWorktreeTerminal?.(selection.worktree);
+            else if (action === "remove") onRemoveWorktree?.(selection.worktree);
+            else if (action === "prune") onPruneWorktree?.(selection.worktree);
           }}
+        />
+      ) : null}
+      {createWorktreeOpen && repoPath && onCreateWorktree ? (
+        <CreateWorktreeDialog
+          repoPath={repoPath}
+          branches={branches}
+          onConfirm={onCreateWorktree}
+          onClose={() => setCreateWorktreeOpen(false)}
         />
       ) : null}
     </Surface>
@@ -312,6 +381,9 @@ function TreeSection({
   expanded,
   onToggle,
   noMatches,
+  actionLabel,
+  onAction,
+  actionDisabledReason,
   children,
 }: {
   label: string;
@@ -319,24 +391,41 @@ function TreeSection({
   expanded: boolean;
   onToggle: () => void;
   noMatches: boolean;
+  actionLabel?: string;
+  onAction?: () => void;
+  actionDisabledReason?: string;
   children: ReactNode;
 }) {
   const { t } = useTranslation("workspace");
 
   return (
     <div className="mb-1 last:mb-0">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="interactive-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-medium uppercase tracking-wide"
-        style={{ color: "var(--mist)" }}
-      >
-        <span className="inline-block w-3 shrink-0 text-center" style={{ color: "var(--slate)" }}>
-          {expanded ? "▾" : "▸"}
-        </span>
-        <span className="flex-1">{label}</span>
-        <span className="tabular-nums">{count}</span>
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="interactive-row flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-medium uppercase tracking-wide"
+          style={{ color: "var(--mist)" }}
+        >
+          <span className="inline-block w-3 shrink-0 text-center" style={{ color: "var(--slate)" }}>
+            {expanded ? "▾" : "▸"}
+          </span>
+          <span className="flex-1">{label}</span>
+          <span className="tabular-nums">{count}</span>
+        </button>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            aria-label={actionLabel}
+            title={actionDisabledReason}
+            disabled={Boolean(actionDisabledReason)}
+            className="interactive-control rounded px-1.5 py-1 text-xs"
+            onClick={onAction}
+          >
+            +
+          </button>
+        ) : null}
+      </div>
 
       {expanded &&
         (noMatches ? (
@@ -450,6 +539,50 @@ function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: M
         <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
         <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
           {tag.targetCommitId.slice(0, 7)}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function WorktreeRow({
+  worktree,
+  mainLabel,
+  onContextMenu,
+}: {
+  worktree: Worktree;
+  mainLabel: string;
+  onContextMenu: (position: { x: number; y: number }) => void;
+}) {
+  return (
+    <li className="h-10">
+      <button
+        data-tree-item
+        data-worktree-name={worktree.name}
+        type="button"
+        className="interactive-row flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded px-2 text-left"
+        onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onContextMenu({ x: bounds.left + 12, y: bounds.top + 12 });
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu({ x: event.clientX, y: event.clientY });
+        }}
+      >
+        <span className="flex min-w-0 flex-col">
+          <code className="truncate font-mono text-xs">{worktree.branch ?? worktree.head.slice(0, 7)}</code>
+          <span className="truncate text-[10px]" style={{ color: "var(--mist)" }} title={worktree.path}>
+            {worktree.path}
+          </span>
+        </span>
+        <span className="flex shrink-0 gap-1 text-[10px]" style={{ color: "var(--mist)" }}>
+          {worktree.isMain ? mainLabel : null}
+          {worktree.isLocked ? "🔒" : null}
+          {worktree.isPrunable ? "⚠" : null}
         </span>
       </button>
     </li>
@@ -660,6 +793,42 @@ function tagMenuItems(_tag: TagInfo, t: (key: string) => string, pushDisabledRea
     { id: "push", label: t("context.pushTag"), icon: "tag", disabled: Boolean(pushDisabledReason), disabledReason: pushDisabledReason },
     { id: "delete", label: t("context.deleteTag"), icon: "delete", danger: true },
     { id: "copy", label: t("context.copyTagName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
+  ];
+}
+
+function worktreeMenuItems(
+  worktree: Worktree,
+  t: (key: string) => string,
+  mutationDisabledReason?: string,
+): ContextMenuItem[] {
+  const lockedReason = worktree.isLocked
+    ? worktree.lockReason || t("worktrees.locked")
+    : undefined;
+  const removeDisabledReason = worktree.isMain
+    ? t("worktrees.mainCannotRemove")
+    : lockedReason ?? mutationDisabledReason;
+  return [
+    { id: "openIde", label: t("worktrees.openIde") },
+    { id: "openTerminal", label: t("worktrees.openTerminal") },
+    worktree.isPrunable
+      ? {
+          id: "prune",
+          label: t("worktrees.prune"),
+          icon: "delete",
+          danger: true,
+          separatorBefore: true,
+          disabled: Boolean(mutationDisabledReason),
+          disabledReason: mutationDisabledReason,
+        }
+      : {
+          id: "remove",
+          label: t("worktrees.remove"),
+          icon: "delete",
+          danger: true,
+          separatorBefore: true,
+          disabled: Boolean(removeDisabledReason),
+          disabledReason: removeDisabledReason,
+        },
   ];
 }
 

@@ -95,6 +95,12 @@
     "stash_scope_unrepresentable": "Der Zustand von {{path}} kann nicht exakt dargestellt werden; es wurde kein Stash erstellt.",
     "unexpected": "Etwas ist schiefgelaufen. Versuche es erneut oder starte Fjord neu.",
     "workspace_not_found": "Der Workspace wurde nicht gefunden. Aktualisiere die App und versuche es erneut.",
+    "worktree_invalid": "Worktree-Pfad oder Branch ist ungültig.",
+    "worktree_not_found": "Der Worktree wurde nicht gefunden.",
+    "worktree_main_cannot_remove": "Der Haupt-Worktree kann nicht entfernt werden.",
+    "worktree_locked": "Der Worktree ist gesperrt.",
+    "worktree_dirty": "Der Worktree hat nicht committete Änderungen.",
+    "worktree_failed": "Git konnte die Worktree-Operation nicht abschließen.",
     "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell."
   },
   "settings": {

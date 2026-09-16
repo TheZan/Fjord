@@ -556,6 +556,10 @@
       "title": "¿Eliminar este archivo?",
       "confirm": "Eliminar archivo"
     },
+    "removeWorktree": {
+      "title": "¿Eliminar este worktree?",
+      "confirm": "Eliminar worktree"
+    },
     "recoverability": {
       "reflog": "Los commits seguirán accesibles mediante el reflog y podrán restaurarse desde el Centro de recuperación.",
       "stash": "Tus cambios se guardarán en el stash.",
@@ -572,7 +576,10 @@
       "stash_not_found": "La entrada de stash seleccionada ya no existe.",
       "delete_target_not_a_file": "Desde este menú solo se pueden eliminar archivos.",
       "delete_file_partially_staged": "{{path}} también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
-      "delete_file_conflicted": "{{path}} tiene conflictos sin resolver. Resuélvelos primero."
+      "delete_file_conflicted": "{{path}} tiene conflictos sin resolver. Resuélvelos primero.",
+      "main_worktree_cannot_be_removed": "El worktree principal no se puede eliminar.",
+      "worktree_locked": "Este worktree está bloqueado: {{reason}}",
+      "worktree_has_uncommitted_changes": "Este worktree tiene cambios sin confirmar."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Descartar cambios en {{count}} archivo modificado: {{sample}}.",
@@ -591,7 +598,8 @@
       "stashEntryDropped": "Eliminar definitivamente «{{title}}» ({{refName}}), con {{filesChanged}} archivos modificados. Creado desde {{branch}} en {{base}}.",
       "remoteRefUpdated": "Actualizar {{refName}} en {{remote}}, descartando {{droppedCommits}} commits remotos.",
       "fileRemovedTracked": "Quitar {{path}} del árbol de trabajo; aparecerá como una eliminación de Git.",
-      "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo."
+      "fileRemovedUntracked": "Eliminar {{path}}. Git no tiene ninguna copia de este archivo.",
+      "worktreeRemoved": "Eliminar el worktree {{name}} en {{path}} con {{dirtyCount}} cambios sin confirmar."
     }
   },
   "repoActions": {
@@ -646,11 +654,34 @@
     "remote": "Remoto",
     "tags": "Tags",
     "stashes": "Stashes",
-    "filterPlaceholder": "Filtrar ramas, tags y stashes",
+    "worktrees": "Worktrees",
+    "filterPlaceholder": "Filtrar ramas, tags, stashes y worktrees",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Limpiar",
     "noMatches": "Sin coincidencias.",
     "empty": "No se encontraron ramas ni tags."
+  },
+  "worktrees": {
+    "add": "Añadir worktree",
+    "empty": "No hay worktrees vinculados.",
+    "main": "Principal",
+    "locked": "Bloqueado",
+    "mainCannotRemove": "El worktree principal no se puede eliminar.",
+    "openIde": "Abrir en IDE",
+    "openTerminal": "Abrir en terminal",
+    "remove": "Eliminar worktree",
+    "prune": "Depurar worktree ausente",
+    "createTitle": "Crear worktree",
+    "createDescription": "Crea un directorio de trabajo vinculado para una rama existente o nueva.",
+    "name": "Nombre",
+    "path": "Ruta",
+    "branch": "Rama",
+    "existingBranch": "Rama existente",
+    "newBranch": "Rama nueva",
+    "newBranchName": "Nombre de la rama nueva",
+    "startPoint": "Punto inicial",
+    "create": "Crear",
+    "creating": "Creando…"
   },
   "remotes": {
     "title": "Remotos",

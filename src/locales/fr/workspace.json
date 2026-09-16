@@ -556,6 +556,10 @@
       "title": "Supprimer ce fichier ?",
       "confirm": "Supprimer le fichier"
     },
+    "removeWorktree": {
+      "title": "Supprimer ce worktree ?",
+      "confirm": "Supprimer le worktree"
+    },
     "recoverability": {
       "reflog": "Les commits restent accessibles via le reflog et peuvent être restaurés depuis le Centre de récupération.",
       "stash": "Vos modifications seront enregistrées dans le stash.",
@@ -572,7 +576,10 @@
       "stash_not_found": "L’entrée de stash sélectionnée n’existe plus.",
       "delete_target_not_a_file": "Seuls des fichiers peuvent être supprimés depuis ce menu.",
       "delete_file_partially_staged": "{{path}} a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
-      "delete_file_conflicted": "{{path}} a des conflits non résolus. Résolvez-les d’abord."
+      "delete_file_conflicted": "{{path}} a des conflits non résolus. Résolvez-les d’abord.",
+      "main_worktree_cannot_be_removed": "Le worktree principal ne peut pas être supprimé.",
+      "worktree_locked": "Ce worktree est verrouillé : {{reason}}",
+      "worktree_has_uncommitted_changes": "Ce worktree contient des modifications non validées."
     },
     "consequences": {
       "modifiedFilesDiscarded_one": "Abandonner les modifications dans {{count}} fichier modifié : {{sample}}.",
@@ -591,7 +598,8 @@
       "stashEntryDropped": "Supprimer définitivement « {{title}} » ({{refName}}), contenant {{filesChanged}} fichiers modifiés. Créé depuis {{branch}} à {{base}}.",
       "remoteRefUpdated": "Mettre à jour {{refName}} sur {{remote}} et abandonner {{droppedCommits}} commits distants.",
       "fileRemovedTracked": "Retirer {{path}} de l’arbre de travail ; il apparaîtra comme une suppression Git.",
-      "fileRemovedUntracked": "Supprimer {{path}}. Git n’a aucune copie de ce fichier."
+      "fileRemovedUntracked": "Supprimer {{path}}. Git n’a aucune copie de ce fichier.",
+      "worktreeRemoved": "Supprimer le worktree {{name}} dans {{path}} avec {{dirtyCount}} modifications non validées."
     }
   },
   "repoActions": {
@@ -646,11 +654,34 @@
     "remote": "Distante",
     "tags": "Tags",
     "stashes": "Stashes",
-    "filterPlaceholder": "Filtrer les branches, tags et stashes",
+    "worktrees": "Worktrees",
+    "filterPlaceholder": "Filtrer les branches, tags, stashes et worktrees",
     "filterCount": "{{matched}} / {{total}}",
     "clearFilter": "Effacer",
     "noMatches": "Aucune correspondance.",
     "empty": "Aucune branche ni tag trouvé."
+  },
+  "worktrees": {
+    "add": "Ajouter un worktree",
+    "empty": "Aucun worktree lié.",
+    "main": "Principal",
+    "locked": "Verrouillé",
+    "mainCannotRemove": "Le worktree principal ne peut pas être supprimé.",
+    "openIde": "Ouvrir dans l’IDE",
+    "openTerminal": "Ouvrir dans le terminal",
+    "remove": "Supprimer le worktree",
+    "prune": "Nettoyer le worktree absent",
+    "createTitle": "Créer un worktree",
+    "createDescription": "Créez un répertoire de travail lié pour une branche existante ou nouvelle.",
+    "name": "Nom",
+    "path": "Chemin",
+    "branch": "Branche",
+    "existingBranch": "Branche existante",
+    "newBranch": "Nouvelle branche",
+    "newBranchName": "Nom de la nouvelle branche",
+    "startPoint": "Point de départ",
+    "create": "Créer",
+    "creating": "Création…"
   },
   "remotes": {
     "title": "Dépôts distants",

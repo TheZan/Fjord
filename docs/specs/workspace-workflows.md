@@ -21,11 +21,10 @@ Fjord's differentiator is the workspace: many repositories, one control surface
 and little else, and the single-repository workflows that a workspace user needs
 most are the ones still missing:
 
-1. **Worktrees are invisible.** A developer running two branches side by side —
-   increasingly the normal setup when coding agents work in parallel checkouts —
-   has no representation in Fjord at all. Worktrees of a tracked repository appear
-   either as unrelated repositories (if imported separately) or not at all, and
-   their shared `.git` relationship is never modeled.
+1. **Worktrees are first-class (`P10-01`–`03`).** Fjord lists, creates, opens,
+   safely removes, and prunes linked worktrees under their tracked repository.
+   Discovery skips linked `.git` files, and runtime caching/watching follows the
+   shared-repository identity instead of multiplying `.git` watches.
 2. **Basic rebase is available through shared preflight and UI (`P10-04`–`05`).** System Git
    starts it and Phase 9 handles conflicts and finishing. User-facing preflight
    and entry points are shipped; interactive rebase remains `P10-11`.
@@ -75,7 +74,7 @@ most are the ones still missing:
 
 | Area | State |
 |---|---|
-| Worktrees | 🚧 Absent everywhere: domain, ports, IPC, UI, and the import scanner (`fjord-fs` discovery finds `.git` directories; a worktree's `.git` is a *file*). |
+| Worktrees | ✅ Domain, cached local backend, typed IPC, discovery exclusion, create/remove/prune safety, launcher integration, and the repository-tree UI are shipped by `P10-01`–`03`. The main/locked/prunable states are explicit, dirty removal uses the shared destructive preflight, and one tracked repository owns the shared `.git` watch. |
 | Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Shared preflight, branch-menu and palette entry points are shipped (`P10-05`); interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
 | Merge | ✅ Initiation is shipped by `P10-MERGE-01`–`03`, owned by [`branch-merge.md`](branch-merge.md). Conflicts use the Phase 9 controls. |
 | Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
