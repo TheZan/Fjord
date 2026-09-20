@@ -22,6 +22,12 @@ use super::*;
 
 const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
 
+pub(super) struct MergeOptions {
+    pub mode: MergeMode,
+    pub dirty_policy: MergeDirtyPolicy,
+    pub allow_unrelated_histories: bool,
+}
+
 pub(super) async fn preflight(
     origins: Arc<OperationOriginTracker>,
     repo: &RepoPath,
@@ -40,8 +46,7 @@ pub(super) async fn run(
     origins: Arc<OperationOriginTracker>,
     repo: &RepoPath,
     source: &MergeSource,
-    mode: MergeMode,
-    dirty_policy: MergeDirtyPolicy,
+    options: MergeOptions,
     context: GitOperationContext,
 ) -> Result<MergeResult, GitError> {
     let repo = repo.clone();
@@ -59,8 +64,14 @@ pub(super) async fn run(
         ));
     }
 
+    if matches!(preflight.prediction, MergePrediction::Unrelated)
+        && !options.allow_unrelated_histories
+    {
+        return Err(GitError::MergeUnrelatedHistoriesNotAllowed);
+    }
+
     let dirty_blocked = preflight.dirty.staged > 0 || !preflight.dirty.would_overwrite.is_empty();
-    if dirty_blocked && dirty_policy == MergeDirtyPolicy::Refuse {
+    if dirty_blocked && options.dirty_policy == MergeDirtyPolicy::Refuse {
         return Err(dirty_error(&preflight));
     }
 
@@ -111,10 +122,13 @@ pub(super) async fn run(
         )),
     });
     let mut args = vec!["merge".into()];
-    match mode {
+    match options.mode {
         MergeMode::FastForwardOnly => args.push("--ff-only".into()),
         MergeMode::NoFastForward => args.push("--no-ff".into()),
         MergeMode::Default => {}
+    }
+    if matches!(preflight.prediction, MergePrediction::Unrelated) {
+        args.push("--allow-unrelated-histories".into());
     }
     args.extend([
         OsString::from("--no-edit"),
@@ -156,7 +170,7 @@ pub(super) async fn run(
     }
 
     if result.exit_code != Some(0) {
-        if mode == MergeMode::FastForwardOnly {
+        if options.mode == MergeMode::FastForwardOnly {
             return Err(retain_stash(GitError::MergeNotFastForward, stashed));
         }
         return Err(retain_stash(
@@ -170,11 +184,12 @@ pub(super) async fn run(
     let outcome = match preflight.prediction {
         // `--no-ff` records a merge commit even where the history would
         // fast-forward, so this outcome follows the mode, not the prediction.
-        MergePrediction::FastForward { .. } if mode == MergeMode::NoFastForward => {
+        MergePrediction::FastForward { .. } if options.mode == MergeMode::NoFastForward => {
             MergeOutcome::Merged { commit: head }
         }
         MergePrediction::FastForward { .. } => MergeOutcome::FastForwarded { head },
         MergePrediction::MergeCommit { .. } => MergeOutcome::Merged { commit: head },
+        MergePrediction::Unrelated => MergeOutcome::Merged { commit: head },
         MergePrediction::AlreadyUpToDate => MergeOutcome::AlreadyUpToDate,
     };
     Ok(result_from_preflight(preflight, outcome, stash_ref))
@@ -194,6 +209,7 @@ pub(super) async fn run_squash(
     repo: &RepoPath,
     source: &MergeSource,
     dirty_policy: MergeDirtyPolicy,
+    allow_unrelated_histories: bool,
     context: GitOperationContext,
 ) -> Result<SquashMergeResult, GitError> {
     let repo = repo.clone();
@@ -209,6 +225,10 @@ pub(super) async fn run_squash(
             SquashMergeOutcome::AlreadyUpToDate,
             None,
         ));
+    }
+
+    if matches!(preflight.prediction, MergePrediction::Unrelated) && !allow_unrelated_histories {
+        return Err(GitError::MergeUnrelatedHistoriesNotAllowed);
     }
 
     let dirty_blocked = preflight.dirty.staged > 0 || !preflight.dirty.would_overwrite.is_empty();
@@ -262,12 +282,14 @@ pub(super) async fn run_squash(
             preflight.source_label, preflight.target_branch
         )),
     });
-    let args = vec![
-        OsString::from("merge"),
-        OsString::from("--squash"),
+    let mut args = vec![OsString::from("merge"), OsString::from("--squash")];
+    if matches!(preflight.prediction, MergePrediction::Unrelated) {
+        args.push(OsString::from("--allow-unrelated-histories"));
+    }
+    args.extend([
         OsString::from("--"),
         OsString::from(&preflight.source.ref_name),
-    ];
+    ]);
     let executable = match commands.executable() {
         Ok(executable) => executable,
         Err(error) => {

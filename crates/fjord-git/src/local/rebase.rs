@@ -136,9 +136,30 @@ pub(super) async fn preflight_locked(
     onto: &MergeSource,
     origins: &OperationOriginTracker,
 ) -> Result<(RebasePreflight, Vec<TodoCommitEntry>), GitError> {
+    let actual_kind = integration::classify_source(&onto.ref_name).map_err(integration_error)?;
+    if actual_kind != onto.kind
+        || !matches!(
+            actual_kind,
+            fjord_domain::MergeSourceKind::LocalBranch
+                | fjord_domain::MergeSourceKind::RemoteTracking
+        )
+    {
+        return Err(GitError::IntegrationBlocked(
+            IntegrationBlocker::TargetUnsupported,
+        ));
+    }
     // The shared integration engine owns ref/HEAD validation, dirty computation,
     // overwrite intersection and blockers. No parallel rebase safety engine.
     let shared = integration::preflight_locked(repo, onto, origins).map_err(integration_error)?;
+    if shared
+        .blockers
+        .iter()
+        .any(|blocker| blocker == "merge_source_unsupported")
+    {
+        return Err(GitError::IntegrationBlocked(
+            IntegrationBlocker::TargetUnsupported,
+        ));
+    }
     let blockers = shared
         .blockers
         .iter()

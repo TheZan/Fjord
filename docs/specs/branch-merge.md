@@ -1,7 +1,8 @@
 # Spec: branch merge into the current branch
 
 Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03 (shipped, §1–§9);
-P12-MERGE-01, P12-MERGE-02, P12-MERGE-04, P12-MERGE-05 (designed, §10);
+P12-MERGE-01, P12-MERGE-04, P12-MERGE-05 (designed, §10);
+P12-MERGE-02 (shipped, §10.2);
 SDD §5.2, §15.
 Related: [`conflict-resolution.md`](conflict-resolution.md),
 [`repository-safety.md`](repository-safety.md),
@@ -84,8 +85,9 @@ and it has no preflight, no mode selection, and no UI entry point.
   [`conflict-resolution.md`](conflict-resolution.md), not by this spec.
 - **Forge merges.** GitHub/GitLab pull-request or merge-request merging is
   explicitly out of scope (SDD §15).
-- **Arbitrary refs as sources.** Tags and raw commit ids are not offered as merge
-  sources in v1; see §2. §10.2 adds both.
+- **Other arbitrary refs as sources.** §10.2 admits tags and full raw commit ids;
+  stash refs, notes, replace refs, abbreviated ids, and other exotic revisions
+  remain out of scope.
 
 ## Current state
 
@@ -94,7 +96,7 @@ and it has no preflight, no mode selection, and no UI entry point.
 | Merge state detection | ✅ `RepoOperationState::Merge { head, incoming }` with conflicted paths, computed controls, and `detected_externally` (`P9-01`, `P9-02`). |
 | Conflict UI | ✅ Operation banner with bounded conflicted paths, merge-tool handoff, Continue/Abort (`P9-03`, `P9-04`). |
 | Abort | ✅ `DestructiveAction::AbortOperation` through the shared preflight and token-bound executor (`P9-05`, `P9-06`). |
-| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2). Squash merge is implemented by `P10-MERGE-03` (§9), reusing the same preflight/blockers/dirty policy. |
+| Merge initiation | ✅ Local-branch flow implemented end to end by `P10-MERGE-01`: typed domain/port/IPC contracts, system-Git execution, preflight dialog, and shared UI action. Remote-tracking sources are implemented by `P10-MERGE-02` (§2); tags, raw commits, and explicitly acknowledged unrelated histories by `P12-MERGE-02` (§10.2). Squash merge is implemented by `P10-MERGE-03` (§9), reusing the same preflight/blockers/dirty policy. |
 | Local merge machinery | ⚠️ `integrate_upstream` performs a `git2` up-to-date / fast-forward / normal-merge analysis for `pull` only. Not a product action; not reused by this spec (§7). |
 | Branch context menu | ✅ Local and remote-tracking branches both expose the shared merge action with source/target labels and disabled reasons; only the current branch is disabled. |
 | Commit-graph branch labels | ✅ `RefBadge` / `RefBadgeGroup` / `RefBadgeFlyout` preserve the exact ref identity and expose ref-specific checkout, merge, and copy actions. Remote-tracking labels include the remote name (`origin/feature`), so they remain distinct from local labels when the tips diverge or coincide. |
@@ -295,7 +297,7 @@ reason):
 |---|---|
 | `merge_source_is_current_branch` | The clicked ref is the checked-out branch. |
 | `merge_source_not_found` | The ref no longer exists (stale menu, deleted branch). |
-| `merge_source_unsupported` | Source kind is not supported by the current task scope (remote-tracking before P10-MERGE-02; tags; raw ids). |
+| `merge_source_unsupported` | The source is not a local branch, remote-tracking ref, tag, or full commit id, or its declared kind does not match the value. |
 | `operation_already_in_progress` | A merge, rebase, cherry-pick, revert, or bisect is already in progress (`RepoOperationState != Normal` for the sequencer states). |
 | `merge_detached_head` | `HEAD` is detached — there is no destination branch to name. |
 | `merge_unborn_head` | The branch has no commits yet. |
@@ -620,20 +622,19 @@ current one, and resolves to the same `onMergeBranch` with the same
     `DestructiveAction::Reset` (already preflighted, already tested) to that
     commit is exactly correct and sufficient. No `AbortSquashMerge` action
     was added.
-  - Entry points are the branch-tree and commit-graph context menus only
+  - The v1 entry points were the branch-tree and commit-graph context menus
     (`Squash merge {{source}} into {{target}}…`, next to `Merge`), sharing
-    one `MergeSource`/`onSquashMergeBranch` dispatch. It is **not** in the
-    command palette or the remote-tracking "fetch before merging" flow —
-    both are deliberately out of scope for v1 and can be added later without
-    changing this model.
+    one `MergeSource`/`onSquashMergeBranch` dispatch. `P12-MERGE-02` added the
+    command-palette entry and the remote-tracking "fetch before merging" flow
+    without changing this model.
 
 ### 10. Planned extensions (Phase 12)
 
 Everything above §9 describes **shipped** behavior. This section records the
-designed-but-not-implemented extensions owned by `P12-MERGE-01`, `P12-MERGE-02`,
-`P12-MERGE-04` and `P12-MERGE-05` in [`tasks.md`](../tasks.md). Until a task
-ships, the §Non-goals list above remains the accurate statement of what Fjord
-does. Conflict *resolution* is not here: it is owned by the new
+Phase 12 extensions: `P12-MERGE-02` is shipped, while `P12-MERGE-01`,
+`P12-MERGE-04` and `P12-MERGE-05` remain partly or wholly designed work in
+[`tasks.md`](../tasks.md). Until a task ships, the §Non-goals list above remains
+the accurate statement of what Fjord does. Conflict *resolution* is not here: it is owned by the new
 [`conflict-resolution.md`](conflict-resolution.md) and applies to every
 operation, not only to merge.
 
@@ -678,6 +679,8 @@ The merge message stops being `--no-edit`:
   That is a required integration test, not an assumption.
 
 #### 10.2 Wider sources and unrelated histories (`P12-MERGE-02`)
+
+**Status: shipped.**
 
 `MergeSourceKind` gains `Tag` and `Commit`. `classify_source` and
 `strip_ref_prefix` extend by one match arm each; `peel_to_commit` already serves

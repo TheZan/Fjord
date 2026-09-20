@@ -54,7 +54,7 @@ describe("MergeDialog", () => {
     expect(screen.getByText(/merge\.prediction\.fastForward/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false);
+    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false, false);
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
@@ -76,7 +76,7 @@ describe("MergeDialog", () => {
     // The prediction itself is unchanged; only the sentence the user reads is.
     expect(screen.getByText(/merge\.prediction\.fastForwardNoFf:/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false);
+    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false, false);
   });
 
   it("offers fetch-before-merge for a remote-tracking source and names the known commit", () => {
@@ -103,7 +103,7 @@ describe("MergeDialog", () => {
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true);
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true, false);
   });
 
   it("never offers fetch-before-merge for a local-branch source", () => {
@@ -130,15 +130,43 @@ describe("MergeDialog", () => {
     };
     rerender(dialog(onConfirm));
     fireEvent.click(screen.getByRole("button", { name: "merge.dirty.stashAndMerge" }));
-    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false);
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false, false);
+  });
+
+  it("shows the unrelated-histories acknowledgement only when required", () => {
+    const onConfirm = vi.fn();
+    mergeState.preflight = preflight({ kind: "unrelated" });
+    const { rerender } = renderDialog(onConfirm);
+
+    const acknowledgement = screen.getByLabelText("merge.unrelated.acknowledge");
+    const confirm = screen.getByRole("button", { name: "merge.confirm" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(acknowledgement);
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, true);
+
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
+    rerender(dialog(onConfirm));
+    expect(screen.queryByLabelText("merge.unrelated.acknowledge")).not.toBeInTheDocument();
   });
 });
 
-function renderDialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void) {
+function renderDialog(onConfirm: (
+  mode: MergeMode,
+  dirtyPolicy: MergeDirtyPolicy,
+  fetchFirst: boolean,
+  allowUnrelatedHistories: boolean,
+) => void) {
   return render(dialog(onConfirm));
 }
 
-function dialog(onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void) {
+function dialog(onConfirm: (
+  mode: MergeMode,
+  dirtyPolicy: MergeDirtyPolicy,
+  fetchFirst: boolean,
+  allowUnrelatedHistories: boolean,
+) => void) {
   return (
     <MergeDialog
       repoId="repo-1"

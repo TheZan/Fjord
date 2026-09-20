@@ -98,6 +98,7 @@ export type RepoDetailCommandPayload =
   | { kind: "openCommitSearch" }
   | { kind: "rebase"; onto: MergeSource; repoId: string }
   | { kind: "merge"; source: MergeSource }
+  | { kind: "squashMerge"; source: MergeSource }
   | { kind: "refresh" };
 
 export type RepoDetailCommand = RepoDetailCommandPayload & { id: number };
@@ -298,6 +299,11 @@ export function RepoDetailContainer({
       return;
     }
 
+    if (command.kind === "squashMerge") {
+      onSquashMergeBranch(command.source);
+      return;
+    }
+
     if (command.kind === "refresh") {
       void snapshot.revalidate();
       return;
@@ -315,6 +321,7 @@ export function RepoDetailContainer({
     setWorkingSelected(false);
     setRecoveryCenterOpen(false);
     setMergeSource(null);
+    setSquashMergeSource(null);
     setStashDialog(null);
     setStashActionRequest(null);
   }, [repo.id]);
@@ -690,7 +697,12 @@ export function RepoDetailContainer({
     setMergeSource(source);
   }
 
-  function executeMerge(mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) {
+  function executeMerge(
+    mode: MergeMode,
+    dirtyPolicy: MergeDirtyPolicy,
+    fetchFirst: boolean,
+    allowUnrelatedHistories: boolean,
+  ) {
     if (!mergeSource) return;
     const source = mergeSource;
     void runRepoAction(
@@ -707,7 +719,13 @@ export function RepoDetailContainer({
             });
           }
         }
-        const task = runMergeBranch(repo.id, source, mode, dirtyPolicy);
+        const task = runMergeBranch(
+          repo.id,
+          source,
+          mode,
+          dirtyPolicy,
+          allowUnrelatedHistories,
+        );
         setActionOperationId(task.operationId);
         const result = await task.promise;
         if (result.outcome.kind === "conflicted") {
@@ -737,6 +755,10 @@ export function RepoDetailContainer({
           setActionError(retained ? `${message} ${retained}` : message);
           return true;
         }
+        if (code === "merge_unrelated_histories_not_allowed") {
+          setActionError(t("merge.error.unrelatedAcknowledgementRequired"));
+          return true;
+        }
         if (code === "merge_failed") {
           const message = t("merge.error.failed");
           setActionError(retained ? `${message} ${retained}` : message);
@@ -762,13 +784,33 @@ export function RepoDetailContainer({
     setSquashMergeSource(source);
   }
 
-  function executeSquashMerge(dirtyPolicy: MergeDirtyPolicy) {
+  function executeSquashMerge(
+    dirtyPolicy: MergeDirtyPolicy,
+    fetchFirst: boolean,
+    allowUnrelatedHistories: boolean,
+  ) {
     if (!squashMergeSource) return;
     const source = squashMergeSource;
     void runRepoAction(
       "squash-merge",
       async () => {
-        const task = runSquashMergeBranch(repo.id, source, dirtyPolicy);
+        if (fetchFirst) {
+          const remote = mergeSourceRemoteName(source);
+          if (remote) {
+            const fetchTask = runFetchRepo(repo.id, remote);
+            setActionOperationId(fetchTask.operationId);
+            await fetchTask.promise;
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.repos.mergePreflight(repo.id, source.refName),
+            });
+          }
+        }
+        const task = runSquashMergeBranch(
+          repo.id,
+          source,
+          dirtyPolicy,
+          allowUnrelatedHistories,
+        );
         setActionOperationId(task.operationId);
         const result = await task.promise;
         if (result.outcome.kind === "staged") {
@@ -794,6 +836,10 @@ export function RepoDetailContainer({
         if (code === "merge_failed") {
           const message = t("squashMerge.error.failed");
           setActionError(retained ? `${message} ${retained}` : message);
+          return true;
+        }
+        if (code === "merge_unrelated_histories_not_allowed") {
+          setActionError(t("merge.error.unrelatedAcknowledgementRequired"));
           return true;
         }
         return false;

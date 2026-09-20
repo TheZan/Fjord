@@ -21,15 +21,7 @@ pub(super) fn preflight_locked(
         if actual_kind != source.kind {
             return preflight_for_unsupported(git, repo, source, origins);
         }
-        let source_ref =
-            git.find_reference(&source.ref_name)
-                .map_err(|error| match error.code() {
-                    ErrorCode::NotFound => GitError::MergeSourceNotFound,
-                    _ => LocalGitBackend::map_git2_error(error),
-                })?;
-        let source_commit = source_ref
-            .peel_to_commit()
-            .map_err(LocalGitBackend::map_git2_error)?;
+        let source_commit = resolve_source_commit(git, source, actual_kind)?;
         let head = git.head().map_err(|error| match error.code() {
             ErrorCode::UnbornBranch | ErrorCode::NotFound => GitError::MergeUnbornHead,
             _ => LocalGitBackend::map_git2_error(error),
@@ -54,22 +46,28 @@ pub(super) fn preflight_locked(
             .peel_to_commit()
             .map_err(LocalGitBackend::map_git2_error)?;
         let source_label = strip_ref_prefix(&source.ref_name);
-        let (ahead, behind) = git
-            .graph_ahead_behind(source_commit.id(), target_commit.id())
-            .map_err(LocalGitBackend::map_git2_error)?;
-        let prediction = if ahead == 0 {
-            MergePrediction::AlreadyUpToDate
-        } else if behind == 0 {
-            MergePrediction::FastForward {
-                commits: bounded_count(ahead),
-            }
-        } else {
-            MergePrediction::MergeCommit {
-                ahead: bounded_count(ahead),
-                behind: bounded_count(behind),
+        let prediction = match git.merge_base(source_commit.id(), target_commit.id()) {
+            Err(error) if error.code() == ErrorCode::NotFound => MergePrediction::Unrelated,
+            Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
+            Ok(_) => {
+                let (ahead, behind) = git
+                    .graph_ahead_behind(source_commit.id(), target_commit.id())
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                if ahead == 0 {
+                    MergePrediction::AlreadyUpToDate
+                } else if behind == 0 {
+                    MergePrediction::FastForward {
+                        commits: bounded_count(ahead),
+                    }
+                } else {
+                    MergePrediction::MergeCommit {
+                        ahead: bounded_count(ahead),
+                        behind: bounded_count(behind),
+                    }
+                }
             }
         };
-        let dirty = dirty_state(git, &source.ref_name)?;
+        let dirty = dirty_state(git, &source_commit)?;
         let mut blockers = Vec::new();
         if source.ref_name == target_ref {
             blockers.push("merge_source_is_current_branch".into());
@@ -105,15 +103,8 @@ fn preflight_for_unsupported(
     origins: &OperationOriginTracker,
 ) -> Result<MergePreflight, GitError> {
     let _ = super::operation_state::detect(git, repo, origins)?;
-    let source_ref = git
-        .find_reference(&source.ref_name)
-        .map_err(|error| match error.code() {
-            ErrorCode::NotFound => GitError::MergeSourceNotFound,
-            _ => LocalGitBackend::map_git2_error(error),
-        })?;
-    let source_commit = source_ref
-        .peel_to_commit()
-        .map_err(LocalGitBackend::map_git2_error)?;
+    let actual_kind = classify_source(&source.ref_name)?;
+    let source_commit = resolve_source_commit(git, source, actual_kind)?;
     let head = git.head().map_err(|error| match error.code() {
         ErrorCode::UnbornBranch | ErrorCode::NotFound => GitError::MergeUnbornHead,
         _ => LocalGitBackend::map_git2_error(error),
@@ -148,29 +139,59 @@ fn preflight_for_unsupported(
     })
 }
 
-/// Display label for a merge source: the branch or remote-tracking name
-/// without its `refs/heads/` or `refs/remotes/` qualifier.
+/// Display label for a merge source without its canonical ref qualifier.
 fn strip_ref_prefix(ref_name: &str) -> String {
     ref_name
         .strip_prefix("refs/heads/")
         .or_else(|| ref_name.strip_prefix("refs/remotes/"))
-        .unwrap_or(ref_name)
-        .to_string()
+        .or_else(|| ref_name.strip_prefix("refs/tags/"))
+        .map(str::to_string)
+        .unwrap_or_else(|| ref_name.chars().take(7).collect())
 }
 
-fn classify_source(ref_name: &str) -> Result<MergeSourceKind, GitError> {
+pub(super) fn classify_source(ref_name: &str) -> Result<MergeSourceKind, GitError> {
     if ref_name.starts_with("refs/heads/") {
         Ok(MergeSourceKind::LocalBranch)
     } else if ref_name.starts_with("refs/remotes/") {
         Ok(MergeSourceKind::RemoteTracking)
+    } else if ref_name.starts_with("refs/tags/") {
+        Ok(MergeSourceKind::Tag)
+    } else if git2::Oid::from_str(ref_name).is_ok() {
+        Ok(MergeSourceKind::Commit)
     } else {
         Err(GitError::MergeSourceUnsupported)
     }
 }
 
+fn resolve_source_commit<'repo>(
+    git: &'repo git2::Repository,
+    source: &MergeSource,
+    kind: MergeSourceKind,
+) -> Result<git2::Commit<'repo>, GitError> {
+    match kind {
+        MergeSourceKind::Commit => {
+            let oid =
+                git2::Oid::from_str(&source.ref_name).map_err(|_| GitError::MergeSourceNotFound)?;
+            git.find_commit(oid).map_err(|error| match error.code() {
+                ErrorCode::NotFound => GitError::MergeSourceNotFound,
+                _ => LocalGitBackend::map_git2_error(error),
+            })
+        }
+        MergeSourceKind::LocalBranch | MergeSourceKind::RemoteTracking | MergeSourceKind::Tag => {
+            git.find_reference(&source.ref_name)
+                .map_err(|error| match error.code() {
+                    ErrorCode::NotFound => GitError::MergeSourceNotFound,
+                    _ => LocalGitBackend::map_git2_error(error),
+                })?
+                .peel_to_commit()
+                .map_err(LocalGitBackend::map_git2_error)
+        }
+    }
+}
+
 pub(super) fn dirty_state(
     git: &git2::Repository,
-    source_ref: &str,
+    source_commit: &git2::Commit<'_>,
 ) -> Result<MergeDirtyState, GitError> {
     let mut options = git2::StatusOptions::new();
     options
@@ -212,7 +233,10 @@ pub(super) fn dirty_state(
         staged: bounded_count(staged.len()),
         modified: bounded_count(modified.len()),
         untracked: bounded_count(untracked.len()),
-        would_overwrite: LocalGitBackend::checkout_overwrite_paths_inner(git, source_ref)?,
+        would_overwrite: LocalGitBackend::checkout_overwrite_paths_to_commit_inner(
+            git,
+            source_commit,
+        )?,
     })
 }
 
@@ -326,7 +350,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classifies_only_canonical_branch_refs() {
+    fn classifies_all_supported_merge_sources() {
         assert_eq!(
             classify_source("refs/heads/feature").unwrap(),
             MergeSourceKind::LocalBranch
@@ -335,6 +359,14 @@ mod tests {
             classify_source("refs/remotes/origin/feature").unwrap(),
             MergeSourceKind::RemoteTracking
         );
+        assert_eq!(
+            classify_source("refs/tags/v1.0.0").unwrap(),
+            MergeSourceKind::Tag
+        );
+        assert_eq!(
+            classify_source("0123456789abcdef0123456789abcdef01234567").unwrap(),
+            MergeSourceKind::Commit
+        );
         assert!(matches!(
             classify_source("feature"),
             Err(GitError::MergeSourceUnsupported)
@@ -342,12 +374,16 @@ mod tests {
     }
 
     #[test]
-    fn strips_either_canonical_prefix_for_display() {
+    fn strips_canonical_prefixes_and_shortens_commit_ids_for_display() {
         assert_eq!(strip_ref_prefix("refs/heads/feature"), "feature");
         assert_eq!(
             strip_ref_prefix("refs/remotes/origin/feature"),
             "origin/feature"
         );
-        assert_eq!(strip_ref_prefix("feature"), "feature");
+        assert_eq!(strip_ref_prefix("refs/tags/v1.0.0"), "v1.0.0");
+        assert_eq!(
+            strip_ref_prefix("0123456789abcdef0123456789abcdef01234567"),
+            "0123456"
+        );
     }
 }

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   commandPaletteMergeBranches,
   mergeSourceForBranch,
+  mergeSourceForCommit,
+  mergeSourceForTag,
+  mergeSourceLabel,
   mergeSourceRemoteName,
 } from "@/application/mergeBranchAction";
 import type { BranchInfo } from "@/domain/git";
@@ -28,6 +31,20 @@ describe("merge branch application action", () => {
     expect(mergeSourceRemoteName({ refName: "refs/remotes/origin/feature/payments", kind: "remoteTracking" }))
       .toBe("origin");
     expect(mergeSourceRemoteName({ refName: "refs/heads/feature", kind: "localBranch" })).toBeNull();
+  });
+
+  it("builds canonical tag and raw-commit sources with bounded labels", () => {
+    const commitId = "0123456789abcdef0123456789abcdef01234567";
+    expect(mergeSourceForTag({ name: "v1.0.0" })).toEqual({
+      refName: "refs/tags/v1.0.0",
+      kind: "tag",
+    });
+    expect(mergeSourceForCommit({ id: commitId })).toEqual({
+      refName: commitId,
+      kind: "commit",
+    });
+    expect(mergeSourceLabel({ refName: "refs/tags/v1.0.0", kind: "tag" })).toBe("v1.0.0");
+    expect(mergeSourceLabel({ refName: commitId, kind: "commit" })).toBe("0123456");
   });
 });
 

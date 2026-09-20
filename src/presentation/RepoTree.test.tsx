@@ -325,11 +325,17 @@ describe("RepoTree", () => {
     expect(onBranchContextAction).toHaveBeenCalledWith("delete", branches[1], ["origin/release"]);
 
     fireEvent.click(screen.getByRole("button", { name: /tree.tags/ }));
-    fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!, { clientX: 8, clientY: 16 });
+    const tagButton = screen.getByRole("button", { name: /v1\.0/ });
+    fireEvent.contextMenu(tagButton, { clientX: 8, clientY: 16 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Merge v1.0 into main…" }));
+    expect(onTagContextAction).toHaveBeenCalledWith("merge", tags[0]);
+
+    tagButton.focus();
+    fireEvent.keyDown(tagButton, { key: "F10", shiftKey: true });
     fireEvent.click(screen.getByRole("menuitem", { name: "context.deleteTag" }));
     expect(onTagContextAction).toHaveBeenCalledWith("delete", tags[0]);
 
-    fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!, { clientX: 8, clientY: 16 });
+    fireEvent.contextMenu(tagButton, { clientX: 8, clientY: 16 });
     fireEvent.click(screen.getByRole("menuitem", { name: "context.pushTag" }));
     expect(onTagContextAction).toHaveBeenCalledWith("push", tags[0]);
   });
@@ -339,7 +345,7 @@ describe("RepoTree", () => {
     render(<RepoTree repoId="repo-1" checkoutDisabledReason="Operation in progress" onTagContextAction={onTagContextAction} />);
 
     fireEvent.click(screen.getByRole("button", { name: /tree.tags/ }));
-    fireEvent.contextMenu(screen.getByText("v1.0").closest("li")!);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /v1\.0/ }));
     const push = screen.getByRole("menuitem", { name: "context.pushTag" });
     expect(push).toBeDisabled();
     expect(push).toHaveAttribute("title", "Operation in progress");

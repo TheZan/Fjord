@@ -36,6 +36,8 @@ vi.mock("react-i18next", () => ({
     t: (key: string, values?: Record<string, unknown>) =>
       key === "context.mergeInto"
         ? `Merge ${values?.source} into ${values?.target}…`
+        : key === "context.mergeCommitInto"
+          ? `Merge this commit into ${values?.target}…`
         : key === "context.squashMergeInto"
           ? `Squash merge ${values?.source} into ${values?.target}…`
           : key === "stash.markerLabel"
@@ -506,6 +508,26 @@ describe("CommitGraph", () => {
       refName: "refs/heads/feature/second",
       kind: "localBranch",
     });
+  });
+
+  it("merges the exact raw commit selected from the graph", () => {
+    const onMergeBranch = vi.fn();
+    const commitId = "0123456789abcdef0123456789abcdef01234567";
+    graphState.commits = [commit(commitId, "Merge candidate")];
+
+    render(
+      <CommitGraph
+        repoId="repo-1"
+        currentBranch="develop"
+        onMergeBranch={onMergeBranch}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Merge candidate").closest("[data-commit-id]")!);
+    fireEvent.click(screen.getByRole("menuitem", {
+      name: "Merge this commit into develop…",
+    }));
+    expect(onMergeBranch).toHaveBeenCalledWith({ refName: commitId, kind: "commit" });
   });
 
   it("offers an enabled merge entry for a remote-tracking branch label", () => {

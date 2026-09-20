@@ -48,7 +48,8 @@
     "workspaceGroup": "Workspace",
     "globalGroup": "Global",
     "viewDetail": "Switch view",
-    "mergeBranch": "Merge branch…"
+    "mergeBranch": "Merge branch…",
+    "squashMergeBranch": "Squash merge branch…"
   },
   "repositorySwitcher": {
     "placeholder": "Switch repository or workspace",
@@ -186,7 +187,8 @@
       "fastForward_other": "{{source}} is {{count}} commits ahead of {{target}}. This will fast-forward.",
       "fastForwardNoFf_one": "{{source}} is {{count}} commit ahead of {{target}}. A merge commit will be created although a fast-forward is possible.",
       "fastForwardNoFf_other": "{{source}} is {{count}} commits ahead of {{target}}. A merge commit will be created although a fast-forward is possible.",
-      "mergeCommit": "{{source}} is {{ahead}} commits ahead and {{behind}} behind {{target}}. This will create a merge commit."
+      "mergeCommit": "{{source}} is {{ahead}} commits ahead and {{behind}} behind {{target}}. This will create a merge commit.",
+      "unrelated": "{{source}} and {{target}} have unrelated histories. Git requires explicit acknowledgement before merging them."
     },
     "dirty": { "title": "You have local changes.", "stashAndMerge": "Stash changes and merge", "stashRetained": "Your work is in {{stash}}." },
     "remote": {
@@ -194,6 +196,7 @@
       "explanation": "This is the remote-tracking branch as Fjord last saw it.",
       "fetchFirst": "Fetch {{remote}} before merging"
     },
+    "unrelated": { "acknowledge": "These branches have unrelated histories" },
     "outcome": {
       "alreadyUpToDate": "{{target}} was already up to date.",
       "fastForwarded": "{{target}} was fast-forwarded to {{source}}.",
@@ -204,7 +207,7 @@
       "sourceIsCurrentBranch": "{{target}} is already the current branch.",
       "sourceNotFound": "{{source}} no longer exists.",
       "remoteSourceNotSupported": "Merging a remote branch is not available yet. Check it out, or fetch and merge the local branch.",
-      "sourceKindUnsupported": "Only branches can be merged.",
+      "sourceKindUnsupported": "This merge source is not supported.",
       "operationInProgress": "Another Git operation is already in progress.",
       "detachedHead": "HEAD is detached. Check out a branch before merging.",
       "unbornHead": "{{target}} has no commits yet.",
@@ -215,7 +218,8 @@
     },
     "error": {
       "notFastForward": "{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.",
-      "failed": "The merge could not be completed. The repository was not changed beyond what Git reported."
+      "failed": "The merge could not be completed. The repository was not changed beyond what Git reported.",
+      "unrelatedAcknowledgementRequired": "Confirm that the histories are unrelated before merging."
     }
   },
   "squashMerge": {
@@ -239,6 +243,7 @@
   },
   "context": {
     "mergeInto": "Merge {{source}} into {{target}}…",
+    "mergeCommitInto": "Merge this commit into {{target}}…",
     "squashMergeInto": "Squash merge {{source}} into {{target}}…",
     "checkout": "Checkout",
     "createBranchHere": "Create branch here",

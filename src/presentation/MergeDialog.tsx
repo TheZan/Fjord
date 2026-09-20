@@ -23,13 +23,19 @@ export function MergeDialog({
   source: MergeSource;
   currentBranch: string;
   pending: boolean;
-  onConfirm: (mode: MergeMode, dirtyPolicy: MergeDirtyPolicy, fetchFirst: boolean) => void;
+  onConfirm: (
+    mode: MergeMode,
+    dirtyPolicy: MergeDirtyPolicy,
+    fetchFirst: boolean,
+    allowUnrelatedHistories: boolean,
+  ) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const dialogRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<MergeMode>("default");
   const [fetchFirst, setFetchFirst] = useState(false);
+  const [allowUnrelatedHistories, setAllowUnrelatedHistories] = useState(false);
   const { preflight, loading, error, errorCode } = useMergeBranch(repoId, source);
   const remoteName = mergeSourceRemoteName(source);
   useDialogFocusTrap(dialogRef, onClose);
@@ -45,6 +51,7 @@ export function MergeDialog({
     blocker !== "merge_index_has_staged_changes" && blocker !== "merge_would_overwrite"
   ) ?? [];
   const alreadyUpToDate = preflight?.prediction.kind === "alreadyUpToDate";
+  const unrelated = preflight?.prediction.kind === "unrelated";
 
   return (
     <div
@@ -147,6 +154,18 @@ export function MergeDialog({
           </label>
         ) : null}
 
+        {unrelated && hardBlockers.length === 0 ? (
+          <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+            <input
+              type="checkbox"
+              checked={allowUnrelatedHistories}
+              disabled={pending || loading}
+              onChange={(event) => setAllowUnrelatedHistories(event.target.checked)}
+            />
+            {t("merge.unrelated.acknowledge")}
+          </label>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-2">
           <Button onClick={onClose} disabled={pending}>
             {alreadyUpToDate ? t("merge.dismiss") : t("merge.cancel")}
@@ -154,8 +173,13 @@ export function MergeDialog({
           {!alreadyUpToDate && hardBlockers.length === 0 && preflight ? (
             <Button
               variant="primary"
-              disabled={pending || loading}
-              onClick={() => onConfirm(mode, dirtyBlocked ? "stashFirst" : "refuse", fetchFirst)}
+              disabled={pending || loading || (unrelated && !allowUnrelatedHistories)}
+              onClick={() => onConfirm(
+                mode,
+                dirtyBlocked ? "stashFirst" : "refuse",
+                fetchFirst,
+                allowUnrelatedHistories,
+              )}
             >
               {pending
                 ? t("merge.running")
@@ -197,6 +221,8 @@ export function predictionText(
         ahead: preflight.prediction.ahead,
         behind: preflight.prediction.behind,
       });
+    case "unrelated":
+      return t("merge.prediction.unrelated", values);
   }
 }
 
@@ -209,7 +235,7 @@ export function blockerText(
   const keys: Record<string, string> = {
     merge_source_is_current_branch: "merge.blocked.sourceIsCurrentBranch",
     merge_source_not_found: "merge.blocked.sourceNotFound",
-    merge_source_unsupported: "merge.blocked.remoteSourceNotSupported",
+    merge_source_unsupported: "merge.blocked.sourceKindUnsupported",
     operation_already_in_progress: "merge.blocked.operationInProgress",
     merge_detached_head: "merge.blocked.detachedHead",
     merge_unborn_head: "merge.blocked.unbornHead",
