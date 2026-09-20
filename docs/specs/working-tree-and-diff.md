@@ -66,7 +66,10 @@ That gap is the single most common reason a developer leaves a Git GUI mid-task:
 
 - A built-in merge/conflict resolution editor. SDD §3 stands: conflicts hand off
   to the user's configured merge tool. Phase 9 improves the *state* handling
-  around conflicts, not the editing of them.
+  around conflicts, not the editing of them. Phase 12 adds whole-side resolution
+  actions to a conflicted row — still not an editor — owned by
+  [`conflict-resolution.md`](conflict-resolution.md) §6, which is the only
+  document that may change the conflicted-row menu described below.
 - Interactive rebase and history rewriting beyond amend of `HEAD` — that is
   Phase 10.
 - A code editor. Fjord never edits file contents; it edits the *index*.
@@ -574,6 +577,14 @@ withheld while a file is conflicted** — every one of them has ambiguous or
 destructive semantics against an unmerged index entry, and refusing is the
 documented behavior rather than guessing. `Open merge tool` reuses the shipped
 `open_merge_tool` command.
+
+Phase 12 (`P12-MERGE-03`) adds resolution entries — take a named side, keep or
+delete the file, mark resolved — to this menu and a **Conflicts** group above
+Staged and Unstaged. Both are specified by
+[`conflict-resolution.md`](conflict-resolution.md) §4 and §6; the withholding
+rule above is unchanged, and its disabled reason gains a name. Nothing in that
+spec makes Stage, Unstage, Discard, Ignore, Stash, patch export, or Delete
+available on a conflicted row.
 
 Adaptivity rules:
 

@@ -55,7 +55,12 @@ resolution.
 - A general undo stack over Git operations. Git has no such model; faking one
   would be a promise Fjord cannot keep. Recovery is explicitly reflog-shaped.
 - A conflict-resolution editor (SDD §3). Conflict *state* is modeled here;
-  conflict *content* remains the merge tool's job.
+  conflict *content* remains the merge tool's job. Choosing a whole side for a
+  conflicted path, or marking one resolved, is neither state nor content editing:
+  it is owned by [`conflict-resolution.md`](conflict-resolution.md) (Phase 12),
+  which reads the live index rather than this spec's `RepoOperationState` and
+  adds no second Continue/Abort path. This spec's `conflicted_paths` stays the
+  banner's summary.
 - Starting merge, rebase, or bisect. Detecting and finishing them is here;
   starting a merge is [`branch-merge.md`](branch-merge.md) and starting a rebase
   is [`workspace-workflows.md`](workspace-workflows.md) §2. Both hand their
@@ -87,7 +92,7 @@ resolution.
 | Batch discard | ✅ `DiscardFiles` binds one ordered vector of whole-file worktree selections to one token and executes one checked combined reverse patch under the repository write lock and resolved `index.lock`. Stale, conflicted, malformed, wrong-source, duplicate, or subset/superset/reordered vectors fail the whole action without mutation ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.12). |
 | Discard | ✅ File, hunk, and line discard. A backend-issued, short-lived, one-use token is bound to the repository, exact action and selection/digest, and complete `GenerationSet`; it is consumed under the repository write lock before `INDEX -> WORKTREE` reconstruction and contextual apply. |
 | Safety regression | ✅ P9-10 exercises every destructive path with real/local or isolated remote fixtures, verifies recoverability labels, and proves unissued confirmation tokens cannot mutate state or reach remote transport on the three-OS backend matrix. |
-| Merge initiation | 🚧 Fjord can finish and abort a merge but cannot start one. `P10-MERGE-01` adds it and feeds its conflicted result into §1/§2 unchanged ([`branch-merge.md`](branch-merge.md)). |
+| Merge initiation | ✅ `P10-MERGE-01`–`03` start a local, remote-tracking, or squash merge, and `P10-04`/`P10-05`/`P10-11` start a basic or interactive rebase ([`branch-merge.md`](branch-merge.md), [`workspace-workflows.md`](workspace-workflows.md) §2). Each feeds its conflicted result into §1's state model and §2's controls unchanged, and none introduced a second conflict or abort path. The one deliberate exception is `merge --squash`, which writes no `MERGE_HEAD`: its conflict is a live index read and the operation state stays `Normal` by design, discarded with a plain Reset (Hard) rather than a second abort mechanism. Phase 12 builds its resolution model on that same live index read ([`conflict-resolution.md`](conflict-resolution.md) §1). |
 | File deletion | ✅ `DestructiveAction::DeleteFile` on the same §3 enum and executor ([`working-tree-and-diff.md`](working-tree-and-diff.md) §6.5). |
 | Worktree removal | ✅ `DestructiveAction::RemoveWorktree` reports dirty-file count, blocks the main and locked worktrees, labels forced dirty removal `NotRecoverable`, and consumes the shared one-use confirmation before `git worktree remove --force`. Missing paths use the non-destructive prune path. |
 
@@ -331,8 +336,8 @@ example paths or commit subjects, and states recoverability honestly:
 - *Reflog* — "the commits remain reachable through the reflog; you can restore
   them from the Recovery Center."
 - *Stash* — "your changes will be saved to the stash."
-- 🚧 *Committed* (`P10-WC-04`) — "the committed version stays in `HEAD` and can be
-  restored from there." Used only for removing a tracked file that carries no
+- *Committed* (`P10-WC-04`, shipped) — "the committed version stays in `HEAD` and
+  can be restored from there." Used only for removing a tracked file that carries no
   uncommitted or staged changes. Like every other label it is contractual: an
   action labeled *Committed* must leave the content retrievable from `HEAD`, and
   that is asserted in tests.

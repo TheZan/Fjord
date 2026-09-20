@@ -1,7 +1,10 @@
 # Spec: branch merge into the current branch
 
-Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03, SDD §5.2, §15.
-Related: [`repository-safety.md`](repository-safety.md),
+Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03 (shipped, §1–§9);
+P12-MERGE-01, P12-MERGE-02, P12-MERGE-04, P12-MERGE-05 (designed, §10);
+SDD §5.2, §15.
+Related: [`conflict-resolution.md`](conflict-resolution.md),
+[`repository-safety.md`](repository-safety.md),
 [`workspace-workflows.md`](workspace-workflows.md),
 [`working-tree-and-diff.md`](working-tree-and-diff.md),
 [`git-backend.md`](git-backend.md), [`ipc-commands.md`](ipc-commands.md),
@@ -60,20 +63,27 @@ and it has no preflight, no mode selection, and no UI entry point.
 - **Merging into anything other than the checked-out branch.** Merging `A` into
   `B` while `C` is checked out requires a checkout or a worktree write and is a
   different, more dangerous product. Out of scope permanently for this spec.
+  §10.3 admits a *fast-forward update* of a non-checked-out branch, which is not
+  a merge and cannot produce a conflict; a true merge into a branch Fjord has
+  not checked out stays out permanently.
 - **Strategy and driver surface.** `--strategy`, `-X ours/theirs`, custom merge
   drivers, and `--no-ff` are not exposed. Fjord does not expose raw Git flags as
-  its product model.
+  its product model. `--no-ff` is readmitted as a product mode in §10.1 and `-X`
+  is reconsidered in §10.4; `--strategy` and custom drivers stay out.
 - **Octopus / multi-head merges.** One source ref per action.
 - **Squash merge.** Deferred to P10-MERGE-03 (§9); it produces a non-merge commit
   and needs its own commit-message flow.
 - **A custom merge-commit message editor.** v1 uses Git's own default message via
-  `--no-edit`. A message editor is a possible follow-up, not a v1 requirement.
+  `--no-edit`. A message editor is a possible follow-up, not a v1 requirement —
+  taken up by §10.1.
 - **A built-in three-way conflict editor.** SDD §3 stands: conflict *content*
-  belongs to the user's configured merge tool.
+  belongs to the user's configured merge tool. Choosing a whole side for a
+  conflicted path is not editing content and is owned by
+  [`conflict-resolution.md`](conflict-resolution.md), not by this spec.
 - **Forge merges.** GitHub/GitLab pull-request or merge-request merging is
   explicitly out of scope (SDD §15).
 - **Arbitrary refs as sources.** Tags and raw commit ids are not offered as merge
-  sources in v1; see §2.
+  sources in v1; see §2. §10.2 adds both.
 
 ## Current state
 
@@ -599,6 +609,112 @@ current one, and resolves to the same `onMergeBranch` with the same
     command palette or the remote-tracking "fetch before merging" flow —
     both are deliberately out of scope for v1 and can be added later without
     changing this model.
+
+### 10. Planned extensions (Phase 12)
+
+Everything above §9 describes **shipped** behavior. This section records the
+designed-but-not-implemented extensions owned by `P12-MERGE-01`, `P12-MERGE-02`,
+`P12-MERGE-04` and `P12-MERGE-05` in [`tasks.md`](../tasks.md). Until a task
+ships, the §Non-goals list above remains the accurate statement of what Fjord
+does. Conflict *resolution* is not here: it is owned by the new
+[`conflict-resolution.md`](conflict-resolution.md) and applies to every
+operation, not only to merge.
+
+#### 10.1 `NoFastForward` and an editable merge message (`P12-MERGE-01`)
+
+`MergeMode` gains a third variant:
+
+| UI label | Mode | Git invocation |
+|---|---|---|
+| **Always create a merge commit** | `NoFastForward` | `merge --no-ff <ref>` |
+
+`--no-ff` is admitted against the §Non-goals ban on raw flag surface because it
+is not a flag in the product model: "record that this branch was integrated,
+even when the history would allow a straight line" is a distinct, deliberate
+intent, and it is the one Fjord's own release process depends on
+([`../releasing.md`](../releasing.md)). `--strategy`, `-X` and custom drivers
+stay out (except as §10.4 describes).
+
+`MergePrediction` is unchanged and stays mode-independent: it is computed by the
+read-only preflight before a mode is chosen. The dialog composes prediction *and*
+mode into its sentence, so `FastForward` under `NoFastForward` reads as "a merge
+commit will be created although a fast-forward is possible".
+
+The merge message stops being `--no-edit`:
+
+- `MergePreflight` gains `default_message: String`, built by the backend for the
+  single-source case the way `git fmt-merge-msg` does (`Merge branch 'x'`,
+  `Merge remote-tracking branch 'origin/x'`, `Merge tag 'v1'`, `Merge commit
+  '<short id>'`, with `into <target>` appended when the target is not the
+  repository's default branch).
+- The dialog shows that text in an editable field and the chosen text is always
+  passed as `-m <message>` — a single argument, never command text. The contract
+  is WYSIWYG: the message shown is the message committed.
+- The value is bounded at 4 KiB, rejects NUL, and normalizes line endings.
+- The field is hidden when no commit can result: `FastForwardOnly`, and `Default`
+  with a predicted fast-forward.
+- A conflicted `merge -m` leaves the message in `.git/MERGE_MSG`, which the
+  existing `continue_operation` commits under its non-interactive `GIT_EDITOR`.
+  That is a required integration test, not an assumption.
+
+#### 10.2 Wider sources and unrelated histories (`P12-MERGE-02`)
+
+`MergeSourceKind` gains `Tag` and `Commit`. `classify_source` and
+`strip_ref_prefix` extend by one match arm each; `peel_to_commit` already serves
+both. Entry points: the tag row's context menu in the ref tree, and
+`Merge this commit into {{target}}…` on a commit in the graph. A commit source
+produces a `MERGE_HEAD` with no branch name, which §10.1's default message
+already covers.
+
+`MergePrediction` gains `Unrelated`, reported when the two tips share no merge
+base. Only then does the dialog show an **These branches have unrelated
+histories** acknowledgement mapping to `--allow-unrelated-histories`. The
+checkbox does not exist in any other state, because a permanently-visible
+version of it is a footgun with no occasion.
+
+Squash merge also gains its missing v1 entry points — the command palette and
+the "fetch before merging" flow — closing the two gaps §9 recorded.
+
+#### 10.3 Fast-forwarding a branch that is not checked out (`P12-MERGE-04`)
+
+The §Non-goals ban on "merging into anything other than the checked-out branch"
+is **retained for merging**. What is admitted is a different, honestly-named
+action that is not a merge:
+
+**Update `{{branch}}` from `{{source}}`** fast-forwards a local branch that is
+not checked out, when and only when the source strictly descends from it.
+
+- Verified with `graph_descendant_of` under the repository write lock, then
+  applied with `update-ref refs/heads/<dst> <new> <old>` — a compare-and-swap on
+  the old value, so a concurrent change fails instead of clobbering.
+- Refused when the branch is checked out in **any** worktree (Fjord already
+  tracks them, `crates/fjord-git/src/local/worktrees.rs`).
+- Refused with a stated reason when a fast-forward is impossible, offering
+  **Checkout `{{branch}}` and merge…**, which composes the existing safe
+  checkout with the existing merge. Fjord does not perform a real merge into a
+  branch it has not checked out.
+- Advances `refs` and `history`; never `working_tree`. No commit, no checkout,
+  no network.
+
+The admission argument (SDD §15): it removes the reason to open a terminal for
+`git fetch origin main:main` — updating a local integration branch without
+disturbing the branch you are working on, which is a daily action in a
+multi-repository workflow.
+
+A temporary-worktree implementation of a true non-current merge was considered
+and **rejected**: a conflict would land in a directory the user cannot see and
+cannot resolve with any existing Fjord UI, and the cleanup obligation after a
+crash is real. The checkout-then-merge path is one click and is comprehensible.
+
+#### 10.4 Strategy options (`P12-MERGE-05`, optional)
+
+`-X ours` / `-X theirs` expressed as "when both sides change the same lines,
+prefer `{{ref}}`", behind an Advanced disclosure, with explicit wording that
+changes from the other side are discarded without review. Scheduled **after**
+[`conflict-resolution.md`](conflict-resolution.md) ships, because manual
+resolution removes most of its motivation; it may be dropped entirely.
+
+Octopus merges and custom merge drivers remain permanently out of scope.
 
 ## i18n
 

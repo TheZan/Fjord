@@ -182,7 +182,26 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 
 ## Planned additions
 
-No additional commands are currently planned in this document.
+Phase 12 (`P12-MERGE-01`–`05`) plans two new commands and two extended payloads:
+
+| Command | Payload | Returns | Owner |
+|---|---|---|---|
+| `get_conflicts` | `{ repo_id }` | `GenerationEnvelope<ConflictSet>` | [`conflict-resolution.md`](conflict-resolution.md) §7 (`P12-MERGE-03`) |
+| `resolve_conflict` | `{ repo_id, path, resolution, allow_markers?, expected_generations, operation_id? }` | `ConflictSet` | [`conflict-resolution.md`](conflict-resolution.md) §7 (`P12-MERGE-03`) |
+| `update_branch_fast_forward` | `{ repo_id, branch, source, expected_tip }` | `GenerationSet` | [`branch-merge.md`](branch-merge.md) §10.3 (`P12-MERGE-04`) |
+
+`get_conflicts` is read-only under the repository read lock and is validated by
+the `working_tree` generation; `resolve_conflict` validates
+`expected_generations` before mutating, the same contract `stage_patch` uses, and
+advances `working_tree` alone. `update_branch_fast_forward` carries
+`expected_tip` because its `update-ref` is a compare-and-swap on the old value;
+it advances `refs` and `history` and never `working_tree`.
+
+Two shipped shapes are extended rather than replaced: `get_merge_preflight`
+returns an additional `default_message`, and `merge_branch` accepts an optional
+`message` alongside the existing `mode` (which gains `noFastForward`) and an
+`allow_unrelated_histories` acknowledgement
+([`branch-merge.md`](branch-merge.md) §10.1–§10.2, `P12-MERGE-01`–`02`).
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained
