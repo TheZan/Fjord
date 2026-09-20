@@ -25,9 +25,11 @@ most are the ones still missing:
    safely removes, and prunes linked worktrees under their tracked repository.
    Discovery skips linked `.git` files, and runtime caching/watching follows the
    shared-repository identity instead of multiplying `.git` watches.
-2. **Basic rebase is available through shared preflight and UI (`P10-04`–`05`).** System Git
-   starts it and Phase 9 handles conflicts and finishing. User-facing preflight
-   and entry points are shipped; interactive rebase remains `P10-11`.
+2. **Basic and interactive rebase are both available through shared preflight and
+   UI (`P10-04`–`05`, `P10-11`).** System Git starts either and Phase 9 handles
+   conflicts and finishing; interactive rebase's own synthetic pauses (reword,
+   squash) are drained through the same `continue_operation` control. User-facing
+   preflight and entry points are shipped for both.
 3. **Remote management is now complete (`P10-06`–`07`).** The repository section
    supports list/add/edit/rename and confirmation-bound removal. Publish, fetch,
    and set-upstream reuse a single-remote picker; explicit multi-push remains a
@@ -75,7 +77,7 @@ most are the ones still missing:
 | Area | State |
 |---|---|
 | Worktrees | ✅ Domain, cached local backend, typed IPC, discovery exclusion, create/remove/prune safety, launcher integration, and the repository-tree UI are shipped by `P10-01`–`03`. The main/locked/prunable states are explicit, dirty removal uses the shared destructive preflight, and one tracked repository owns the shared `.git` watch. |
-| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Shared preflight, branch-menu and palette entry points are shipped (`P10-05`); interactive rebase remains `P10-11`. `pull` remains fetch + local integration. |
+| Rebase | ✅ Basic backend `start_rebase` is shipped (`P10-04`), returning the existing Phase 9 operation state. Shared preflight, branch-menu and palette entry points are shipped (`P10-05`). Interactive rebase (`P10-11`) is shipped: `get_rebase_todo`/`start_interactive_rebase` extend the same preflight and commit-range read, Fjord writes Git's todo file itself (`pick`/`reword`/`fixup`/`squash`/`drop`), and reword/squash messages are applied at synthetic `break` pauses drained through the existing `continue_operation` control — never through an interactive editor. `pull` remains fetch + local integration. |
 | Merge | ✅ Initiation is shipped by `P10-MERGE-01`–`03`, owned by [`branch-merge.md`](branch-merge.md). Conflicts use the Phase 9 controls. |
 | Remotes | ✅ Backend and UI CRUD are complete: list/add/edit/rename and confirmation-bound removal are local configuration operations, URL userinfo is redacted before IPC, rename updates configured branch upstreams, and removal preflight names branches that will lose their upstream. URL editing requires newly entered full state; sanitized URLs remain read-only. Publish/fetch/set-upstream share a single-remote picker, while explicit multi-push remains separate and never changes upstream. |
 | Workspace status and health | ✅ `repo_status_cache` + `RepoStatusSummary { branch, ahead, behind, dirty_count, has_conflict, last_synced_at }`, plus backend-derived `RepoHealth`. Dashboard, sidebar, and the existing Overview attention filter consume `RepoHealth.needs_attention`; dirty-only repositories do not count as attention. |
@@ -222,12 +224,21 @@ dispatching one application action per operation. Rebase runs through the operat
 cancellation; cancelling a rebase leaves a detectable in-progress state, which the
 banner then offers to abort — cancellation is not silently equivalent to abort.
 
-**Interactive rebase** is specified as a later, separate task (P10-11): a todo-list
-editor over the commit range supporting pick / reword / fixup / squash / drop /
-reorder, written to Git's todo file, driven through the same operation-state
-machinery. It is scheduled last in the phase because it multiplies the state space
-and is only safe once basic rebase, the operation banner, and the Recovery Center
-have all been proven.
+**Interactive rebase** (`P10-11`) is a todo-list editor over the same commit range
+`get_rebase_todo` reads from the shared preflight, supporting pick / reword /
+fixup / squash / drop / reorder, driven through the same operation-state
+machinery. Fjord writes the todo file itself — `GIT_SEQUENCE_EDITOR` is
+overridden to replace Git's own draft with Fjord's, so no interactive editor is
+ever invoked for the todo list. `reword` and a message-carrying `squash` compile
+to their commit line(s) followed by Git's own `break` command rather than the
+literal `reword`/`squash` instructions, so the sequencer pauses without opening a
+commit-message editor either; `start_interactive_rebase` amends the queued
+message and resumes automatically. A real conflict still surfaces exactly like
+basic rebase, and resuming after one drains any remaining synthetic pauses
+through `continue_operation`, so Abort restores the original history at any
+point until the sequence completes. It was scheduled last in the phase because it
+multiplies the state space and was only safe once basic rebase, the operation
+banner, and the Recovery Center were all proven.
 
 ### 3. Remote management
 
@@ -442,9 +453,9 @@ enumerated conditions, and the text query already handles names and paths.
 | Level | Coverage |
 |---|---|
 | Unit (Rust) | Worktree metadata parsing including locked and prunable entries; `.git`-file detection in discovery; health condition derivation and severity ordering; expected-branch matching with detached and unborn HEAD. |
-| Integration (Rust) | Create/list/remove worktrees against a real repository, including a worktree with uncommitted changes refusing removal without force; rebase onto a target with and without conflicts, verifying the returned operation state; remote CRUD round-trips reflected in `git config`; import scanner skipping worktrees of a tracked repository. |
-| Frontend/component | Worktree section rendering and actions; rebase preflight variants (dirty tree, published branch, operation in progress); remote editor with redacted URLs; filter chips composing with the text query; expected-branch summary line. |
-| E2E | Create a worktree, open it in the configured IDE, remove it. Rebase a branch with a conflict: resolve, continue, and confirm the resulting history. Filter a 100-repository workspace to *wrong branch* and confirm the set matches the expected-branch configuration. |
+| Integration (Rust) | Create/list/remove worktrees against a real repository, including a worktree with uncommitted changes refusing removal without force; rebase onto a target with and without conflicts, verifying the returned operation state; interactive rebase per todo action (pick, reword, fixup, squash, drop), reordering, a real mid-sequence conflict with Continue resuming the remaining synthetic-pause drain, and Abort restoring the original history; remote CRUD round-trips reflected in `git config`; import scanner skipping worktrees of a tracked repository. |
+| Frontend/component | Worktree section rendering and actions; rebase preflight variants (dirty tree, published branch, operation in progress); the interactive-rebase todo editor (action selection, reorder, message validation, stash offer); remote editor with redacted URLs; filter chips composing with the text query; expected-branch summary line. |
+| E2E | Create a worktree, open it in the configured IDE, remove it. Rebase a branch with a conflict: resolve, continue, and confirm the resulting history. Interactive rebase a squash-and-reword sequence through a real conflict, with Abort shown throughout: resolve, continue, and confirm the resulting history. Filter a 100-repository workspace to *wrong branch* and confirm the set matches the expected-branch configuration. |
 | OS-specific / manual | Worktree paths with spaces and non-ASCII characters on all three OSes; worktree on a different drive on Windows; IDE and terminal launch into a worktree path. |
 | Benchmark | Health computation and filter application on `ws-100`; worktree listing on a repository with 20 worktrees. |
 

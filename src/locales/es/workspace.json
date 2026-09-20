@@ -147,6 +147,29 @@
       "unborn_head": "La rama actual aún no tiene commits.",
       "index_has_staged_changes": "El índice contiene cambios preparados.",
       "would_overwrite": "Rebase sobrescribiría cambios locales en los siguientes archivos."
+    },
+    "todo": {
+      "title": "Rebase interactivo: {{current}} sobre {{onto}}",
+      "entry": "Rebase interactivo de {{current}} sobre {{onto}}…",
+      "stepsLabel": "Pasos del rebase",
+      "dragHandle": "Arrastrar para reordenar",
+      "actionLabel": "Acción para {{subject}}",
+      "messageLabel": "Nuevo mensaje para {{subject}}",
+      "messagePlaceholder": "Mensaje del commit",
+      "start": "Iniciar rebase",
+      "stashAndStart": "Guardar cambios en stash e iniciar rebase",
+      "action": {
+        "pick": "Tomar",
+        "reword": "Reformular",
+        "fixup": "Fixup",
+        "squash": "Squash",
+        "drop": "Descartar"
+      },
+      "errors": {
+        "allDropped": "Debe conservarse al menos un commit.",
+        "firstIsFixupOrSquash": "El primer commit conservado no puede ser fixup ni squash; no hay nada con qué combinarlo.",
+        "emptyMessage": "Reword y squash requieren un mensaje."
+      }
     }
   },
   "merge": {

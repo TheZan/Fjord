@@ -96,7 +96,26 @@ pub(super) async fn preflight(
     onto: &MergeSource,
 ) -> Result<RebasePreflight, GitError> {
     let _guard = LocalGitBackend::acquire_repo_read_lock(repo).await;
-    preflight_locked(&commands, repo, onto, &origins).await
+    preflight_locked(&commands, repo, onto, &origins)
+        .await
+        .map(|(preflight, _)| preflight)
+}
+
+/// One surviving commit from the preflight's `rev-list`, in rebase (oldest
+/// to newest) order. Shared with the interactive-rebase todo-list seed so the
+/// two never disagree on which commits are actually being rebased.
+#[derive(Debug, Clone)]
+pub(super) struct TodoCommitEntry {
+    pub(super) id: git2::Oid,
+    pub(super) short_id: String,
+    pub(super) subject: String,
+}
+
+/// Whether a `rev-list --cherry-mark` commit survives into the rebase: not
+/// already equivalent upstream (`=`) unless it would be empty either way, and
+/// not an empty pick under the `apply` backend (which drops empty commits).
+pub(super) fn commit_survives_rebase(mark: &str, empty: bool, apply_backend: bool) -> bool {
+    !((mark == "=" && !empty) || (apply_backend && empty))
 }
 
 fn integration_error(error: GitError) -> GitError {
@@ -111,12 +130,12 @@ fn integration_error(error: GitError) -> GitError {
     GitError::IntegrationBlocked(blocker)
 }
 
-async fn preflight_locked(
+pub(super) async fn preflight_locked(
     commands: &GitCommandFactory,
     repo: &RepoPath,
     onto: &MergeSource,
     origins: &OperationOriginTracker,
-) -> Result<RebasePreflight, GitError> {
+) -> Result<(RebasePreflight, Vec<TodoCommitEntry>), GitError> {
     // The shared integration engine owns ref/HEAD validation, dirty computation,
     // overwrite intersection and blockers. No parallel rebase safety engine.
     let shared = integration::preflight_locked(repo, onto, origins).map_err(integration_error)?;
@@ -165,7 +184,7 @@ async fn preflight_locked(
             "Could not read rebase history".into(),
         ));
     }
-    let (commits, already_up_to_date, published_rewrite) =
+    let (commits, already_up_to_date, published_rewrite, entries) =
         LocalGitBackend::with_runtime_git2(repo, |git| {
             let head = git2::Oid::from_str(&shared.target_commit.0)
                 .map_err(LocalGitBackend::map_git2_error)?;
@@ -197,6 +216,7 @@ async fn preflight_locked(
                 .is_ok_and(|backend| backend == "apply");
             let mut cursor = Some(target);
             let mut commits = 0u32;
+            let mut entries = Vec::new();
             for line in plan.stdout.lines() {
                 let (mark, hex) = line.split_at_checked(1).ok_or_else(|| {
                     GitError::OperationStepFailed("Invalid rebase history".into())
@@ -213,12 +233,26 @@ async fn preflight_locked(
                 let empty = parent
                     .as_ref()
                     .is_some_and(|parent| commit.tree_id() == parent.tree_id());
-                if (mark == "=" && !empty) || (apply && empty) {
+                if !commit_survives_rebase(mark, empty, apply) {
                     continue;
                 }
                 commits = commits.checked_add(1).ok_or_else(|| {
                     GitError::OperationStepFailed("Rebase history exceeds the count limit".into())
                 })?;
+                let short_id = commit
+                    .as_object()
+                    .short_id()
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                entries.push(TodoCommitEntry {
+                    id,
+                    short_id: short_id.as_str().unwrap_or_default().to_string(),
+                    subject: commit
+                        .summary()
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default()
+                        .to_string(),
+                });
                 // Even a flattened merge history can retain a linear prefix through
                 // Git's fast-forward picks. Those published ids are not rewritten.
                 if !apply && cursor.is_some() && cursor == parent.as_ref().map(|parent| parent.id())
@@ -273,21 +307,29 @@ async fn preflight_locked(
                 if already_up_to_date { 0 } else { commits },
                 already_up_to_date,
                 published,
+                if already_up_to_date {
+                    Vec::new()
+                } else {
+                    entries
+                },
             ))
         })?;
-    Ok(RebasePreflight {
-        onto: shared.source,
-        onto_label: shared.source_label,
-        onto_commit: shared.source_commit,
-        current_branch: shared.target_branch,
-        current_commit: shared.target_commit,
-        dirty: shared.dirty,
-        blockers,
-        commits,
-        already_up_to_date,
-        published_rewrite,
-        generations: shared.generations,
-    })
+    Ok((
+        RebasePreflight {
+            onto: shared.source,
+            onto_label: shared.source_label,
+            onto_commit: shared.source_commit,
+            current_branch: shared.target_branch,
+            current_commit: shared.target_commit,
+            dirty: shared.dirty,
+            blockers,
+            commits,
+            already_up_to_date,
+            published_rewrite,
+            generations: shared.generations,
+        },
+        entries,
+    ))
 }
 
 pub(super) async fn run_preflighted(
@@ -299,7 +341,7 @@ pub(super) async fn run_preflighted(
     context: GitOperationContext,
 ) -> Result<RebaseResult, GitError> {
     let _guard = LocalGitBackend::acquire_repo_write_lock(repo).await;
-    let current = preflight_locked(&commands, repo, &expected.onto, &origins).await?;
+    let (current, _entries) = preflight_locked(&commands, repo, &expected.onto, &origins).await?;
     if &current != expected {
         return Err(GitError::PreflightStale);
     }
@@ -355,7 +397,7 @@ pub(super) async fn run_preflighted(
         }
         let validation = preflight_locked(&commands, repo, &expected.onto, &origins)
             .await
-            .and_then(|after| {
+            .and_then(|(after, _)| {
                 if after.current_branch != current.current_branch
                     || after.current_commit != current.current_commit
                     || after.onto_commit != current.onto_commit
@@ -397,7 +439,7 @@ pub(super) async fn run_preflighted(
     })
 }
 
-fn retained(repo: &RepoPath, stash: Option<&str>, error: GitError) -> GitError {
+pub(super) fn retained(repo: &RepoPath, stash: Option<&str>, error: GitError) -> GitError {
     match stash {
         Some(id) => GitError::IntegrationStashRetained {
             stash_ref: integration::stash_ref(repo, id),
@@ -442,8 +484,8 @@ fn rebase_spec(
 }
 
 #[derive(PartialEq, Eq)]
-struct Observation {
-    state: RepoOperationState,
+pub(super) struct Observation {
+    pub(super) state: RepoOperationState,
     head: Option<git2::Oid>,
     head_name: Option<String>,
     head_reflog_len: usize,
@@ -451,7 +493,7 @@ struct Observation {
     working_tree: Vec<(Vec<u8>, u32)>,
 }
 
-async fn observe(
+pub(super) async fn observe(
     repo: &RepoPath,
     origins: &Arc<OperationOriginTracker>,
 ) -> Result<Observation, GitError> {

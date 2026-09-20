@@ -11219,3 +11219,279 @@ async fn rebase_failed_hook_retains_explicit_stash_and_reports_its_actual_select
     );
     assert_no_rebase_markers(&repo);
 }
+
+fn interactive_rebase_fixture() -> (TempDir, RepoPath, LocalGitBackend) {
+    let (directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    write_file(&repo, "shared.txt", "shared\n");
+    run_git_success(&backend, &repo, &["add", "shared.txt"]);
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["branch", "feature"]);
+    run_git_success(&backend, &repo, &["branch", "-m", "develop"]);
+    commit_with_cli(&backend, &repo, "develop\n", "develop change");
+    run_git_success(&backend, &repo, &["checkout", "feature"]);
+    for name in ["one", "two", "three", "four", "five"] {
+        write_file(&repo, &format!("{name}.txt"), &format!("{name}\n"));
+        run_git_success(&backend, &repo, &["add", &format!("{name}.txt")]);
+        run_git_success(&backend, &repo, &["commit", "-m", name]);
+    }
+    (directory, repo, backend)
+}
+
+async fn interactive_rebase_todo(
+    backend: &LocalGitBackend,
+    repo: &RepoPath,
+) -> fjord_domain::InteractiveRebaseTodo {
+    backend
+        .rebase_todo(repo, &local_merge_source("develop"))
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn rebase_todo_seeds_all_pick_steps_in_commit_order_matching_the_preflight_count() {
+    let (_directory, repo, backend) = interactive_rebase_fixture();
+    let todo = interactive_rebase_todo(&backend, &repo).await;
+    assert_eq!(todo.preflight.commits, 5);
+    assert_eq!(todo.steps.len(), 5);
+    assert_eq!(
+        todo.steps
+            .iter()
+            .map(|step| step.subject.as_str())
+            .collect::<Vec<_>>(),
+        ["one", "two", "three", "four", "five"]
+    );
+    for step in &todo.steps {
+        assert_eq!(step.action, fjord_domain::RebaseTodoAction::Pick);
+        assert!(!step.short_id.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn interactive_rebase_reword_produces_its_own_commit_with_the_new_message() {
+    let (_directory, repo, backend) = interactive_rebase_fixture();
+    let mut todo = interactive_rebase_todo(&backend, &repo).await;
+    todo.steps[1].action = fjord_domain::RebaseTodoAction::Reword {
+        message: "REWORDED TWO".into(),
+    };
+    let before = backend.generations(&repo).unwrap();
+
+    let result = backend
+        .start_interactive_rebase(
+            &repo,
+            &todo.preflight,
+            &todo.steps,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_normal_operation(&result.state);
+    assert_no_rebase_markers(&repo);
+    // The reword drains one synthetic break (amend, then continue), so every
+    // domain bumps by more than the single `+1` a conflict-free basic rebase
+    // produces; the exact count is Git's sequencer detail, not a contract.
+    let after = backend.generations(&repo).unwrap();
+    assert!(after.working_tree > before.working_tree);
+    assert!(after.refs > before.refs);
+    assert!(after.history > before.history);
+    let subjects = git_output(
+        &backend,
+        &repo,
+        &["log", "--reverse", "--format=%s", "develop..HEAD"],
+    );
+    assert_eq!(
+        String::from_utf8(subjects).unwrap(),
+        "one\nREWORDED TWO\nthree\nfour\nfive\n"
+    );
+    for name in ["one", "two", "three", "four", "five"] {
+        assert!(repo.0.join(format!("{name}.txt")).exists());
+    }
+}
+
+#[tokio::test]
+async fn interactive_rebase_fixup_squash_and_drop_combine_and_remove_commits() {
+    let (_directory, repo, backend) = interactive_rebase_fixture();
+    let mut todo = interactive_rebase_todo(&backend, &repo).await;
+    // one: pick, two: pick, three: fixup into two, four: squash into (two+three)
+    // with an explicit message, five: drop entirely.
+    todo.steps[2].action = fjord_domain::RebaseTodoAction::Fixup;
+    todo.steps[3].action = fjord_domain::RebaseTodoAction::Squash {
+        message: "SQUASHED FOUR".into(),
+    };
+    todo.steps[4].action = fjord_domain::RebaseTodoAction::Drop;
+    let before = backend.generations(&repo).unwrap();
+
+    let result = backend
+        .start_interactive_rebase(
+            &repo,
+            &todo.preflight,
+            &todo.steps,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_normal_operation(&result.state);
+    assert_no_rebase_markers(&repo);
+    // The squash drains one synthetic break, so more than the single `+1`
+    // a conflict-free basic rebase produces; see the reword test above.
+    let after = backend.generations(&repo).unwrap();
+    assert!(after.working_tree > before.working_tree);
+    assert!(after.refs > before.refs);
+    assert!(after.history > before.history);
+    let subjects = git_output(
+        &backend,
+        &repo,
+        &["log", "--reverse", "--format=%s", "develop..HEAD"],
+    );
+    assert_eq!(String::from_utf8(subjects).unwrap(), "one\nSQUASHED FOUR\n");
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-list", "--count", "develop..HEAD"]),
+        b"2\n"
+    );
+    for name in ["one", "two", "three", "four"] {
+        assert!(repo.0.join(format!("{name}.txt")).exists());
+    }
+    assert!(!repo.0.join("five.txt").exists());
+    assert_eq!(backend.status(&repo).await.unwrap().dirty_count, 0);
+}
+
+#[tokio::test]
+async fn interactive_rebase_reorders_commits_as_requested() {
+    let (_directory, repo, backend) = interactive_rebase_fixture();
+    let mut todo = interactive_rebase_todo(&backend, &repo).await;
+    todo.steps.swap(0, 1);
+
+    let result = backend
+        .start_interactive_rebase(
+            &repo,
+            &todo.preflight,
+            &todo.steps,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    assert_normal_operation(&result.state);
+    assert_no_rebase_markers(&repo);
+    let subjects = git_output(
+        &backend,
+        &repo,
+        &["log", "--reverse", "--format=%s", "develop..HEAD"],
+    );
+    assert_eq!(
+        String::from_utf8(subjects).unwrap(),
+        "two\none\nthree\nfour\nfive\n"
+    );
+}
+
+#[tokio::test]
+async fn interactive_rebase_conflict_surfaces_normally_and_abort_restores_head() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    let original = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    let todo = backend
+        .rebase_todo(&repo, &local_merge_source("main"))
+        .await
+        .unwrap();
+    let before = backend.generations(&repo).unwrap();
+
+    let state = backend
+        .start_interactive_rebase(
+            &repo,
+            &todo.preflight,
+            &todo.steps,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap()
+        .state;
+
+    assert!(matches!(
+        state.operation,
+        RepoOperation::Rebase {
+            rebase_kind: fjord_domain::RebaseKind::Merge,
+            ..
+        }
+    ));
+    assert_eq!(state.conflicted_paths, ["operation.txt"]);
+    assert_rebase_generations(&backend, &repo, before);
+
+    assert_normal_operation(&backend.abort_operation(&repo).await.unwrap());
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        original
+    );
+    assert_no_rebase_markers(&repo);
+    assert!(!repo.0.join(".git/fjord-rebase-plan").exists());
+}
+
+#[tokio::test]
+async fn interactive_rebase_conflict_then_continue_resumes_the_reword_drain() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    commit_with_cli(&backend, &repo, "topic again\n", "topic change two");
+    let mut todo = backend
+        .rebase_todo(&repo, &local_merge_source("main"))
+        .await
+        .unwrap();
+    assert_eq!(todo.steps.len(), 2);
+    todo.steps[1].action = fjord_domain::RebaseTodoAction::Reword {
+        message: "REWORDED SECOND".into(),
+    };
+
+    let state = backend
+        .start_interactive_rebase(
+            &repo,
+            &todo.preflight,
+            &todo.steps,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap()
+        .state;
+    assert_eq!(state.conflicted_paths, ["operation.txt"]);
+
+    write_file(&repo, "operation.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "operation.txt"]);
+    let resumed = backend.continue_operation(&repo).await.unwrap();
+
+    assert_normal_operation(&resumed);
+    assert_no_rebase_markers(&repo);
+    let subjects = git_output(
+        &backend,
+        &repo,
+        &["log", "--reverse", "--format=%s", "main..HEAD"],
+    );
+    assert_eq!(
+        String::from_utf8(subjects).unwrap(),
+        "topic change\nREWORDED SECOND\n"
+    );
+}
+
+#[tokio::test]
+async fn start_interactive_rebase_rejects_a_todo_that_does_not_match_the_preflight() {
+    let (_directory, repo, backend) = interactive_rebase_fixture();
+    let mut todo = interactive_rebase_todo(&backend, &repo).await;
+    todo.steps.pop();
+
+    assert!(matches!(
+        backend
+            .start_interactive_rebase(
+                &repo,
+                &todo.preflight,
+                &todo.steps,
+                MergeDirtyPolicy::Refuse,
+                GitOperationContext::default(),
+            )
+            .await,
+        Err(GitError::RebaseTodoInvalid(_))
+    ));
+    assert_no_rebase_markers(&repo);
+}

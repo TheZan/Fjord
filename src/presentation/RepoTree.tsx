@@ -709,7 +709,7 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "rebase" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "rebase" | "rebaseInteractive" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "createBranch" | "push" | "delete" | "copy";
 
 function branchMenuItems(
@@ -746,6 +746,14 @@ function branchMenuItems(
     {
       id: "rebase",
       label: t("rebase.entry", { current: currentBranch ?? "HEAD", onto: branch.name }),
+      icon: "merge",
+      disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
+      disabledReason: branch.isCurrent ? t("rebase.blocked.target_is_current_branch")
+        : !currentBranch ? t("rebase.blocked.detached_head") : checkoutDisabledReason,
+    },
+    {
+      id: "rebaseInteractive",
+      label: t("rebase.todo.entry", { current: currentBranch ?? "HEAD", onto: branch.name }),
       icon: "merge",
       disabled: branch.isCurrent || !currentBranch || Boolean(checkoutDisabledReason),
       disabledReason: branch.isCurrent ? t("rebase.blocked.target_is_current_branch")

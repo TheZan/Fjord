@@ -97,6 +97,12 @@ export type RebasePreflight = { onto: MergeSource, ontoLabel: string, ontoCommit
 
 export type RebaseResult = { state: RepoOperationState, stashRef: string | null, generations: GenerationSet, };
 
+export type RebaseTodoAction = { "kind": "pick" } | { "kind": "reword", message: string, } | { "kind": "fixup" } | { "kind": "squash", message: string, } | { "kind": "drop" };
+
+export type RebaseTodoStep = { commit: CommitId, shortId: string, subject: string, action: RebaseTodoAction, };
+
+export type InteractiveRebaseTodo = { preflight: RebasePreflight, steps: Array<RebaseTodoStep>, };
+
 export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
 
 export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };

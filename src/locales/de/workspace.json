@@ -147,6 +147,29 @@
       "unborn_head": "Der aktuelle Branch enthält noch keine Commits.",
       "index_has_staged_changes": "Der Index enthält vorgemerkte Änderungen.",
       "would_overwrite": "Rebase würde lokale Änderungen in den folgenden Dateien überschreiben."
+    },
+    "todo": {
+      "title": "Interaktiver Rebase: {{current}} auf {{onto}}",
+      "entry": "Interaktiver Rebase von {{current}} auf {{onto}}…",
+      "stepsLabel": "Rebase-Schritte",
+      "dragHandle": "Zum Umsortieren ziehen",
+      "actionLabel": "Aktion für {{subject}}",
+      "messageLabel": "Neue Nachricht für {{subject}}",
+      "messagePlaceholder": "Commit-Nachricht",
+      "start": "Rebase starten",
+      "stashAndStart": "Änderungen stashen und Rebase starten",
+      "action": {
+        "pick": "Übernehmen",
+        "reword": "Umformulieren",
+        "fixup": "Fixup",
+        "squash": "Squash",
+        "drop": "Verwerfen"
+      },
+      "errors": {
+        "allDropped": "Mindestens ein Commit muss erhalten bleiben.",
+        "firstIsFixupOrSquash": "Der erste verbleibende Commit kann kein Fixup oder Squash sein; es gibt nichts, womit er zusammengeführt werden könnte.",
+        "emptyMessage": "Reword und Squash benötigen eine Nachricht."
+      }
     }
   },
   "merge": {

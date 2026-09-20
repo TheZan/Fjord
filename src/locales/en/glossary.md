@@ -25,6 +25,11 @@ substituted verbatim after translation.
 | working tree | рабочее дерево | |
 | conflict | конфликт | |
 | tag | тег | |
+| pick (rebase todo) | Оставить | interactive-rebase todo action, not the generic verb «выбрать» |
+| reword (rebase todo) | Переформулировать | |
+| fixup (rebase todo) | Fixup | kept in Latin — Git's own todo-list command name |
+| squash (rebase todo) | Squash | kept in Latin — Git's own todo-list command name |
+| drop (rebase todo) | Отбросить | |
 
 ## Adding a term
 

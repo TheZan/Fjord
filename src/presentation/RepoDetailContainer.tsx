@@ -20,7 +20,7 @@ import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import { useStashes } from "@/application/useStashes";
 import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
+import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -58,6 +58,7 @@ import {
   runExecuteDestructiveAction,
   runStashAndCheckout,
   runStartRebase,
+  runStartInteractiveRebase,
   runMergeBranch,
   runSquashMergeBranch,
   setBranchUpstream,
@@ -76,6 +77,7 @@ import { RecoveryCenter } from "@/presentation/RecoveryCenter";
 import { DestructivePreflightDialog } from "@/presentation/DestructivePreflightDialog";
 import { CheckoutOverwriteDialog } from "@/presentation/CheckoutOverwriteDialog";
 import { RebaseDialog, rebaseErrorKey } from "@/presentation/RebaseDialog";
+import { InteractiveRebaseDialog } from "@/presentation/InteractiveRebaseDialog";
 import { MergeDialog } from "@/presentation/MergeDialog";
 import { SquashMergeDialog } from "@/presentation/SquashMergeDialog";
 import { IgnoreRuleDialog } from "@/presentation/IgnoreRuleDialog";
@@ -191,6 +193,8 @@ export function RepoDetailContainer({
   });
   const [rebaseTarget, setRebaseTarget] = useState<{ repoId: string; onto: MergeSource } | null>(null);
   const [rebaseError, setRebaseError] = useState<string | null>(null);
+  const [interactiveRebaseTarget, setInteractiveRebaseTarget] = useState<{ repoId: string; onto: MergeSource } | null>(null);
+  const [interactiveRebaseError, setInteractiveRebaseError] = useState<string | null>(null);
   const [mergeSource, setMergeSource] = useState<MergeSource | null>(null);
   const [squashMergeSource, setSquashMergeSource] = useState<MergeSource | null>(null);
   const [pendingDraftMessage, setPendingDraftMessage] = useState<string | null>(null);
@@ -634,6 +638,42 @@ export function RepoDetailContainer({
       if (code === "operation_cancelled") { setRebaseTarget(null); setWorkingSelected(true); return true; }
       setRebaseError(`${t(rebaseErrorKey(code), { current: preflight.currentBranch, onto: preflight.ontoLabel })} ${retained}`.trim());
       await queryClient.invalidateQueries({ queryKey: queryKeys.repos.rebasePreflight(repo.id, preflight.onto.refName) });
+      return true;
+    });
+  }
+
+  function onRebaseInteractive(onto: MergeSource) {
+    setInteractiveRebaseError(null);
+    setInteractiveRebaseTarget({ repoId: repo.id, onto });
+  }
+
+  function executeInteractiveRebase(preflight: RebasePreflight, steps: RebaseTodoStep[], policy: MergeDirtyPolicy) {
+    if (!interactiveRebaseTarget || interactiveRebaseTarget.repoId !== repo.id || interactiveRebaseTarget.onto.refName !== preflight.onto.refName) return;
+    setInteractiveRebaseError(null);
+    void runRepoAction("rebase", async () => {
+      const task = runStartInteractiveRebase(repo.id, preflight, steps, policy);
+      setActionOperationId(task.operationId);
+      const result = await task.promise;
+      queryClient.setQueryData(queryKeys.repos.operationState(repo.id), result.state);
+      setActionSuccess(`${t(result.state.operation.kind === "rebase" ? "rebase.conflicted" : "rebase.completed")}${result.stashRef ? ` ${t("merge.dirty.stashRetained", { stash: result.stashRef })}` : ""}`);
+      setInteractiveRebaseTarget(null);
+      setWorkingSelected(true);
+      setSelectedCommit(null);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos.rebaseTodo(repo.id, preflight.onto.refName), refetchType: "none" });
+      await invalidateRepoData(queryClient, repo.id, repo.workspaceId,
+        changedRepositoryScopes(repo.id, result.generations).filter((scope) => scope !== "rebase"));
+    }, [], async (error) => {
+      const code = invokeErrorCode(error);
+      const stashRef = invokeErrorStashRef(error);
+      const retained = stashRef ? t("merge.dirty.stashRetained", { stash: stashRef }) : "";
+      if (retained) setActionSuccess(retained);
+      if (code === "operation_cancelled" || code === "operation_step_failed" || stashRef) {
+        await snapshot.revalidate();
+        if (stashRef) await invalidateRepoData(queryClient, repo.id, repo.workspaceId, ["stashes"]);
+      }
+      if (code === "operation_cancelled") { setInteractiveRebaseTarget(null); setWorkingSelected(true); return true; }
+      setInteractiveRebaseError(`${t(rebaseErrorKey(code), { current: preflight.currentBranch, onto: preflight.ontoLabel })} ${retained}`.trim());
+      await queryClient.invalidateQueries({ queryKey: queryKeys.repos.rebaseTodo(repo.id, preflight.onto.refName) });
       return true;
     });
   }
@@ -1114,6 +1154,7 @@ export function RepoDetailContainer({
       onCreateBranchAt={onCreateBranchAt}
       onRenameBranch={onRenameBranch}
       onRebaseBranch={onRebaseBranch}
+      onRebaseInteractive={onRebaseInteractive}
       onMergeBranch={onMergeBranch}
       onSquashMergeBranch={onSquashMergeBranch}
       onPreflightAction={setDestructiveAction}
@@ -1206,6 +1247,12 @@ export function RepoDetailContainer({
       <RebaseDialog repoId={repo.id} onto={rebaseTarget.onto} currentBranch={status?.branch ?? "HEAD"}
         pending={actionPending === "rebase"} executionError={rebaseError} progress={activeOperation?.message}
         onConfirm={executeRebase} onClose={() => setRebaseTarget(null)}
+        onCancel={() => { if (actionOperationId) void cancelOperation(actionOperationId); }} />
+    ) : null}
+    {interactiveRebaseTarget?.repoId === repo.id ? (
+      <InteractiveRebaseDialog repoId={repo.id} onto={interactiveRebaseTarget.onto} currentBranch={status?.branch ?? "HEAD"}
+        pending={actionPending === "rebase"} executionError={interactiveRebaseError} progress={activeOperation?.message}
+        onConfirm={executeInteractiveRebase} onClose={() => setInteractiveRebaseTarget(null)}
         onCancel={() => { if (actionOperationId) void cancelOperation(actionOperationId); }} />
     ) : null}
     {mergeSource && status?.branch ? (

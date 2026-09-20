@@ -281,6 +281,8 @@ pub enum GitError {
     PatchStale,
     #[error("the destructive preflight no longer matches the repository state")]
     PreflightStale,
+    #[error("the interactive rebase todo list is invalid: {0}")]
+    RebaseTodoInvalid(String),
     #[error("Git could not apply the selected patch: {0}")]
     PatchApplyFailed(String),
     #[error("the selected change cannot be represented as a line patch: {0}")]
@@ -446,6 +448,30 @@ pub trait GitBackend: Send + Sync {
         _context: GitOperationContext,
     ) -> Result<fjord_domain::RebaseResult, GitError> {
         Err(GitError::NotImplemented("start_rebase_preflighted"))
+    }
+    /// The same preflight basic rebase uses, plus the seeded todo list in
+    /// commit order (spec: interactive rebase extends basic rebase, not a
+    /// parallel commit-range reader).
+    async fn rebase_todo(
+        &self,
+        _repo: &RepoPath,
+        _onto: &MergeSource,
+    ) -> Result<fjord_domain::InteractiveRebaseTodo, GitError> {
+        Err(GitError::NotImplemented("rebase_todo"))
+    }
+    /// Writes `steps` as Git's todo list and starts `git rebase --interactive`.
+    /// Reword/squash messages are applied by Fjord itself at synthetic pause
+    /// points it inserts into the todo list, never through an interactive
+    /// editor; see `docs/specs/workspace-workflows.md` §2.
+    async fn start_interactive_rebase(
+        &self,
+        _repo: &RepoPath,
+        _expected: &fjord_domain::RebasePreflight,
+        _steps: &[fjord_domain::RebaseTodoStep],
+        _policy: MergeDirtyPolicy,
+        _context: GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, GitError> {
+        Err(GitError::NotImplemented("start_interactive_rebase"))
     }
     async fn continue_operation(&self, repo: &RepoPath) -> Result<RepoOperationState, GitError> {
         self.continue_operation_with_context(repo, GitOperationContext::default())

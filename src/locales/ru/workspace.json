@@ -147,6 +147,29 @@
       "unborn_head": "В текущей ветке ещё нет коммитов.",
       "index_has_staged_changes": "В индексе есть staged-изменения.",
       "would_overwrite": "Rebase перезапишет локальные изменения в указанных файлах."
+    },
+    "todo": {
+      "title": "Интерактивный rebase: {{current}} на {{onto}}",
+      "entry": "Интерактивный rebase {{current}} на {{onto}}…",
+      "stepsLabel": "Шаги rebase",
+      "dragHandle": "Перетащите для изменения порядка",
+      "actionLabel": "Действие для {{subject}}",
+      "messageLabel": "Новое сообщение для {{subject}}",
+      "messagePlaceholder": "Сообщение коммита",
+      "start": "Начать rebase",
+      "stashAndStart": "Сохранить изменения в stash и начать rebase",
+      "action": {
+        "pick": "Оставить",
+        "reword": "Переформулировать",
+        "fixup": "Fixup",
+        "squash": "Squash",
+        "drop": "Отбросить"
+      },
+      "errors": {
+        "allDropped": "Нужно оставить хотя бы один коммит.",
+        "firstIsFixupOrSquash": "Первый оставшийся коммит не может быть fixup или squash — объединять его не с чем.",
+        "emptyMessage": "Для reword и squash нужно указать сообщение."
+      }
     }
   },
   "merge": {

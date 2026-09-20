@@ -557,6 +557,52 @@ pub struct RebaseResult {
     pub generations: GenerationSet,
 }
 
+/// One instruction in an interactive rebase todo list. `Fixup` never stops
+/// for a message; `Reword`/`Squash` always carry the exact final message,
+/// since Fjord writes the todo list itself and never opens a commit-message
+/// editor mid-sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum RebaseTodoAction {
+    Pick,
+    Reword { message: String },
+    Fixup,
+    Squash { message: String },
+    Drop,
+}
+
+/// One row of the interactive-rebase todo-list editor. `commit`/`short_id`/
+/// `subject` identify the original commit and seed the initial `Pick` order;
+/// `action` and the list's order are the only fields the editor may change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct RebaseTodoStep {
+    pub commit: CommitId,
+    pub short_id: String,
+    pub subject: String,
+    pub action: RebaseTodoAction,
+}
+
+/// The initial editor model: the same preflight basic rebase uses (revalidated
+/// again at start time) plus the seeded, all-`Pick` todo list in commit order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct InteractiveRebaseTodo {
+    pub preflight: RebasePreflight,
+    pub steps: Vec<RebaseTodoStep>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",

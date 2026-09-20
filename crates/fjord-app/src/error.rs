@@ -311,6 +311,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::OperationStepFailed(_) => unreachable!("handled above"),
         GitError::PatchStale => "patch_stale",
         GitError::PreflightStale => "preflight_stale",
+        GitError::RebaseTodoInvalid(_) => "rebase_todo_invalid",
         GitError::PatchApplyFailed(_) => "patch_apply_failed",
         GitError::PatchUnsupported(_) => "patch_unsupported",
         GitError::IgnoreRuleUnsupportedForTrackedFile(_) => {

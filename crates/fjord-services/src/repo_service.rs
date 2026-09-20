@@ -1002,6 +1002,33 @@ impl RepoService {
             .start_rebase_preflighted(&RepoPath::new(repo.path), expected, policy, context)
             .await?)
     }
+
+    pub async fn get_rebase_todo(
+        &self,
+        repo_id: RepositoryId,
+        onto: &MergeSource,
+    ) -> Result<fjord_domain::InteractiveRebaseTodo, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .rebase_todo(&RepoPath::new(repo.path), onto)
+            .await?)
+    }
+
+    pub async fn start_interactive_rebase(
+        &self,
+        repo_id: RepositoryId,
+        expected: &fjord_domain::RebasePreflight,
+        steps: &[fjord_domain::RebaseTodoStep],
+        policy: MergeDirtyPolicy,
+        context: GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .start_interactive_rebase(&RepoPath::new(repo.path), expected, steps, policy, context)
+            .await?)
+    }
     pub async fn start_rebase(
         &self,
         repo_id: RepositoryId,

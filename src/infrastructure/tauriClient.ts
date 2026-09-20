@@ -20,10 +20,12 @@ import type {
   IgnoreRuleOutcome,
   IgnoreRulePreview,
   InteractionTrace,
+  InteractiveRebaseTodo,
   MergeDirtyPolicy,
   MergeMode,
   RebasePreflight,
   RebaseResult,
+  RebaseTodoStep,
   MergePreflight,
   MergeResult,
   MergeSource,
@@ -451,6 +453,19 @@ export function getRebasePreflight(repoId: string, onto: MergeSource, signal?: A
 
 export function runStartRebase(repoId: string, preflight: RebasePreflight, dirtyPolicy: MergeDirtyPolicy): OperationTask<RebaseResult> {
   return invokeOperation("rebase", "start_rebase", { repoId, preflight, dirtyPolicy });
+}
+
+export function getRebaseTodo(repoId: string, onto: MergeSource, signal?: AbortSignal): Promise<InteractiveRebaseTodo> {
+  return invokeVersioned("get_rebase_todo", { repoId, onto }, repoId, "rebase", signal);
+}
+
+export function runStartInteractiveRebase(
+  repoId: string,
+  preflight: RebasePreflight,
+  steps: RebaseTodoStep[],
+  dirtyPolicy: MergeDirtyPolicy,
+): OperationTask<RebaseResult> {
+  return invokeOperation("rebase", "start_interactive_rebase", { repoId, preflight, steps, dirtyPolicy });
 }
 
 export function runSquashMergeBranch(
