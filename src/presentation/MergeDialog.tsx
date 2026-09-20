@@ -72,7 +72,7 @@ export function MergeDialog({
               {preflightErrorText(errorCode, sourceLabel, target, error, t)}
             </p>
           ) : null}
-          {preflight ? <p>{predictionText(preflight, t)}</p> : null}
+          {preflight ? <p>{predictionText(preflight, mode, t)}</p> : null}
           {remoteName && preflight ? (
             <div className="mt-2">
               <p>{t("merge.remote.knownCommit", { sha: preflight.sourceCommit.slice(0, 7) })}</p>
@@ -122,6 +122,16 @@ export function MergeDialog({
               />
               {t("merge.mode.fastForwardOnly")}
             </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="merge-mode"
+                value="noFastForward"
+                checked={mode === "noFastForward"}
+                onChange={() => setMode("noFastForward")}
+              />
+              {t("merge.mode.noFastForward")}
+            </label>
           </fieldset>
         ) : null}
 
@@ -162,8 +172,12 @@ export function MergeDialog({
 
 export { mergeSourceLabel } from "@/application/mergeBranchAction";
 
+/// The preflight prediction is mode-independent: it is computed before a mode is
+/// chosen. The sentence the user reads is not — `noFastForward` records a merge
+/// commit exactly where the prediction says a fast-forward is possible.
 export function predictionText(
   preflight: MergePreflight,
+  mode: MergeMode,
   t: (key: string, values?: Record<string, unknown>) => string,
 ) {
   const values = { source: preflight.sourceLabel, target: preflight.targetBranch };
@@ -171,7 +185,12 @@ export function predictionText(
     case "alreadyUpToDate":
       return t("merge.prediction.alreadyUpToDate", values);
     case "fastForward":
-      return t("merge.prediction.fastForward", { ...values, count: preflight.prediction.commits });
+      return t(
+        mode === "noFastForward"
+          ? "merge.prediction.fastForwardNoFf"
+          : "merge.prediction.fastForward",
+        { ...values, count: preflight.prediction.commits },
+      );
     case "mergeCommit":
       return t("merge.prediction.mergeCommit", {
         ...values,

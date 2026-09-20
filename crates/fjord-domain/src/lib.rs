@@ -456,6 +456,9 @@ pub struct MergeSource {
 pub enum MergeMode {
     Default,
     FastForwardOnly,
+    /// Always record the integration as a merge commit, even when the history
+    /// would allow a fast-forward (`merge --no-ff`).
+    NoFastForward,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

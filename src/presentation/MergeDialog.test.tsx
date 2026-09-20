@@ -58,6 +58,27 @@ describe("MergeDialog", () => {
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
+  it("restates a fast-forward prediction as a merge commit once no-fast-forward is selected", () => {
+    const onConfirm = vi.fn();
+    render(
+      <MergeDialog
+        repoId="repo-1"
+        source={source}
+        currentBranch="main"
+        pending={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(screen.getByText(/merge\.prediction\.fastForward:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("merge.mode.noFastForward"));
+    // The prediction itself is unchanged; only the sentence the user reads is.
+    expect(screen.getByText(/merge\.prediction\.fastForwardNoFf:/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false);
+  });
+
   it("offers fetch-before-merge for a remote-tracking source and names the known commit", () => {
     const onConfirm = vi.fn();
     mergeState.preflight = {

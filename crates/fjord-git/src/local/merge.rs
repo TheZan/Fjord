@@ -111,8 +111,10 @@ pub(super) async fn run(
         )),
     });
     let mut args = vec!["merge".into()];
-    if mode == MergeMode::FastForwardOnly {
-        args.push("--ff-only".into());
+    match mode {
+        MergeMode::FastForwardOnly => args.push("--ff-only".into()),
+        MergeMode::NoFastForward => args.push("--no-ff".into()),
+        MergeMode::Default => {}
     }
     args.extend([
         OsString::from("--no-edit"),
@@ -166,6 +168,11 @@ pub(super) async fn run(
     origins.clear(&repo);
     let head = head_id(&repo).map_err(|error| retain_stash(error, stashed))?;
     let outcome = match preflight.prediction {
+        // `--no-ff` records a merge commit even where the history would
+        // fast-forward, so this outcome follows the mode, not the prediction.
+        MergePrediction::FastForward { .. } if mode == MergeMode::NoFastForward => {
+            MergeOutcome::Merged { commit: head }
+        }
         MergePrediction::FastForward { .. } => MergeOutcome::FastForwarded { head },
         MergePrediction::MergeCommit { .. } => MergeOutcome::Merged { commit: head },
         MergePrediction::AlreadyUpToDate => MergeOutcome::AlreadyUpToDate,

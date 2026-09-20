@@ -66,10 +66,12 @@ and it has no preflight, no mode selection, and no UI entry point.
   §10.3 admits a *fast-forward update* of a non-checked-out branch, which is not
   a merge and cannot produce a conflict; a true merge into a branch Fjord has
   not checked out stays out permanently.
-- **Strategy and driver surface.** `--strategy`, `-X ours/theirs`, custom merge
-  drivers, and `--no-ff` are not exposed. Fjord does not expose raw Git flags as
-  its product model. `--no-ff` is readmitted as a product mode in §10.1 and `-X`
-  is reconsidered in §10.4; `--strategy` and custom drivers stay out.
+- **Strategy and driver surface.** `--strategy`, `-X ours/theirs`, and custom
+  merge drivers are not exposed. Fjord does not expose raw Git flags as its
+  product model. `--no-ff` was originally in this list and has since shipped as
+  the `NoFastForward` *mode* (§3, §10.1, `P12-MERGE-01`) on the argument recorded
+  in §10.1; `-X` is reconsidered in §10.4; `--strategy` and custom drivers stay
+  out.
 - **Octopus / multi-head merges.** One source ref per action.
 - **Squash merge.** Deferred to P10-MERGE-03 (§9); it produces a non-merge commit
   and needs its own commit-message flow.
@@ -207,7 +209,7 @@ already fixed here so the follow-up task has no product semantics left to invent
 
 ### 3. Merge modes
 
-Two modes only, expressed as product outcomes rather than Git flags:
+Three modes, expressed as product outcomes rather than Git flags:
 
 ```rust
 pub enum MergeMode {
@@ -215,6 +217,9 @@ pub enum MergeMode {
     Default,
     /// Refuse rather than create a merge commit.
     FastForwardOnly,
+    /// Always record the integration as a merge commit, even when the history
+    /// would allow a fast-forward (`merge --no-ff`).
+    NoFastForward,
 }
 ```
 
@@ -222,15 +227,27 @@ pub enum MergeMode {
 |---|---|---|
 | **Default merge** | `Default` | `merge --no-edit <ref>` |
 | **Fast-forward only** | `FastForwardOnly` | `merge --ff-only --no-edit <ref>` |
+| **Always create a merge commit** | `NoFastForward` | `merge --no-ff --no-edit <ref>` |
 
 `Default` is preselected. `FastForwardOnly` exists because "integrate this
 without inventing a merge commit" is a real, common intent and is otherwise
 unreachable; when it cannot be satisfied the merge fails cleanly with
-`merge_not_fast_forward` and changes nothing.
+`merge_not_fast_forward` and changes nothing. `NoFastForward` (`P12-MERGE-01`,
+§10.1) is its mirror image — "record that this branch was integrated, even where
+the history would allow a straight line" — and is what a release or
+long-lived-branch workflow depends on.
 
-No other mode is offered in v1. `--no-ff`, `--squash`, `--strategy`, `-X`,
-`--allow-unrelated-histories`, and octopus merges are outside the initial scope
-(§Non-goals; squash is P10-MERGE-03).
+`MergePrediction` stays mode-independent: the read-only preflight is computed
+before a mode is chosen. Only the sentence the dialog composes is mode-aware, so
+a `FastForward` prediction under `NoFastForward` reads as "a merge commit will be
+created although a fast-forward is possible". The **outcome** follows the mode,
+not the prediction: `NoFastForward` over a fast-forwardable source returns
+`Merged`, never `FastForwarded`.
+
+No other mode is offered. `--squash`, `--strategy`, `-X`,
+`--allow-unrelated-histories`, and octopus merges are outside this section's
+scope (§Non-goals; squash is `P10-MERGE-03`; `-X` and unrelated histories are
+§10.2 and §10.4).
 
 ### 4. Integration preflight (shared with rebase)
 
@@ -622,7 +639,10 @@ operation, not only to merge.
 
 #### 10.1 `NoFastForward` and an editable merge message (`P12-MERGE-01`)
 
-`MergeMode` gains a third variant:
+**Status: the mode has shipped; the editable message has not.** `MergeMode`
+gained its third variant, which is now part of the shipped contract in §3; the
+message half below is still design. The rest of this section is unchanged so the
+argument behind the mode stays recorded where the task points.
 
 | UI label | Mode | Git invocation |
 |---|---|---|

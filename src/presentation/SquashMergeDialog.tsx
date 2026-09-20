@@ -74,7 +74,9 @@ export function SquashMergeDialog({
           {preflight ? (
             <p>
               {alreadyUpToDate
-                ? predictionText(preflight, t)
+                // Squash has no mode selector — it never fast-forwards — and this
+                // branch only ever renders the mode-independent up-to-date text.
+                ? predictionText(preflight, "default", t)
                 : t("squashMerge.explanation", { source: sourceLabel, target })}
             </p>
           ) : null}

@@ -8150,6 +8150,60 @@ async fn merge_preflight_and_fast_forward_return_typed_outcomes_without_extra_mu
 }
 
 #[tokio::test]
+async fn merge_no_fast_forward_records_a_merge_commit_over_a_fast_forwardable_source() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    // A strictly-ahead topic: ordinary Default mode would fast-forward here.
+    run_git_success(&backend, &repo, &["branch", "-D", "topic"]);
+    run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+    commit_with_cli(&backend, &repo, "topic ahead\n", "topic ahead");
+    let source_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    let target_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+
+    let source = local_merge_source("topic");
+    let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(
+        preflight.prediction,
+        MergePrediction::FastForward { commits: 1 },
+        "the prediction stays mode-independent: it is computed before a mode is chosen"
+    );
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::NoFastForward,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+
+    // The outcome follows the mode, not the fast-forward prediction.
+    let merge_commit = match result.outcome {
+        MergeOutcome::Merged { commit } => commit.0,
+        other => panic!("expected Merged, got {other:?}"),
+    };
+    assert_ne!(merge_commit, source_head);
+    let parents = String::from_utf8(git_output(
+        &backend,
+        &repo,
+        &["rev-list", "--parents", "-n", "1", "HEAD"],
+    ))
+    .unwrap()
+    .trim()
+    .to_string();
+    let parents: Vec<&str> = parents.split_whitespace().collect();
+    assert_eq!(parents, vec![&merge_commit[..], &target_head, &source_head]);
+}
+
+#[tokio::test]
 async fn merge_diverged_branch_creates_two_parent_commit_and_ff_only_refuses_cleanly() {
     let (directory, repo) = empty_repo();
     let backend = LocalGitBackend::new();
