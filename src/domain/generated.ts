@@ -81,7 +81,7 @@ export type MergeSourceKind = "localBranch" | "remoteTracking";
 
 export type MergeSource = { refName: string, kind: MergeSourceKind, };
 
-export type MergeMode = "default" | "fastForwardOnly";
+export type MergeMode = "default" | "fastForwardOnly" | "noFastForward";
 
 export type MergeDirtyPolicy = "refuse" | "stashFirst";
 
