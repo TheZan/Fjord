@@ -49,6 +49,7 @@ mod history;
 mod ignore;
 mod initialization;
 mod integration;
+mod interactive_rebase;
 mod merge;
 mod mutations;
 mod operation_control;
@@ -257,6 +258,38 @@ impl GitBackend for LocalGitBackend {
             self.operation_origins.clone(),
             repo,
             expected,
+            policy,
+            context,
+        )
+        .await
+    }
+    async fn rebase_todo(
+        &self,
+        repo: &RepoPath,
+        onto: &MergeSource,
+    ) -> Result<fjord_domain::InteractiveRebaseTodo, GitError> {
+        interactive_rebase::todo(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            onto,
+        )
+        .await
+    }
+    async fn start_interactive_rebase(
+        &self,
+        repo: &RepoPath,
+        expected: &fjord_domain::RebasePreflight,
+        steps: &[fjord_domain::RebaseTodoStep],
+        policy: MergeDirtyPolicy,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::RebaseResult, GitError> {
+        interactive_rebase::run_preflighted(
+            self.commands.clone(),
+            self.operation_origins.clone(),
+            repo,
+            expected,
+            steps,
             policy,
             context,
         )

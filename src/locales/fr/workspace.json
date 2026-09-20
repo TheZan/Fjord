@@ -147,6 +147,29 @@
       "unborn_head": "La branche courante ne contient aucun commit.",
       "index_has_staged_changes": "L’index contient des modifications indexées.",
       "would_overwrite": "Le rebase écraserait les modifications locales dans les fichiers suivants."
+    },
+    "todo": {
+      "title": "Rebase interactif : {{current}} sur {{onto}}",
+      "entry": "Rebase interactif de {{current}} sur {{onto}}…",
+      "stepsLabel": "Étapes du rebase",
+      "dragHandle": "Glisser pour réordonner",
+      "actionLabel": "Action pour {{subject}}",
+      "messageLabel": "Nouveau message pour {{subject}}",
+      "messagePlaceholder": "Message du commit",
+      "start": "Démarrer le rebase",
+      "stashAndStart": "Remiser les modifications et démarrer le rebase",
+      "action": {
+        "pick": "Conserver",
+        "reword": "Reformuler",
+        "fixup": "Fixup",
+        "squash": "Squash",
+        "drop": "Abandonner"
+      },
+      "errors": {
+        "allDropped": "Au moins un commit doit être conservé.",
+        "firstIsFixupOrSquash": "Le premier commit conservé ne peut pas être un fixup ou un squash ; il n'y a rien avec quoi le combiner.",
+        "emptyMessage": "Reword et squash nécessitent un message."
+      }
     }
   },
   "merge": {

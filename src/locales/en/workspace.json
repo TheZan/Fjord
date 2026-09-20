@@ -147,6 +147,29 @@
       "unborn_head": "The current branch has no commits yet.",
       "index_has_staged_changes": "The index has staged changes.",
       "would_overwrite": "Rebase would overwrite local work in the paths below."
+    },
+    "todo": {
+      "title": "Interactive rebase: {{current}} onto {{onto}}",
+      "entry": "Interactive rebase {{current}} onto {{onto}}…",
+      "stepsLabel": "Rebase steps",
+      "dragHandle": "Drag to reorder",
+      "actionLabel": "Action for {{subject}}",
+      "messageLabel": "New message for {{subject}}",
+      "messagePlaceholder": "Commit message",
+      "start": "Start rebase",
+      "stashAndStart": "Stash changes and start rebase",
+      "action": {
+        "pick": "Pick",
+        "reword": "Reword",
+        "fixup": "Fixup",
+        "squash": "Squash",
+        "drop": "Drop"
+      },
+      "errors": {
+        "allDropped": "At least one commit must be kept.",
+        "firstIsFixupOrSquash": "The first kept commit cannot be a fixup or squash; it has nothing to combine into.",
+        "emptyMessage": "Reword and squash need a message."
+      }
     }
   },
   "merge": {

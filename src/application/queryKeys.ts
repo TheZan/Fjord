@@ -14,6 +14,8 @@ export const queryKeys = {
     worktrees: (repoId: string) => [...queryKeys.repos.detail(repoId), "worktrees"] as const,
     rebasePreflight: (repoId: string, refName: string) =>
       [...queryKeys.repos.detail(repoId), "rebasePreflight", refName] as const,
+    rebaseTodo: (repoId: string, refName: string) =>
+      [...queryKeys.repos.detail(repoId), "rebaseTodo", refName] as const,
     mergePreflight: (repoId: string, refName: string) =>
       [...queryKeys.repos.detail(repoId), "mergePreflight", refName] as const,
     tags: (repoId: string) => [...queryKeys.repos.detail(repoId), "tags"] as const,

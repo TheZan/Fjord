@@ -45,13 +45,20 @@ pub(super) async fn run_locked(
     context: GitOperationContext,
 ) -> Result<RepoOperationState, GitError> {
     let before = current_state(repo, &origins)?;
+    if action == OperationAction::Abort {
+        if let Ok(dir) =
+            LocalGitBackend::with_runtime_git2(repo, |git| Ok(git.path().to_path_buf()))
+        {
+            let _ = super::interactive_rebase::clear_plan(&dir);
+        }
+    }
     let args = command_args(action, &before)?;
     let spec = command_spec(commands.executable()?, repo, args);
 
     // Even a command that exits unsuccessfully can advance a sequencer to its
     // next (possibly conflicted) step. Invalidate every observable domain once
     // Git has been given control so the detectable state is never hidden.
-    let process_result = GitProcessRunner.run(&spec, context, None).await;
+    let process_result = GitProcessRunner.run(&spec, context.clone(), None).await;
     bump_repository_mutation(repo, MutationKind::OperationStep);
     let result = process_result.map_err(map_process_error)?;
     if result.exit_code != Some(0) {
@@ -61,10 +68,16 @@ pub(super) async fn run_locked(
         )));
     }
 
-    current_state(repo, &origins)
+    let state = current_state(repo, &origins)?;
+    // Drain any synthetic pause Fjord itself introduced for an interactive
+    // rebase reword/squash message: Continue and Skip both may land on one.
+    // A real conflict always leaves `conflicted_paths` non-empty, so it is
+    // never drained here — Phase 9's ordinary flow is unaffected.
+    super::interactive_rebase::drain_synthetic_breaks(&commands, &origins, repo, context, state)
+        .await
 }
 
-fn current_state(
+pub(super) fn current_state(
     repo: &RepoPath,
     origins: &OperationOriginTracker,
 ) -> Result<RepoOperationState, GitError> {
@@ -143,7 +156,7 @@ fn action_name(action: OperationAction) -> &'static str {
     }
 }
 
-fn step_diagnostics(stderr: &str, stdout: &str) -> String {
+pub(super) fn step_diagnostics(stderr: &str, stdout: &str) -> String {
     let diagnostics = if stderr.trim().is_empty() {
         stdout.trim()
     } else {

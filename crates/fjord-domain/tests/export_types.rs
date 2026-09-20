@@ -11,17 +11,18 @@ use fjord_domain::{
     GitAuthPrompt, GitAuthPromptKind, GitConnectionProtocol, GitConnectionTestResult,
     GitEnvironmentInfo, GitExecutable, GitExecutableSource, GlobalSearchResult, HunkSelection,
     IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, IntegrationBlocker, InteractionSpan,
-    InteractionTrace, LogCursor, MergeDirtyPolicy, MergeDirtyState, MergeMode, MergeOutcome,
-    MergePrediction, MergePreflight, MergeResult, MergeSource, MergeSourceKind, OpenTarget,
-    OperationControl, OverviewUiState, OverviewUiStatePatch, PatchSelection, PatchSource,
-    PublishedRewriteConsequence, RebaseKind, RebasePreflight, RebaseResult, Recoverability,
-    ReflogEntry, ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight,
-    RepoCondition, RepoHealth, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary,
-    RepoUiState, RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId,
-    RepositorySnapshot, ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch,
-    Settings, SidebarUiState, SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome,
-    SquashMergeResult, StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
-    StashId, StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
+    InteractionTrace, InteractiveRebaseTodo, LogCursor, MergeDirtyPolicy, MergeDirtyState,
+    MergeMode, MergeOutcome, MergePrediction, MergePreflight, MergeResult, MergeSource,
+    MergeSourceKind, OpenTarget, OperationControl, OverviewUiState, OverviewUiStatePatch,
+    PatchSelection, PatchSource, PublishedRewriteConsequence, RebaseKind, RebasePreflight,
+    RebaseResult, RebaseTodoAction, RebaseTodoStep, Recoverability, ReflogEntry, ReflogPage,
+    RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight, RepoCondition, RepoHealth,
+    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
+    RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
+    ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
+    SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult,
+    StashApplyOutcome, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
+    StashScope, StoredRepositorySnapshot, TagInfo, Theme, UiDiffMode, UiFileViewMode,
     UiOverviewFilter, UiState, UiStatePatch, WorkingChanges, WorkingFile, WorkingFileTarget,
     Workspace, WorkspaceId, Worktree, WorktreeBranch,
 };
@@ -92,6 +93,9 @@ fn generated_types() -> String {
     push::<PublishedRewriteConsequence>(&mut output, &config);
     push::<RebasePreflight>(&mut output, &config);
     push::<RebaseResult>(&mut output, &config);
+    push_without_trailing_whitespace::<RebaseTodoAction>(&mut output, &config);
+    push::<RebaseTodoStep>(&mut output, &config);
+    push::<InteractiveRebaseTodo>(&mut output, &config);
     push::<MergePreflight>(&mut output, &config);
     push_without_trailing_whitespace::<MergeOutcome>(&mut output, &config);
     push::<MergeResult>(&mut output, &config);

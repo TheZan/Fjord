@@ -64,6 +64,11 @@ async fn dispatch(
                 .rebase_preflight(repo, &serde_json::from_value(args["onto"].clone())?)
                 .await?
         ),
+        "get_rebase_todo" => json!(
+            backend
+                .rebase_todo(repo, &serde_json::from_value(args["onto"].clone())?)
+                .await?
+        ),
         "get_stashes" => return Ok(json!(backend.stashes(repo).await?)),
         "list_remotes" => return Ok(json!([])),
         "stash_paths_supported" => return Ok(json!(backend.stash_paths_supported().await?)),
@@ -95,6 +100,21 @@ async fn dispatch(
                     )
                     .await?
             ))
+        }
+        "start_interactive_rebase" => {
+            let steps: Vec<fjord_domain::RebaseTodoStep> =
+                serde_json::from_value(args["steps"].clone())?;
+            return Ok(json!(
+                backend
+                    .start_interactive_rebase(
+                        repo,
+                        &serde_json::from_value(args["preflight"].clone())?,
+                        &steps,
+                        serde_json::from_value(args["dirtyPolicy"].clone())?,
+                        GitOperationContext::default()
+                    )
+                    .await?
+            ));
         }
         "continue_operation" => return Ok(json!(backend.continue_operation(repo).await?)),
         "open_merge_tool" => {
