@@ -86,7 +86,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `get_file_diff` | `{ repo_id, commit_id, path, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Bounded diff window; `whitespace` is `show`, `ignoreTrailing`, or `ignoreAll` and is applied by the backend so rendered hunks match the selected mode. `load_anyway = true` is an explicit user override of only the 10 MB source-file display ceiling; the 2,000-line and 2 MB response ceilings remain. Every page echoes its authoritative served `offset` and retains its generation envelope for snapshot/continuation validation. |
 | `get_working_changes` | `{ repo_id }` | `GenerationEnvelope<WorkingChanges>` | Staged/unstaged split; a partially staged file appears in both |
 | `get_working_file_diff` | `{ repo_id, path, staged, offset, limit, whitespace, load_anyway }` | `GenerationEnvelope<FileDiffWindow>` | Bounded index-vs-HEAD window when staged, worktree-vs-index otherwise. Backend `whitespace` flags determine the displayed hunk structure. `load_anyway` overrides only the source-file display ceiling; response bounds remain mandatory. Every page independently carries its served `offset`, the full diff's `baseDigest`, and complete `GenerationSet`; the digest and existing `working_tree` generation are captured coherently and retained for cross-page validation. Partial patch actions are unavailable unless `whitespace = show`. |
-| `get_merge_preflight` | `{ repo_id, source }` | `GenerationEnvelope<MergePreflight>` | Read-only, generation-stamped branch integration facts (`P10-MERGE-01`) |
+| `get_merge_preflight` | `{ repo_id, source }` | `GenerationEnvelope<MergePreflight>` | Read-only, generation-stamped branch integration facts, including the `default_message` Git would write for this source and target (`P10-MERGE-01`, `P12-MERGE-01`) |
 | `get_amend_info` | `{ repo_id }` | `AmendInfo` | Current `HEAD` message plus `publishedUpstream` when the branch's locally known upstream contains `HEAD` |
 | `preview_ignore_rule` | `{ repo_id, path, rule_kind }` | `IgnoreRulePreview` | Returns the exact root-`.gitignore` rule and duplicate state without writing; refuses tracked files and non-UTF-8 `.gitignore` bytes |
 | `preflight_destructive_action` | `{ repo_id, action, patch_selection? }` | `DestructivePreflight` | Bounded consequences for all destructive actions. Returns a short-lived token bound to repository, exact action/scope, authoritative facts, and coherent generation stamp. |
@@ -98,7 +98,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 |---|---|---|---|
 | `checkout_branch` | `{ repo_id, branch }` | — | Materializes a remote branch through a targeted fetch when needed; before switching, returns `checkout_would_overwrite` with at most 100 affected paths if local work would be replaced |
 | `stash_and_checkout` | `{ repo_id, branch, operation_id? }` | `string` | Saves tracked and untracked work with a source→target message, checks out the target, never auto-pops, and returns `stash@{0}` |
-| `merge_branch` | `{ repo_id, source, mode, dirty_policy, allow_unrelated_histories, operation_id? }` | `MergeResult` | Cancellable merge through system Git; supports local branches, remote-tracking refs, tags, and raw commit ids. The unrelated-histories flag is honored only for an `Unrelated` preflight (`P10-MERGE-01`, `P10-MERGE-02`, `P12-MERGE-02`) |
+| `merge_branch` | `{ repo_id, source, mode, dirty_policy, allow_unrelated_histories, message?, operation_id? }` | `MergeResult` | Cancellable merge through system Git; supports local branches, remote-tracking refs, tags, and raw commit ids. The unrelated-histories flag is honored only for an `Unrelated` preflight. `message` (≤ 4 KiB, no NUL, not blank; line endings normalized to LF) is passed to Git as one `-m` argument and is the exact committed text, including after a conflicted merge is continued; `null` keeps Git's default message (`P10-MERGE-01`, `P10-MERGE-02`, `P12-MERGE-01`, `P12-MERGE-02`) |
 | `get_rebase_preflight` | `{ repo_id, onto: MergeSource }` | `GenerationEnvelope<RebasePreflight>` | Read-only shared integration facts, exact target/current identities, typed blockers and published rewrite consequence. Uses the local target only; no fetch. |
 | `start_rebase` | `{ repo_id, preflight: RebasePreflight, dirty_policy: MergeDirtyPolicy, operation_id? }` | `RebaseResult` | Validates the live snapshot before registration, then recomputes and compares the complete preview under the write lock. Stale facts fail `preflight_stale` before stash or rebase. Explicit stash is retained and its actual selector is returned alongside authoritative `RepoOperationState` and generations. Cancellation leaves the sequencer for the Phase 9 controls. No autostash, fetch or push. (`P10-05`) |
 | `get_rebase_todo` | `{ repo_id, onto: MergeSource }` | `GenerationEnvelope<InteractiveRebaseTodo>` | The same shared preflight `get_rebase_preflight` returns, plus the seeded editor model: one `RebaseTodoStep` per surviving commit, in rebase order, initially `Pick`. Read-only; no fetch. (`P10-11`) |
@@ -182,7 +182,8 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 
 ## Planned additions
 
-Phase 12 (`P12-MERGE-01`–`05`) plans two new commands and two extended payloads:
+Phase 12 (`P12-MERGE-01`–`05`) plans three new commands; its two extended
+payloads have shipped (below):
 
 | Command | Payload | Returns | Owner |
 |---|---|---|---|
@@ -197,11 +198,12 @@ advances `working_tree` alone. `update_branch_fast_forward` carries
 `expected_tip` because its `update-ref` is a compare-and-swap on the old value;
 it advances `refs` and `history` and never `working_tree`.
 
-Two shipped shapes are extended rather than replaced: `get_merge_preflight`
-returns an additional `default_message`, and `merge_branch` accepts an optional
-`message` alongside the existing `mode` (which gains `noFastForward`) and an
-`allow_unrelated_histories` acknowledgement
-([`branch-merge.md`](branch-merge.md) §10.1–§10.2, `P12-MERGE-01`–`02`).
+Two shipped shapes were extended rather than replaced, and both extensions have
+shipped: `get_merge_preflight` returns an additional `default_message`, and
+`merge_branch` accepts an optional `message` alongside the existing `mode`
+(which gained `noFastForward`) and an `allow_unrelated_histories`
+acknowledgement ([`branch-merge.md`](branch-merge.md) §10.1–§10.2,
+`P12-MERGE-01`–`02`).
 
 One addition already shipped by extending existing shapes rather than adding a
 command: `preflight_destructive_action` / `execute_destructive_action` gained
@@ -243,11 +245,14 @@ already-up-to-date, fast-forward, merge commit, and conflict as typed results
 
 - Merge (`P10-MERGE-01`): `merge_source_not_found`,
   `merge_source_is_current_branch`, `merge_source_unsupported`,
-  `merge_not_fast_forward`, `merge_unrelated_histories_not_allowed`, `merge_would_overwrite`,
+  `merge_not_fast_forward`, `merge_unrelated_histories_not_allowed`,
+  `merge_message_invalid`, `merge_would_overwrite`,
   `merge_index_has_staged_changes`, `merge_detached_head`, `merge_unborn_head`,
   `merge_failed`, and the shared `operation_already_in_progress` (which
   `start_rebase` also uses). `squash_merge_branch` (`P10-MERGE-03`) reuses this
-  same set except `merge_not_fast_forward`, which has no squash equivalent —
+  same set except `merge_not_fast_forward` and `merge_message_invalid`, which
+  have no squash equivalent (a squash commits nothing; its message is drafted in
+  Working Changes) —
   a conflicting squash is a typed `Conflicted { paths }` result, not an error,
   exactly like a conflicting merge.
 - Remaining working-file actions (`P10-WC-02`, `P10-WC-03`, `P10-WC-05`,

@@ -82,6 +82,12 @@ pub(super) fn preflight_locked(
             blockers.push("merge_would_overwrite".into());
         }
 
+        let default_message = default_merge_message(
+            actual_kind,
+            &source_label,
+            &target_branch,
+            &suppress_dest_patterns(git),
+        );
         Ok(MergePreflight {
             source: source.clone(),
             source_label,
@@ -91,6 +97,7 @@ pub(super) fn preflight_locked(
             prediction,
             dirty,
             blockers,
+            default_message,
             generations: repository_generations(repo)?,
         })
     })
@@ -135,8 +142,87 @@ fn preflight_for_unsupported(
             would_overwrite: Vec::new(),
         },
         blockers: vec!["merge_source_unsupported".into()],
+        default_message: String::new(),
         generations: repository_generations(repo)?,
     })
+}
+
+/// The single-source merge message `git fmt-merge-msg` builds: a kind-specific
+/// subject naming the source by its display label, with ` into <target>`
+/// appended unless the target matches one of the `merge.suppressDest` patterns.
+pub(super) fn default_merge_message(
+    kind: MergeSourceKind,
+    source_label: &str,
+    target_branch: &str,
+    suppress_dest: &[String],
+) -> String {
+    let subject = match kind {
+        MergeSourceKind::LocalBranch => format!("Merge branch '{source_label}'"),
+        MergeSourceKind::RemoteTracking => format!("Merge remote-tracking branch '{source_label}'"),
+        MergeSourceKind::Tag => format!("Merge tag '{source_label}'"),
+        MergeSourceKind::Commit => format!("Merge commit '{source_label}'"),
+    };
+    if suppress_dest
+        .iter()
+        .any(|pattern| wildcard_match(pattern.as_bytes(), target_branch.as_bytes()))
+    {
+        subject
+    } else {
+        format!("{subject} into {target_branch}")
+    }
+}
+
+/// Git's `merge.suppressDest` list: every value appends a pattern, an empty
+/// value clears the list, and when the key is absent Git suppresses `into`
+/// for `main` and `master`. An unreadable config falls back to that default.
+fn suppress_dest_patterns(git: &git2::Repository) -> Vec<String> {
+    let defaults = || vec!["main".to_string(), "master".to_string()];
+    let Ok(config) = git.config() else {
+        return defaults();
+    };
+    let Ok(entries) = config.multivar("merge.suppressdest", None) else {
+        return defaults();
+    };
+    let mut seen = false;
+    let mut patterns = Vec::new();
+    let collected = entries.for_each(|entry| {
+        seen = true;
+        match entry.value() {
+            Ok("") => patterns.clear(),
+            Ok(value) => patterns.push(value.to_string()),
+            Err(_) => {}
+        }
+    });
+    if collected.is_err() || !seen {
+        return defaults();
+    }
+    patterns
+}
+
+/// Minimal `wildmatch(..., WM_PATHNAME)`: `*` matches any run of characters
+/// other than `/`, `?` matches one such character, everything else is literal.
+fn wildcard_match(pattern: &[u8], text: &[u8]) -> bool {
+    match pattern.split_first() {
+        None => text.is_empty(),
+        Some((b'*', rest)) => {
+            let mut index = 0;
+            loop {
+                if wildcard_match(rest, &text[index..]) {
+                    return true;
+                }
+                if index == text.len() || text[index] == b'/' {
+                    return false;
+                }
+                index += 1;
+            }
+        }
+        Some((b'?', rest)) => {
+            matches!(text.split_first(), Some((first, tail)) if *first != b'/' && wildcard_match(rest, tail))
+        }
+        Some((literal, rest)) => {
+            matches!(text.split_first(), Some((first, tail)) if first == literal && wildcard_match(rest, tail))
+        }
+    }
 }
 
 /// Display label for a merge source without its canonical ref qualifier.
@@ -371,6 +457,85 @@ mod tests {
             classify_source("feature"),
             Err(GitError::MergeSourceUnsupported)
         ));
+    }
+
+    fn defaults() -> Vec<String> {
+        vec!["main".into(), "master".into()]
+    }
+
+    #[test]
+    fn default_message_names_each_source_kind_like_fmt_merge_msg() {
+        assert_eq!(
+            default_merge_message(MergeSourceKind::LocalBranch, "feature", "main", &defaults()),
+            "Merge branch 'feature'"
+        );
+        assert_eq!(
+            default_merge_message(
+                MergeSourceKind::RemoteTracking,
+                "origin/feature",
+                "master",
+                &defaults()
+            ),
+            "Merge remote-tracking branch 'origin/feature'"
+        );
+        assert_eq!(
+            default_merge_message(MergeSourceKind::Tag, "v1.0.0", "main", &defaults()),
+            "Merge tag 'v1.0.0'"
+        );
+        assert_eq!(
+            default_merge_message(MergeSourceKind::Commit, "0123456", "main", &defaults()),
+            "Merge commit '0123456'"
+        );
+    }
+
+    #[test]
+    fn default_message_appends_into_unless_the_target_is_suppressed() {
+        assert_eq!(
+            default_merge_message(
+                MergeSourceKind::LocalBranch,
+                "feature",
+                "develop",
+                &defaults()
+            ),
+            "Merge branch 'feature' into develop"
+        );
+        assert_eq!(
+            default_merge_message(
+                MergeSourceKind::LocalBranch,
+                "feature",
+                "release/1.2",
+                &["release/*".into()]
+            ),
+            "Merge branch 'feature'"
+        );
+        assert_eq!(
+            default_merge_message(MergeSourceKind::LocalBranch, "feature", "main", &[]),
+            "Merge branch 'feature' into main"
+        );
+    }
+
+    #[test]
+    fn wildcard_match_follows_pathname_semantics() {
+        assert!(wildcard_match(b"main", b"main"));
+        assert!(!wildcard_match(b"main", b"mainline"));
+        assert!(wildcard_match(b"release/*", b"release/1.2"));
+        assert!(!wildcard_match(b"release/*", b"release/1/2"));
+        assert!(!wildcard_match(b"*", b"team/main"));
+        assert!(wildcard_match(b"v?", b"v1"));
+        assert!(!wildcard_match(b"v?", b"v/"));
+    }
+
+    #[test]
+    fn suppress_dest_reads_git_config_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = git2::Repository::init(dir.path()).unwrap();
+        assert_eq!(suppress_dest_patterns(&git), defaults());
+
+        let mut config = git.config().unwrap();
+        config
+            .set_multivar("merge.suppressDest", "^$", "develop")
+            .unwrap();
+        assert_eq!(suppress_dest_patterns(&git), vec!["develop".to_string()]);
     }
 
     #[test]

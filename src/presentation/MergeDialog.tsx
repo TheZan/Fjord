@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { mergeSourceLabel, mergeSourceRemoteName } from "@/application/mergeBranchAction";
 import { useMergeBranch } from "@/application/useMergeBranch";
@@ -8,7 +8,7 @@ import type {
   MergePreflight,
   MergeSource,
 } from "@/domain/git";
-import { Button } from "@/presentation/ui";
+import { Button, Textarea } from "@/presentation/ui";
 import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
 
 export function MergeDialog({
@@ -28,6 +28,7 @@ export function MergeDialog({
     dirtyPolicy: MergeDirtyPolicy,
     fetchFirst: boolean,
     allowUnrelatedHistories: boolean,
+    message: string | null,
   ) => void;
   onClose: () => void;
 }) {
@@ -36,6 +37,10 @@ export function MergeDialog({
   const [mode, setMode] = useState<MergeMode>("default");
   const [fetchFirst, setFetchFirst] = useState(false);
   const [allowUnrelatedHistories, setAllowUnrelatedHistories] = useState(false);
+  // `null` until the user edits: an untouched field follows the live preflight.
+  const [messageDraft, setMessageDraft] = useState<string | null>(null);
+  const messageId = useId();
+  const messageHintId = useId();
   const { preflight, loading, error, errorCode } = useMergeBranch(repoId, source);
   const remoteName = mergeSourceRemoteName(source);
   useDialogFocusTrap(dialogRef, onClose);
@@ -52,6 +57,13 @@ export function MergeDialog({
   ) ?? [];
   const alreadyUpToDate = preflight?.prediction.kind === "alreadyUpToDate";
   const unrelated = preflight?.prediction.kind === "unrelated";
+  const showMessage = Boolean(
+    preflight
+      && hardBlockers.length === 0
+      && mergeCreatesCommit(preflight.prediction.kind, mode),
+  );
+  const message = messageDraft ?? preflight?.defaultMessage ?? "";
+  const messageProblem = showMessage ? mergeMessageProblem(message) : null;
 
   return (
     <div
@@ -142,6 +154,29 @@ export function MergeDialog({
           </fieldset>
         ) : null}
 
+        {showMessage ? (
+          <div className="mt-4 flex flex-col gap-1 text-[13px]">
+            <label htmlFor={messageId} className="font-medium" style={{ color: "var(--slate)" }}>
+              {t("merge.message.label")}
+            </label>
+            <Textarea
+              id={messageId}
+              rows={3}
+              className="w-full"
+              value={message}
+              disabled={pending || loading}
+              aria-invalid={messageProblem ? true : undefined}
+              aria-describedby={messageProblem ? messageHintId : undefined}
+              onChange={(event) => setMessageDraft(event.target.value)}
+            />
+            {messageProblem ? (
+              <p id={messageHintId} style={{ color: "var(--rust-ink)" }}>
+                {t(`merge.message.${messageProblem}`)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {!alreadyUpToDate && hardBlockers.length === 0 && remoteName ? (
           <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
             <input
@@ -173,12 +208,18 @@ export function MergeDialog({
           {!alreadyUpToDate && hardBlockers.length === 0 && preflight ? (
             <Button
               variant="primary"
-              disabled={pending || loading || (unrelated && !allowUnrelatedHistories)}
+              disabled={
+                pending
+                || loading
+                || (unrelated && !allowUnrelatedHistories)
+                || messageProblem !== null
+              }
               onClick={() => onConfirm(
                 mode,
                 dirtyBlocked ? "stashFirst" : "refuse",
                 fetchFirst,
                 allowUnrelatedHistories,
+                showMessage ? message : null,
               )}
             >
               {pending
@@ -195,6 +236,28 @@ export function MergeDialog({
 }
 
 export { mergeSourceLabel } from "@/application/mergeBranchAction";
+
+/// Mirrors the backend bound on a confirmed merge message (branch-merge §10.1).
+export const MERGE_MESSAGE_LIMIT_BYTES = 4 * 1024;
+
+/// Whether confirming can record a merge commit, and therefore whether the
+/// message field is shown: never for fast-forward-only, and not for a default
+/// merge that the preflight predicts will fast-forward.
+export function mergeCreatesCommit(
+  prediction: MergePreflight["prediction"]["kind"],
+  mode: MergeMode,
+) {
+  if (prediction === "alreadyUpToDate" || mode === "fastForwardOnly") return false;
+  return !(mode === "default" && prediction === "fastForward");
+}
+
+export function mergeMessageProblem(message: string): "empty" | "tooLong" | null {
+  if (message.trim() === "") return "empty";
+  if (new TextEncoder().encode(message.replace(/\r\n?/g, "\n")).length > MERGE_MESSAGE_LIMIT_BYTES) {
+    return "tooLong";
+  }
+  return null;
+}
 
 /// The preflight prediction is mode-independent: it is computed before a mode is
 /// chosen. The sentence the user reads is not — `noFastForward` records a merge

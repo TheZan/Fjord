@@ -511,6 +511,10 @@ pub struct MergePreflight {
     pub prediction: MergePrediction,
     pub dirty: MergeDirtyState,
     pub blockers: Vec<String>,
+    /// The single-source message `git fmt-merge-msg` would produce, e.g.
+    /// `Merge branch 'feature' into develop`. The dialog prefills it; the text
+    /// the user confirms is the text committed.
+    pub default_message: String,
     pub generations: GenerationSet,
 }
 

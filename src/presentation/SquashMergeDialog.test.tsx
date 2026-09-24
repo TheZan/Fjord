@@ -158,6 +158,7 @@ function preflight(prediction: MergePreflight["prediction"]): MergePreflight {
     prediction,
     dirty: { staged: 0, modified: 0, untracked: 0, wouldOverwrite: [] },
     blockers: [],
+    defaultMessage: "Merge branch 'feature'",
     generations: { workingTree: 1, refs: 1, history: 1, stash: 0, config: 0 },
   };
 }

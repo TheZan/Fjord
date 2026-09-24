@@ -8204,6 +8204,150 @@ async fn merge_no_fast_forward_records_a_merge_commit_over_a_fast_forwardable_so
 }
 
 #[tokio::test]
+async fn merge_default_message_names_the_target_unless_git_suppresses_it() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    let preflight = backend
+        .merge_preflight(&repo, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert_eq!(preflight.default_message, "Merge branch 'topic'");
+
+    run_git_success(&backend, &repo, &["checkout", "-b", "develop"]);
+    let preflight = backend
+        .merge_preflight(&repo, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert_eq!(
+        preflight.default_message,
+        "Merge branch 'topic' into develop"
+    );
+
+    run_git_success(
+        &backend,
+        &repo,
+        &["config", "--add", "merge.suppressDest", "dev*"],
+    );
+    let preflight = backend
+        .merge_preflight(&repo, &local_merge_source("topic"))
+        .await
+        .unwrap();
+    assert_eq!(preflight.default_message, "Merge branch 'topic'");
+}
+
+#[tokio::test]
+async fn merge_commits_the_confirmed_message_verbatim() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    // Resolve the fixture's single conflict up front so the merge completes.
+    run_git_success(&backend, &repo, &["checkout", "topic"]);
+    run_git_success(&backend, &repo, &["reset", "--hard", "HEAD~1"]);
+    write_file(&repo, "topic-only.txt", "topic\n");
+    run_git_success(&backend, &repo, &["add", "topic-only.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "topic only"]);
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+
+    let message = "Integrate topic\r\n\r\nBody with $(shell) and 'quotes'.\r\n";
+    let result = backend
+        .merge_branch_with_options(
+            &repo,
+            &local_merge_source("topic"),
+            MergeMode::NoFastForward,
+            MergeDirtyPolicy::Refuse,
+            fjord_ports::MergeBranchOptions {
+                allow_unrelated_histories: false,
+                message: Some(message.into()),
+            },
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, MergeOutcome::Merged { .. }));
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["log", "-1", "--format=%B"])).unwrap(),
+        "Integrate topic\n\nBody with $(shell) and 'quotes'.\n\n"
+    );
+}
+
+#[tokio::test]
+async fn merge_refuses_an_invalid_message_before_launching_git() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    let before_head = git_output(&backend, &repo, &["rev-parse", "HEAD"]);
+    let before = backend.generations(&repo).unwrap();
+    for message in ["  \n ".to_string(), "a\0b".to_string(), "x".repeat(4097)] {
+        let error = backend
+            .merge_branch_with_options(
+                &repo,
+                &local_merge_source("topic"),
+                MergeMode::Default,
+                MergeDirtyPolicy::Refuse,
+                fjord_ports::MergeBranchOptions {
+                    allow_unrelated_histories: false,
+                    message: Some(message),
+                },
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, GitError::MergeMessageInvalid));
+    }
+    assert_eq!(
+        git_output(&backend, &repo, &["rev-parse", "HEAD"]),
+        before_head
+    );
+    assert_eq!(backend.generations(&repo).unwrap(), before);
+    assert_eq!(
+        backend.operation_state(&repo).await.unwrap().operation,
+        RepoOperation::Normal
+    );
+}
+
+#[tokio::test]
+async fn conflicted_merge_keeps_the_confirmed_message_for_continue_operation() {
+    let (_directory, repo, backend) = divergent_operation_fixture();
+    let message = "Integrate topic by hand\n\nConflicts resolved in Fjord.";
+    let result = backend
+        .merge_branch_with_options(
+            &repo,
+            &local_merge_source("topic"),
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            fjord_ports::MergeBranchOptions {
+                allow_unrelated_histories: false,
+                message: Some(message.into()),
+            },
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, MergeOutcome::Conflicted { .. }));
+    let merge_msg = std::fs::read_to_string(repo.0.join(".git").join("MERGE_MSG")).unwrap();
+    assert!(
+        merge_msg.starts_with(message),
+        "MERGE_MSG must carry the confirmed message: {merge_msg:?}"
+    );
+
+    resolve_operation_conflict(&backend, &repo);
+    let completed = backend.continue_operation(&repo).await.unwrap();
+    assert_normal_operation(&completed);
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["log", "-1", "--format=%B"]))
+            .unwrap()
+            .trim_end(),
+        message
+    );
+    assert_eq!(
+        String::from_utf8(git_output(
+            &backend,
+            &repo,
+            &["rev-list", "--parents", "-n", "1", "HEAD"]
+        ))
+        .unwrap()
+        .split_whitespace()
+        .count(),
+        3
+    );
+}
+
+#[tokio::test]
 async fn merge_diverged_branch_creates_two_parent_commit_and_ff_only_refuses_cleanly() {
     let (directory, repo) = empty_repo();
     let backend = LocalGitBackend::new();
@@ -8492,6 +8636,10 @@ async fn merge_remote_tracking_source_merges_exact_ref_without_creating_local_br
         stale_preflight.prediction,
         MergePrediction::AlreadyUpToDate
     ));
+    assert_eq!(
+        stale_preflight.default_message,
+        "Merge remote-tracking branch 'origin/topic'"
+    );
     let before = backend.generations(&repo).unwrap();
     let stale_merge = backend
         .merge_branch(
@@ -8608,6 +8756,7 @@ async fn merge_annotated_and_lightweight_tags_resolve_the_exact_tagged_commit() 
         let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
         assert_eq!(preflight.source_commit.0, tagged_commit);
         assert_eq!(preflight.source_label, tag_name);
+        assert_eq!(preflight.default_message, format!("Merge tag '{tag_name}'"));
 
         let result = backend
             .merge_branch(
@@ -8666,6 +8815,10 @@ async fn merge_raw_commit_id_merges_that_object_without_creating_a_branch() {
     let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
     assert_eq!(preflight.source_commit.0, commit_id);
     assert_eq!(preflight.source_label, commit_id[..7]);
+    assert_eq!(
+        preflight.default_message,
+        format!("Merge commit '{}'", &commit_id[..7])
+    );
 
     let result = backend
         .merge_branch(
@@ -8723,7 +8876,7 @@ async fn merge_unrelated_histories_requires_acknowledgement_then_succeeds() {
             &source,
             MergeMode::Default,
             MergeDirtyPolicy::Refuse,
-            false,
+            fjord_ports::MergeBranchOptions::default(),
             GitOperationContext::default(),
         )
         .await;
@@ -8745,7 +8898,10 @@ async fn merge_unrelated_histories_requires_acknowledgement_then_succeeds() {
             &source,
             MergeMode::Default,
             MergeDirtyPolicy::Refuse,
-            true,
+            fjord_ports::MergeBranchOptions {
+                allow_unrelated_histories: true,
+                message: None,
+            },
             GitOperationContext::default(),
         )
         .await

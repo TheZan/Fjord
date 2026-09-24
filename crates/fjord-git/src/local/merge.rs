@@ -21,11 +21,59 @@ use super::operation_state::{OperationFamily, OperationOriginTracker};
 use super::*;
 
 const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
+/// Upper bound on a user-confirmed merge-commit message, in UTF-8 bytes.
+pub(super) const MERGE_MESSAGE_LIMIT: usize = 4 * 1024;
 
 pub(super) struct MergeOptions {
     pub mode: MergeMode,
     pub dirty_policy: MergeDirtyPolicy,
     pub allow_unrelated_histories: bool,
+    /// `None` keeps Git's default message; `Some` is committed verbatim.
+    pub message: Option<String>,
+}
+
+/// Validates and normalizes a user-confirmed merge message (branch-merge §10.1):
+/// CRLF/CR become LF, NUL is refused, the result must be non-blank and at most
+/// [`MERGE_MESSAGE_LIMIT`] bytes.
+pub(super) fn normalize_message(message: &str) -> Result<String, GitError> {
+    if message.contains('\0') {
+        return Err(GitError::MergeMessageInvalid);
+    }
+    let normalized = message.replace("\r\n", "\n").replace('\r', "\n");
+    if normalized.trim().is_empty() || normalized.len() > MERGE_MESSAGE_LIMIT {
+        return Err(GitError::MergeMessageInvalid);
+    }
+    Ok(normalized)
+}
+
+/// `git merge` arguments for one validated request. The source and the
+/// message are each a single argument; nothing is ever joined into a shell
+/// string.
+pub(super) fn merge_args(
+    mode: MergeMode,
+    allow_unrelated_histories: bool,
+    message: Option<&str>,
+    ref_name: &str,
+) -> Vec<OsString> {
+    let mut args = vec![OsString::from("merge")];
+    match mode {
+        MergeMode::FastForwardOnly => args.push("--ff-only".into()),
+        MergeMode::NoFastForward => args.push("--no-ff".into()),
+        MergeMode::Default => {}
+    }
+    if allow_unrelated_histories {
+        args.push("--allow-unrelated-histories".into());
+    }
+    if let Some(message) = message {
+        args.push("-m".into());
+        args.push(message.into());
+    }
+    args.extend([
+        OsString::from("--no-edit"),
+        OsString::from("--"),
+        OsString::from(ref_name),
+    ]);
+    args
 }
 
 pub(super) async fn preflight(
@@ -49,6 +97,11 @@ pub(super) async fn run(
     options: MergeOptions,
     context: GitOperationContext,
 ) -> Result<MergeResult, GitError> {
+    let message = options
+        .message
+        .as_deref()
+        .map(normalize_message)
+        .transpose()?;
     let repo = repo.clone();
     let source = source.clone();
     let _guard = LocalGitBackend::acquire_repo_write_lock(&repo).await;
@@ -121,20 +174,12 @@ pub(super) async fn run(
             preflight.source_label, preflight.target_branch
         )),
     });
-    let mut args = vec!["merge".into()];
-    match options.mode {
-        MergeMode::FastForwardOnly => args.push("--ff-only".into()),
-        MergeMode::NoFastForward => args.push("--no-ff".into()),
-        MergeMode::Default => {}
-    }
-    if matches!(preflight.prediction, MergePrediction::Unrelated) {
-        args.push("--allow-unrelated-histories".into());
-    }
-    args.extend([
-        OsString::from("--no-edit"),
-        OsString::from("--"),
-        OsString::from(&preflight.source.ref_name),
-    ]);
+    let args = merge_args(
+        options.mode,
+        matches!(preflight.prediction, MergePrediction::Unrelated),
+        message.as_deref(),
+        &preflight.source.ref_name,
+    );
     let executable = match commands.executable() {
         Ok(executable) => executable,
         Err(error) => {
@@ -458,5 +503,92 @@ fn map_process_error(error: GitRemoteError) -> GitError {
         GitRemoteError::Cancelled => GitError::Cancelled,
         GitRemoteError::GitExecutableNotFound => GitError::ExecutableNotFound,
         other => GitError::MergeFailed(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: Vec<OsString>) -> Vec<String> {
+        args.into_iter()
+            .map(|arg| arg.into_string().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn merge_args_per_mode_keep_the_message_one_argument() {
+        let message = "Merge branch 'x'; rm -rf / $(whoami)\n\nBody";
+        assert_eq!(
+            strings(merge_args(
+                MergeMode::Default,
+                false,
+                Some(message),
+                "refs/heads/x"
+            )),
+            ["merge", "-m", message, "--no-edit", "--", "refs/heads/x"]
+        );
+        assert_eq!(
+            strings(merge_args(
+                MergeMode::NoFastForward,
+                false,
+                Some(message),
+                "refs/heads/x"
+            )),
+            [
+                "merge",
+                "--no-ff",
+                "-m",
+                message,
+                "--no-edit",
+                "--",
+                "refs/heads/x"
+            ]
+        );
+        assert_eq!(
+            strings(merge_args(
+                MergeMode::FastForwardOnly,
+                false,
+                None,
+                "refs/heads/x"
+            )),
+            ["merge", "--ff-only", "--no-edit", "--", "refs/heads/x"]
+        );
+        assert_eq!(
+            strings(merge_args(MergeMode::Default, true, None, "refs/tags/v1")),
+            [
+                "merge",
+                "--allow-unrelated-histories",
+                "--no-edit",
+                "--",
+                "refs/tags/v1"
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_message_bounds_and_normalizes() {
+        assert_eq!(
+            normalize_message("Subject\r\n\r\nBody\rMore").unwrap(),
+            "Subject\n\nBody\nMore"
+        );
+        assert!(matches!(
+            normalize_message("a\0b"),
+            Err(GitError::MergeMessageInvalid)
+        ));
+        assert!(matches!(
+            normalize_message(" \r\n\t"),
+            Err(GitError::MergeMessageInvalid)
+        ));
+        assert!(normalize_message(&"x".repeat(MERGE_MESSAGE_LIMIT)).is_ok());
+        assert!(matches!(
+            normalize_message(&"x".repeat(MERGE_MESSAGE_LIMIT + 1)),
+            Err(GitError::MergeMessageInvalid)
+        ));
+        // The bound is in UTF-8 bytes, not characters.
+        assert!(matches!(
+            normalize_message(&"é".repeat(MERGE_MESSAGE_LIMIT / 2 + 1)),
+            Err(GitError::MergeMessageInvalid)
+        ));
     }
 }

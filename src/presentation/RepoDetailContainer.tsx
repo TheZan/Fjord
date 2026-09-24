@@ -702,6 +702,7 @@ export function RepoDetailContainer({
     dirtyPolicy: MergeDirtyPolicy,
     fetchFirst: boolean,
     allowUnrelatedHistories: boolean,
+    mergeMessage: string | null,
   ) {
     if (!mergeSource) return;
     const source = mergeSource;
@@ -725,6 +726,7 @@ export function RepoDetailContainer({
           mode,
           dirtyPolicy,
           allowUnrelatedHistories,
+          mergeMessage,
         );
         setActionOperationId(task.operationId);
         const result = await task.promise;
@@ -757,6 +759,10 @@ export function RepoDetailContainer({
         }
         if (code === "merge_unrelated_histories_not_allowed") {
           setActionError(t("merge.error.unrelatedAcknowledgementRequired"));
+          return true;
+        }
+        if (code === "merge_message_invalid") {
+          setActionError(t("merge.error.messageInvalid"));
           return true;
         }
         if (code === "merge_failed") {
