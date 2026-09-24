@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -232,7 +232,7 @@ export function RepoTree({
               count={filteredTags.length}
               renderItem={(index) => {
                 const tag = filteredTags[index];
-                return <TagRow tag={tag} onContextMenu={(event) => setMenu({ kind: "tag", tag, x: event.clientX, y: event.clientY })} />;
+                return <TagRow tag={tag} onContextMenu={(position) => setMenu({ kind: "tag", tag, ...position })} />;
               }}
             />
           </TreeSection>
@@ -322,7 +322,7 @@ export function RepoTree({
             menu.kind === "branch"
               ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
               : menu.kind === "tag"
-                ? tagMenuItems(menu.tag, t, checkoutDisabledReason)
+                ? tagMenuItems(menu.tag, currentBranch, t, checkoutDisabledReason)
                 : worktreeMenuItems(menu.worktree, t, worktreeActionsDisabledReason)
           }
           onClose={() => setMenu(null)}
@@ -528,13 +528,30 @@ function remoteBranchDisplayName(name: string) {
   return localName === "HEAD" || localName.trim() === "" ? null : localName;
 }
 
-function TagRow({ tag, onContextMenu }: { tag: TagInfo; onContextMenu: (event: MouseEvent<HTMLLIElement>) => void }) {
+function TagRow({
+  tag,
+  onContextMenu,
+}: {
+  tag: TagInfo;
+  onContextMenu: (position: { x: number; y: number }) => void;
+}) {
   return (
-    <li onContextMenu={(event) => { event.preventDefault(); onContextMenu(event); }}>
+    <li>
       <button
         data-tree-item
         type="button"
         className="interactive-row flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left"
+        onKeyDown={(event) => {
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            onContextMenu({ x: bounds.left + 12, y: bounds.top + 12 });
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu({ x: event.clientX, y: event.clientY });
+        }}
       >
         <code className="min-w-0 truncate font-mono text-xs">{tag.name}</code>
         <span className="shrink-0 font-mono text-[11px]" style={{ color: "var(--mist)" }}>
@@ -710,7 +727,7 @@ function VirtualTreeItems({
 }
 
 export type BranchContextAction = "checkout" | "rebase" | "rebaseInteractive" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
-export type TagContextAction = "createBranch" | "push" | "delete" | "copy";
+export type TagContextAction = "merge" | "createBranch" | "push" | "delete" | "copy";
 
 function branchMenuItems(
   branch: BranchInfo,
@@ -795,10 +812,23 @@ function branchMenuItems(
   ];
 }
 
-function tagMenuItems(_tag: TagInfo, t: (key: string) => string, pushDisabledReason?: string): ContextMenuItem[] {
+function tagMenuItems(
+  tag: TagInfo,
+  currentBranch: string | null,
+  t: (key: string, values?: Record<string, unknown>) => string,
+  mutationDisabledReason?: string,
+): ContextMenuItem[] {
   return [
     { id: "createBranch", label: t("context.createBranchHere"), icon: "branch" },
-    { id: "push", label: t("context.pushTag"), icon: "tag", disabled: Boolean(pushDisabledReason), disabledReason: pushDisabledReason },
+    {
+      id: "merge",
+      label: t("context.mergeInto", { source: tag.name, target: currentBranch ?? "HEAD" }),
+      icon: "merge",
+      separatorBefore: true,
+      disabled: !currentBranch || Boolean(mutationDisabledReason),
+      disabledReason: !currentBranch ? t("merge.blocked.detachedHead") : mutationDisabledReason,
+    },
+    { id: "push", label: t("context.pushTag"), icon: "tag", disabled: Boolean(mutationDisabledReason), disabledReason: mutationDisabledReason },
     { id: "delete", label: t("context.deleteTag"), icon: "delete", danger: true },
     { id: "copy", label: t("context.copyTagName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
   ];

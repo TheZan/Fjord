@@ -432,16 +432,18 @@ pub enum WorktreeBranch {
     New { name: String, start_point: String },
 }
 
-/// The only reference kinds accepted by the branch-integration contract.
+/// The source kinds accepted by the merge contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
 pub enum MergeSourceKind {
     LocalBranch,
     RemoteTracking,
+    Tag,
+    Commit,
 }
 
-/// A merge source is always a canonical, fully-qualified Git ref name.
+/// A merge source is a canonical, fully-qualified Git ref name or a full commit id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
@@ -484,6 +486,7 @@ pub enum MergePrediction {
     AlreadyUpToDate,
     FastForward { commits: u32 },
     MergeCommit { ahead: u32, behind: u32 },
+    Unrelated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

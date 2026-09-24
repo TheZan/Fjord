@@ -53,7 +53,7 @@ describe("SquashMergeDialog", () => {
     expect(screen.getByText("squashMerge.explanation:source=feature,target=main")).toBeInTheDocument();
     expect(screen.queryByText(/merge\.mode\.label/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "squashMerge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("refuse");
+    expect(onConfirm).toHaveBeenCalledWith("refuse", false, false);
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
@@ -94,7 +94,7 @@ describe("SquashMergeDialog", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "squashMerge.dirty.stashAndSquashMerge" }));
-    expect(onConfirm).toHaveBeenCalledWith("stashFirst");
+    expect(onConfirm).toHaveBeenCalledWith("stashFirst", false, false);
   });
 
   it("renders a hard blocker instead of a confirm button", () => {
@@ -115,6 +115,36 @@ describe("SquashMergeDialog", () => {
 
     expect(screen.getByText("merge.blocked.operationInProgress:source=feature,target=main")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "squashMerge.confirm" })).not.toBeInTheDocument();
+  });
+
+  it("supports fetch-first for remote sources and unrelated-history acknowledgement", () => {
+    const onConfirm = vi.fn();
+    const remoteSource = {
+      refName: "refs/remotes/origin/feature",
+      kind: "remoteTracking" as const,
+    };
+    mergeState.preflight = {
+      ...preflight({ kind: "unrelated" }),
+      source: remoteSource,
+      sourceLabel: "origin/feature",
+    };
+    render(
+      <SquashMergeDialog
+        repoId="repo-1"
+        source={remoteSource}
+        currentBranch="main"
+        pending={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const confirm = screen.getByRole("button", { name: "squashMerge.confirm" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("merge.remote.fetchFirst:remote=origin"));
+    fireEvent.click(screen.getByLabelText("merge.unrelated.acknowledge"));
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith("refuse", true, true);
   });
 });
 

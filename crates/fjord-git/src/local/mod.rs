@@ -383,13 +383,29 @@ impl GitBackend for LocalGitBackend {
         dirty_policy: MergeDirtyPolicy,
         context: fjord_ports::GitOperationContext,
     ) -> Result<MergeResult, GitError> {
+        self.merge_branch_with_options(repo, source, mode, dirty_policy, false, context)
+            .await
+    }
+
+    async fn merge_branch_with_options(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        mode: MergeMode,
+        dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<MergeResult, GitError> {
         merge::run(
             self.commands.clone(),
             self.operation_origins.clone(),
             repo,
             source,
-            mode,
-            dirty_policy,
+            merge::MergeOptions {
+                mode,
+                dirty_policy,
+                allow_unrelated_histories,
+            },
             context,
         )
         .await
@@ -402,12 +418,25 @@ impl GitBackend for LocalGitBackend {
         dirty_policy: MergeDirtyPolicy,
         context: fjord_ports::GitOperationContext,
     ) -> Result<fjord_domain::SquashMergeResult, GitError> {
+        self.squash_merge_branch_with_options(repo, source, dirty_policy, false, context)
+            .await
+    }
+
+    async fn squash_merge_branch_with_options(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
+        context: fjord_ports::GitOperationContext,
+    ) -> Result<fjord_domain::SquashMergeResult, GitError> {
         merge::run_squash(
             self.commands.clone(),
             self.operation_origins.clone(),
             repo,
             source,
             dirty_policy,
+            allow_unrelated_histories,
             context,
         )
         .await

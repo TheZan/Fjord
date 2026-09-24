@@ -443,8 +443,15 @@ export function runMergeBranch(
   source: MergeSource,
   mode: MergeMode,
   dirtyPolicy: MergeDirtyPolicy,
+  allowUnrelatedHistories: boolean,
 ): OperationTask<MergeResult> {
-  return invokeOperation("merge", "merge_branch", { repoId, source, mode, dirtyPolicy });
+  return invokeOperation("merge", "merge_branch", {
+    repoId,
+    source,
+    mode,
+    dirtyPolicy,
+    allowUnrelatedHistories,
+  });
 }
 
 export function getRebasePreflight(repoId: string, onto: MergeSource, signal?: AbortSignal): Promise<RebasePreflight> {
@@ -472,8 +479,14 @@ export function runSquashMergeBranch(
   repoId: string,
   source: MergeSource,
   dirtyPolicy: MergeDirtyPolicy,
+  allowUnrelatedHistories: boolean,
 ): OperationTask<SquashMergeResult> {
-  return invokeOperation("squash-merge", "squash_merge_branch", { repoId, source, dirtyPolicy });
+  return invokeOperation("squash-merge", "squash_merge_branch", {
+    repoId,
+    source,
+    dirtyPolicy,
+    allowUnrelatedHistories,
+  });
 }
 
 export function listenGitAuthPrompts(

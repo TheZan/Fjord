@@ -297,6 +297,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::MergeSourceIsCurrentBranch => "merge_source_is_current_branch",
         GitError::MergeSourceUnsupported => "merge_source_unsupported",
         GitError::MergeNotFastForward => "merge_not_fast_forward",
+        GitError::MergeUnrelatedHistoriesNotAllowed => "merge_unrelated_histories_not_allowed",
         GitError::MergeWouldOverwrite { .. } => unreachable!("handled above"),
         GitError::MergeIndexHasStagedChanges => "merge_index_has_staged_changes",
         GitError::MergeDetachedHead => "merge_detached_head",

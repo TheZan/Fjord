@@ -1,5 +1,6 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { mergeSourceRemoteName } from "@/application/mergeBranchAction";
 import { useMergeBranch } from "@/application/useMergeBranch";
 import type { MergeDirtyPolicy, MergeSource } from "@/domain/git";
 import { blockerText, mergeSourceLabel, predictionText, preflightErrorText } from "@/presentation/MergeDialog";
@@ -25,12 +26,19 @@ export function SquashMergeDialog({
   source: MergeSource;
   currentBranch: string;
   pending: boolean;
-  onConfirm: (dirtyPolicy: MergeDirtyPolicy) => void;
+  onConfirm: (
+    dirtyPolicy: MergeDirtyPolicy,
+    fetchFirst: boolean,
+    allowUnrelatedHistories: boolean,
+  ) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [fetchFirst, setFetchFirst] = useState(false);
+  const [allowUnrelatedHistories, setAllowUnrelatedHistories] = useState(false);
   const { preflight, loading, error, errorCode } = useMergeBranch(repoId, source);
+  const remoteName = mergeSourceRemoteName(source);
   useDialogFocusTrap(dialogRef, onClose);
 
   const sourceLabel = preflight?.sourceLabel ?? mergeSourceLabel(source);
@@ -44,6 +52,7 @@ export function SquashMergeDialog({
     blocker !== "merge_index_has_staged_changes" && blocker !== "merge_would_overwrite"
   ) ?? [];
   const alreadyUpToDate = preflight?.prediction.kind === "alreadyUpToDate";
+  const unrelated = preflight?.prediction.kind === "unrelated";
 
   return (
     <div
@@ -80,6 +89,12 @@ export function SquashMergeDialog({
                 : t("squashMerge.explanation", { source: sourceLabel, target })}
             </p>
           ) : null}
+          {remoteName && preflight ? (
+            <div className="mt-2">
+              <p>{t("merge.remote.knownCommit", { sha: preflight.sourceCommit.slice(0, 7) })}</p>
+              <p>{t("merge.remote.explanation")}</p>
+            </div>
+          ) : null}
           {dirtyBlocked ? (
             <div className="mt-3 rounded-md px-3 py-2" style={{ background: "var(--amber-tint)" }}>
               <p className="font-medium" style={{ color: "var(--amber-ink)" }}>{t("merge.dirty.title")}</p>
@@ -98,6 +113,30 @@ export function SquashMergeDialog({
           ))}
         </div>
 
+        {!alreadyUpToDate && hardBlockers.length === 0 && remoteName ? (
+          <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+            <input
+              type="checkbox"
+              checked={fetchFirst}
+              disabled={pending || loading}
+              onChange={(event) => setFetchFirst(event.target.checked)}
+            />
+            {t("merge.remote.fetchFirst", { remote: remoteName })}
+          </label>
+        ) : null}
+
+        {unrelated && hardBlockers.length === 0 ? (
+          <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
+            <input
+              type="checkbox"
+              checked={allowUnrelatedHistories}
+              disabled={pending || loading}
+              onChange={(event) => setAllowUnrelatedHistories(event.target.checked)}
+            />
+            {t("merge.unrelated.acknowledge")}
+          </label>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-2">
           <Button onClick={onClose} disabled={pending}>
             {alreadyUpToDate ? t("squashMerge.dismiss") : t("squashMerge.cancel")}
@@ -105,8 +144,12 @@ export function SquashMergeDialog({
           {!alreadyUpToDate && hardBlockers.length === 0 && preflight ? (
             <Button
               variant="primary"
-              disabled={pending || loading}
-              onClick={() => onConfirm(dirtyBlocked ? "stashFirst" : "refuse")}
+              disabled={pending || loading || (unrelated && !allowUnrelatedHistories)}
+              onClick={() => onConfirm(
+                dirtyBlocked ? "stashFirst" : "refuse",
+                fetchFirst,
+                allowUnrelatedHistories,
+              )}
             >
               {pending
                 ? t("squashMerge.running")

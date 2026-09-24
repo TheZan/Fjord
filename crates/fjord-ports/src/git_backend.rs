@@ -246,6 +246,8 @@ pub enum GitError {
     MergeSourceUnsupported,
     #[error("the merge cannot be completed as a fast-forward")]
     MergeNotFastForward,
+    #[error("unrelated histories require explicit acknowledgement")]
+    MergeUnrelatedHistoriesNotAllowed,
     #[error("merge would overwrite local changes in {paths:?}")]
     MergeWouldOverwrite { paths: Vec<String> },
     #[error("the index contains staged changes")]
@@ -544,6 +546,21 @@ pub trait GitBackend: Send + Sync {
     ) -> Result<MergeResult, GitError> {
         Err(GitError::NotImplemented("merge_branch"))
     }
+    async fn merge_branch_with_options(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        mode: MergeMode,
+        dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
+        context: GitOperationContext,
+    ) -> Result<MergeResult, GitError> {
+        if allow_unrelated_histories {
+            return Err(GitError::MergeUnrelatedHistoriesNotAllowed);
+        }
+        self.merge_branch(repo, source, mode, dirty_policy, context)
+            .await
+    }
     /// `merge --squash`: stages the combined diff (or leaves it conflicted)
     /// without a merge commit or moving any ref. Shares `merge_preflight`'s
     /// blockers and dirty-tree rules.
@@ -555,6 +572,20 @@ pub trait GitBackend: Send + Sync {
         _context: GitOperationContext,
     ) -> Result<SquashMergeResult, GitError> {
         Err(GitError::NotImplemented("squash_merge_branch"))
+    }
+    async fn squash_merge_branch_with_options(
+        &self,
+        repo: &RepoPath,
+        source: &MergeSource,
+        dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
+        context: GitOperationContext,
+    ) -> Result<SquashMergeResult, GitError> {
+        if allow_unrelated_histories {
+            return Err(GitError::MergeUnrelatedHistoriesNotAllowed);
+        }
+        self.squash_merge_branch(repo, source, dirty_policy, context)
+            .await
     }
     async fn tags(&self, repo: &RepoPath) -> Result<Vec<TagInfo>, GitError>;
     async fn log(

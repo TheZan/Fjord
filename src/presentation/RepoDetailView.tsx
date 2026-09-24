@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DiffSource } from "@/application/useFileDiff";
-import { mergeSourceForBranch } from "@/application/mergeBranchAction";
+import { mergeSourceForBranch, mergeSourceForTag } from "@/application/mergeBranchAction";
 import type {
   WorkingFileAction,
   WorkingFileActionContext,
@@ -782,6 +782,7 @@ export function RepoDetailView({
   }
 
   function handleTagContextAction(action: TagContextAction, tag: import("@/domain/git").TagInfo) {
+    if (action === "merge") onMergeBranch(mergeSourceForTag(tag));
     if (action === "createBranch") setDialog({ kind: "createBranch", target: tag.targetCommitId });
     if (action === "push") onPushTag(tag.name);
     if (action === "delete") onPreflightAction({ kind: "deleteTag", name: tag.name });

@@ -77,7 +77,7 @@ name: string, path: string, branch: string | null, head: CommitId, isMain: boole
 
 export type WorktreeBranch = { "kind": "existing", name: string, } | { "kind": "new", name: string, startPoint: string, };
 
-export type MergeSourceKind = "localBranch" | "remoteTracking";
+export type MergeSourceKind = "localBranch" | "remoteTracking" | "tag" | "commit";
 
 export type MergeSource = { refName: string, kind: MergeSourceKind, };
 
@@ -85,7 +85,7 @@ export type MergeMode = "default" | "fastForwardOnly" | "noFastForward";
 
 export type MergeDirtyPolicy = "refuse" | "stashFirst";
 
-export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, };
+export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, } | { "kind": "unrelated" };
 
 export type MergeDirtyState = { staged: number, modified: number, untracked: number, wouldOverwrite: Array<string>, };
 

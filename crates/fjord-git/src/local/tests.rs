@@ -8576,6 +8576,196 @@ async fn merge_remote_tracking_source_merges_exact_ref_without_creating_local_br
 }
 
 #[tokio::test]
+async fn merge_annotated_and_lightweight_tags_resolve_the_exact_tagged_commit() {
+    for (tag_name, annotated) in [("annotated-v1", true), ("lightweight-v1", false)] {
+        let (_directory, repo) = empty_repo();
+        let backend = LocalGitBackend::new();
+        commit_with_cli(&backend, &repo, "base\n", "base");
+        run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+        write_file(&repo, "tagged.txt", &format!("{tag_name}\n"));
+        run_git_success(&backend, &repo, &["add", "tagged.txt"]);
+        run_git_success(&backend, &repo, &["commit", "-m", tag_name]);
+        let tagged_commit = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim()
+            .to_string();
+        if annotated {
+            run_git_success(
+                &backend,
+                &repo,
+                &["tag", "-a", tag_name, "-m", "release tag"],
+            );
+        } else {
+            run_git_success(&backend, &repo, &["tag", tag_name]);
+        }
+        run_git_success(&backend, &repo, &["checkout", "main"]);
+        run_git_success(&backend, &repo, &["branch", "-D", "topic"]);
+
+        let source = MergeSource {
+            ref_name: format!("refs/tags/{tag_name}"),
+            kind: MergeSourceKind::Tag,
+        };
+        let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+        assert_eq!(preflight.source_commit.0, tagged_commit);
+        assert_eq!(preflight.source_label, tag_name);
+
+        let result = backend
+            .merge_branch(
+                &repo,
+                &source,
+                MergeMode::Default,
+                MergeDirtyPolicy::Refuse,
+                GitOperationContext::default(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            result.outcome,
+            MergeOutcome::FastForwarded { ref head } if head.0 == tagged_commit
+        ));
+        assert_eq!(
+            String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+                .unwrap()
+                .trim(),
+            tagged_commit
+        );
+        assert_eq!(
+            backend
+                .branches(&repo)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|branch| !branch.is_remote)
+                .map(|branch| branch.name)
+                .collect::<Vec<_>>(),
+            vec!["main"]
+        );
+    }
+}
+
+#[tokio::test]
+async fn merge_raw_commit_id_merges_that_object_without_creating_a_branch() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "base\n", "base");
+    run_git_success(&backend, &repo, &["checkout", "-b", "topic"]);
+    write_file(&repo, "raw.txt", "raw commit\n");
+    run_git_success(&backend, &repo, &["add", "raw.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "raw source"]);
+    let commit_id = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    run_git_success(&backend, &repo, &["branch", "-D", "topic"]);
+
+    let source = MergeSource {
+        ref_name: commit_id.clone(),
+        kind: MergeSourceKind::Commit,
+    };
+    let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(preflight.source_commit.0, commit_id);
+    assert_eq!(preflight.source_label, commit_id[..7]);
+
+    let result = backend
+        .merge_branch(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        result.outcome,
+        MergeOutcome::FastForwarded { ref head } if head.0 == commit_id
+    ));
+    assert_eq!(
+        backend
+            .branches(&repo)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|branch| !branch.is_remote)
+            .map(|branch| branch.name)
+            .collect::<Vec<_>>(),
+        vec!["main"]
+    );
+}
+
+#[tokio::test]
+async fn merge_unrelated_histories_requires_acknowledgement_then_succeeds() {
+    let (_directory, repo) = empty_repo();
+    let backend = LocalGitBackend::new();
+    commit_with_cli(&backend, &repo, "main root\n", "main root");
+    let main_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "--orphan", "other"]);
+    run_git_success(&backend, &repo, &["rm", "-rf", "."]);
+    write_file(&repo, "other.txt", "other root\n");
+    run_git_success(&backend, &repo, &["add", "other.txt"]);
+    run_git_success(&backend, &repo, &["commit", "-m", "other root"]);
+    let other_head = String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+        .unwrap()
+        .trim()
+        .to_string();
+    run_git_success(&backend, &repo, &["checkout", "main"]);
+    let source = local_merge_source("other");
+
+    let preflight = backend.merge_preflight(&repo, &source).await.unwrap();
+    assert_eq!(preflight.prediction, MergePrediction::Unrelated);
+    let refused = backend
+        .merge_branch_with_options(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            false,
+            GitOperationContext::default(),
+        )
+        .await;
+    assert!(matches!(
+        refused,
+        Err(GitError::MergeUnrelatedHistoriesNotAllowed)
+    ));
+    assert_eq!(
+        String::from_utf8(git_output(&backend, &repo, &["rev-parse", "HEAD"]))
+            .unwrap()
+            .trim(),
+        main_head
+    );
+    assert!(!repo.0.join("other.txt").exists());
+
+    let result = backend
+        .merge_branch_with_options(
+            &repo,
+            &source,
+            MergeMode::Default,
+            MergeDirtyPolicy::Refuse,
+            true,
+            GitOperationContext::default(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result.outcome, MergeOutcome::Merged { .. }));
+    let parents = String::from_utf8(git_output(
+        &backend,
+        &repo,
+        &["rev-list", "--parents", "-n", "1", "HEAD"],
+    ))
+    .unwrap();
+    let parents = parents.split_whitespace().collect::<Vec<_>>();
+    assert_eq!(parents[1..], [&main_head, &other_head]);
+    assert_eq!(
+        std::fs::read_to_string(repo.0.join("other.txt")).unwrap(),
+        "other root\n"
+    );
+}
+
+#[tokio::test]
 async fn squash_merge_already_up_to_date_advances_no_generation() {
     let (directory, repo) = empty_repo();
     let backend = LocalGitBackend::new();

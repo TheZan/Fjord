@@ -171,6 +171,8 @@ pub async fn get_merge_preflight(
     })
 }
 
+// The flat parameter list is part of the documented Tauri IPC contract.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn merge_branch(
     app: AppHandle,
@@ -179,6 +181,7 @@ pub async fn merge_branch(
     source: MergeSource,
     mode: MergeMode,
     dirty_policy: MergeDirtyPolicy,
+    allow_unrelated_histories: bool,
     operation_id: Option<String>,
 ) -> Result<MergeResult, AppError> {
     run_repo_operation(
@@ -188,9 +191,14 @@ pub async fn merge_branch(
         OperationKind::Merge,
         repo_id,
         |context| {
-            state
-                .repos
-                .merge_branch_with_context(repo_id, &source, mode, dirty_policy, context)
+            state.repos.merge_branch_with_context(
+                repo_id,
+                &source,
+                mode,
+                dirty_policy,
+                allow_unrelated_histories,
+                context,
+            )
         },
     )
     .await
@@ -203,6 +211,7 @@ pub async fn squash_merge_branch(
     repo_id: RepositoryId,
     source: MergeSource,
     dirty_policy: MergeDirtyPolicy,
+    allow_unrelated_histories: bool,
     operation_id: Option<String>,
 ) -> Result<SquashMergeResult, AppError> {
     run_repo_operation(
@@ -212,9 +221,13 @@ pub async fn squash_merge_branch(
         OperationKind::SquashMerge,
         repo_id,
         |context| {
-            state
-                .repos
-                .squash_merge_branch_with_context(repo_id, &source, dirty_policy, context)
+            state.repos.squash_merge_branch_with_context(
+                repo_id,
+                &source,
+                dirty_policy,
+                allow_unrelated_histories,
+                context,
+            )
         },
     )
     .await

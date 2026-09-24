@@ -931,16 +931,18 @@ impl RepoService {
         source: &MergeSource,
         mode: MergeMode,
         dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
         context: GitOperationContext,
     ) -> Result<MergeResult, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
-            .merge_branch(
+            .merge_branch_with_options(
                 &RepoPath::new(repo.path),
                 source,
                 mode,
                 dirty_policy,
+                allow_unrelated_histories,
                 context,
             )
             .await?)
@@ -951,12 +953,19 @@ impl RepoService {
         repo_id: RepositoryId,
         source: &MergeSource,
         dirty_policy: MergeDirtyPolicy,
+        allow_unrelated_histories: bool,
         context: GitOperationContext,
     ) -> Result<SquashMergeResult, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
-            .squash_merge_branch(&RepoPath::new(repo.path), source, dirty_policy, context)
+            .squash_merge_branch_with_options(
+                &RepoPath::new(repo.path),
+                source,
+                dirty_policy,
+                allow_unrelated_histories,
+                context,
+            )
             .await?)
     }
 

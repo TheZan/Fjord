@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { isPrimaryShortcut } from "@/application/keyboardShortcut";
+import { mergeSourceForCommit } from "@/application/mergeBranchAction";
 import type { StashAction } from "@/application/stashActions";
 import { useTranslation } from "react-i18next";
 import { useBranches } from "@/application/useBranches";
@@ -547,11 +548,15 @@ export function CommitGraph({
       {menu && (
         <ContextMenu
           position={menu}
-          items={commitMenuItems(t)}
+          items={commitMenuItems(currentBranch ?? null, Boolean(onMergeBranch), t)}
           onClose={() => setMenu(null)}
           onSelect={(action) => {
             const commit = menu.commit;
             setMenu(null);
+            if (action === "mergeCommit") {
+              onMergeBranch?.(mergeSourceForCommit(commit));
+              return;
+            }
             onCommitContextAction?.(action as CommitContextAction, commit);
           }}
         />
@@ -1367,11 +1372,23 @@ function LaneNode({
 
 export type CommitContextAction = "createBranch" | "createTag" | "cherryPick" | "revert" | "reset" | "copySha";
 
-function commitMenuItems(t: (key: string) => string): ContextMenuItem[] {
+function commitMenuItems(
+  currentBranch: string | null,
+  canMerge: boolean,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): ContextMenuItem[] {
   return [
     { id: "createBranch", label: t("context.createBranchHere"), icon: "branch" },
     { id: "createTag", label: t("context.createTagHere"), icon: "tag" },
-    { id: "cherryPick", label: t("context.cherryPick"), icon: "checkout", separatorBefore: true },
+    {
+      id: "mergeCommit",
+      label: t("context.mergeCommitInto", { target: currentBranch ?? "HEAD" }),
+      icon: "merge",
+      separatorBefore: true,
+      disabled: !currentBranch || !canMerge,
+      disabledReason: !currentBranch ? t("merge.blocked.detachedHead") : undefined,
+    },
+    { id: "cherryPick", label: t("context.cherryPick"), icon: "checkout" },
     { id: "revert", label: t("context.revertCommit"), icon: "revert" },
     { id: "reset", label: t("context.resetToCommit"), icon: "reset", danger: true },
     { id: "copySha", label: t("context.copyCommitSha"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },

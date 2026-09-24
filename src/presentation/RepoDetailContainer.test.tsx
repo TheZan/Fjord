@@ -336,6 +336,7 @@ vi.mock("@/presentation/RepoDetailView", () => ({
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>merge feature</button>
       <button type="button" onClick={() => onMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>merge remote feature</button>
       <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/heads/feature", kind: "localBranch" })}>squash merge feature</button>
+      <button type="button" onClick={() => onSquashMergeBranch({ refName: "refs/remotes/origin/feature", kind: "remoteTracking" })}>squash merge remote feature</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", { path: "file.txt", source: "worktree" })}>discard working file</button>
       <button type="button" onClick={() => onWorkingFileAction("discard", {
         clickedTarget: { path: "batch-b.txt", source: "worktree" },
@@ -388,19 +389,29 @@ vi.mock("@/presentation/MergeDialog", () => ({
       mode: import("@/domain/git").MergeMode,
       policy: import("@/domain/git").MergeDirtyPolicy,
       fetchFirst: boolean,
+      allowUnrelatedHistories: boolean,
     ) => void;
   }) => (
     <>
-      <button type="button" onClick={() => onConfirm("default", "refuse", false)}>confirm merge</button>
-      <button type="button" onClick={() => onConfirm("default", "refuse", true)}>confirm merge with fetch</button>
+      <button type="button" onClick={() => onConfirm("default", "refuse", false, false)}>confirm merge</button>
+      <button type="button" onClick={() => onConfirm("default", "refuse", true, false)}>confirm merge with fetch</button>
     </>
   ),
 }));
 
 vi.mock("@/presentation/SquashMergeDialog", () => ({
   SquashMergeDialog: ({ onConfirm }: {
-    onConfirm: (policy: import("@/domain/git").MergeDirtyPolicy) => void;
-  }) => <button type="button" onClick={() => onConfirm("refuse")}>confirm squash merge</button>,
+    onConfirm: (
+      policy: import("@/domain/git").MergeDirtyPolicy,
+      fetchFirst: boolean,
+      allowUnrelatedHistories: boolean,
+    ) => void;
+  }) => (
+    <>
+      <button type="button" onClick={() => onConfirm("refuse", false, false)}>confirm squash merge</button>
+      <button type="button" onClick={() => onConfirm("refuse", true, false)}>confirm squash merge with fetch</button>
+    </>
+  ),
 }));
 
 vi.mock("@/presentation/RecoveryCenter", () => ({
@@ -1215,6 +1226,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       { refName: "refs/heads/feature", kind: "localBranch" },
       "default",
       "refuse",
+      false,
     ));
     expect(queryClientMock.setQueryData).toHaveBeenCalledWith(
       ["repos", "repo-1", "operationState"],
@@ -1250,6 +1262,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       { refName: "refs/remotes/origin/feature", kind: "remoteTracking" },
       "default",
       "refuse",
+      false,
     ));
     expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
     expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({
@@ -1283,6 +1296,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "repo-1",
       { refName: "refs/heads/feature", kind: "localBranch" },
       "refuse",
+      false,
     ));
     await waitFor(() => expect(screen.getByTestId("pending-draft-message")).toHaveTextContent(
       "Squash of feature",
@@ -1293,6 +1307,52 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "workspace-1",
       ["status", "working", "stashes", "merge"],
     );
+  });
+
+  it("dispatches a squash command from the palette through the shared action", async () => {
+    const view = renderContainer();
+    await waitFor(() => expect(screen.getByTestId("working-selected")).toHaveTextContent("true"));
+    const command = {
+      kind: "squashMerge",
+      source: { refName: "refs/heads/feature", kind: "localBranch" },
+      id: 1,
+    } as const;
+    view.rerender(
+      <RepoDetailContainer
+        repo={repo}
+        command={command}
+        onBack={vi.fn()}
+        utilities={<div data-testid="shell-utilities" />}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "confirm squash merge" }));
+
+    await waitFor(() => expect(runSquashMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/heads/feature", kind: "localBranch" },
+      "refuse",
+      false,
+    ));
+  });
+
+  it("fetches a remote before squash merging and re-resolves the preflight", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "squash merge remote feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm squash merge with fetch" }));
+
+    await waitFor(() => expect(runSquashMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/remotes/origin/feature", kind: "remoteTracking" },
+      "refuse",
+      false,
+    ));
+    expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
+    expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["repos", "repo-1", "mergePreflight", "refs/remotes/origin/feature"],
+    });
+    const fetchOrder = vi.mocked(runFetchRepo).mock.invocationCallOrder[0];
+    const squashOrder = vi.mocked(runSquashMergeBranch).mock.invocationCallOrder[0];
+    expect(fetchOrder).toBeLessThan(squashOrder);
   });
 
   it("reports a conflicted squash merge naming the files to resolve", async () => {
@@ -1344,11 +1404,11 @@ describe("RepoDetailContainer checkout confirmation", () => {
   });
 });
 
-function renderContainer() {
+function renderContainer(command: import("@/presentation/RepoDetailContainer").RepoDetailCommand | null = null) {
   return render(
     <RepoDetailContainer
       repo={repo}
-      command={null}
+      command={command}
       onBack={vi.fn()}
       utilities={<div data-testid="shell-utilities" />}
     />,

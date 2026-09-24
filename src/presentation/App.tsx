@@ -399,6 +399,22 @@ export function App() {
           }))
       : []),
     ...(selectedRepo
+      ? commandPaletteMergeBranches(selectedRepoBranches)
+          .map((branch) => ({
+            id: `squash-merge:${branch.name}`,
+            label: `${tw("commandPalette.squashMergeBranch")} ${branch.name}`,
+            detail: tw("context.squashMergeInto", {
+              source: branch.name,
+              target: selectedRepoBranches.find((candidate) => candidate.isCurrent)?.name ?? "HEAD",
+            }),
+            group: tw("commandPalette.activeRepositoryGroup"),
+            run: () => sendRepoDetailCommand({
+              kind: "squashMerge",
+              source: mergeSourceForBranch(branch),
+            }),
+          }))
+      : []),
+    ...(selectedRepo
       ? (["open-ide", "fetch", "pull"] as const).map((action) => ({
           id: `action:${action}`,
           label: tw(action === "open-ide" ? "repoActions.openIde" : `repoActions.${action}`),
