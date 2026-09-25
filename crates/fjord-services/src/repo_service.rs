@@ -2,19 +2,20 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
-    CommitSummary, ConflictResolution, ConflictSet, Consequence, CreateBranchFromStashResult,
-    CreateRepositoryRequest, CreateRepositoryResult, CreateStashRequest, CreateStashResult,
-    DestructiveAction, DestructiveExecutionResult, DestructivePreflight, DiffHunk, DiffLineKind,
-    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
-    ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
-    GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
-    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
-    PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo, RemotePushResult,
-    RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryEntry, RepositoryFilePath,
-    RepositoryId, RepositorySnapshot, SearchResultKind, SnapshotRevalidation, SquashMergeResult,
-    StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId, StashScope,
-    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
+    BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
+    CommitPage, CommitSummary, ConflictResolution, ConflictSet, Consequence,
+    CreateBranchFromStashResult, CreateRepositoryRequest, CreateRepositoryResult,
+    CreateStashRequest, CreateStashResult, DestructiveAction, DestructiveExecutionResult,
+    DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
+    FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow, ForceWithLeaseDetails, GenerationSet,
+    GitConnectionTestResult, GitEnvironmentInfo, GlobalSearchResult, IgnoreRuleKind,
+    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
+    MergeResult, MergeSource, OpenTarget, PatchSelection, PatchSource, Recoverability, ReflogPage,
+    RemoteInfo, RemotePushResult, RemoveRemotePreflight, RepoOperationState, RepoStatus,
+    RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot, SearchResultKind,
+    SnapshotRevalidation, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup,
+    StashFiles, StashId, StashScope, StoredRepositorySnapshot, TagInfo, WorkingChanges,
+    WorkspaceId, Worktree, WorktreeBranch,
 };
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
@@ -2006,6 +2007,20 @@ impl RepoService {
         Ok(self
             .git
             .stage_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .await?)
+    }
+
+    pub async fn update_branch_fast_forward(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+        source: &MergeSource,
+        expected_tip: &CommitId,
+    ) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .update_branch_fast_forward(&RepoPath::new(repo.path), branch, source, expected_tip)
             .await?)
     }
 

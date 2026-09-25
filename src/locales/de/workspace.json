@@ -852,6 +852,22 @@
       "confirm": "Stashen"
     }
   },
+  "branchUpdate": {
+    "entry": "{{branch}} aus {{source}} aktualisieren",
+    "entryNoUpstream": "{{branch}} aus seinem Upstream aktualisieren",
+    "checkoutAndMerge": "{{branch}} auschecken und {{source}} mergen…",
+    "done": "{{branch}} auf {{source}} aktualisiert.",
+    "disabled": {
+      "noUpstream": "{{branch}} hat keinen Upstream, aus dem aktualisiert werden kann. Legen Sie zuerst einen Upstream fest.",
+      "upstreamMissing": "Der Upstream {{source}} ist lokal nicht bekannt. Führen Sie zuerst einen Fetch aus.",
+      "checkedOut": "{{branch}} ist in einem Arbeitsverzeichnis ausgecheckt. Führen Sie Pull oder Merge dort aus.",
+      "upToDate": "{{branch}} enthält {{source}} bereits.",
+      "diverged": "{{branch}} hat Commits, die nicht in {{source}} sind, daher ist kein Fast-Forward möglich."
+    },
+    "error": {
+      "notFastForward": "{{branch}} kann nicht per Fast-Forward auf {{source}} gebracht werden. Verwenden Sie stattdessen „{{branch}} auschecken und {{source}} mergen…“."
+    }
+  },
   "conflicts": {
     "group": "Konflikte",
     "kind": {

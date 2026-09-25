@@ -102,6 +102,11 @@
     "worktree_dirty": "The worktree has uncommitted changes.",
     "worktree_failed": "Git could not complete the worktree operation.",
     "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually.",
+    "branch_update_branch_not_found": "That branch no longer exists.",
+    "branch_update_checked_out": "The branch is checked out in a worktree, so Fjord will not move it. Pull or merge there instead.",
+    "branch_update_up_to_date": "The branch already contains its upstream. Nothing was changed.",
+    "branch_update_not_fast_forward": "The branch has commits that are not on its upstream, so it cannot be fast-forwarded. Check it out and merge instead.",
+    "branch_update_ref_moved": "The branch moved while Fjord was updating it. Nothing was overwritten; review it and try again.",
     "conflict_markers_present": "{{path}} still contains conflict markers at line {{line}}.",
     "conflict_resolution_not_applicable": "That resolution does not apply to this kind of conflict.",
     "conflict_resolution_failed": "Git could not finish resolving the conflict. The file is still conflicted."

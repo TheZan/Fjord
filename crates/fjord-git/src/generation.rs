@@ -145,6 +145,7 @@ pub(crate) enum MutationKind {
     IntegrateUpstream,
     Merge { stash: bool },
     SquashMerge { stash: bool },
+    FastForwardBranch,
     ResolveConflict,
     Fetch,
     Push,
@@ -170,9 +171,10 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         MutationKind::CreateBranchAt { checkout: true } => GenerationMask::WORKING_REFS_HISTORY,
         MutationKind::RenameBranch => GenerationMask::REFS,
         MutationKind::SetUpstream => GenerationMask::REFS_CONFIG,
-        MutationKind::DeleteBranch | MutationKind::CreateTag | MutationKind::DeleteTag => {
-            GenerationMask::REFS_HISTORY
-        }
+        MutationKind::DeleteBranch
+        | MutationKind::CreateTag
+        | MutationKind::DeleteTag
+        | MutationKind::FastForwardBranch => GenerationMask::REFS_HISTORY,
         MutationKind::CherryPick
         | MutationKind::Revert
         | MutationKind::Commit
@@ -243,6 +245,10 @@ mod tests {
             (MutationKind::DeleteBranch, GenerationMask::REFS_HISTORY),
             (MutationKind::CreateTag, GenerationMask::REFS_HISTORY),
             (MutationKind::DeleteTag, GenerationMask::REFS_HISTORY),
+            (
+                MutationKind::FastForwardBranch,
+                GenerationMask::REFS_HISTORY,
+            ),
             (
                 MutationKind::CherryPick,
                 GenerationMask::WORKING_REFS_HISTORY,

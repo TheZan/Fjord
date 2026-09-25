@@ -1,14 +1,14 @@
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CommitPage, CommitPushResult, CommitSummary, ConflictResolution,
-    ConflictSet, CreateBranchFromStashResult, CreateStashRequest, CreateStashResult,
-    DestructiveAction, DestructiveExecutionResult, DestructivePreflight, FileDiff, FileDiffWindow,
-    GenerationSet, GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
-    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
-    MergeSource, MergeStrategyOption, OpenTarget, PatchSelection, PatchSource, ReflogPage,
-    RemoteInfo, RemotePushResult, RemoveRemotePreflight, RepoOperationState, RepoStatus,
-    RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult, StashApplyResult,
-    StashEntry, StashFileGroup, StashFiles, StashId, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
+    BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
+    ConflictResolution, ConflictSet, CreateBranchFromStashResult, CreateStashRequest,
+    CreateStashResult, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
+    FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
+    MergePreflight, MergeResult, MergeSource, MergeStrategyOption, OpenTarget, PatchSelection,
+    PatchSource, ReflogPage, RemoteInfo, RemotePushResult, RemoveRemotePreflight,
+    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
+    SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
 };
 use fjord_ports::MergeBranchOptions;
 use serde::Serialize;
@@ -923,6 +923,20 @@ pub async fn stage_patch(
     Ok(state
         .repos
         .stage_patch(repo_id, &selection, expected_generations)
+        .await?)
+}
+
+#[tauri::command]
+pub async fn update_branch_fast_forward(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    branch: String,
+    source: MergeSource,
+    expected_tip: CommitId,
+) -> Result<GenerationSet, AppError> {
+    Ok(state
+        .repos
+        .update_branch_fast_forward(repo_id, &branch, &source, &expected_tip)
         .await?)
 }
 

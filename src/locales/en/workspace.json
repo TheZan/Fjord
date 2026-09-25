@@ -904,6 +904,22 @@
       "confirm": "Stash"
     }
   },
+  "branchUpdate": {
+    "entry": "Update {{branch}} from {{source}}",
+    "entryNoUpstream": "Update {{branch}} from its upstream",
+    "checkoutAndMerge": "Checkout {{branch}} and merge {{source}}…",
+    "done": "Updated {{branch}} to {{source}}.",
+    "disabled": {
+      "noUpstream": "{{branch}} has no upstream to update from. Set an upstream first.",
+      "upstreamMissing": "The upstream {{source}} is not known locally. Fetch first.",
+      "checkedOut": "{{branch}} is checked out in a worktree. Pull or merge there instead.",
+      "upToDate": "{{branch}} already contains {{source}}.",
+      "diverged": "{{branch}} has commits that are not on {{source}}, so it cannot be fast-forwarded."
+    },
+    "error": {
+      "notFastForward": "{{branch}} cannot be fast-forwarded to {{source}}. Use “Checkout {{branch}} and merge {{source}}…” instead."
+    }
+  },
   "conflicts": {
     "group": "Conflicts",
     "kind": {

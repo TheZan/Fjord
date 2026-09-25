@@ -249,7 +249,7 @@ pub(super) fn classify_source(ref_name: &str) -> Result<MergeSourceKind, GitErro
     }
 }
 
-fn resolve_source_commit<'repo>(
+pub(super) fn resolve_source_commit<'repo>(
     git: &'repo git2::Repository,
     source: &MergeSource,
     kind: MergeSourceKind,

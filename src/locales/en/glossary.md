@@ -24,6 +24,7 @@ substituted verbatim after translation.
 | staged / unstaged | staged / unstaged | kept in Latin — index terminology has no stable Russian rendering |
 | working tree | рабочее дерево | |
 | conflict | конфликт | |
+| fast-forward | fast-forward | kept in Latin — Git's own term, already used by the merge dialog; the branch menu's "Update {{branch}} from {{source}}" is a fast-forward, never called a merge |
 | tag | тег | |
 | pick (rebase todo) | Оставить | interactive-rebase todo action, not the generic verb «выбрать» |
 | reword (rebase todo) | Переформулировать | |
