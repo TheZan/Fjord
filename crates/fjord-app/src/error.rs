@@ -17,6 +17,9 @@ pub struct AppError {
     pub stash_ref: Option<Box<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<Box<String>>,
+    /// 1-based line of the first conflict marker (`conflict_markers_present`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
 }
 
 fn boxed<T>(value: T) -> Option<Box<T>> {
@@ -32,6 +35,7 @@ impl AppError {
             paths: None,
             stash_ref: None,
             tool: None,
+            line: None,
         }
     }
 
@@ -162,6 +166,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: None,
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::CheckoutWouldOverwrite { paths } => {
@@ -172,6 +177,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: boxed(paths),
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::StashApplyWouldOverwrite { paths } => {
@@ -182,6 +188,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: boxed(paths),
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::StashApplyFailed(diagnostics) => {
@@ -192,6 +199,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: None,
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::MergeWouldOverwrite { paths } => {
@@ -202,6 +210,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: boxed(paths),
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::StashScopeUnrepresentable { path } => {
@@ -212,6 +221,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: boxed(vec![path]),
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::MergeFailed(diagnostics) => {
@@ -222,6 +232,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: None,
                 stash_ref: None,
                 tool: None,
+                line: None,
             };
         }
         GitError::IntegrationStashRetained { stash_ref, source } => {
@@ -234,6 +245,28 @@ fn git_error_to_app_error(err: GitError) -> AppError {
             error.stash_ref = boxed("stash@{0}".to_string());
             return error;
         }
+        GitError::ConflictMarkersPresent { path, line } => {
+            return AppError {
+                code: "conflict_markers_present".to_string(),
+                message: format!("the file still contains conflict markers at line {line}"),
+                diagnostics: None,
+                paths: boxed(vec![path]),
+                stash_ref: None,
+                tool: None,
+                line: Some(line),
+            };
+        }
+        GitError::ConflictResolutionFailed(diagnostics) => {
+            return AppError {
+                code: "conflict_resolution_failed".to_string(),
+                message: "resolving the conflict failed".to_string(),
+                diagnostics: boxed(diagnostics),
+                paths: None,
+                stash_ref: None,
+                tool: None,
+                line: None,
+            };
+        }
         GitError::DiffToolNotConfigured { tool } => {
             return AppError {
                 code: "diff_tool_not_configured".to_string(),
@@ -242,6 +275,7 @@ fn git_error_to_app_error(err: GitError) -> AppError {
                 paths: None,
                 stash_ref: None,
                 tool: boxed(tool),
+                line: None,
             };
         }
         other => other,
@@ -312,6 +346,10 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::OperationHasConflicts { .. } => "operation_has_conflicts",
         GitError::OperationStepFailed(_) => unreachable!("handled above"),
         GitError::PatchStale => "patch_stale",
+        GitError::ConflictResolutionNotApplicable => "conflict_resolution_not_applicable",
+        GitError::ConflictMarkersPresent { .. } | GitError::ConflictResolutionFailed(_) => {
+            unreachable!("handled above")
+        }
         GitError::PreflightStale => "preflight_stale",
         GitError::RebaseTodoInvalid(_) => "rebase_todo_invalid",
         GitError::PatchApplyFailed(_) => "patch_apply_failed",
@@ -351,6 +389,7 @@ fn remote_error_to_app_error(err: GitRemoteError) -> AppError {
         paths: None,
         stash_ref: None,
         tool: None,
+        line: None,
     }
 }
 
@@ -446,6 +485,33 @@ mod tests {
 
         assert_eq!(repo_error.code, "git_repository_ownership");
         assert_eq!(workspace_error.code, "git_repository_ownership");
+    }
+
+    #[test]
+    fn conflict_resolution_failures_have_stable_codes_and_carry_the_marker_line() {
+        let markers = git_error_to_app_error(GitError::ConflictMarkersPresent {
+            path: "src/lib.rs".into(),
+            line: 12,
+        });
+        assert_eq!(markers.code, "conflict_markers_present");
+        assert_eq!(markers.line, Some(12));
+        assert_eq!(
+            markers.paths.as_deref().map(Vec::as_slice),
+            Some(&["src/lib.rs".to_string()][..])
+        );
+        let serialized = serde_json::to_value(&markers).unwrap();
+        assert_eq!(serialized["line"], json!(12));
+        assert_eq!(
+            git_error_to_app_error(GitError::ConflictResolutionNotApplicable).code,
+            "conflict_resolution_not_applicable"
+        );
+        let failed = git_error_to_app_error(GitError::ConflictResolutionFailed("fatal".into()));
+        assert_eq!(failed.code, "conflict_resolution_failed");
+        assert_eq!(
+            failed.diagnostics.as_deref().map(String::as_str),
+            Some("fatal")
+        );
+        assert!(serde_json::to_value(&failed).unwrap().get("line").is_none());
     }
 
     #[test]
@@ -652,6 +718,7 @@ mod tests {
             paths: boxed(vec!["src/main.rs".to_string(), "README.md".to_string()]),
             stash_ref: boxed("stash@{0}".to_string()),
             tool: boxed("meld".to_string()),
+            line: Some(3),
         })
         .unwrap();
 
@@ -662,6 +729,7 @@ mod tests {
                 "message": "fallback",
                 "diagnostics": "sanitized diagnostics",
                 "paths": ["src/main.rs", "README.md"],
+                "line": 3,
                 "stash_ref": "stash@{0}",
                 "tool": "meld"
             })

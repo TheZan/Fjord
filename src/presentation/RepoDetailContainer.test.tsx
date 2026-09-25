@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, applyStash, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runPushTag, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, resolveConflict, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runPushTag, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -20,6 +20,11 @@ const operationStateMock = vi.hoisted(() => ({
     detectedExternally: false,
   } as import("@/domain/generated").RepoOperationState,
 }));
+const conflictsMock = vi.hoisted(() => ({
+  conflicts: null as import("@/domain/generated").ConflictSet | null,
+  enabled: [] as boolean[],
+}));
+const statusMock = vi.hoisted(() => ({ hasConflict: false }));
 const queryClientMock = vi.hoisted(() => ({
   setQueryData: vi.fn(),
   getQueryData: vi.fn(() => operationStateMock.state),
@@ -47,7 +52,7 @@ vi.mock("@/application/useOperationProgress", () => ({
 }));
 vi.mock("@/application/useRepoStatus", () => ({
   useRepoStatus: () => ({
-    status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: false },
+    status: { branch: "main", ahead: 0, behind: 0, dirtyCount: 0, hasConflict: statusMock.hasConflict },
     error: null,
   }),
 }));
@@ -77,6 +82,12 @@ vi.mock("@/application/useWorkingChanges", () => ({
     loading: false,
     error: null,
   }),
+}));
+vi.mock("@/application/useConflicts", () => ({
+  useConflicts: (_repoId: string, enabled: boolean) => {
+    conflictsMock.enabled.push(enabled);
+    return { conflicts: enabled ? conflictsMock.conflicts : null, error: null };
+  },
 }));
 vi.mock("@/application/useDiffToolAvailability", () => ({
   useDiffToolAvailability: () => true,
@@ -116,6 +127,7 @@ vi.mock("@/presentation/performance", () => ({
 vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   runStartRebase: vi.fn(),
+  resolveConflict: vi.fn(),
   checkoutBranch: vi.fn(async () => undefined),
   previewIgnoreRule: vi.fn(async () => ({ rule: "*.log", alreadyPresent: false })),
   addIgnoreRule: vi.fn(async () => "added" as const),
@@ -270,6 +282,9 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     stashActionRequest,
     onPreflightAction,
     onApplyStash,
+    conflicts,
+    conflictMarkerWarning,
+    onResolveConflict,
   }: {
     actionConfirmation: { kind: string; action?: string; branch?: string; tag?: string } | null;
     onAction: (action: "fetch" | "push" | "stash" | "stash-pop") => void;
@@ -306,8 +321,17 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     stashActionRequest?: { action: import("@/application/stashActions").StashAction; stash: import("@/domain/git").StashEntry } | null;
     onPreflightAction: (action: import("@/domain/git").DestructiveAction) => void;
     onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void;
+    conflicts?: import("@/domain/generated").ConflictSet | null;
+    conflictMarkerWarning?: { path: string; line: number } | null;
+    onResolveConflict?: (path: string, resolution: import("@/domain/generated").ConflictResolution, allowMarkers: boolean) => void;
   }) => (
     <div>
+      <output data-testid="conflict-total">{conflicts ? String(conflicts.total) : "none"}</output>
+      <output data-testid="operation-kind">{operationState?.operation.kind ?? ""}</output>
+      <output data-testid="marker-warning">{conflictMarkerWarning ? `${conflictMarkerWarning.path}:${conflictMarkerWarning.line}` : ""}</output>
+      <button type="button" onClick={() => onResolveConflict?.("src/pay.ts", "takeTheirs", false)}>resolve pay theirs</button>
+      <button type="button" onClick={() => onResolveConflict?.("src/pay.ts", "markResolved", false)}>mark pay resolved</button>
+      <button type="button" onClick={() => onResolveConflict?.("src/pay.ts", "markResolved", true)}>stage pay anyway</button>
       <output data-testid="action-pending">{actionPending ?? ""}</output>
       <output data-testid="pending-draft-message">{pendingDraftMessage ?? ""}</output>
       <output data-testid="action-error">{actionError ?? ""}</output>
@@ -511,6 +535,122 @@ describe("RepoDetailContainer checkout confirmation", () => {
     snapshotMock.validated = true;
     snapshotMock.ensureValidated.mockReset();
     snapshotMock.ensureValidated.mockResolvedValue(true);
+    conflictsMock.conflicts = null;
+    conflictsMock.enabled = [];
+    statusMock.hasConflict = false;
+    vi.mocked(resolveConflict).mockReset();
+  });
+
+  describe("in-app conflict resolution (P12-MERGE-03)", () => {
+    const conflictGenerations = { workingTree: 7, refs: 3, history: 3, stash: 0, config: 0 };
+    const conflictSet: import("@/domain/generated").ConflictSet = {
+      entries: [{
+        path: "src/pay.ts",
+        kind: "bothModified",
+        base: { blob: "b", mode: 33188, size: 1, binary: false },
+        ours: { blob: "o", mode: 33188, size: 1, binary: false },
+        theirs: { blob: "t", mode: 33188, size: 1, binary: false },
+      }],
+      truncated: false,
+      total: 1,
+      sides: { oursLabel: "main", theirsLabel: "feature", inverted: false },
+      generations: conflictGenerations,
+    };
+    const resolved = { ...conflictSet, entries: [], total: 0, generations: { ...conflictGenerations, workingTree: 8 } };
+
+    // Component case 6: a conflicted squash merge leaves the operation state
+    // Normal, so no banner exists — the group is still driven by the index.
+    it("reads and shows the conflict set after a squash merge, with no operation in progress", () => {
+      statusMock.hasConflict = true;
+      conflictsMock.conflicts = conflictSet;
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      expect(conflictsMock.enabled.at(-1)).toBe(true);
+      expect(screen.getByTestId("operation-kind")).toHaveTextContent("normal");
+      expect(screen.getByTestId("conflict-total")).toHaveTextContent("1");
+    });
+
+    it("does not read conflicts for a clean index", () => {
+      conflictsMock.conflicts = conflictSet;
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      expect(conflictsMock.enabled.every((enabled) => !enabled)).toBe(true);
+      expect(screen.getByTestId("conflict-total")).toHaveTextContent("none");
+    });
+
+    it("resolves against the rendered generations and refreshes status, working changes and the operation", async () => {
+      statusMock.hasConflict = true;
+      conflictsMock.conflicts = conflictSet;
+      vi.mocked(resolveConflict).mockReturnValue({ operationId: "resolve-1", promise: Promise.resolve(resolved) });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "resolve pay theirs" }));
+
+      await waitFor(() => expect(resolveConflict).toHaveBeenCalledWith(
+        repo.id,
+        "src/pay.ts",
+        "takeTheirs",
+        conflictGenerations,
+        false,
+      ));
+      await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+        queryClientMock,
+        repo.id,
+        repo.workspaceId,
+        ["status", "working", "operation"],
+      ));
+      expect(queryClientMock.setQueryData).toHaveBeenCalledWith(["repos", repo.id, "workingChanges", "conflicts"], resolved);
+      expect(screen.getByTestId("action-success")).toHaveTextContent("conflicts.resolved");
+    });
+
+    // Component case 4: the backend's refusal becomes the inline Stage anyway
+    // offer, which re-dispatches with the acknowledgement.
+    it("turns conflict_markers_present into a Stage anyway offer that re-dispatches with allowMarkers", async () => {
+      statusMock.hasConflict = true;
+      conflictsMock.conflicts = conflictSet;
+      vi.mocked(resolveConflict)
+        .mockReturnValueOnce({
+          operationId: "resolve-1",
+          promise: Promise.reject({ code: "conflict_markers_present", paths: ["src/pay.ts"], line: 12 }),
+        })
+        .mockReturnValueOnce({ operationId: "resolve-2", promise: Promise.resolve(resolved) });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "mark pay resolved" }));
+      await waitFor(() => expect(screen.getByTestId("marker-warning")).toHaveTextContent("src/pay.ts:12"));
+      expect(screen.getByTestId("action-error")).toHaveTextContent("");
+
+      fireEvent.click(screen.getByRole("button", { name: "stage pay anyway" }));
+      await waitFor(() => expect(resolveConflict).toHaveBeenLastCalledWith(
+        repo.id,
+        "src/pay.ts",
+        "markResolved",
+        conflictGenerations,
+        true,
+      ));
+      await waitFor(() => expect(screen.getByTestId("marker-warning")).toHaveTextContent(""));
+    });
+
+    it("reports a refused resolution and still refreshes the view", async () => {
+      statusMock.hasConflict = true;
+      conflictsMock.conflicts = conflictSet;
+      vi.mocked(resolveConflict).mockReturnValue({
+        operationId: "resolve-1",
+        promise: Promise.reject({ code: "preflight_stale" }),
+      });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "resolve pay theirs" }));
+
+      await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+        queryClientMock,
+        repo.id,
+        repo.workspaceId,
+        ["status", "working", "operation"],
+      ));
+      expect(screen.getByTestId("action-success")).toHaveTextContent("");
+      expect(screen.getByTestId("marker-warning")).toHaveTextContent("");
+    });
   });
 
   it("carries an exact StashId into repository-detail selection state", () => {

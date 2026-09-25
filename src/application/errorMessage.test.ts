@@ -111,4 +111,22 @@ describe("errorTranslationKey", () => {
     expect(message).not.toContain("null");
     expect(message).not.toContain("undefined");
   });
+
+  it("names the path and the first marker line for conflict_markers_present", async () => {
+    await initI18n("en");
+    await setLocale("en");
+
+    expect(userErrorMessage({
+      code: "conflict_markers_present",
+      message: "backend fallback",
+      paths: ["src/pay.ts"],
+      line: 12,
+    })).toBe("src/pay.ts still contains conflict markers at line 12.");
+    expect(errorTranslationKey({ code: "conflict_resolution_not_applicable" })).toBe(
+      "errors.conflict_resolution_not_applicable",
+    );
+    expect(errorTranslationKey({ code: "conflict_resolution_failed" })).toBe(
+      "errors.conflict_resolution_failed",
+    );
+  });
 });

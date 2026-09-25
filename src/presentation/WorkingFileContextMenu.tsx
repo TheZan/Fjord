@@ -244,8 +244,19 @@ function singleWorkingFileMenuItems(
   ];
 
   if (file.conflicted) {
+    // Stage/Unstage/Discard are not meaningful against a multi-stage index
+    // entry; they stay visible, disabled, with the conflict named
+    // (conflict-resolution.md §6). Resolution lives in the Conflicts group.
+    const pathIsConflicted = t("workingFile.disabled.pathIsConflicted", { path: target.path });
+    const unavailable: ContextMenuItem[] = target.source === "worktree"
+      ? [
+          { id: "stage", label: t("workingFile.stage"), disabled: true, disabledReason: pathIsConflicted },
+          { id: "discard", label: t("workingFile.discard"), disabled: true, disabledReason: pathIsConflicted },
+        ]
+      : [{ id: "unstage", label: t("workingFile.unstage"), disabled: true, disabledReason: pathIsConflicted }];
     return [
-      ...openItems.map((item, index) => ({ ...item, separatorBefore: index === 0 ? false : item.separatorBefore })),
+      ...unavailable,
+      ...openItems,
       { id: "openMergeTool", label: t("workingFile.openMergeTool"), separatorBefore: true },
       { ...copyPath, separatorBefore: true },
     ];

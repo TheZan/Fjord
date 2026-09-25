@@ -145,6 +145,7 @@ pub(crate) enum MutationKind {
     IntegrateUpstream,
     Merge { stash: bool },
     SquashMerge { stash: bool },
+    ResolveConflict,
     Fetch,
     Push,
     PublishBranch,
@@ -198,7 +199,8 @@ pub(crate) const fn mutation_mask(mutation: MutationKind) -> GenerationMask {
         | MutationKind::Unstage
         | MutationKind::Discard
         | MutationKind::Ignore
-        | MutationKind::DeleteFile => GenerationMask::WORKING_TREE,
+        | MutationKind::DeleteFile
+        | MutationKind::ResolveConflict => GenerationMask::WORKING_TREE,
         MutationKind::Fetch | MutationKind::Push | MutationKind::DeleteRemoteBranch => {
             GenerationMask::REFS_HISTORY
         }
@@ -271,6 +273,7 @@ mod tests {
             (MutationKind::Discard, GenerationMask::WORKING_TREE),
             (MutationKind::Ignore, GenerationMask::WORKING_TREE),
             (MutationKind::DeleteFile, GenerationMask::WORKING_TREE),
+            (MutationKind::ResolveConflict, GenerationMask::WORKING_TREE),
             (MutationKind::Commit, GenerationMask::WORKING_REFS_HISTORY),
             (
                 MutationKind::IntegrateUpstream,

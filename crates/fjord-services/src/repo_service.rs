@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
-    CommitSummary, Consequence, CreateBranchFromStashResult, CreateRepositoryRequest,
-    CreateRepositoryResult, CreateStashRequest, CreateStashResult, DestructiveAction,
-    DestructiveExecutionResult, DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode,
-    DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
+    CommitSummary, ConflictResolution, ConflictSet, Consequence, CreateBranchFromStashResult,
+    CreateRepositoryRequest, CreateRepositoryResult, CreateStashRequest, CreateStashResult,
+    DestructiveAction, DestructiveExecutionResult, DestructivePreflight, DiffHunk, DiffLineKind,
+    DiffWhitespaceMode, DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
     ForceWithLeaseDetails, GenerationSet, GitConnectionTestResult, GitEnvironmentInfo,
     GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
     MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, OpenTarget,
@@ -2006,6 +2006,32 @@ impl RepoService {
         Ok(self
             .git
             .stage_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .await?)
+    }
+
+    pub async fn get_conflicts(&self, repo_id: RepositoryId) -> Result<ConflictSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self.git.conflicts(&RepoPath::new(repo.path)).await?)
+    }
+
+    pub async fn resolve_conflict(
+        &self,
+        repo_id: RepositoryId,
+        path: &str,
+        resolution: ConflictResolution,
+        allow_markers: bool,
+        expected_generations: GenerationSet,
+    ) -> Result<ConflictSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .resolve_conflict(
+                &RepoPath::new(repo.path),
+                path,
+                resolution,
+                allow_markers,
+                expected_generations,
+            )
             .await?)
     }
 

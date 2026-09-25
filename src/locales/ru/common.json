@@ -101,7 +101,10 @@
     "worktree_locked": "Worktree заблокирован.",
     "worktree_dirty": "В worktree есть незакоммиченные изменения.",
     "worktree_failed": "Git не смог выполнить операцию с worktree.",
-    "log_folder_unavailable": "Не удалось открыть папку логов. Откройте папку данных приложения вручную."
+    "log_folder_unavailable": "Не удалось открыть папку логов. Откройте папку данных приложения вручную.",
+    "conflict_markers_present": "В {{path}} остались маркеры конфликта (строка {{line}}).",
+    "conflict_resolution_not_applicable": "Этот способ разрешения не подходит для такого конфликта.",
+    "conflict_resolution_failed": "Git не смог завершить разрешение конфликта. Файл по-прежнему в конфликте."
   },
   "settings": {
     "sections": {

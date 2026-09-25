@@ -13,10 +13,18 @@ import {
 } from "@/presentation/FileEntryList";
 import { directoryPathsOf } from "@/presentation/fileTree";
 import { Button, Input, Surface, Textarea } from "@/presentation/ui";
-import type { AmendInfo, WorkingChanges, WorkingFile, WorkingFileTarget } from "@/domain/git";
+import type {
+  AmendInfo,
+  ConflictResolution,
+  ConflictSet,
+  WorkingChanges,
+  WorkingFile,
+  WorkingFileTarget,
+} from "@/domain/git";
 import type { WorkingFileSelectionController } from "@/application/useWorkingFileSelection";
 import type { WorkingFileAction, WorkingFileActionContext } from "@/application/useWorkingFileActions";
 import { ContextMenu } from "@/presentation/GitContextMenu";
+import { ConflictsGroup, type ConflictMarkerWarning } from "@/presentation/ConflictsGroup";
 import {
   workingFileMenuItems,
   type WorkingFileActionEntry,
@@ -44,6 +52,10 @@ export function WorkingChangesPanel({
   onCommit,
   pendingDraftMessage,
   onPendingDraftMessageConsumed,
+  conflicts = null,
+  conflictMarkerWarning = null,
+  onResolveConflict,
+  onDismissConflictMarkerWarning,
 }: {
   changes: WorkingChanges;
   loading: boolean;
@@ -66,6 +78,11 @@ export function WorkingChangesPanel({
   /** A suggested message set from outside (e.g. a squash merge's SQUASH_MSG). */
   pendingDraftMessage?: string | null;
   onPendingDraftMessageConsumed?: () => void;
+  /** The live index's conflict set; the Conflicts group renders only while it is non-empty. */
+  conflicts?: ConflictSet | null;
+  conflictMarkerWarning?: ConflictMarkerWarning | null;
+  onResolveConflict?: (path: string, resolution: ConflictResolution, allowMarkers: boolean) => void;
+  onDismissConflictMarkerWarning?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [summary, setSummary] = useState("");
@@ -204,6 +221,19 @@ export function WorkingChangesPanel({
           </p>
         )}
 
+        {conflicts && conflicts.total > 0 && onResolveConflict ? (
+          <ConflictsGroup
+            conflicts={conflicts}
+            busy={busy || !validated}
+            markerWarning={conflictMarkerWarning}
+            onResolve={onResolveConflict}
+            onFileAction={(action, path) => {
+              const target: WorkingFileTarget = { path, source: "worktree" };
+              onSelectionAction(action, { clickedTarget: target, targets: [target] });
+            }}
+            onDismissMarkerWarning={() => onDismissConflictMarkerWarning?.()}
+          />
+        ) : null}
         <FileSection
           label={t("working.unstaged")}
           files={changes.unstaged}
@@ -344,6 +374,9 @@ function FileSection({
   if (files.length === 0) return null;
 
   const source = staged ? "index" as const : "worktree" as const;
+  // A conflicted path is resolved from the Conflicts group, never staged in
+  // bulk: `git add` on it would silently stage conflict markers.
+  const bulkPaths = files.filter((file) => !file.conflicted).map((file) => file.path);
   const selectedPaths = selection.selectedPaths(source);
   const activePath = selection.active?.source === source ? selection.active.path : null;
   const targetFor = (path: string): WorkingFileTarget => ({ path, source });
@@ -434,8 +467,8 @@ function FileSection({
         ) : (
           <button
             type="button"
-            disabled={busy}
-            onClick={() => onAct(files.map((file) => file.path))}
+            disabled={busy || bulkPaths.length === 0}
+            onClick={() => onAct(bulkPaths)}
             className="interactive-control ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
             style={{ color: "var(--fjord-ink)" }}
           >
@@ -498,7 +531,9 @@ function FileSection({
             {t(`commitInspector.changeTypeMark.${file.changeType}`)}
           </span>
         )}
-        renderTrailing={(file) => (
+        renderTrailing={(file) => {
+          const rowDisabled = busy || file.conflicted;
+          return (
           <span className="flex shrink-0 items-center gap-1.5">
             {file.conflicted && (
               <span className="text-[10px]" style={{ color: "var(--rust-ink)" }}>
@@ -507,17 +542,20 @@ function FileSection({
             )}
             <span
               role="button"
-              tabIndex={busy ? -1 : 0}
-              aria-disabled={busy}
+              tabIndex={rowDisabled ? -1 : 0}
+              aria-disabled={rowDisabled}
+              title={file.conflicted
+                ? t("workingFile.disabled.pathIsConflicted", { path: file.path })
+                : undefined}
               onClick={(event) => {
                 event.stopPropagation();
-                if (!busy) onAct([file.path]);
+                if (!rowDisabled) onAct([file.path]);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   event.stopPropagation();
-                  if (!busy) onAct([file.path]);
+                  if (!rowDisabled) onAct([file.path]);
                 }
               }}
               className="interactive-control rounded px-1.5 py-0.5 text-[10px] opacity-0 group-hover:opacity-100"
@@ -526,7 +564,8 @@ function FileSection({
               {actionLabel}
             </span>
           </span>
-        )}
+          );
+        }}
       />
     </div>
   );
