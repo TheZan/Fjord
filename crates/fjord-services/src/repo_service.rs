@@ -19,7 +19,7 @@ use fjord_domain::{
 use fjord_ports::{
     DiffWindowOptions, GitBackend, GitEnvironmentError, GitEnvironmentProvider, GitError,
     GitExecutableResolution, GitOperationContext, GitRemoteBackend, GitRemoteError, IdeLauncher,
-    LaunchError, RepoPath, SettingsStore, StoreError, WorkspaceStore,
+    LaunchError, MergeBranchOptions, RepoPath, SettingsStore, StoreError, WorkspaceStore,
 };
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -931,7 +931,7 @@ impl RepoService {
         source: &MergeSource,
         mode: MergeMode,
         dirty_policy: MergeDirtyPolicy,
-        allow_unrelated_histories: bool,
+        options: MergeBranchOptions,
         context: GitOperationContext,
     ) -> Result<MergeResult, RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
@@ -942,7 +942,7 @@ impl RepoService {
                 source,
                 mode,
                 dirty_policy,
-                allow_unrelated_histories,
+                options,
                 context,
             )
             .await?)

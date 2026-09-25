@@ -390,11 +390,12 @@ vi.mock("@/presentation/MergeDialog", () => ({
       policy: import("@/domain/git").MergeDirtyPolicy,
       fetchFirst: boolean,
       allowUnrelatedHistories: boolean,
+      message: string | null,
     ) => void;
   }) => (
     <>
-      <button type="button" onClick={() => onConfirm("default", "refuse", false, false)}>confirm merge</button>
-      <button type="button" onClick={() => onConfirm("default", "refuse", true, false)}>confirm merge with fetch</button>
+      <button type="button" onClick={() => onConfirm("default", "refuse", false, false, "Merge branch 'feature'")}>confirm merge</button>
+      <button type="button" onClick={() => onConfirm("default", "refuse", true, false, null)}>confirm merge with fetch</button>
     </>
   ),
 }));
@@ -1227,6 +1228,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "default",
       "refuse",
       false,
+      "Merge branch 'feature'",
     ));
     expect(queryClientMock.setQueryData).toHaveBeenCalledWith(
       ["repos", "repo-1", "operationState"],
@@ -1252,6 +1254,20 @@ describe("RepoDetailContainer checkout confirmation", () => {
     expect(screen.getByTestId("action-error")).toBeEmptyDOMElement();
   });
 
+  it("explains a merge message the backend refused", async () => {
+    vi.mocked(runMergeBranch).mockReturnValueOnce({
+      operationId: "operation-merge",
+      promise: Promise.reject({ code: "merge_message_invalid" }),
+    });
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge" }));
+
+    await waitFor(() => expect(screen.getByTestId("action-error")).toHaveTextContent(
+      "merge.error.messageInvalid",
+    ));
+  });
+
   it("fetches the remote before merging, re-resolves the preflight, then merges", async () => {
     renderContainer();
     fireEvent.click(screen.getByRole("button", { name: "merge remote feature" }));
@@ -1263,6 +1279,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "default",
       "refuse",
       false,
+      null,
     ));
     expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");
     expect(queryClientMock.invalidateQueries).toHaveBeenCalledWith({

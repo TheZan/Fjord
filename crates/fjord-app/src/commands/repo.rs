@@ -10,6 +10,7 @@ use fjord_domain::{
     StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree,
     WorktreeBranch,
 };
+use fjord_ports::MergeBranchOptions;
 use serde::Serialize;
 use std::future::Future;
 use std::path::PathBuf;
@@ -182,6 +183,7 @@ pub async fn merge_branch(
     mode: MergeMode,
     dirty_policy: MergeDirtyPolicy,
     allow_unrelated_histories: bool,
+    message: Option<String>,
     operation_id: Option<String>,
 ) -> Result<MergeResult, AppError> {
     run_repo_operation(
@@ -196,7 +198,10 @@ pub async fn merge_branch(
                 &source,
                 mode,
                 dirty_policy,
-                allow_unrelated_histories,
+                MergeBranchOptions {
+                    allow_unrelated_histories,
+                    message,
+                },
                 context,
             )
         },

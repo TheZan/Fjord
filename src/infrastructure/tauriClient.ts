@@ -444,6 +444,7 @@ export function runMergeBranch(
   mode: MergeMode,
   dirtyPolicy: MergeDirtyPolicy,
   allowUnrelatedHistories: boolean,
+  message: string | null,
 ): OperationTask<MergeResult> {
   return invokeOperation("merge", "merge_branch", {
     repoId,
@@ -451,6 +452,7 @@ export function runMergeBranch(
     mode,
     dirtyPolicy,
     allowUnrelatedHistories,
+    message,
   });
 }
 

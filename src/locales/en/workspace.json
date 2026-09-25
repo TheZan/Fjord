@@ -179,6 +179,7 @@
     "running": "Merging…",
     "dismiss": "Close",
     "mode": { "label": "Mode", "default": "Default merge", "fastForwardOnly": "Fast-forward only", "noFastForward": "Always create a merge commit" },
+    "message": { "label": "Merge commit message", "empty": "Enter a merge commit message.", "tooLong": "The message is longer than 4 KiB." },
     "confirm": "Merge",
     "cancel": "Cancel",
     "prediction": {
@@ -219,7 +220,8 @@
     "error": {
       "notFastForward": "{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.",
       "failed": "The merge could not be completed. The repository was not changed beyond what Git reported.",
-      "unrelatedAcknowledgementRequired": "Confirm that the histories are unrelated before merging."
+      "unrelatedAcknowledgementRequired": "Confirm that the histories are unrelated before merging.",
+      "messageInvalid": "The merge commit message is empty, longer than 4 KiB, or contains a NUL character."
     }
   },
   "squashMerge": {

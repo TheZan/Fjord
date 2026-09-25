@@ -10,7 +10,8 @@ mod store;
 
 pub use git_backend::{
     DestructiveActionFacts, DiffWindowOptions, ForcePushPlan, GitAskpassConfig, GitBackend,
-    GitError, GitExecutableResolution, GitOperationContext, GitProgress, PushTarget, RepoPath,
+    GitError, GitExecutableResolution, GitOperationContext, GitProgress, MergeBranchOptions,
+    PushTarget, RepoPath,
 };
 pub use git_environment::{GitEnvironmentError, GitEnvironmentProvider};
 pub use git_remote_backend::{GitRemoteBackend, GitRemoteError};

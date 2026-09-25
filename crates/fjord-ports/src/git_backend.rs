@@ -140,6 +140,15 @@ pub struct PushTarget {
     pub remote_ref: String,
 }
 
+/// Per-merge choices beyond mode and dirty policy (`branch-merge.md` §10).
+/// `message: None` keeps Git's own default message (`--no-edit`); `Some` is
+/// the exact text the user confirmed, passed to Git as a single `-m` argument.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MergeBranchOptions {
+    pub allow_unrelated_histories: bool,
+    pub message: Option<String>,
+}
+
 /// Exact source and lease facts captured for one force-push confirmation.
 /// The source is an immutable object id so a moving local branch cannot widen
 /// the operation after confirmation.
@@ -248,6 +257,8 @@ pub enum GitError {
     MergeNotFastForward,
     #[error("unrelated histories require explicit acknowledgement")]
     MergeUnrelatedHistoriesNotAllowed,
+    #[error("the merge message is empty, too long, or contains NUL")]
+    MergeMessageInvalid,
     #[error("merge would overwrite local changes in {paths:?}")]
     MergeWouldOverwrite { paths: Vec<String> },
     #[error("the index contains staged changes")]
@@ -552,11 +563,14 @@ pub trait GitBackend: Send + Sync {
         source: &MergeSource,
         mode: MergeMode,
         dirty_policy: MergeDirtyPolicy,
-        allow_unrelated_histories: bool,
+        options: MergeBranchOptions,
         context: GitOperationContext,
     ) -> Result<MergeResult, GitError> {
-        if allow_unrelated_histories {
+        if options.allow_unrelated_histories {
             return Err(GitError::MergeUnrelatedHistoriesNotAllowed);
+        }
+        if options.message.is_some() {
+            return Err(GitError::NotImplemented("merge_branch_with_options"));
         }
         self.merge_branch(repo, source, mode, dirty_policy, context)
             .await

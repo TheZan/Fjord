@@ -1,8 +1,8 @@
 # Spec: branch merge into the current branch
 
 Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03 (shipped, §1–§9);
-P12-MERGE-01, P12-MERGE-04, P12-MERGE-05 (designed, §10);
-P12-MERGE-02 (shipped, §10.2);
+P12-MERGE-01, P12-MERGE-02 (shipped, §10.1–§10.2);
+P12-MERGE-04, P12-MERGE-05 (designed, §10);
 SDD §5.2, §15.
 Related: [`conflict-resolution.md`](conflict-resolution.md),
 [`repository-safety.md`](repository-safety.md),
@@ -76,9 +76,9 @@ and it has no preflight, no mode selection, and no UI entry point.
 - **Octopus / multi-head merges.** One source ref per action.
 - **Squash merge.** Deferred to P10-MERGE-03 (§9); it produces a non-merge commit
   and needs its own commit-message flow.
-- **A custom merge-commit message editor.** v1 uses Git's own default message via
-  `--no-edit`. A message editor is a possible follow-up, not a v1 requirement —
-  taken up by §10.1.
+- **A custom merge-commit message editor.** v1 used Git's own default message via
+  `--no-edit`. This non-goal is retired: §10.1 (`P12-MERGE-01`) ships an editable
+  message field prefilled with the backend's `default_message`.
 - **A built-in three-way conflict editor.** SDD §3 stands: conflict *content*
   belongs to the user's configured merge tool. Choosing a whole side for a
   conflicted path is not editing content and is owned by
@@ -227,9 +227,13 @@ pub enum MergeMode {
 
 | UI label | Mode | Git invocation |
 |---|---|---|
-| **Default merge** | `Default` | `merge --no-edit <ref>` |
+| **Default merge** | `Default` | `merge [-m <message>] --no-edit <ref>` |
 | **Fast-forward only** | `FastForwardOnly` | `merge --ff-only --no-edit <ref>` |
-| **Always create a merge commit** | `NoFastForward` | `merge --no-ff --no-edit <ref>` |
+| **Always create a merge commit** | `NoFastForward` | `merge --no-ff [-m <message>] --no-edit <ref>` |
+
+`-m <message>` is present whenever the dialog showed the message field (§10.1);
+`--no-edit` stays so Git never opens an editor, and with `-m` it simply commits
+the given text.
 
 `Default` is preselected. `FastForwardOnly` exists because "integrate this
 without inventing a merge commit" is a real, common intent and is otherwise
@@ -398,6 +402,19 @@ async fn merge_branch(
     source: &MergeSource,
     mode: MergeMode,
     dirty_policy: MergeDirtyPolicy,   // Refuse | StashFirst
+) -> Result<MergeResult, GitError>;
+
+// Phase 12: the shipped command path. `MergeBranchOptions` carries the
+// unrelated-histories acknowledgement (§10.2) and the optional confirmed
+// message (§10.1); `merge_branch` is this with the defaults.
+async fn merge_branch_with_options(
+    &self,
+    repo: &RepoPath,
+    source: &MergeSource,
+    mode: MergeMode,
+    dirty_policy: MergeDirtyPolicy,
+    options: MergeBranchOptions,      // { allow_unrelated_histories, message: Option<String> }
+    context: GitOperationContext,
 ) -> Result<MergeResult, GitError>;
 ```
 
@@ -631,8 +648,8 @@ current one, and resolves to the same `onMergeBranch` with the same
 ### 10. Planned extensions (Phase 12)
 
 Everything above §9 describes **shipped** behavior. This section records the
-Phase 12 extensions: `P12-MERGE-02` is shipped, while `P12-MERGE-01`,
-`P12-MERGE-04` and `P12-MERGE-05` remain partly or wholly designed work in
+Phase 12 extensions: `P12-MERGE-01` and `P12-MERGE-02` are shipped, while
+`P12-MERGE-04` and `P12-MERGE-05` remain designed work in
 [`tasks.md`](../tasks.md). Until a task ships, the §Non-goals list above remains
 the accurate statement of what Fjord does. Conflict *resolution* is not here: it is owned by the new
 [`conflict-resolution.md`](conflict-resolution.md) and applies to every
@@ -640,10 +657,9 @@ operation, not only to merge.
 
 #### 10.1 `NoFastForward` and an editable merge message (`P12-MERGE-01`)
 
-**Status: the mode has shipped; the editable message has not.** `MergeMode`
-gained its third variant, which is now part of the shipped contract in §3; the
-message half below is still design. The rest of this section is unchanged so the
-argument behind the mode stays recorded where the task points.
+**Status: shipped.** `MergeMode` gained its third variant, which is now part of
+the shipped contract in §3, and the editable message below is implemented. The
+argument behind the mode stays recorded here, where the task points.
 
 | UI label | Mode | Git invocation |
 |---|---|---|
@@ -667,16 +683,30 @@ The merge message stops being `--no-edit`:
   single-source case the way `git fmt-merge-msg` does (`Merge branch 'x'`,
   `Merge remote-tracking branch 'origin/x'`, `Merge tag 'v1'`, `Merge commit
   '<short id>'`, with `into <target>` appended when the target is not the
-  repository's default branch).
+  repository's default branch). "Default branch" is decided exactly as Git
+  decides it: the target matches a `merge.suppressDest` pattern (`*` and `?`
+  never cross `/`; an empty value clears the list), and when that key is unset
+  the patterns are `main` and `master`. The merge message of an annotated tag
+  is not appended — the subject line is the whole default.
+  (`crates/fjord-git/src/local/integration.rs::default_merge_message`.)
 - The dialog shows that text in an editable field and the chosen text is always
   passed as `-m <message>` — a single argument, never command text. The contract
-  is WYSIWYG: the message shown is the message committed.
-- The value is bounded at 4 KiB, rejects NUL, and normalizes line endings.
+  is WYSIWYG: the message shown is the message committed. An untouched field
+  follows a refreshed preflight; an edited one is never overwritten.
+- The value is bounded at 4 KiB (UTF-8 bytes, after normalization), rejects NUL
+  and blank text, and normalizes CRLF/CR line endings to LF. The backend
+  enforces this before taking the write lock and fails with
+  `merge_message_invalid` without launching Git; the dialog applies the same
+  bound and disables **Merge** with a stated reason.
+- `merge_branch` takes `message: Option<String>`. `null` keeps Git's own
+  default (`--no-edit` alone) — what the dialog sends whenever the field is
+  hidden, and what every pre-Phase-12 caller gets.
 - The field is hidden when no commit can result: `FastForwardOnly`, and `Default`
   with a predicted fast-forward.
 - A conflicted `merge -m` leaves the message in `.git/MERGE_MSG`, which the
   existing `continue_operation` commits under its non-interactive `GIT_EDITOR`.
-  That is a required integration test, not an assumption.
+  That is a required integration test, not an assumption
+  (`conflicted_merge_keeps_the_confirmed_message_for_continue_operation`).
 
 #### 10.2 Wider sources and unrelated histories (`P12-MERGE-02`)
 
@@ -753,6 +783,10 @@ names are interpolation variables only — never inside a translated string
 | `merge.mode.label` | `Mode` |
 | `merge.mode.default` | `Default merge` |
 | `merge.mode.fastForwardOnly` | `Fast-forward only` |
+| `merge.mode.noFastForward` | `Always create a merge commit` |
+| `merge.message.label` | `Merge commit message` |
+| `merge.message.empty` | `Enter a merge commit message.` |
+| `merge.message.tooLong` | `The message is longer than 4 KiB.` |
 | `merge.confirm` | `Merge` |
 | `merge.cancel` | `Cancel` |
 | `merge.prediction.alreadyUpToDate` | `{{target}} already contains {{source}}. Nothing to merge.` |
@@ -782,10 +816,12 @@ names are interpolation variables only — never inside a translated string
 | `merge.blocked.wouldOverwrite_other` | `{{count}} files with local changes would be overwritten by this merge.` |
 | `merge.error.notFastForward` | `{{source}} cannot be fast-forwarded into {{target}}. Use a default merge, or rebase first.` |
 | `merge.error.failed` | `The merge could not be completed. The repository was not changed beyond what Git reported.` |
+| `merge.error.messageInvalid` | `The merge commit message is empty, longer than 4 KiB, or contains a NUL character.` |
 | `commandPalette.mergeBranch` | `Merge branch…` |
 
-`merge.remote.*` ship with `P10-MERGE-02`; every other key ships with
-`P10-MERGE-01`. Note that no key states a fetch time — `merge.remote.knownCommit`
+`merge.remote.*` ship with `P10-MERGE-02`; `merge.mode.noFastForward`,
+`merge.message.*`, and `merge.error.messageInvalid` ship with `P12-MERGE-01`;
+every other key ships with `P10-MERGE-01`. Note that no key states a fetch time — `merge.remote.knownCommit`
 names the object Fjord will merge, which is a fact it can prove, unlike a
 recency claim (§2).
 
@@ -840,7 +876,7 @@ names stay verbatim through interpolation.
 
 | Level | Coverage |
 |---|---|
-| Unit (Rust) | `MergeSource` canonicalization and kind classification; blocker derivation from status/operation state/index; `MergePrediction` derivation from ahead/behind and merge-base; argument construction per mode (`--no-edit`, `--ff-only`) with no shell string. |
+| Unit (Rust) | `MergeSource` canonicalization and kind classification; blocker derivation from status/operation state/index; `MergePrediction` derivation from ahead/behind and merge-base; argument construction per mode (`--no-edit`, `--ff-only`, `--no-ff`, `-m`) with no shell string; `default_message` per source kind and the `into <target>` / `merge.suppressDest` rule; message normalization and bounds. |
 | Integration (Rust, real repositories) | The thirteen backend cases enumerated below. |
 | Frontend/component | The seven UI cases enumerated below. |
 | E2E | Merge a conflicting branch from the branch tree, resolve through the existing conflict flow, continue, and confirm the resulting merge commit; abort a second conflicted merge and confirm the pre-merge `HEAD`. |

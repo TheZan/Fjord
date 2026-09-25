@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MergeDirtyPolicy, MergeMode, MergePreflight } from "@/domain/git";
-import { MergeDialog } from "@/presentation/MergeDialog";
+import { MERGE_MESSAGE_LIMIT_BYTES, MergeDialog, mergeCreatesCommit, mergeMessageProblem } from "@/presentation/MergeDialog";
 
 const mergeState = vi.hoisted(() => ({
   preflight: null as MergePreflight | null,
@@ -54,7 +54,7 @@ describe("MergeDialog", () => {
     expect(screen.getByText(/merge\.prediction\.fastForward/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false, false);
+    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false, false, null);
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
@@ -76,7 +76,7 @@ describe("MergeDialog", () => {
     // The prediction itself is unchanged; only the sentence the user reads is.
     expect(screen.getByText(/merge\.prediction\.fastForwardNoFf:/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false, false);
+    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false, false, "Merge branch 'feature'");
   });
 
   it("offers fetch-before-merge for a remote-tracking source and names the known commit", () => {
@@ -103,7 +103,7 @@ describe("MergeDialog", () => {
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true, false);
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true, false, null);
   });
 
   it("never offers fetch-before-merge for a local-branch source", () => {
@@ -130,7 +130,90 @@ describe("MergeDialog", () => {
     };
     rerender(dialog(onConfirm));
     fireEvent.click(screen.getByRole("button", { name: "merge.dirty.stashAndMerge" }));
-    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false, false);
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false, false, null);
+  });
+
+  it("prefills the merge message from the preflight and submits the edited text", async () => {
+    const onConfirm = vi.fn();
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 2, behind: 1 });
+    const { container } = renderDialog(onConfirm);
+
+    const field = screen.getByLabelText("merge.message.label");
+    expect(field).toHaveValue("Merge branch 'feature'");
+    fireEvent.change(field, { target: { value: "Integrate feature\n\nWith a body." } });
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenCalledWith(
+      "default",
+      "refuse",
+      false,
+      false,
+      "Integrate feature\n\nWith a body.",
+    );
+    expect((await axe.run(container)).violations).toEqual([]);
+  });
+
+  it("hides the message field whenever no merge commit can result", () => {
+    const onConfirm = vi.fn();
+    // Default mode over a predicted fast-forward: no commit, no field.
+    const { rerender } = renderDialog(onConfirm);
+    expect(screen.queryByLabelText("merge.message.label")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("merge.mode.noFastForward"));
+    expect(screen.getByLabelText("merge.message.label")).toHaveValue("Merge branch 'feature'");
+
+    fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
+    expect(screen.queryByLabelText("merge.message.label")).not.toBeInTheDocument();
+
+    mergeState.preflight = preflight({ kind: "alreadyUpToDate" });
+    rerender(dialog(onConfirm));
+    expect(screen.queryByLabelText("merge.message.label")).not.toBeInTheDocument();
+
+    mergeState.preflight = {
+      ...preflight({ kind: "mergeCommit", ahead: 1, behind: 1 }),
+      blockers: ["operation_already_in_progress"],
+    };
+    rerender(dialog(onConfirm));
+    expect(screen.queryByLabelText("merge.message.label")).not.toBeInTheDocument();
+  });
+
+  it("keeps an untouched message in step with a refreshed preflight but never overwrites an edit", () => {
+    const onConfirm = vi.fn();
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
+    const { rerender } = renderDialog(onConfirm);
+
+    mergeState.preflight = {
+      ...preflight({ kind: "mergeCommit", ahead: 1, behind: 1 }),
+      defaultMessage: "Merge branch 'feature' into develop",
+    };
+    rerender(dialog(onConfirm));
+    const field = screen.getByLabelText("merge.message.label");
+    expect(field).toHaveValue("Merge branch 'feature' into develop");
+
+    fireEvent.change(field, { target: { value: "My own message" } });
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 2, behind: 1 });
+    rerender(dialog(onConfirm));
+    expect(screen.getByLabelText("merge.message.label")).toHaveValue("My own message");
+  });
+
+  it("refuses a blank or oversized message with an accessible reason", () => {
+    const onConfirm = vi.fn();
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
+    renderDialog(onConfirm);
+    const field = screen.getByLabelText("merge.message.label");
+    const confirm = screen.getByRole("button", { name: "merge.confirm" });
+
+    fireEvent.change(field, { target: { value: "   \n" } });
+    expect(confirm).toBeDisabled();
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription("merge.message.empty");
+
+    fireEvent.change(field, { target: { value: "x".repeat(MERGE_MESSAGE_LIMIT_BYTES + 1) } });
+    expect(confirm).toBeDisabled();
+    expect(field).toHaveAccessibleDescription("merge.message.tooLong");
+
+    fireEvent.change(field, { target: { value: "Fine" } });
+    expect(confirm).toBeEnabled();
+    expect(field).not.toHaveAttribute("aria-invalid");
   });
 
   it("shows the unrelated-histories acknowledgement only when required", () => {
@@ -144,7 +227,7 @@ describe("MergeDialog", () => {
     fireEvent.click(acknowledgement);
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
-    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, true);
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, true, "Merge branch 'feature'");
 
     mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
     rerender(dialog(onConfirm));
@@ -157,6 +240,7 @@ function renderDialog(onConfirm: (
   dirtyPolicy: MergeDirtyPolicy,
   fetchFirst: boolean,
   allowUnrelatedHistories: boolean,
+  message: string | null,
 ) => void) {
   return render(dialog(onConfirm));
 }
@@ -166,6 +250,7 @@ function dialog(onConfirm: (
   dirtyPolicy: MergeDirtyPolicy,
   fetchFirst: boolean,
   allowUnrelatedHistories: boolean,
+  message: string | null,
 ) => void) {
   return (
     <MergeDialog
@@ -189,6 +274,25 @@ function preflight(prediction: MergePreflight["prediction"]): MergePreflight {
     prediction,
     dirty: { staged: 0, modified: 0, untracked: 0, wouldOverwrite: [] },
     blockers: [],
+    defaultMessage: "Merge branch 'feature'",
     generations: { workingTree: 1, refs: 1, history: 1, stash: 0, config: 0 },
   };
 }
+
+describe("merge message rules", () => {
+  it("matches the backend: a commit results unless fast-forward-only or a predicted fast-forward", () => {
+    expect(mergeCreatesCommit("fastForward", "default")).toBe(false);
+    expect(mergeCreatesCommit("fastForward", "noFastForward")).toBe(true);
+    expect(mergeCreatesCommit("mergeCommit", "default")).toBe(true);
+    expect(mergeCreatesCommit("mergeCommit", "fastForwardOnly")).toBe(false);
+    expect(mergeCreatesCommit("unrelated", "default")).toBe(true);
+    expect(mergeCreatesCommit("alreadyUpToDate", "noFastForward")).toBe(false);
+  });
+
+  it("bounds the message in UTF-8 bytes after line-ending normalization", () => {
+    expect(mergeMessageProblem("")).toBe("empty");
+    expect(mergeMessageProblem("x".repeat(MERGE_MESSAGE_LIMIT_BYTES))).toBeNull();
+    expect(mergeMessageProblem("é".repeat(MERGE_MESSAGE_LIMIT_BYTES / 2 + 1))).toBe("tooLong");
+    expect(mergeMessageProblem("a\r\n".repeat(MERGE_MESSAGE_LIMIT_BYTES / 2))).toBeNull();
+  });
+});

@@ -310,7 +310,7 @@ High-level snapshot; the authoritative per-task list is [`tasks.md`](tasks.md).
 | Phase 9 — Safety & recovery | ✅ done (`P9-01`–`P9-10`; [`specs/repository-safety.md`](specs/repository-safety.md)) |
 | Phase 10 — Daily-driver integration, advanced workflows & workspace | ✅ done: branch merge including squash (`P10-MERGE-01`–`03`), Working Changes file actions (`P10-WC-01`–`06`), multi-selection and all batch actions (`P10-WC-MULTI-01`–`03`), stash management (`P10-STASH-01`–`06`), remote management (`P10-06`–`07`), Workspace Intelligence (`P10-08`–`10`), basic and interactive rebase (`P10-04`/`05`/`P10-11`), and worktrees (`P10-01`–`03`). See [`tasks.md`](tasks.md) §"Phase 10 execution order". |
 | Phase 11 — Extreme performance & release hardening | 🚧 designed ([`specs/release-hardening.md`](specs/release-hardening.md)) |
-| Phase 12 — Merge completeness & conflict resolution | 🚧 designed ([`specs/branch-merge.md`](specs/branch-merge.md) §10, [`specs/conflict-resolution.md`](specs/conflict-resolution.md); `P12-MERGE-01`–`05`) |
+| Phase 12 — Merge completeness & conflict resolution | 🚧 in progress: `--no-ff` with an editable merge message (`P12-MERGE-01`) and wider sources/unrelated histories (`P12-MERGE-02`) shipped; `P12-MERGE-03`–`05` designed ([`specs/branch-merge.md`](specs/branch-merge.md) §10, [`specs/conflict-resolution.md`](specs/conflict-resolution.md)) |
 
 Between `P4-18` and `P5-01`, and again after `P5-19`, a substantial amount of UI
 and frontend-performance work landed without task IDs: the resizable repository

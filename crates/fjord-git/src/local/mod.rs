@@ -383,8 +383,15 @@ impl GitBackend for LocalGitBackend {
         dirty_policy: MergeDirtyPolicy,
         context: fjord_ports::GitOperationContext,
     ) -> Result<MergeResult, GitError> {
-        self.merge_branch_with_options(repo, source, mode, dirty_policy, false, context)
-            .await
+        self.merge_branch_with_options(
+            repo,
+            source,
+            mode,
+            dirty_policy,
+            fjord_ports::MergeBranchOptions::default(),
+            context,
+        )
+        .await
     }
 
     async fn merge_branch_with_options(
@@ -393,7 +400,7 @@ impl GitBackend for LocalGitBackend {
         source: &MergeSource,
         mode: MergeMode,
         dirty_policy: MergeDirtyPolicy,
-        allow_unrelated_histories: bool,
+        options: fjord_ports::MergeBranchOptions,
         context: fjord_ports::GitOperationContext,
     ) -> Result<MergeResult, GitError> {
         merge::run(
@@ -404,7 +411,8 @@ impl GitBackend for LocalGitBackend {
             merge::MergeOptions {
                 mode,
                 dirty_policy,
-                allow_unrelated_histories,
+                allow_unrelated_histories: options.allow_unrelated_histories,
+                message: options.message,
             },
             context,
         )

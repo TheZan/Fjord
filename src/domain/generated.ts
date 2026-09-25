@@ -103,7 +103,13 @@ export type RebaseTodoStep = { commit: CommitId, shortId: string, subject: strin
 
 export type InteractiveRebaseTodo = { preflight: RebasePreflight, steps: Array<RebaseTodoStep>, };
 
-export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, generations: GenerationSet, };
+export type MergePreflight = { source: MergeSource, sourceLabel: string, sourceCommit: CommitId, targetBranch: string, targetCommit: CommitId, prediction: MergePrediction, dirty: MergeDirtyState, blockers: Array<string>, 
+/**
+ * The single-source message `git fmt-merge-msg` would produce, e.g.
+ * `Merge branch 'feature' into develop`. The dialog prefills it; the text
+ * the user confirms is the text committed.
+ */
+defaultMessage: string, generations: GenerationSet, };
 
 export type MergeOutcome = { "kind": "alreadyUpToDate" } | { "kind": "fastForwarded", head: CommitId, } | { "kind": "merged", commit: CommitId, } | { "kind": "conflicted", state: RepoOperationState, };
 
