@@ -160,6 +160,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::add_ignore_rule,
             commands::stage_files,
             commands::stage_patch,
+            commands::get_conflicts,
+            commands::resolve_conflict,
             commands::unstage_files,
             commands::unstage_patch,
             commands::discard_patch,

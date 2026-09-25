@@ -101,7 +101,10 @@
     "worktree_locked": "Le worktree est verrouillé.",
     "worktree_dirty": "Le worktree contient des modifications non validées.",
     "worktree_failed": "Git n’a pas pu terminer l’opération du worktree.",
-    "log_folder_unavailable": "Impossible d'ouvrir le dossier des journaux. Ouvrez manuellement le dossier de données de l'application."
+    "log_folder_unavailable": "Impossible d'ouvrir le dossier des journaux. Ouvrez manuellement le dossier de données de l'application.",
+    "conflict_markers_present": "{{path}} contient encore des marqueurs de conflit à la ligne {{line}}.",
+    "conflict_resolution_not_applicable": "Cette résolution ne s’applique pas à ce type de conflit.",
+    "conflict_resolution_failed": "Git n’a pas pu terminer la résolution du conflit. Le fichier est toujours en conflit."
   },
   "settings": {
     "sections": {

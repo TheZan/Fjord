@@ -116,6 +116,48 @@ async fn dispatch(
                     .await?
             ));
         }
+        "get_merge_preflight" => {
+            let preflight = backend
+                .merge_preflight(repo, &serde_json::from_value(args["source"].clone())?)
+                .await?;
+            return Ok(json!({"generations": preflight.generations, "data": preflight}));
+        }
+        "merge_branch" => {
+            return Ok(json!(
+                backend
+                    .merge_branch_with_options(
+                        repo,
+                        &serde_json::from_value(args["source"].clone())?,
+                        serde_json::from_value(args["mode"].clone())?,
+                        serde_json::from_value(args["dirtyPolicy"].clone())?,
+                        fjord_ports::MergeBranchOptions {
+                            allow_unrelated_histories: args["allowUnrelatedHistories"]
+                                .as_bool()
+                                .unwrap_or(false),
+                            message: args["message"].as_str().map(str::to_string),
+                        },
+                        GitOperationContext::default()
+                    )
+                    .await?
+            ))
+        }
+        "get_conflicts" => {
+            let conflicts = backend.conflicts(repo).await?;
+            return Ok(json!({"generations": conflicts.generations, "data": conflicts}));
+        }
+        "resolve_conflict" => {
+            return Ok(json!(
+                backend
+                    .resolve_conflict(
+                        repo,
+                        args["path"].as_str().unwrap(),
+                        serde_json::from_value(args["resolution"].clone())?,
+                        args["allowMarkers"].as_bool().unwrap_or(false),
+                        serde_json::from_value(args["expectedGenerations"].clone())?,
+                    )
+                    .await?
+            ))
+        }
         "continue_operation" => return Ok(json!(backend.continue_operation(repo).await?)),
         "open_merge_tool" => {
             backend.open_merge_tool(repo).await?;

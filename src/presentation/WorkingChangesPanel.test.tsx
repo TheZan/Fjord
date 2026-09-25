@@ -139,10 +139,15 @@ describe("WorkingChangesPanel", () => {
       { toggle: false, range: false },
     );
 
+    // P12-MERGE-03: a conflicted path is never staged in bulk or from its
+    // row — that would silently stage its conflict markers.
     fireEvent.click(screen.getByRole("button", { name: "working.stageAll" }));
-    expect(panelProps.onStage).toHaveBeenCalledWith(["src/app.ts", "src/conflict.ts"]);
-    fireEvent.click(screen.getAllByRole("button", { name: "working.stage" })[1]);
-    expect(panelProps.onStage).toHaveBeenCalledWith(["src/conflict.ts"]);
+    expect(panelProps.onStage).toHaveBeenCalledWith(["src/app.ts"]);
+    const conflictedStage = screen.getAllByRole("button", { name: "working.stage" })[1];
+    expect(conflictedStage).toHaveAttribute("aria-disabled", "true");
+    expect(conflictedStage).toHaveAttribute("title", "workingFile.disabled.pathIsConflicted");
+    fireEvent.click(conflictedStage);
+    expect(panelProps.onStage).not.toHaveBeenCalledWith(["src/conflict.ts"]);
 
     fireEvent.click(screen.getByRole("button", { name: "working.unstageAll" }));
     expect(panelProps.onUnstage).toHaveBeenCalledWith(["README.md"]);

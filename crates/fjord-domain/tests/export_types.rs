@@ -3,7 +3,8 @@ use std::path::Path;
 
 use fjord_domain::{
     AmendInfo, BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
-    CommitPage, CommitPushResult, CommitSummary, Consequence, CreateBranchFromStashResult,
+    CommitPage, CommitPushResult, CommitSummary, ConflictEntry, ConflictKind, ConflictResolution,
+    ConflictSet, ConflictSides, ConflictStage, Consequence, CreateBranchFromStashResult,
     CreateRepositoryRequest, CreateRepositoryResult, CreateStashRequest, CreateStashResult,
     CredentialHelperInfo, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
     DiffHunk, DiffLine, DiffLineEnding, DiffLineKind, DiffWhitespaceMode, DiscardSelection,
@@ -101,6 +102,12 @@ fn generated_types() -> String {
     push::<MergeResult>(&mut output, &config);
     push_without_trailing_whitespace::<SquashMergeOutcome>(&mut output, &config);
     push::<SquashMergeResult>(&mut output, &config);
+    push::<ConflictKind>(&mut output, &config);
+    push_without_trailing_whitespace::<ConflictStage>(&mut output, &config);
+    push::<ConflictEntry>(&mut output, &config);
+    push_without_trailing_whitespace::<ConflictSides>(&mut output, &config);
+    push::<ConflictSet>(&mut output, &config);
+    push::<ConflictResolution>(&mut output, &config);
     push::<RemoteRef>(&mut output, &config);
     push::<TagInfo>(&mut output, &config);
     push::<StashId>(&mut output, &config);

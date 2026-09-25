@@ -101,7 +101,10 @@
     "worktree_locked": "The worktree is locked.",
     "worktree_dirty": "The worktree has uncommitted changes.",
     "worktree_failed": "Git could not complete the worktree operation.",
-    "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually."
+    "log_folder_unavailable": "The log folder could not be opened. Open the application data folder manually.",
+    "conflict_markers_present": "{{path}} still contains conflict markers at line {{line}}.",
+    "conflict_resolution_not_applicable": "That resolution does not apply to this kind of conflict.",
+    "conflict_resolution_failed": "Git could not finish resolving the conflict. The file is still conflicted."
   },
   "settings": {
     "sections": {
