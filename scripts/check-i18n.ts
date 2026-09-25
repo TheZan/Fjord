@@ -92,6 +92,35 @@ for (const locale of locales) {
   }
 }
 
+// conflict-resolution.md §3: a conflict side is always named by its real ref.
+// No shipped string may present a side as "ours"/"theirs", and the one
+// take-side label must interpolate the ref rather than embed a side name.
+function flattenValues(catalog: Catalog, prefix = ""): [string, string][] {
+  return Object.entries(catalog).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return typeof value === "string" ? [[path, value] as [string, string]] : flattenValues(value, path);
+  });
+}
+
+const SIDE_WORDS = /\b(ours|theirs)\b/i;
+for (const locale of listLocales()) {
+  for (const namespace of listNamespaces(locale)) {
+    const catalog = JSON.parse(readFileSync(join(LOCALES_DIR, locale, namespace), "utf-8")) as Catalog;
+    const values = flattenValues(catalog);
+    for (const [key, value] of values) {
+      if (SIDE_WORDS.test(value.replace(/\{\{[^}]*\}\}/g, ""))) {
+        problems += 1;
+        console.error(`  ${locale}/${namespace}: '${key}' names a conflict side as "ours"/"theirs"`);
+      }
+    }
+    const takeSide = values.find(([key]) => key === "conflicts.takeSide");
+    if (namespace === "workspace.json" && !takeSide?.[1].includes("{{ref}}")) {
+      problems += 1;
+      console.error(`  ${locale}/${namespace}: 'conflicts.takeSide' must interpolate {{ref}}`);
+    }
+  }
+}
+
 if (problems > 0) {
   console.error(`\ncheck-i18n: ${problems} problem(s) found.`);
   process.exit(1);

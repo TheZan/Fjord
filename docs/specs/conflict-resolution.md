@@ -1,6 +1,6 @@
 # Spec: in-app conflict resolution
 
-Referenced by: P12-MERGE-03, SDD §5.2, §15.
+Referenced by: P12-MERGE-03 (**shipped**), SDD §5.2, §15.
 Related: [`repository-safety.md`](repository-safety.md),
 [`branch-merge.md`](branch-merge.md),
 [`working-tree-and-diff.md`](working-tree-and-diff.md),
@@ -67,14 +67,17 @@ later in the same workflow.
 
 ## Current state
 
-| Area | State |
-|---|---|
-| Conflict detection | `LocalGitBackend::fresh_index(..).has_conflicts()`, and `conflict_paths` in `crates/fjord-git/src/local/status.rs` |
-| Conflict shape | Collapsed to `Vec<String>`: `conflict.our.or(conflict.their).or(conflict.ancestor)` — the stage structure that distinguishes a modify/delete from a both-modified is discarded at the source |
-| Operation state | `RepoOperationState.conflicted_paths`, surfaced by the Phase 9 banner |
-| Working Changes | A `conflicted` badge per row (`WorkingChangesPanel.tsx`), no conflict-specific action |
-| Resolution | `open_merge_tool` (`git mergetool --no-prompt`) for the whole repository, plus ordinary `stage_files`, which stages conflict markers silently |
-| Squash merge | Already reads conflicts live from the index rather than from `RepoOperationState`, because `merge --squash` never writes `MERGE_HEAD` (`P10-MERGE-03`) |
+**Shipped by `P12-MERGE-03`.** The table below is the state after it; the
+pre-Phase-12 state it replaced is kept in the right-hand column for context.
+
+| Area | State (shipped) | Before `P12-MERGE-03` |
+|---|---|---|
+| Conflict read | `crates/fjord-git/src/local/conflicts.rs::raw_conflicts` — one pass over `git2::Index::conflicts()`, ordered by byte path, keeping every stage. `LocalGitBackend::conflict_paths` (the banner summary in `RepoOperationState.conflicted_paths`) is now a projection of the same pass | `conflict_paths` collapsed each conflict to one path, discarding the stages |
+| Conflict model | `ConflictEntry` / `ConflictStage` / `ConflictKind` / `ConflictSides` / `ConflictSet` / `ConflictResolution` in `fjord-domain`; `ConflictKind::from_stages` is the pure derivation | `Vec<String>` |
+| Detail read | `conflicts::read_set` behind `GitBackend::conflicts` and IPC `get_conflicts` | — |
+| Resolution | `conflicts::resolve` behind `GitBackend::resolve_conflict` and IPC `resolve_conflict` (operation kind `resolve-conflict`), `MutationKind::ResolveConflict` → `working_tree` | `open_merge_tool` only, plus `stage_files`, which staged conflict markers silently |
+| Working Changes | `ConflictsGroup.tsx` above Staged/Unstaged, fed by `useConflicts`; conflicted Staged/Unstaged rows keep their badge and diff, with Stage/Unstage/Discard disabled and the reason `workingFile.disabled.pathIsConflicted`; **Stage all** skips conflicted paths | A `conflicted` badge per row and an enabled Stage |
+| Squash merge / stash apply | Resolved through the same group; the operation state stays `Normal` throughout | Merge tool only |
 
 ## Proposed design
 
@@ -115,19 +118,27 @@ pub struct ConflictStage {
 }
 
 pub enum ConflictKind {
-    BothModified,  // 1 + 2 + 3
-    BothAdded,     // 2 + 3, no base
-    AddedByUs,     // 1 + 2
-    AddedByThem,   // 1 + 3
-    DeletedByUs,   // 1 + 3, ours absent
-    DeletedByThem, // 1 + 2, theirs absent
-    BothDeleted,   // 1 only
+    BothModified,  // 1 + 2 + 3   (UU)
+    BothAdded,     // 2 + 3       (AA)
+    AddedByUs,     // 2 only      (AU)
+    AddedByThem,   // 3 only      (UA)
+    DeletedByUs,   // 1 + 3       (DU)
+    DeletedByThem, // 1 + 2       (UD)
+    BothDeleted,   // 1 only      (DD)
 }
 ```
 
 `ConflictKind` is **derived from which stages are present**, never parsed from
-Git's porcelain output. The derivation is a pure function and is unit-tested per
-combination.
+Git's porcelain output. The derivation is a pure function
+(`ConflictKind::from_stages`) and is unit-tested per combination. The seven
+non-empty stage subsets map one-to-one onto the seven kinds, named as
+`git status` names them. (An earlier draft of this spec listed `AddedByUs` as
+1 + 2 and `AddedByThem` as 1 + 3, which collides with the two delete kinds; the
+shipped derivation follows Git.)
+
+`ConflictStage.size` comes from the object database header, never from reading
+the blob, and `ConflictStage.binary` from `.gitattributes` (`binary`, `-diff`,
+`-merge`, `-text`) — again without reading content.
 
 ```rust
 pub struct ConflictSet {
@@ -167,9 +178,27 @@ Therefore:
   sets `inverted` for the rebase family. Labels come from `MERGE_HEAD`,
   `REBASE_HEAD`/`rebase-merge/onto`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, or the
   applied stash, falling back to a short object id when no ref name exists.
+  As shipped (`conflicts::sides`):
+  - A commit is named by a local branch at it (other than the checked-out
+    one), then a remote-tracking branch, then a tag, then its short id.
+  - `ours` is the checked-out branch, or `HEAD`'s short id when detached; during
+    a rebase it is the `onto` commit's name and `theirs` is the branch being
+    rebased (`head-name`), or `REBASE_HEAD`'s short id for a detached rebase.
+  - `merge --squash` and `stash apply` write no marker. Fjord records the
+    squash source label and the applied `StashId` when its own command leaves
+    a conflict; the stash is re-resolved to its current `stash@{n}` at read
+    time. Without a record, `SQUASH_MSG`'s newest `commit <oid>` names a squash
+    source, and `stash@{0}` — what a plain `git stash apply` applies — names a
+    stash. With neither, `theirs_label` is empty and the UI substitutes the
+    localized `conflicts.unknownSide`.
 - Every user-visible control interpolates a label:
   **Keep `{{ours}}` version** / **Keep `{{theirs}}` version**. No shipped string
-  contains the words "ours" or "theirs" as a side name.
+  contains the words "ours" or "theirs" as a side name. `npm run check-i18n`
+  enforces both halves: it fails on any catalog value containing "ours" or
+  "theirs" as a word, and on any locale whose `conflicts.takeSide` does not
+  interpolate `{{ref}}`. The `ConflictKind` labels interpolate the refs too
+  ("changed on `{{ours}}`, deleted on `{{theirs}}`"), so a kind never names a
+  side by a pronoun either.
 - `inverted` is not used to reorder anything. It exists so the UI can state
   plainly which side is the branch and which is the commit being replayed, and
   so tests can assert the labels are the way round Git actually means.
@@ -210,7 +239,20 @@ as command text:
 
 Both steps run as one logical action: if the second fails, the first is reported
 and the path stays conflicted in the returned set rather than half-resolved and
-silently staged.
+silently staged. As shipped, a failed step returns `conflict_resolution_failed`
+(bounded, sanitized Git stderr in `diagnostics`) instead of a set; `checkout
+--ours|--theirs` only rewrites the worktree file, so the index still holds the
+path's conflict stages and the next `get_conflicts` — which the UI's failure
+path invalidates — reports it conflicted. `working_tree` still advances, because
+the worktree file may have changed.
+
+Every step runs with `GIT_LITERAL_PATHSPECS=1`: after `--` Git would still read
+`*.txt` as a glob or `:(glob)x` as pathspec magic, and a resolution must touch
+exactly the named path. The path is first checked lexically (relative, normal
+components only, no `.git`) with the helper `delete_file::normal_relative_path`
+shares with Delete file, then looked up among the live index's conflicts; a
+path that is not a current conflict fails `preflight_stale`, like a stale
+generation, because the view it came from no longer matches.
 
 `MutationKind::ResolveConflict` advances **`working_tree` only**. No ref moves,
 no commit is created, no history changes — the same mask reasoning as
@@ -231,6 +273,14 @@ action fails with `conflict_markers_present` naming the first offending line
 number. The UI states the reason and offers **Stage anyway**, which repeats the
 call with an explicit `allow_markers` acknowledgement. Binary files skip the
 scan.
+
+As shipped (`conflicts::first_marker_line`): the markers are the lines Git
+itself writes — `<<<<<<<`, `>>>>>>>` and the diff3 `|||||||`, each alone or
+followed by a space and a label, and a line that is exactly `=======` (a CRLF
+ending is ignored). A Markdown setext underline of another length is not a
+marker. "Binary" means a NUL byte in the first 8000 bytes, Git's own heuristic;
+a missing file, a directory or a symlink has nothing to scan. The error carries
+the path in `paths` and the line in the new `AppError.line` field.
 
 The default is refusal. The override exists because a legitimate file (this
 spec, for one) can contain those sequences, and Fjord does not get to be sure.
@@ -258,6 +308,28 @@ resolution actions from §4 in its context menu, alongside the existing
 
 No new dialog and no new panel. Resolution is a row action, because the user is
 already looking at the row.
+
+As shipped:
+
+- `useConflicts` reads `get_conflicts` whenever the status, the operation state
+  or a Working Changes row reports a conflict, under the query key
+  `[...workingChanges, "conflicts"]`, so every working-tree invalidation also
+  refreshes the set.
+- The group lists each entry once with its kind label. The same paths stay in
+  Staged/Unstaged with their `conflict` badge, so their diff (with the markers)
+  is still one click away; there, Stage/Unstage/Discard are rendered disabled
+  with `workingFile.disabled.pathIsConflicted`, and **Stage all** skips them.
+- The row menu offers exactly the kind's resolutions — an inapplicable one is
+  absent, not disabled — then **Open merge tool**, open-in-editor, reveal,
+  copy path, and disabled Stage/Discard naming the conflict. **Keep file** names
+  the surviving side's ref.
+- `conflict_markers_present` renders an inline `role="alert"` row inside the
+  group with **Stage anyway** and **Dismiss**; it is not a dialog or a banner.
+- During a rebase the group states `conflicts.rebaseSidesExplanation`; a
+  truncated set states `conflicts.truncated` with the exact total.
+- A successful resolution invalidates status, working changes and the operation
+  state; Continue then appears through the unchanged
+  `available_controls(.., conflict_free)`.
 
 ### 7. Backend contract
 
@@ -291,6 +363,12 @@ against `src/locales/en/glossary.md`:
 `conflicts.truncated`, `errors.conflict_markers_present`,
 `errors.conflict_resolution_not_applicable`,
 `workingFile.disabled.pathIsConflicted`.
+
+Shipped additionally (all five locales): `conflicts.keepFile` interpolates the
+surviving side's `{{ref}}`; `conflicts.unknownSide` substitutes for an empty
+side label; `conflicts.dismiss` closes the marker warning; `conflicts.resolved`
+is the success notice; `errors.conflict_resolution_failed` covers a failed Git
+step. `errors.*` live in the `common` namespace, the rest in `workspace`.
 
 `conflicts.takeSide` is one key interpolating `{{ref}}`, which is what makes the
 §3 rule enforceable by `npm run check-i18n` rather than by review.
@@ -371,6 +449,27 @@ and nothing else.
 5. Stage/Unstage/Discard are disabled on a conflicted row with a stated reason.
 6. The group appears after a conflicted squash merge, where no operation banner
    is shown — proving the UI is index-driven, not banner-driven.
+
+### Where the required coverage lives (shipped)
+
+- Unit (Rust): `fjord-domain` — `conflict_kind_is_derived_from_every_stage_combination`,
+  `conflict_kind_offers_exactly_the_spec_resolutions`, `keep_file_takes_the_surviving_side`;
+  `crates/fjord-git/src/local/conflicts.rs` — marker detection, its 1 MiB bound,
+  binary skip, look-alike rejection, and per-resolution argument vectors;
+  `generation.rs` — the `ResolveConflict` mask; `fjord-app` `error.rs` — the
+  three stable codes and the `line` field.
+- Integration (Rust): `crates/fjord-git/src/local/tests/conflicts.rs` —
+  `case_01` … `case_11` in the order listed above, plus literal pathspecs
+  (`[ab].txt`, which as a glob would also match `a.txt`), the 1000-entry bound with an exact `total`, a clean index, and
+  cherry-pick/revert side labels.
+- Component: `src/presentation/ConflictsGroup.test.tsx` (cases 1–5, axe),
+  `RepoDetailContainer.test.tsx` (case 4's re-dispatch from a real
+  `conflict_markers_present`, case 6's index-driven read with the operation
+  `Normal`), `WorkingFileContextMenu.test.tsx` and `WorkingChangesPanel.test.tsx`
+  (case 5 on Staged/Unstaged rows, Stage all skipping conflicts).
+- E2E: `e2e/merge-conflict-resolution.spec.ts` merges from the branch tree,
+  resolves three paths (keep one side, keep the other, delete) inside Fjord,
+  Continues, and asserts the merge commit's parents and tree against real Git.
 
 ## Acceptance criteria
 

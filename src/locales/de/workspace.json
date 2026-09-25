@@ -868,6 +868,28 @@
       "notFastForward": "{{branch}} kann nicht per Fast-Forward auf {{source}} gebracht werden. Verwenden Sie stattdessen „{{branch}} auschecken und {{source}} mergen…“."
     }
   },
+  "conflicts": {
+    "group": "Konflikte",
+    "kind": {
+      "bothModified": "auf beiden Seiten geändert",
+      "bothAdded": "auf beiden Seiten hinzugefügt",
+      "addedByUs": "nur auf {{ours}} hinzugefügt",
+      "addedByThem": "nur auf {{theirs}} hinzugefügt",
+      "deletedByUs": "auf {{ours}} gelöscht, auf {{theirs}} geändert",
+      "deletedByThem": "auf {{ours}} geändert, auf {{theirs}} gelöscht",
+      "bothDeleted": "auf beiden Seiten gelöscht"
+    },
+    "takeSide": "Version von {{ref}} behalten",
+    "keepFile": "Datei aus {{ref}} behalten",
+    "deleteFile": "Datei löschen",
+    "markResolved": "Als gelöst markieren",
+    "stageAnyway": "Trotzdem stagen",
+    "dismiss": "Schließen",
+    "rebaseSidesExplanation": "Rebase läuft: {{ours}} ist der Branch, auf den umgesetzt wird, und {{theirs}} ist der Commit, der erneut angewendet wird.",
+    "truncated": "{{shown}} von {{total}} Dateien mit Konflikten werden angezeigt. Verwenden Sie für den Rest das Merge-Tool.",
+    "unknownSide": "eingehenden Änderungen",
+    "resolved": "{{path}} gelöst."
+  },
   "workingFile": {
     "stage": "Stagen",
     "stageFiles_one": "Stagen",
@@ -912,7 +934,8 @@
       "whitespaceMode": "Der angezeigte Diff entspricht nicht dem Patch, den Git anwenden würde.",
       "deleteAlsoStaged": "Diese Datei hat auch bereitgestellte Änderungen. Entfernen Sie diese aus der Bereitstellung, bevor Sie die Datei löschen.",
       "noDiffTool": "Es ist kein externes Diff-Tool konfiguriert. Legen Sie diff.tool in Git fest oder wählen Sie eines unter Einstellungen → Werkzeuge.",
-      "conflictedSelection": "{{path}} hat einen Konflikt. Lösen Sie ihn, bevor Sie die Auswahl bearbeiten."
+      "conflictedSelection": "{{path}} hat einen Konflikt. Lösen Sie ihn, bevor Sie die Auswahl bearbeiten.",
+      "pathIsConflicted": "{{path}} hat einen Konflikt. Lösen Sie ihn zuerst in der Gruppe „Konflikte“."
     },
     "ignore": {
       "label": "Ignorieren",

@@ -7,14 +7,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use fjord_domain::{
-    AmendInfo, BranchInfo, CommitPage, CommitSummary, Consequence, CreateBranchFromStashResult,
-    CreateStashRequest, CreateStashResult, DestructiveAction, DestructiveExecutionResult,
-    DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow, GenerationSet, IgnoreRuleKind,
-    IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight,
-    MergeResult, MergeSource, PatchSelection, PatchSource, Recoverability, ReflogPage, RemoteInfo,
-    RemoveRemotePreflight, RepoOperationState, RepoStatus, SquashMergeResult, StashApplyResult,
-    StashEntry, StashFileGroup, StashFiles, StashId, TagInfo, WorkingChanges, Worktree,
-    WorktreeBranch,
+    AmendInfo, BranchInfo, CommitPage, CommitSummary, ConflictResolution, ConflictSet, Consequence,
+    CreateBranchFromStashResult, CreateStashRequest, CreateStashResult, DestructiveAction,
+    DestructiveExecutionResult, DiffWhitespaceMode, FileDiff, FileDiffDetail, FileDiffWindow,
+    GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor,
+    MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult, MergeSource, PatchSelection,
+    PatchSource, Recoverability, ReflogPage, RemoteInfo, RemoveRemotePreflight, RepoOperationState,
+    RepoStatus, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup, StashFiles,
+    StashId, TagInfo, WorkingChanges, Worktree, WorktreeBranch,
 };
 use thiserror::Error;
 
@@ -302,6 +302,12 @@ pub enum GitError {
     BranchUpdateNotFastForward,
     #[error("the branch moved before it could be updated")]
     BranchUpdateRefMoved,
+    #[error("the resolution does not apply to this kind of conflict")]
+    ConflictResolutionNotApplicable,
+    #[error("the file still contains conflict markers at line {line}")]
+    ConflictMarkersPresent { path: String, line: u32 },
+    #[error("resolving the conflict failed: {0}")]
+    ConflictResolutionFailed(String),
     #[error("the destructive preflight no longer matches the repository state")]
     PreflightStale,
     #[error("the interactive rebase todo list is invalid: {0}")]
@@ -882,6 +888,22 @@ pub trait GitBackend: Send + Sync {
         _expected_tip: &fjord_domain::CommitId,
     ) -> Result<GenerationSet, GitError> {
         Err(GitError::NotImplemented("update_branch_fast_forward"))
+    }
+    /// The live index's conflicted paths (`conflict-resolution.md` §1–§3).
+    async fn conflicts(&self, _repo: &RepoPath) -> Result<ConflictSet, GitError> {
+        Err(GitError::NotImplemented("conflicts"))
+    }
+    /// Resolves one conflicted path against the exact generations the caller
+    /// rendered, and returns the refreshed set (`conflict-resolution.md` §4–§5).
+    async fn resolve_conflict(
+        &self,
+        _repo: &RepoPath,
+        _path: &str,
+        _resolution: ConflictResolution,
+        _allow_markers: bool,
+        _expected_generations: GenerationSet,
+    ) -> Result<ConflictSet, GitError> {
+        Err(GitError::NotImplemented("resolve_conflict"))
     }
     /// Stages a verified line selection against the exact repository
     /// generation from which it was rendered.

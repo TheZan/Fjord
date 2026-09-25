@@ -161,6 +161,8 @@ pub fn builder() -> tauri::Builder<tauri::Wry> {
             commands::stage_files,
             commands::stage_patch,
             commands::update_branch_fast_forward,
+            commands::get_conflicts,
+            commands::resolve_conflict,
             commands::unstage_files,
             commands::unstage_patch,
             commands::discard_patch,

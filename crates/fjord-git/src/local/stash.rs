@@ -174,6 +174,12 @@ pub(super) fn apply_locked(
         ))
     })?;
     if !conflicts.is_empty() {
+        super::conflicts::record_index_only_source(
+            repo,
+            super::conflicts::IndexOnlySource::Stash {
+                id: stash_id.clone(),
+            },
+        );
         return Ok(ApplyResult {
             outcome: StashApplyOutcome::Conflicted { paths: conflicts },
             entry_removed: false,

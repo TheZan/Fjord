@@ -12,6 +12,9 @@ const USER_ERROR_CODES = new Set([
   "clone_destination_invalid",
   "clone_registration_failed",
   "clone_request_invalid",
+  "conflict_markers_present",
+  "conflict_resolution_failed",
+  "conflict_resolution_not_applicable",
   "create_repository_destination_invalid",
   "create_repository_destination_not_empty",
   "create_repository_registration_failed",
@@ -98,7 +101,7 @@ export function userErrorMessage(error: unknown): string {
   if (key === "errors.stash_scope_unrepresentable" && path === null) {
     return i18n.t("errors.unexpected", { ns: "common" });
   }
-  return i18n.t(key, { ns: "common", tool: readErrorTool(error), path });
+  return i18n.t(key, { ns: "common", tool: readErrorTool(error), path, line: readErrorLine(error) });
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -107,6 +110,13 @@ function readErrorCode(error: unknown): string | null {
   }
   if (error instanceof DOMException && error.name === "AbortError") {
     return "operation_cancelled";
+  }
+  return null;
+}
+
+function readErrorLine(error: unknown): number | null {
+  if (error && typeof error === "object" && "line" in error && typeof error.line === "number") {
+    return error.line;
   }
   return null;
 }

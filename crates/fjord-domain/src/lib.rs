@@ -679,6 +679,156 @@ pub struct SquashMergeResult {
     pub generations: GenerationSet,
 }
 
+/// Which index stages of a conflicted path exist (`docs/specs/conflict-resolution.md` §2).
+/// Named the way `git status` names them; derived from the stages, never
+/// parsed from porcelain output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum ConflictKind {
+    /// Base, ours and theirs (`UU`).
+    BothModified,
+    /// Ours and theirs, no base (`AA`).
+    BothAdded,
+    /// Ours only (`AU`).
+    AddedByUs,
+    /// Theirs only (`UA`).
+    AddedByThem,
+    /// Base and theirs; ours deleted the path (`DU`).
+    DeletedByUs,
+    /// Base and ours; theirs deleted the path (`UD`).
+    DeletedByThem,
+    /// Base only (`DD`).
+    BothDeleted,
+}
+
+/// Which whole-path side a conflicted path keeps when it is resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictSide {
+    Ours,
+    Theirs,
+}
+
+impl ConflictKind {
+    /// Pure derivation from the stages present in the index: stage 1 (base),
+    /// stage 2 (ours), stage 3 (theirs). `None` only when no stage exists,
+    /// which is not a conflict.
+    pub const fn from_stages(base: bool, ours: bool, theirs: bool) -> Option<Self> {
+        match (base, ours, theirs) {
+            (true, true, true) => Some(Self::BothModified),
+            (false, true, true) => Some(Self::BothAdded),
+            (false, true, false) => Some(Self::AddedByUs),
+            (false, false, true) => Some(Self::AddedByThem),
+            (true, false, true) => Some(Self::DeletedByUs),
+            (true, true, false) => Some(Self::DeletedByThem),
+            (true, false, false) => Some(Self::BothDeleted),
+            (false, false, false) => None,
+        }
+    }
+
+    /// The resolutions this kind offers (spec §4), in menu order.
+    pub const fn resolutions(self) -> &'static [ConflictResolution] {
+        match self {
+            Self::BothModified | Self::BothAdded => &[
+                ConflictResolution::TakeOurs,
+                ConflictResolution::TakeTheirs,
+                ConflictResolution::MarkResolved,
+            ],
+            Self::AddedByUs | Self::DeletedByThem | Self::AddedByThem | Self::DeletedByUs => {
+                &[ConflictResolution::KeepFile, ConflictResolution::DeleteFile]
+            }
+            Self::BothDeleted => &[ConflictResolution::DeleteFile],
+        }
+    }
+
+    pub fn allows(self, resolution: ConflictResolution) -> bool {
+        self.resolutions().contains(&resolution)
+    }
+
+    /// The side whose content `resolution` writes, or `None` when it writes
+    /// no side (`DeleteFile`, `MarkResolved`) or is not applicable here.
+    pub fn side_for(self, resolution: ConflictResolution) -> Option<ConflictSide> {
+        if !self.allows(resolution) {
+            return None;
+        }
+        match resolution {
+            ConflictResolution::TakeOurs => Some(ConflictSide::Ours),
+            ConflictResolution::TakeTheirs => Some(ConflictSide::Theirs),
+            ConflictResolution::KeepFile => match self {
+                Self::AddedByUs | Self::DeletedByThem => Some(ConflictSide::Ours),
+                Self::AddedByThem | Self::DeletedByUs => Some(ConflictSide::Theirs),
+                _ => None,
+            },
+            ConflictResolution::DeleteFile | ConflictResolution::MarkResolved => None,
+        }
+    }
+}
+
+/// One index stage of a conflicted path. Carries an object id and size, never
+/// content.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ConflictStage {
+    /// Object id of the stage's blob.
+    pub blob: CommitId,
+    pub mode: u32,
+    #[ts(type = "number | null")]
+    pub size: Option<u64>,
+    /// From `.gitattributes` (`binary`, `-diff`, `-merge`, `-text`); no blob
+    /// content is read to decide it.
+    pub binary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ConflictEntry {
+    pub path: String,
+    pub kind: ConflictKind,
+    pub base: Option<ConflictStage>,
+    pub ours: Option<ConflictStage>,
+    pub theirs: Option<ConflictStage>,
+}
+
+/// The two sides named by the refs Git actually means. `inverted` is set for
+/// the rebase family, where `--ours` is the branch being rebased onto and
+/// `--theirs` is the commit being replayed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ConflictSides {
+    pub ours_label: String,
+    /// Empty when no producer can be identified (for example a conflicted
+    /// `stash apply` run outside Fjord with no stash left to name).
+    pub theirs_label: String,
+    pub inverted: bool,
+}
+
+/// The live index's conflicts, bounded at 1000 entries ordered by byte path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub struct ConflictSet {
+    pub entries: Vec<ConflictEntry>,
+    pub truncated: bool,
+    pub total: u32,
+    pub sides: ConflictSides,
+    pub generations: GenerationSet,
+}
+
+/// A whole-path resolution, typed rather than a Git flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum ConflictResolution {
+    TakeOurs,
+    TakeTheirs,
+    KeepFile,
+    DeleteFile,
+    MarkResolved,
+}
+
 /// A reference advertised by a remote repository. `symbolic_target` is set
 /// for entries such as `HEAD` returned by `git ls-remote --symref`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -1796,6 +1946,89 @@ pub struct InteractionTrace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflict_kind_is_derived_from_every_stage_combination() {
+        use ConflictKind::*;
+        let cases = [
+            ((true, true, true), Some(BothModified)),
+            ((false, true, true), Some(BothAdded)),
+            ((false, true, false), Some(AddedByUs)),
+            ((false, false, true), Some(AddedByThem)),
+            ((true, false, true), Some(DeletedByUs)),
+            ((true, true, false), Some(DeletedByThem)),
+            ((true, false, false), Some(BothDeleted)),
+            ((false, false, false), None),
+        ];
+        for ((base, ours, theirs), expected) in cases {
+            assert_eq!(
+                ConflictKind::from_stages(base, ours, theirs),
+                expected,
+                "base={base} ours={ours} theirs={theirs}"
+            );
+        }
+    }
+
+    #[test]
+    fn conflict_kind_offers_exactly_the_spec_resolutions() {
+        use ConflictResolution::*;
+        let content = [TakeOurs, TakeTheirs, MarkResolved];
+        let presence = [KeepFile, DeleteFile];
+        for kind in [ConflictKind::BothModified, ConflictKind::BothAdded] {
+            assert_eq!(kind.resolutions(), content);
+            assert!(!kind.allows(KeepFile) && !kind.allows(DeleteFile));
+        }
+        for kind in [
+            ConflictKind::AddedByUs,
+            ConflictKind::AddedByThem,
+            ConflictKind::DeletedByUs,
+            ConflictKind::DeletedByThem,
+        ] {
+            assert_eq!(kind.resolutions(), presence);
+            assert!(!kind.allows(TakeOurs) && !kind.allows(TakeTheirs));
+            assert!(!kind.allows(MarkResolved));
+        }
+        assert_eq!(ConflictKind::BothDeleted.resolutions(), [DeleteFile]);
+    }
+
+    #[test]
+    fn keep_file_takes_the_surviving_side() {
+        use ConflictResolution::*;
+        assert_eq!(
+            ConflictKind::DeletedByThem.side_for(KeepFile),
+            Some(ConflictSide::Ours)
+        );
+        assert_eq!(
+            ConflictKind::AddedByUs.side_for(KeepFile),
+            Some(ConflictSide::Ours)
+        );
+        assert_eq!(
+            ConflictKind::DeletedByUs.side_for(KeepFile),
+            Some(ConflictSide::Theirs)
+        );
+        assert_eq!(
+            ConflictKind::AddedByThem.side_for(KeepFile),
+            Some(ConflictSide::Theirs)
+        );
+        assert_eq!(
+            ConflictKind::BothModified.side_for(TakeTheirs),
+            Some(ConflictSide::Theirs)
+        );
+        assert_eq!(ConflictKind::BothModified.side_for(KeepFile), None);
+        assert_eq!(ConflictKind::BothDeleted.side_for(DeleteFile), None);
+    }
+
+    #[test]
+    fn conflict_resolution_serializes_as_camel_case() {
+        assert_eq!(
+            serde_json::to_value(ConflictResolution::TakeOurs).unwrap(),
+            serde_json::json!("takeOurs")
+        );
+        assert_eq!(
+            serde_json::to_value(ConflictKind::DeletedByThem).unwrap(),
+            serde_json::json!("deletedByThem")
+        );
+    }
 
     #[test]
     fn overview_filters_round_trip_with_stable_camel_case_ids() {

@@ -19,6 +19,7 @@ Long Git operations (`clone`, `fetch`, `pull`, `push`) and workspace bulk operat
 | `continue_operation` / `skip_operation` | `{ repo_id, operation_id? }` | `RepoOperationState` | Runs the local system-Git sequencer command and returns the newly detected state. Abort is destructive and therefore runs through `execute_destructive_action` with its operation id. |
 | `merge_branch` | `{ repo_id, source, mode, dirty_policy, operation_id? }` | `MergeResult` | Runs the local branch merge with message-only progress; conflict is a successful typed result. |
 | `start_rebase` | `{ repo_id, onto, operation_id? }` | `RepoOperationState` | Local basic rebase, operation kind `rebase`, indeterminate progress (`total = 0`). Snapshot validation precedes operation registration; detected conflict is a successful typed result. |
+| `resolve_conflict` | `{ repo_id, path, resolution, allow_markers?, expected_generations, operation_id? }` | `ConflictSet` | Operation kind `resolve-conflict` (`P12-MERGE-03`): one path, one or two local system-Git steps under the write lock, `total = 1`. Refusals (`preflight_stale`, `conflict_resolution_not_applicable`, `conflict_markers_present`) are terminal `failed` events and change nothing. |
 | `bulk_fetch` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `bulk_pull` | `{ workspace_id, operation_id? }` | `BulkRepoResult[]` | Emits per-repo start/finish events. |
 | `cancel_operation` | `{ operation_id }` | `boolean` | `true` means an active operation saw the cancel request. |
@@ -50,7 +51,7 @@ Payload shape:
 type OperationProgressEvent = {
   operationId: string;
   kind: "clone" | "fetch" | "pull" | "push" | "publish" | "commit-push" | "bulk-fetch" | "bulk-pull" | "continue-operation" | "skip-operation" | "abort-operation" | "merge"
-      | "rebase"
+      | "rebase" | "squash-merge" | "resolve-conflict"
       ;
   scope:
     | { type: "repo"; repoId: string }

@@ -868,6 +868,28 @@
       "notFastForward": "{{branch}} ne peut pas avancer en fast-forward jusqu’à {{source}}. Utilisez « Basculer sur {{branch}} et fusionner {{source}}… »."
     }
   },
+  "conflicts": {
+    "group": "Conflits",
+    "kind": {
+      "bothModified": "modifié des deux côtés",
+      "bothAdded": "ajouté des deux côtés",
+      "addedByUs": "ajouté uniquement sur {{ours}}",
+      "addedByThem": "ajouté uniquement sur {{theirs}}",
+      "deletedByUs": "supprimé sur {{ours}}, modifié sur {{theirs}}",
+      "deletedByThem": "modifié sur {{ours}}, supprimé sur {{theirs}}",
+      "bothDeleted": "supprimé des deux côtés"
+    },
+    "takeSide": "Garder la version de {{ref}}",
+    "keepFile": "Garder le fichier de {{ref}}",
+    "deleteFile": "Supprimer le fichier",
+    "markResolved": "Marquer comme résolu",
+    "stageAnyway": "Indexer quand même",
+    "dismiss": "Fermer",
+    "rebaseSidesExplanation": "Rebase en cours : {{ours}} est la branche sur laquelle le rebase s’effectue, et {{theirs}} est le commit rejoué.",
+    "truncated": "{{shown}} fichiers en conflit affichés sur {{total}}. Utilisez l’outil de fusion pour le reste.",
+    "unknownSide": "l’autre côté",
+    "resolved": "{{path}} résolu."
+  },
   "workingFile": {
     "stage": "Indexer",
     "stageFiles_one": "Indexer",
@@ -912,7 +934,8 @@
       "whitespaceMode": "Le diff affiché ne correspond pas au patch que Git appliquerait.",
       "deleteAlsoStaged": "Ce fichier a aussi des modifications indexées. Désindexez-les avant de supprimer le fichier.",
       "noDiffTool": "Aucun outil de diff externe n'est configuré. Définissez diff.tool dans Git, ou choisissez-en un dans Paramètres → Outils.",
-      "conflictedSelection": "{{path}} présente un conflit. Résolvez-le avant d’agir sur cette sélection."
+      "conflictedSelection": "{{path}} présente un conflit. Résolvez-le avant d’agir sur cette sélection.",
+      "pathIsConflicted": "{{path}} présente un conflit. Résolvez-le d’abord depuis le groupe Conflits."
     },
     "ignore": {
       "label": "Ignorer",

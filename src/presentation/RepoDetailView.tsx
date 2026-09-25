@@ -30,6 +30,7 @@ import type { CommitContextAction } from "@/presentation/CommitGraph";
 import { WorkingChangesPanel } from "@/presentation/WorkingChangesPanel";
 import { WorkingFileContextMenu, type WorkingFileMenuState } from "@/presentation/WorkingFileContextMenu";
 import { OperationBanner } from "@/presentation/OperationBanner";
+import type { ConflictMarkerWarning } from "@/presentation/ConflictsGroup";
 import { StashApplyOptionsDialog } from "@/presentation/StashApplyOptionsDialog";
 import { CreateBranchFromStashDialog } from "@/presentation/CreateBranchFromStashDialog";
 import type { CreateWorktreeRequest } from "@/presentation/CreateWorktreeDialog";
@@ -37,6 +38,8 @@ import { Button, Muted, NotificationToast, ScreenSurface } from "@/presentation/
 import type {
   CommitSummary,
   AmendInfo,
+  ConflictResolution,
+  ConflictSet,
   DestructiveAction,
   DiffWhitespaceMode,
   GenerationSet,
@@ -143,6 +146,10 @@ export function RepoDetailView({
   onWorkingDiffWhitespaceModeChange,
   diffToolDisabledReason,
   stashFileDisabledReason,
+  conflicts = null,
+  conflictMarkerWarning = null,
+  onResolveConflict,
+  onDismissConflictMarkerWarning,
 }: {
   repo: RepositoryEntry;
   snapshotValidated: boolean;
@@ -247,6 +254,11 @@ export function RepoDetailView({
   diffToolDisabledReason?: string;
   /** Set when the resolved Git cannot run a pathspec-scoped `stash push`. */
   stashFileDisabledReason?: string;
+  /** The live index's conflict set (conflict-resolution.md §6). */
+  conflicts?: ConflictSet | null;
+  conflictMarkerWarning?: ConflictMarkerWarning | null;
+  onResolveConflict?: (path: string, resolution: ConflictResolution, allowMarkers: boolean) => void;
+  onDismissConflictMarkerWarning?: () => void;
 }) {
   const { t } = useTranslation("workspace");
   const [selectedCommitFile, setSelectedCommitFile] = useState<string | null>(null);
@@ -400,6 +412,10 @@ export function RepoDetailView({
       onCommit={onCommit}
       pendingDraftMessage={pendingDraftMessage}
       onPendingDraftMessageConsumed={onPendingDraftMessageConsumed}
+      conflicts={conflicts}
+      conflictMarkerWarning={conflictMarkerWarning}
+      onResolveConflict={onResolveConflict}
+      onDismissConflictMarkerWarning={onDismissConflictMarkerWarning}
     />
   ) : selectedStash ? (
     <StashInspector

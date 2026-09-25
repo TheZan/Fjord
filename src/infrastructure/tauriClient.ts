@@ -7,6 +7,8 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AmendInfo,
+  ConflictResolution,
+  ConflictSet,
   CreateBranchFromStashResult,
   CreateStashRequest,
   CreateStashResult,
@@ -124,7 +126,8 @@ export type OperationKind =
   | "stash-checkout"
   | "merge"
   | "rebase"
-  | "squash-merge";
+  | "squash-merge"
+  | "resolve-conflict";
 export type OperationStatus =
   | "started"
   | "progress"
@@ -158,6 +161,14 @@ export interface OperationTask<T> {
 export function invokeErrorCode(error: unknown): string | null {
   if (error && typeof error === "object" && "code" in error) {
     return String(error.code);
+  }
+  return null;
+}
+
+/** The 1-based marker line carried by `conflict_markers_present`. */
+export function invokeErrorLine(error: unknown): number | null {
+  if (error && typeof error === "object" && "line" in error && typeof error.line === "number") {
+    return error.line;
   }
   return null;
 }
@@ -961,6 +972,38 @@ export function updateBranchFastForward(
     observeRepositoryGenerations(repoId, generations, "refs");
     return generations;
   });
+}
+
+/** The live index's conflicted paths (conflict-resolution.md §7). */
+export function getConflicts(repoId: string, signal?: AbortSignal): Promise<ConflictSet> {
+  return invokeVersioned("get_conflicts", { repoId }, repoId, "working", signal);
+}
+
+/**
+ * Resolves one conflicted path against the generations the caller rendered;
+ * a stale view fails `preflight_stale` before anything changes.
+ */
+export function resolveConflict(
+  repoId: string,
+  path: string,
+  resolution: ConflictResolution,
+  expectedGenerations: GenerationSet,
+  allowMarkers = false,
+): OperationTask<ConflictSet> {
+  const task = invokeOperation<ConflictSet>("resolve-conflict", "resolve_conflict", {
+    repoId,
+    path,
+    resolution,
+    allowMarkers,
+    expectedGenerations,
+  });
+  return {
+    operationId: task.operationId,
+    promise: task.promise.then((set) => {
+      observeRepositoryGenerations(repoId, set.generations, "working");
+      return set;
+    }),
+  };
 }
 
 export function unstageFiles(repoId: string, paths: string[]): Promise<void> {

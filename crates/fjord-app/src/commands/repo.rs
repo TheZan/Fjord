@@ -1,14 +1,14 @@
 use fjord_domain::{
     BranchInfo, BulkRepoResult, CommitId, CommitPage, CommitPushResult, CommitSummary,
-    CreateBranchFromStashResult, CreateStashRequest, CreateStashResult, DestructiveAction,
-    DestructiveExecutionResult, DestructivePreflight, FileDiff, FileDiffWindow, GenerationSet,
-    GitConnectionTestResult, GlobalSearchResult, IgnoreRuleKind, IgnoreRuleOutcome,
-    IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode, MergePreflight, MergeResult,
-    MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage, RemoteInfo, RemotePushResult,
-    RemoveRemotePreflight, RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId,
-    SnapshotRevalidation, SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup,
-    StashFiles, StashId, StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree,
-    WorktreeBranch,
+    ConflictResolution, ConflictSet, CreateBranchFromStashResult, CreateStashRequest,
+    CreateStashResult, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
+    FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
+    IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
+    MergePreflight, MergeResult, MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage,
+    RemoteInfo, RemotePushResult, RemoveRemotePreflight, RepoOperationState, RepoStatus,
+    RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult, StashApplyResult,
+    StashEntry, StashFileGroup, StashFiles, StashId, StoredRepositorySnapshot, TagInfo,
+    WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
 };
 use fjord_ports::MergeBranchOptions;
 use serde::Serialize;
@@ -936,6 +936,50 @@ pub async fn update_branch_fast_forward(
         .repos
         .update_branch_fast_forward(repo_id, &branch, &source, &expected_tip)
         .await?)
+}
+
+#[tauri::command]
+pub async fn get_conflicts(
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+) -> Result<GenerationEnvelope<ConflictSet>, AppError> {
+    let data = state.repos.get_conflicts(repo_id).await?;
+    Ok(GenerationEnvelope {
+        generations: data.generations,
+        data,
+    })
+}
+
+// The flat parameter list is part of the documented Tauri IPC contract.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn resolve_conflict(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_id: RepositoryId,
+    path: String,
+    resolution: ConflictResolution,
+    allow_markers: Option<bool>,
+    expected_generations: GenerationSet,
+    operation_id: Option<String>,
+) -> Result<ConflictSet, AppError> {
+    run_repo_operation(
+        &app,
+        &state,
+        operation_id,
+        OperationKind::ResolveConflict,
+        repo_id,
+        |_| {
+            state.repos.resolve_conflict(
+                repo_id,
+                &path,
+                resolution,
+                allow_markers.unwrap_or(false),
+                expected_generations,
+            )
+        },
+    )
+    .await
 }
 
 #[tauri::command]

@@ -868,6 +868,28 @@
       "notFastForward": "{{branch}} no puede avanzar por fast-forward hasta {{source}}. Use «Cambiar a {{branch}} y fusionar {{source}}…»."
     }
   },
+  "conflicts": {
+    "group": "Conflictos",
+    "kind": {
+      "bothModified": "modificado en ambos lados",
+      "bothAdded": "añadido en ambos lados",
+      "addedByUs": "añadido solo en {{ours}}",
+      "addedByThem": "añadido solo en {{theirs}}",
+      "deletedByUs": "eliminado en {{ours}}, modificado en {{theirs}}",
+      "deletedByThem": "modificado en {{ours}}, eliminado en {{theirs}}",
+      "bothDeleted": "eliminado en ambos lados"
+    },
+    "takeSide": "Conservar la versión de {{ref}}",
+    "keepFile": "Conservar el archivo de {{ref}}",
+    "deleteFile": "Eliminar archivo",
+    "markResolved": "Marcar como resuelto",
+    "stageAnyway": "Preparar de todos modos",
+    "dismiss": "Cerrar",
+    "rebaseSidesExplanation": "Rebase en curso: {{ours}} es la rama sobre la que se hace el rebase y {{theirs}} es el commit que se vuelve a aplicar.",
+    "truncated": "Se muestran {{shown}} de {{total}} archivos con conflictos. Use la herramienta de fusión para el resto.",
+    "unknownSide": "los cambios entrantes",
+    "resolved": "{{path}} resuelto."
+  },
   "workingFile": {
     "stage": "Preparar",
     "stageFiles_one": "Preparar",
@@ -912,7 +934,8 @@
       "whitespaceMode": "El diff mostrado no coincide con el parche que aplicaría Git.",
       "deleteAlsoStaged": "Este archivo también tiene cambios preparados. Despreparalos antes de eliminar el archivo.",
       "noDiffTool": "No hay ninguna herramienta de diff externa configurada. Configure diff.tool en Git o elija una en Configuración → Herramientas.",
-      "conflictedSelection": "{{path}} tiene un conflicto. Resuélvalo antes de actuar sobre esta selección."
+      "conflictedSelection": "{{path}} tiene un conflicto. Resuélvalo antes de actuar sobre esta selección.",
+      "pathIsConflicted": "{{path}} tiene un conflicto. Resuélvalo primero desde el grupo Conflictos."
     },
     "ignore": {
       "label": "Ignorar",
