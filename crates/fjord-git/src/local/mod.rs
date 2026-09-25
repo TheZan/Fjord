@@ -413,6 +413,7 @@ impl GitBackend for LocalGitBackend {
                 dirty_policy,
                 allow_unrelated_histories: options.allow_unrelated_histories,
                 message: options.message,
+                strategy_option: options.strategy_option,
             },
             context,
         )

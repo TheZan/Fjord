@@ -13,11 +13,11 @@ use fjord_domain::{
     IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, IntegrationBlocker, InteractionSpan,
     InteractionTrace, InteractiveRebaseTodo, LogCursor, MergeDirtyPolicy, MergeDirtyState,
     MergeMode, MergeOutcome, MergePrediction, MergePreflight, MergeResult, MergeSource,
-    MergeSourceKind, OpenTarget, OperationControl, OverviewUiState, OverviewUiStatePatch,
-    PatchSelection, PatchSource, PublishedRewriteConsequence, RebaseKind, RebasePreflight,
-    RebaseResult, RebaseTodoAction, RebaseTodoStep, Recoverability, ReflogEntry, ReflogPage,
-    RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight, RepoCondition, RepoHealth,
-    RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
+    MergeSourceKind, MergeStrategyOption, OpenTarget, OperationControl, OverviewUiState,
+    OverviewUiStatePatch, PatchSelection, PatchSource, PublishedRewriteConsequence, RebaseKind,
+    RebasePreflight, RebaseResult, RebaseTodoAction, RebaseTodoStep, Recoverability, ReflogEntry,
+    ReflogPage, RemoteInfo, RemotePushResult, RemoteRef, RemoveRemotePreflight, RepoCondition,
+    RepoHealth, RepoOperation, RepoOperationState, RepoStatus, RepoStatusSummary, RepoUiState,
     RepoUiStatePatch, RepositoryEntry, RepositoryFilePath, RepositoryId, RepositorySnapshot,
     ResetMode, SearchResultKind, SelectionUiState, SelectionUiStatePatch, Settings, SidebarUiState,
     SidebarUiStatePatch, SnapshotRevalidation, SquashMergeOutcome, SquashMergeResult,
@@ -86,6 +86,7 @@ fn generated_types() -> String {
     push::<MergeSourceKind>(&mut output, &config);
     push::<MergeSource>(&mut output, &config);
     push::<MergeMode>(&mut output, &config);
+    push::<MergeStrategyOption>(&mut output, &config);
     push::<MergeDirtyPolicy>(&mut output, &config);
     push_without_trailing_whitespace::<MergePrediction>(&mut output, &config);
     push::<MergeDirtyState>(&mut output, &config);

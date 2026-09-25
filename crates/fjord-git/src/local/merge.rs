@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use fjord_domain::{
     CommitId, MergeDirtyPolicy, MergeMode, MergeOutcome, MergePrediction, MergePreflight,
-    MergeResult, MergeSource, RepoOperation, SquashMergeOutcome, SquashMergeResult,
+    MergeResult, MergeSource, MergeStrategyOption, RepoOperation, SquashMergeOutcome,
+    SquashMergeResult,
 };
 use fjord_ports::{GitError, GitOperationContext, GitRemoteError, RepoPath};
 
@@ -30,6 +31,8 @@ pub(super) struct MergeOptions {
     pub allow_unrelated_histories: bool,
     /// `None` keeps Git's default message; `Some` is committed verbatim.
     pub message: Option<String>,
+    /// `-X ours|theirs` (branch-merge §10.4); `None` leaves conflicts to the user.
+    pub strategy_option: Option<MergeStrategyOption>,
 }
 
 /// Validates and normalizes a user-confirmed merge message (branch-merge §10.1):
@@ -47,10 +50,12 @@ pub(super) fn normalize_message(message: &str) -> Result<String, GitError> {
 }
 
 /// `git merge` arguments for one validated request. The source and the
-/// message are each a single argument; nothing is ever joined into a shell
+/// message are each a single argument, and a strategy option is `-X` followed
+/// by its own `ours`/`theirs` argument; nothing is ever joined into a shell
 /// string.
 pub(super) fn merge_args(
     mode: MergeMode,
+    strategy_option: Option<MergeStrategyOption>,
     allow_unrelated_histories: bool,
     message: Option<&str>,
     ref_name: &str,
@@ -60,6 +65,14 @@ pub(super) fn merge_args(
         MergeMode::FastForwardOnly => args.push("--ff-only".into()),
         MergeMode::NoFastForward => args.push("--no-ff".into()),
         MergeMode::Default => {}
+    }
+    if let Some(option) = strategy_option {
+        args.push("-X".into());
+        // The merge target is the checked-out branch, which Git calls "ours".
+        args.push(match option {
+            MergeStrategyOption::PreferTarget => "ours".into(),
+            MergeStrategyOption::PreferSource => "theirs".into(),
+        });
     }
     if allow_unrelated_histories {
         args.push("--allow-unrelated-histories".into());
@@ -176,6 +189,7 @@ pub(super) async fn run(
     });
     let args = merge_args(
         options.mode,
+        options.strategy_option,
         matches!(preflight.prediction, MergePrediction::Unrelated),
         message.as_deref(),
         &preflight.source.ref_name,
@@ -522,6 +536,7 @@ mod tests {
         assert_eq!(
             strings(merge_args(
                 MergeMode::Default,
+                None,
                 false,
                 Some(message),
                 "refs/heads/x"
@@ -531,6 +546,7 @@ mod tests {
         assert_eq!(
             strings(merge_args(
                 MergeMode::NoFastForward,
+                None,
                 false,
                 Some(message),
                 "refs/heads/x"
@@ -548,6 +564,7 @@ mod tests {
         assert_eq!(
             strings(merge_args(
                 MergeMode::FastForwardOnly,
+                None,
                 false,
                 None,
                 "refs/heads/x"
@@ -555,7 +572,13 @@ mod tests {
             ["merge", "--ff-only", "--no-edit", "--", "refs/heads/x"]
         );
         assert_eq!(
-            strings(merge_args(MergeMode::Default, true, None, "refs/tags/v1")),
+            strings(merge_args(
+                MergeMode::Default,
+                None,
+                true,
+                None,
+                "refs/tags/v1"
+            )),
             [
                 "merge",
                 "--allow-unrelated-histories",
@@ -563,6 +586,53 @@ mod tests {
                 "--",
                 "refs/tags/v1"
             ]
+        );
+    }
+
+    #[test]
+    fn strategy_options_are_two_separate_arguments_naming_git_sides() {
+        assert_eq!(
+            strings(merge_args(
+                MergeMode::Default,
+                Some(MergeStrategyOption::PreferTarget),
+                false,
+                Some("Merge branch 'x'"),
+                "refs/heads/x"
+            )),
+            [
+                "merge",
+                "-X",
+                "ours",
+                "-m",
+                "Merge branch 'x'",
+                "--no-edit",
+                "--",
+                "refs/heads/x"
+            ]
+        );
+        assert_eq!(
+            strings(merge_args(
+                MergeMode::NoFastForward,
+                Some(MergeStrategyOption::PreferSource),
+                true,
+                None,
+                "refs/remotes/origin/x"
+            )),
+            [
+                "merge",
+                "--no-ff",
+                "-X",
+                "theirs",
+                "--allow-unrelated-histories",
+                "--no-edit",
+                "--",
+                "refs/remotes/origin/x"
+            ]
+        );
+        // No option means no `-X` at all: conflicts stay the user's.
+        assert!(
+            !strings(merge_args(MergeMode::Default, None, false, None, "x"))
+                .contains(&"-X".to_string())
         );
     }
 

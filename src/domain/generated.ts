@@ -83,6 +83,8 @@ export type MergeSource = { refName: string, kind: MergeSourceKind, };
 
 export type MergeMode = "default" | "fastForwardOnly" | "noFastForward";
 
+export type MergeStrategyOption = "preferTarget" | "preferSource";
+
 export type MergeDirtyPolicy = "refuse" | "stashFirst";
 
 export type MergePrediction = { "kind": "alreadyUpToDate" } | { "kind": "fastForward", commits: number, } | { "kind": "mergeCommit", ahead: number, behind: number, } | { "kind": "unrelated" };

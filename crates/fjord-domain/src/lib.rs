@@ -463,6 +463,19 @@ pub enum MergeMode {
     NoFastForward,
 }
 
+/// `-X ours` / `-X theirs` as an explicit product choice
+/// (`docs/specs/branch-merge.md` §10.4): when both sides change the same
+/// lines, prefer the target (the checked-out branch, Git's "ours") or the
+/// source (Git's "theirs"). The other side's conflicting lines are discarded
+/// without review. `--strategy` and custom drivers stay out of scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
+pub enum MergeStrategyOption {
+    PreferTarget,
+    PreferSource,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]

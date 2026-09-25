@@ -58,9 +58,15 @@ later in the same workflow.
   paths and sides, never an editing surface for hunks inside a conflicted file.
 - **Hunk-level conflict resolution.** Deliberately excluded with the editor: a
   per-hunk side chooser is an editor with extra steps.
-- **Automatic resolution.** Fjord never picks a side for the user. `-X ours` /
-  `-X theirs` as a *merge strategy option* is a separate, explicitly-flagged
-  decision owned by [`branch-merge.md`](branch-merge.md) §10, not by this spec.
+- **Automatic resolution.** Fjord never picks a side for the user after a
+  conflict. The one exception is chosen *before* a merge starts and has
+  shipped separately: `-X ours` / `-X theirs` as the typed
+  `MergeStrategyOption` ("when both sides change the same lines, prefer
+  `{{ref}}`"), off by default behind the merge dialog's Advanced disclosure, with
+  an explicit warning that the other side's conflicting lines are discarded
+  without review. It is owned by [`branch-merge.md`](branch-merge.md) §10.4
+  (`P12-MERGE-05`), not by this spec; a merge run without it produces conflicts
+  exactly as before.
 - **Resolving conflicts in a worktree other than the active one.**
 - **Changing what Continue/Skip/Abort do.** A fully resolved index is the
   precondition they already enforce.

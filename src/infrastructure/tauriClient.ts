@@ -29,6 +29,7 @@ import type {
   MergePreflight,
   MergeResult,
   MergeSource,
+  MergeStrategyOption,
   OpenTarget,
   PatchSelection,
   PatchSource,
@@ -445,6 +446,7 @@ export function runMergeBranch(
   dirtyPolicy: MergeDirtyPolicy,
   allowUnrelatedHistories: boolean,
   message: string | null,
+  strategyOption: MergeStrategyOption | null = null,
 ): OperationTask<MergeResult> {
   return invokeOperation("merge", "merge_branch", {
     repoId,
@@ -453,6 +455,7 @@ export function runMergeBranch(
     dirtyPolicy,
     allowUnrelatedHistories,
     message,
+    strategyOption,
   });
 }
 

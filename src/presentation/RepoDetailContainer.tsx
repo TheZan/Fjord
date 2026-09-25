@@ -20,7 +20,7 @@ import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import { useStashes } from "@/application/useStashes";
 import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
+import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, MergeStrategyOption, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
 import type { OperationControl, RepoOperationState } from "@/domain/generated";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
@@ -703,6 +703,7 @@ export function RepoDetailContainer({
     fetchFirst: boolean,
     allowUnrelatedHistories: boolean,
     mergeMessage: string | null,
+    strategyOption: MergeStrategyOption | null = null,
   ) {
     if (!mergeSource) return;
     const source = mergeSource;
@@ -727,6 +728,7 @@ export function RepoDetailContainer({
           dirtyPolicy,
           allowUnrelatedHistories,
           mergeMessage,
+          strategyOption,
         );
         setActionOperationId(task.operationId);
         const result = await task.promise;

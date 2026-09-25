@@ -147,6 +147,9 @@ pub struct PushTarget {
 pub struct MergeBranchOptions {
     pub allow_unrelated_histories: bool,
     pub message: Option<String>,
+    /// `None` leaves conflicts to the user; `Some` adds `-X ours|theirs`
+    /// (`branch-merge.md` §10.4).
+    pub strategy_option: Option<fjord_domain::MergeStrategyOption>,
 }
 
 /// Exact source and lease facts captured for one force-push confirmation.

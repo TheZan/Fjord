@@ -8255,6 +8255,7 @@ async fn merge_commits_the_confirmed_message_verbatim() {
             fjord_ports::MergeBranchOptions {
                 allow_unrelated_histories: false,
                 message: Some(message.into()),
+                strategy_option: None,
             },
             GitOperationContext::default(),
         )
@@ -8282,6 +8283,7 @@ async fn merge_refuses_an_invalid_message_before_launching_git() {
                 fjord_ports::MergeBranchOptions {
                     allow_unrelated_histories: false,
                     message: Some(message),
+                    strategy_option: None,
                 },
                 GitOperationContext::default(),
             )
@@ -8313,6 +8315,7 @@ async fn conflicted_merge_keeps_the_confirmed_message_for_continue_operation() {
             fjord_ports::MergeBranchOptions {
                 allow_unrelated_histories: false,
                 message: Some(message.into()),
+                strategy_option: None,
             },
             GitOperationContext::default(),
         )
@@ -8901,6 +8904,7 @@ async fn merge_unrelated_histories_requires_acknowledgement_then_succeeds() {
             fjord_ports::MergeBranchOptions {
                 allow_unrelated_histories: true,
                 message: None,
+                strategy_option: None,
             },
             GitOperationContext::default(),
         )
@@ -11895,3 +11899,5 @@ async fn start_interactive_rebase_rejects_a_todo_that_does_not_match_the_preflig
     ));
     assert_no_rebase_markers(&repo);
 }
+
+mod strategy_option;
