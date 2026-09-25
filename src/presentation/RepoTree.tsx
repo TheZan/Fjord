@@ -12,7 +12,8 @@ import { StashContextMenu } from "@/presentation/StashContextMenu";
 import type { StashAction } from "@/application/stashActions";
 import { formatRelativeTime } from "@/presentation/formatRelativeTime";
 import { CreateWorktreeDialog, type CreateWorktreeRequest } from "@/presentation/CreateWorktreeDialog";
-import type { BranchInfo, StashEntry, StashId, TagInfo, Worktree } from "@/domain/git";
+import type { BranchInfo, MergeSource, StashEntry, StashId, TagInfo, Worktree } from "@/domain/git";
+import { branchUpdatePlan, type BranchUpdatePlan } from "@/application/branchUpdateAction";
 
 type SectionKey = "local" | "remote" | "tags" | "stashes" | "worktrees";
 const TREE_ROW_HEIGHT = 40;
@@ -51,7 +52,13 @@ export function RepoTree({
   onSelectBranch?: (branch: string) => void;
   onCheckout?: (branch: string) => void;
   checkoutDisabledReason?: string;
-  onBranchContextAction?: (action: BranchContextAction, branch: BranchInfo, upstreamChoices: string[]) => void;
+  onBranchContextAction?: (
+    action: BranchContextAction,
+    branch: BranchInfo,
+    upstreamChoices: string[],
+    /** The upstream source for `updateFromUpstream` / `checkoutAndMerge`. */
+    updateSource?: MergeSource | null,
+  ) => void;
   onPublishBranch?: (branch: string) => void;
   onTagContextAction?: (action: TagContextAction, tag: TagInfo) => void;
   selectedStashId?: StashId | null;
@@ -320,7 +327,14 @@ export function RepoTree({
           position={menu}
           items={
             menu.kind === "branch"
-              ? branchMenuItems(menu.branch, currentBranch, t, visibleRemoteBranches.length > 0, checkoutDisabledReason)
+              ? branchMenuItems(
+                  menu.branch,
+                  currentBranch,
+                  t,
+                  visibleRemoteBranches.length > 0,
+                  checkoutDisabledReason,
+                  menu.branch.isRemote ? null : branchUpdatePlan(menu.branch, branches, worktrees),
+                )
               : menu.kind === "tag"
                 ? tagMenuItems(menu.tag, currentBranch, t, checkoutDisabledReason)
                 : worktreeMenuItems(menu.worktree, t, worktreeActionsDisabledReason)
@@ -330,11 +344,17 @@ export function RepoTree({
             const selection = menu;
             setMenu(null);
             if (selection.kind === "branch") {
-              onBranchContextAction?.(
-                action as BranchContextAction,
-                selection.branch,
-                visibleRemoteBranches.map((branch) => branch.name),
-              );
+              const upstreamChoices = visibleRemoteBranches.map((branch) => branch.name);
+              if (action === "updateFromUpstream" || action === "checkoutAndMerge") {
+                onBranchContextAction?.(
+                  action,
+                  selection.branch,
+                  upstreamChoices,
+                  branchUpdatePlan(selection.branch, branches, worktrees).source,
+                );
+              } else {
+                onBranchContextAction?.(action as BranchContextAction, selection.branch, upstreamChoices);
+              }
             }
             else if (selection.kind === "tag") {
               onTagContextAction?.(action as TagContextAction, selection.tag);
@@ -726,7 +746,7 @@ function VirtualTreeItems({
   );
 }
 
-export type BranchContextAction = "checkout" | "rebase" | "rebaseInteractive" | "merge" | "squashMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
+export type BranchContextAction = "checkout" | "rebase" | "rebaseInteractive" | "merge" | "squashMerge" | "updateFromUpstream" | "checkoutAndMerge" | "createBranch" | "rename" | "setUpstream" | "unsetUpstream" | "publish" | "delete" | "deleteRemote" | "copy";
 export type TagContextAction = "merge" | "createBranch" | "push" | "delete" | "copy";
 
 function branchMenuItems(
@@ -735,6 +755,7 @@ function branchMenuItems(
   t: (key: string, values?: Record<string, unknown>) => string,
   hasRemoteBranches: boolean,
   checkoutDisabledReason?: string,
+  updatePlan: BranchUpdatePlan | null = null,
 ): ContextMenuItem[] {
   return [
     {
@@ -790,6 +811,7 @@ function branchMenuItems(
           ? t("merge.blocked.detachedHead")
           : checkoutDisabledReason,
     },
+    ...branchUpdateMenuItems(branch, t, updatePlan, checkoutDisabledReason),
     {
       id: "createBranch",
       label: t("context.createBranchHere"),
@@ -809,6 +831,43 @@ function branchMenuItems(
       icon: "delete",
     },
     { id: "copy", label: t("context.copyBranchName"), icon: "copy", shortcut: "Ctrl+C", separatorBefore: true },
+  ];
+}
+
+/**
+ * P12-MERGE-04: "Update {{branch}} from {{source}}" — a fast-forward, never a
+ * merge — on every local branch, disabled with a named reason when it cannot
+ * apply. A diverged branch adds "Checkout {{branch}} and merge {{source}}…",
+ * which composes the existing safe checkout and merge dialog.
+ */
+function branchUpdateMenuItems(
+  branch: BranchInfo,
+  t: (key: string, values?: Record<string, unknown>) => string,
+  plan: BranchUpdatePlan | null,
+  checkoutDisabledReason?: string,
+): ContextMenuItem[] {
+  if (!plan) return [];
+  const values = { branch: branch.name, source: plan.sourceLabel ?? "" };
+  const update: ContextMenuItem = {
+    id: "updateFromUpstream",
+    label: plan.sourceLabel
+      ? t("branchUpdate.entry", values)
+      : t("branchUpdate.entryNoUpstream", values),
+    icon: "merge",
+    separatorBefore: true,
+    disabled: plan.blocker !== null,
+    disabledReason: plan.blocker ? t(`branchUpdate.disabled.${plan.blocker}`, values) : undefined,
+  };
+  if (!plan.offerCheckoutAndMerge) return [update];
+  return [
+    update,
+    {
+      id: "checkoutAndMerge",
+      label: t("branchUpdate.checkoutAndMerge", values),
+      icon: "merge",
+      disabled: Boolean(checkoutDisabledReason),
+      disabledReason: checkoutDisabledReason,
+    },
   ];
 }
 

@@ -105,6 +105,8 @@ export function RepoDetailView({
   onRebaseInteractive,
   onMergeBranch,
   onSquashMergeBranch,
+  onUpdateBranch,
+  onCheckoutAndMerge,
   onPreflightAction,
   onApplyStash,
   onCreateBranchFromStash,
@@ -188,6 +190,10 @@ export function RepoDetailView({
   onRebaseInteractive?: (onto: MergeSource) => void;
   onMergeBranch: (source: MergeSource) => void;
   onSquashMergeBranch: (source: MergeSource) => void;
+  /** P12-MERGE-04: fast-forward a non-checked-out branch to its upstream. */
+  onUpdateBranch?: (branch: import("@/domain/git").BranchInfo, source: MergeSource) => void;
+  /** P12-MERGE-04 fallback: safe checkout, then the existing merge dialog. */
+  onCheckoutAndMerge?: (branch: string, source: MergeSource) => void;
   onPreflightAction: (action: DestructiveAction) => void;
   onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void | Promise<void>;
   onCreateBranchFromStash: (
@@ -759,8 +765,11 @@ export function RepoDetailView({
     action: BranchContextAction,
     branch: import("@/domain/git").BranchInfo,
     upstreamChoices: string[],
+    updateSource?: MergeSource | null,
   ) {
     switch (action) {
+      case "updateFromUpstream": if (updateSource) onUpdateBranch?.(branch, updateSource); break;
+      case "checkoutAndMerge": if (updateSource) onCheckoutAndMerge?.(branch.name, updateSource); break;
       case "checkout": onCheckout(branch.name); break;
       case "rebase": onRebaseBranch?.(mergeSourceForBranch(branch)); break;
       case "rebaseInteractive": onRebaseInteractive?.(mergeSourceForBranch(branch)); break;

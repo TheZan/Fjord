@@ -115,6 +115,7 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 | `stage_files` / `unstage_files` | `{ repo_id, paths }` | — | Empty `paths` means **all** — one `add_all("*")` over a fresh index. Deliberate for the *Stage all* control, and precisely why a batch action built on a user selection must never dispatch an empty list ([`working-tree-and-diff.md`](working-tree-and-diff.md) §7.2). A non-empty list writes the index once, so batch stage is already atomic |
 | `stage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current worktree patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached` |
 | `unstage_patch` | `{ repo_id, selection, expected_generations }` | `GenerationSet` | Reconstructs the current staged patch under the write lock; stale generation/digest fails before index mutation; applies with shared system Git `apply --cached --reverse` |
+| `update_branch_fast_forward` | `{ repo_id, branch, source: MergeSource, expected_tip }` | `GenerationSet` | Fast-forwards a local branch that is **not checked out** in any worktree to `source`, never a merge (`branch-merge.md` §10.3, `P12-MERGE-04`). Under the write lock: refuses an unknown branch (`branch_update_branch_not_found`), a branch checked out or being rebased in any worktree (`branch_update_checked_out`), a tip other than `expected_tip` (`preflight_stale`), a source already contained (`branch_update_up_to_date`) or not a strict descendant (`branch_update_not_fast_forward`); then `git update-ref refs/heads/<branch> <new> <old>` as a compare-and-swap, where a concurrent move is `branch_update_ref_moved`. Advances `refs` and `history` only; no commit, checkout or network |
 | `discard_patch` | `{ repo_id, action, selection, expected_generations, confirmation_token }` | `GenerationSet` | Under the write lock, atomically validates and consumes the one-use confirmation before reconstructing the current index-to-worktree patch; any confirmation binding/expiry/replay mismatch is `preflight_stale`; checks then applies with shared system Git `apply --reverse` without writing the index |
 | `discard_patches` | `{ repo_id, action, selections, expected_generations, confirmation_token }` | `GenerationSet` | Whole-file worktree batch only. Consumes one token bound to the exact ordered action/selection/digest/generation vector, then checks and applies one byte-path-ordered combined reverse patch under one write lock and one resolved `index.lock`; one stale or invalid member refuses the complete mutation (`P10-WC-MULTI-03`) |
 | `export_patch` | `{ repo_id, selections, destination }` | — | Read-only against the repository: validates every member of a non-empty source-homogeneous vector, reuses the `P8-01` patch constructor per file, orders sections byte-lexicographically by path, and writes one combined patch to the caller-chosen `destination`. Patch bytes never cross IPC for this command; a single file is a vector of length one (`P10-WC-03`, `P10-WC-MULTI-03`) |
@@ -182,21 +183,19 @@ the typed frontend client unwraps `data` before exposing it to application hooks
 
 ## Planned additions
 
-Phase 12 (`P12-MERGE-01`–`05`) plans three new commands; its two extended
-payloads have shipped (below):
+Phase 12 (`P12-MERGE-01`–`05`) plans three new commands. `update_branch_fast_forward`
+has shipped with `P12-MERGE-04` and moved to the table above; its two extended
+payloads have shipped too (below). Two remain planned:
 
 | Command | Payload | Returns | Owner |
 |---|---|---|---|
 | `get_conflicts` | `{ repo_id }` | `GenerationEnvelope<ConflictSet>` | [`conflict-resolution.md`](conflict-resolution.md) §7 (`P12-MERGE-03`) |
 | `resolve_conflict` | `{ repo_id, path, resolution, allow_markers?, expected_generations, operation_id? }` | `ConflictSet` | [`conflict-resolution.md`](conflict-resolution.md) §7 (`P12-MERGE-03`) |
-| `update_branch_fast_forward` | `{ repo_id, branch, source, expected_tip }` | `GenerationSet` | [`branch-merge.md`](branch-merge.md) §10.3 (`P12-MERGE-04`) |
 
 `get_conflicts` is read-only under the repository read lock and is validated by
 the `working_tree` generation; `resolve_conflict` validates
 `expected_generations` before mutating, the same contract `stage_patch` uses, and
-advances `working_tree` alone. `update_branch_fast_forward` carries
-`expected_tip` because its `update-ref` is a compare-and-swap on the old value;
-it advances `refs` and `history` and never `working_tree`.
+advances `working_tree` alone.
 
 Two shipped shapes were extended rather than replaced, and both extensions have
 shipped: `get_merge_preflight` returns an additional `default_message`, and
@@ -236,7 +235,7 @@ and validates containment before acting. `merge_branch` takes a typed
 
 ## Error shape
 
-Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge/rebase error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, `delete_target_not_a_file`, `delete_file_conflicted`, `delete_file_partially_staged`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
+Every command that can fail returns `Result<T, AppError>` where `AppError = { code, message, diagnostics?, paths?, stash_ref? }` (SDD §8). `stash_ref` is present only when a merge/rebase error or cancellation happened after the backend verified that its explicit stash was created; the UI never infers stash retention from the requested dirty policy. `code` is a stable, localizable identifier (`repository_not_found`, `repository_discovery_failed`, `clone_request_invalid`, `clone_destination_invalid`, `clone_destination_exists`, `clone_registration_failed`, `create_repository_request_invalid`, `create_repository_destination_invalid`, `create_repository_destination_not_empty`, `create_repository_registration_failed`, `merge_conflict`, `no_upstream`, `nothing_to_commit`, `merge_tool_failed`, `ide_not_allowed`, `operation_cancelled`, `operation_not_in_progress`, `operation_has_conflicts`, `operation_step_failed`, `preflight_stale`, `patch_stale`, `patch_apply_failed`, `patch_unsupported`, `path_outside_repository`, `path_not_found`, `delete_target_not_a_file`, `delete_file_conflicted`, `delete_file_partially_staged`, `branch_update_branch_not_found`, `branch_update_checked_out`, `branch_update_up_to_date`, `branch_update_not_fast_forward`, `branch_update_ref_moved`, plus the `git_*` transport codes in [`system-git-transport.md`](system-git-transport.md)) that the frontend maps through the i18n catalog; `message` is a developer-facing fallback, never shown directly in the UI without going through a translation first. A stale destructive confirmation is never retried automatically.
 
 Planned codes, added with the commands above and listed here so no task invents
 its own spelling. A normal Git outcome is never one of these — merge reports

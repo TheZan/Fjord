@@ -19,6 +19,14 @@ vi.mock("react-i18next", () => ({
             ? `Rebase ${values?.current} onto ${values?.onto}…`
           : key === "context.squashMergeInto"
             ? `Squash merge ${values?.source} into ${values?.target}…`
+          : key === "branchUpdate.entry"
+            ? `Update ${values?.branch} from ${values?.source}`
+          : key === "branchUpdate.entryNoUpstream"
+            ? `Update ${values?.branch} from its upstream`
+          : key === "branchUpdate.checkoutAndMerge"
+            ? `Checkout ${values?.branch} and merge ${values?.source}…`
+          : key.startsWith("branchUpdate.disabled.")
+            ? `${key}:${values?.branch}:${values?.source}`
             : key,
   }),
 }));
@@ -417,6 +425,85 @@ describe("RepoTree", () => {
     expect(squashMerge).toBeEnabled();
     fireEvent.click(squashMerge);
     expect(onBranchContextAction).toHaveBeenCalledWith("squashMerge", branches[1], ["origin/release"]);
+  });
+
+  describe("Update {{branch}} from {{source}} (P12-MERGE-04)", () => {
+    const releaseBranches: BranchInfo[] = [
+      { name: "main", isCurrent: true, isRemote: false, upstream: "origin/main", ahead: 0, behind: 1, targetCommitId: "aaa" },
+      { name: "release", isCurrent: false, isRemote: false, upstream: "origin/release", ahead: 0, behind: 3, targetCommitId: "rel" },
+      { name: "hotfix", isCurrent: false, isRemote: false, upstream: "origin/hotfix", ahead: 2, behind: 1, targetCommitId: "hot" },
+      { name: "docs", isCurrent: false, isRemote: false, upstream: "origin/docs", ahead: 0, behind: 0, targetCommitId: "doc" },
+      { name: "wt", isCurrent: false, isRemote: false, upstream: "origin/wt", ahead: 0, behind: 4, targetCommitId: "wt1" },
+      { name: "local-only", isCurrent: false, isRemote: false, upstream: null, ahead: 0, behind: 0, targetCommitId: "loc" },
+      ...["main", "release", "hotfix", "docs", "wt"].map((name) => ({
+        name: `origin/${name}`, isCurrent: false, isRemote: true, upstream: null, ahead: 0, behind: 0, targetCommitId: `r-${name}`,
+      })),
+    ];
+    const linked: Worktree = {
+      name: "wt", path: "/repo-wt", branch: "wt", head: "wt1", isMain: false, isLocked: false, lockReason: null, isPrunable: false,
+    };
+
+    beforeEach(() => {
+      vi.mocked(useBranches).mockReturnValue({ branches: releaseBranches, loading: false, error: null });
+      vi.mocked(useWorktrees).mockReturnValue({ worktrees: [linked], loading: false, error: null } as never);
+    });
+
+    function openMenu(name: string) {
+      const row = screen.getAllByRole("button").find((button) => button.querySelector("code")?.textContent === name);
+      if (!row) throw new Error(`no row ${name}: ${screen.getAllByRole("button").map((button) => button.textContent).join(" | ")}`);
+      fireEvent.contextMenu(row);
+    }
+
+    it("fast-forwards a non-checked-out branch from its upstream", () => {
+      const onBranchContextAction = vi.fn();
+      render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+
+      openMenu("release");
+      const update = screen.getByRole("menuitem", { name: "Update release from origin/release" });
+      expect(update).toBeEnabled();
+      expect(screen.queryByRole("menuitem", { name: /Checkout release and merge/ })).not.toBeInTheDocument();
+      fireEvent.click(update);
+      expect(onBranchContextAction).toHaveBeenCalledWith(
+        "updateFromUpstream",
+        releaseBranches[1],
+        expect.any(Array),
+        { refName: "refs/remotes/origin/release", kind: "remoteTracking" },
+      );
+    });
+
+    it("states why the update is unavailable", () => {
+      render(<RepoTree repoId="repo-1" onBranchContextAction={vi.fn()} />);
+      const cases: Array<[string, string, string]> = [
+        ["main", "Update main from origin/main", "branchUpdate.disabled.checkedOut:main:origin/main"],
+        ["wt", "Update wt from origin/wt", "branchUpdate.disabled.checkedOut:wt:origin/wt"],
+        ["docs", "Update docs from origin/docs", "branchUpdate.disabled.upToDate:docs:origin/docs"],
+        ["local-only", "Update local-only from its upstream", "branchUpdate.disabled.noUpstream:local-only:"],
+        ["hotfix", "Update hotfix from origin/hotfix", "branchUpdate.disabled.diverged:hotfix:origin/hotfix"],
+      ];
+      for (const [branch, label, reason] of cases) {
+        openMenu(branch);
+        const item = screen.getByRole("menuitem", { name: label });
+        expect(item).toBeDisabled();
+        expect(item).toHaveAttribute("title", reason);
+        fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+      }
+    });
+
+    it("offers checkout-and-merge only for a diverged branch, never a merge into it", () => {
+      const onBranchContextAction = vi.fn();
+      render(<RepoTree repoId="repo-1" onBranchContextAction={onBranchContextAction} />);
+
+      openMenu("hotfix");
+      const fallback = screen.getByRole("menuitem", { name: "Checkout hotfix and merge origin/hotfix…" });
+      expect(fallback).toBeEnabled();
+      fireEvent.click(fallback);
+      expect(onBranchContextAction).toHaveBeenCalledWith(
+        "checkoutAndMerge",
+        releaseBranches[2],
+        expect.any(Array),
+        { refName: "refs/remotes/origin/hotfix", kind: "remoteTracking" },
+      );
+    });
   });
 
   it("blocks checkout gestures and explains the disabled context action", () => {

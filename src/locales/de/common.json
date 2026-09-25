@@ -101,7 +101,12 @@
     "worktree_locked": "Der Worktree ist gesperrt.",
     "worktree_dirty": "Der Worktree hat nicht committete Änderungen.",
     "worktree_failed": "Git konnte die Worktree-Operation nicht abschließen.",
-    "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell."
+    "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell.",
+    "branch_update_branch_not_found": "Dieser Branch existiert nicht mehr.",
+    "branch_update_checked_out": "Der Branch ist in einem Arbeitsverzeichnis ausgecheckt, daher verschiebt Fjord ihn nicht. Führen Sie Pull oder Merge dort aus.",
+    "branch_update_up_to_date": "Der Branch enthält seinen Upstream bereits. Es wurde nichts geändert.",
+    "branch_update_not_fast_forward": "Der Branch hat Commits, die nicht in seinem Upstream sind, daher ist kein Fast-Forward möglich. Checken Sie ihn aus und führen Sie einen Merge aus.",
+    "branch_update_ref_moved": "Der Branch hat sich während der Aktualisierung geändert. Es wurde nichts überschrieben; prüfen Sie ihn und versuchen Sie es erneut."
   },
   "settings": {
     "sections": {

@@ -866,6 +866,22 @@
       "confirm": "Сохранить в stash"
     }
   },
+  "branchUpdate": {
+    "entry": "Обновить {{branch}} из {{source}}",
+    "entryNoUpstream": "Обновить {{branch}} из upstream",
+    "checkoutAndMerge": "Переключиться на {{branch}} и слить {{source}}…",
+    "done": "Ветка {{branch}} обновлена до {{source}}.",
+    "disabled": {
+      "noUpstream": "У ветки {{branch}} нет upstream, из которого можно обновить. Сначала задайте upstream.",
+      "upstreamMissing": "Upstream {{source}} неизвестен локально. Сначала выполните fetch.",
+      "checkedOut": "Ветка {{branch}} выгружена в рабочее дерево. Выполните pull или слияние там.",
+      "upToDate": "Ветка {{branch}} уже содержит {{source}}.",
+      "diverged": "В ветке {{branch}} есть коммиты, которых нет в {{source}}, поэтому fast-forward невозможен."
+    },
+    "error": {
+      "notFastForward": "Для {{branch}} невозможен fast-forward до {{source}}. Используйте «Переключиться на {{branch}} и слить {{source}}…»."
+    }
+  },
   "workingFile": {
     "stage": "Индексировать",
     "stageFiles_one": "Индексировать",

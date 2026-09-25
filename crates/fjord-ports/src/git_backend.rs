@@ -292,6 +292,16 @@ pub enum GitError {
     OperationStepFailed(String),
     #[error("the selected patch no longer matches the current diff")]
     PatchStale,
+    #[error("the branch to update was not found")]
+    BranchUpdateBranchNotFound,
+    #[error("the branch is checked out in a worktree")]
+    BranchUpdateCheckedOut,
+    #[error("the branch already contains the source")]
+    BranchUpdateAlreadyUpToDate,
+    #[error("the branch cannot be fast-forwarded to the source")]
+    BranchUpdateNotFastForward,
+    #[error("the branch moved before it could be updated")]
+    BranchUpdateRefMoved,
     #[error("the destructive preflight no longer matches the repository state")]
     PreflightStale,
     #[error("the interactive rebase todo list is invalid: {0}")]
@@ -861,6 +871,18 @@ pub trait GitBackend: Send + Sync {
         Err(GitError::NotImplemented("stash_paths_supported"))
     }
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError>;
+    /// Fast-forwards a local branch that is not checked out to `source`
+    /// (`branch-merge.md` §10.3). Refuses unless `source` strictly descends
+    /// from `expected_tip`, the branch's current tip.
+    async fn update_branch_fast_forward(
+        &self,
+        _repo: &RepoPath,
+        _branch: &str,
+        _source: &MergeSource,
+        _expected_tip: &fjord_domain::CommitId,
+    ) -> Result<GenerationSet, GitError> {
+        Err(GitError::NotImplemented("update_branch_fast_forward"))
+    }
     /// Stages a verified line selection against the exact repository
     /// generation from which it was rendered.
     async fn stage_patch(

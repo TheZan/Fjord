@@ -3,6 +3,11 @@ import { i18n } from "@/infrastructure/i18n";
 const USER_ERROR_CODES = new Set([
   "auth_failed",
   "branch_exists",
+  "branch_update_branch_not_found",
+  "branch_update_checked_out",
+  "branch_update_not_fast_forward",
+  "branch_update_ref_moved",
+  "branch_update_up_to_date",
   "clone_destination_exists",
   "clone_destination_invalid",
   "clone_registration_failed",

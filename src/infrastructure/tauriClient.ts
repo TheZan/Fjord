@@ -941,6 +941,28 @@ export function stagePatch(
   );
 }
 
+/**
+ * Fast-forwards a local branch that is not checked out to `source`
+ * (branch-merge.md §10.3). `expectedTip` is the branch tip the caller saw;
+ * the backend's update-ref is a compare-and-swap on it.
+ */
+export function updateBranchFastForward(
+  repoId: string,
+  branch: string,
+  source: MergeSource,
+  expectedTip: string,
+): Promise<GenerationSet> {
+  return invoke<GenerationSet>("update_branch_fast_forward", {
+    repoId,
+    branch,
+    source,
+    expectedTip,
+  }).then((generations) => {
+    observeRepositoryGenerations(repoId, generations, "refs");
+    return generations;
+  });
+}
+
 export function unstageFiles(repoId: string, paths: string[]): Promise<void> {
   return invoke("unstage_files", { repoId, paths });
 }

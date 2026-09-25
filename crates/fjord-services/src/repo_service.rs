@@ -2,8 +2,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use fjord_domain::{
-    BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitPage,
-    CommitSummary, Consequence, CreateBranchFromStashResult, CreateRepositoryRequest,
+    BranchInfo, BulkRepoResult, CloneRepositoryRequest, CloneRepositoryResult, CommitId,
+    CommitPage, CommitSummary, Consequence, CreateBranchFromStashResult, CreateRepositoryRequest,
     CreateRepositoryResult, CreateStashRequest, CreateStashResult, DestructiveAction,
     DestructiveExecutionResult, DestructivePreflight, DiffHunk, DiffLineKind, DiffWhitespaceMode,
     DiscardSelection, FileChangeType, FileDiff, FileDiffDetail, FileDiffWindow,
@@ -2006,6 +2006,20 @@ impl RepoService {
         Ok(self
             .git
             .stage_patch(&RepoPath::new(repo.path), selection, expected_generations)
+            .await?)
+    }
+
+    pub async fn update_branch_fast_forward(
+        &self,
+        repo_id: RepositoryId,
+        branch: &str,
+        source: &MergeSource,
+        expected_tip: &CommitId,
+    ) -> Result<GenerationSet, RepoError> {
+        let repo = self.workspaces.get_repository(repo_id).await?;
+        Ok(self
+            .git
+            .update_branch_fast_forward(&RepoPath::new(repo.path), branch, source, expected_tip)
             .await?)
     }
 

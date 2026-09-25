@@ -101,7 +101,12 @@
     "worktree_locked": "El worktree está bloqueado.",
     "worktree_dirty": "El worktree tiene cambios sin confirmar.",
     "worktree_failed": "Git no pudo completar la operación del worktree.",
-    "log_folder_unavailable": "No se pudo abrir la carpeta de registros. Abre manualmente la carpeta de datos de la aplicación."
+    "log_folder_unavailable": "No se pudo abrir la carpeta de registros. Abre manualmente la carpeta de datos de la aplicación.",
+    "branch_update_branch_not_found": "Esa rama ya no existe.",
+    "branch_update_checked_out": "La rama está en uso en un árbol de trabajo, así que Fjord no la moverá. Haga pull o fusione allí.",
+    "branch_update_up_to_date": "La rama ya contiene su upstream. No se cambió nada.",
+    "branch_update_not_fast_forward": "La rama tiene commits que no están en su upstream, así que no admite fast-forward. Cámbiese a ella y fusione.",
+    "branch_update_ref_moved": "La rama cambió mientras Fjord la actualizaba. No se sobrescribió nada; revísela e inténtelo de nuevo."
   },
   "settings": {
     "sections": {
