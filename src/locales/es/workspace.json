@@ -852,6 +852,22 @@
       "confirm": "Guardar"
     }
   },
+  "branchUpdate": {
+    "entry": "Actualizar {{branch}} desde {{source}}",
+    "entryNoUpstream": "Actualizar {{branch}} desde su upstream",
+    "checkoutAndMerge": "Cambiar a {{branch}} y fusionar {{source}}…",
+    "done": "{{branch}} actualizada a {{source}}.",
+    "disabled": {
+      "noUpstream": "{{branch}} no tiene upstream desde el que actualizar. Configure primero un upstream.",
+      "upstreamMissing": "El upstream {{source}} no se conoce localmente. Haga fetch primero.",
+      "checkedOut": "{{branch}} está en uso en un árbol de trabajo. Haga pull o fusione allí.",
+      "upToDate": "{{branch}} ya contiene {{source}}.",
+      "diverged": "{{branch}} tiene commits que no están en {{source}}, así que no admite fast-forward."
+    },
+    "error": {
+      "notFastForward": "{{branch}} no puede avanzar por fast-forward hasta {{source}}. Use «Cambiar a {{branch}} y fusionar {{source}}…»."
+    }
+  },
   "conflicts": {
     "group": "Conflictos",
     "kind": {

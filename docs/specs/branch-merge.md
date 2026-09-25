@@ -2,7 +2,7 @@
 
 Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03 (shipped, §1–§9);
 P12-MERGE-01, P12-MERGE-02 (shipped, §10.1–§10.2);
-P12-MERGE-04, P12-MERGE-05 (designed, §10);
+P12-MERGE-04 (shipped, §10.3); P12-MERGE-05 (designed, §10.4);
 SDD §5.2, §15.
 Related: [`conflict-resolution.md`](conflict-resolution.md),
 [`repository-safety.md`](repository-safety.md),
@@ -64,9 +64,13 @@ and it has no preflight, no mode selection, and no UI entry point.
 - **Merging into anything other than the checked-out branch.** Merging `A` into
   `B` while `C` is checked out requires a checkout or a worktree write and is a
   different, more dangerous product. Out of scope permanently for this spec.
-  §10.3 admits a *fast-forward update* of a non-checked-out branch, which is not
-  a merge and cannot produce a conflict; a true merge into a branch Fjord has
-  not checked out stays out permanently.
+  This non-goal is **amended, not retired**, by `P12-MERGE-04` (§10.3, shipped):
+  Fjord now performs a *fast-forward update* of a local branch that is not
+  checked out in any worktree — **Update `{{branch}}` from `{{source}}`** — which
+  is not a merge, never creates a commit, and cannot produce a conflict. A true
+  merge into a branch Fjord has not checked out stays out permanently; where a
+  fast-forward is impossible Fjord offers **Checkout `{{branch}}` and merge…**,
+  the existing safe checkout followed by the existing merge dialog.
 - **Strategy and driver surface.** `--strategy`, `-X ours/theirs`, and custom
   merge drivers are not exposed. Fjord does not expose raw Git flags as its
   product model. `--no-ff` was originally in this list and has since shipped as
@@ -648,8 +652,8 @@ current one, and resolves to the same `onMergeBranch` with the same
 ### 10. Planned extensions (Phase 12)
 
 Everything above §9 describes **shipped** behavior. This section records the
-Phase 12 extensions: `P12-MERGE-01` and `P12-MERGE-02` are shipped, while
-`P12-MERGE-04` and `P12-MERGE-05` remain designed work in
+Phase 12 extensions: `P12-MERGE-01`, `P12-MERGE-02` and `P12-MERGE-04` are
+shipped, while `P12-MERGE-05` remains designed work in
 [`tasks.md`](../tasks.md). Until a task ships, the §Non-goals list above remains
 the accurate statement of what Fjord does. Conflict *resolution* is not here: it is owned by the new
 [`conflict-resolution.md`](conflict-resolution.md) and applies to every
@@ -730,6 +734,9 @@ the "fetch before merging" flow — closing the two gaps §9 recorded.
 
 #### 10.3 Fast-forwarding a branch that is not checked out (`P12-MERGE-04`)
 
+**Status: shipped.** The design below is unchanged; "As shipped" at the end of
+this section records the implementation and the decisions the design left open.
+
 The §Non-goals ban on "merging into anything other than the checked-out branch"
 is **retained for merging**. What is admitted is a different, honestly-named
 action that is not a merge:
@@ -758,6 +765,62 @@ A temporary-worktree implementation of a true non-current merge was considered
 and **rejected**: a conflict would land in a directory the user cannot see and
 cannot resolve with any existing Fjord UI, and the cleanup obligation after a
 crash is real. The checkout-then-merge path is one click and is comprehensible.
+
+**As shipped:**
+
+- **Entry point** (the design did not fix one): the context menu of a *local*
+  branch in the branch tree, under the merge/rebase group:
+  **Update `{{branch}}` from `{{source}}`**, where the source is always the
+  branch's configured upstream. Remote-tracking branches never show it. It is
+  rendered on every local branch — the menu keeps its shape — and disabled with
+  a named reason, checked in this order:
+  `branchUpdate.disabled.noUpstream` (label becomes "Update `{{branch}}` from
+  its upstream"), `upstreamMissing` (the upstream ref is not known locally —
+  fetch first), `checkedOut` (the current branch, or a branch any worktree has
+  checked out), `upToDate` (`behind = 0`), `diverged` (`ahead > 0`). Only
+  `diverged` adds **Checkout `{{branch}}` and merge `{{source}}`…**, which runs
+  the existing safe checkout (with its overwrite recovery) and, when that
+  checkout succeeds, opens the existing merge dialog with the upstream as the
+  source. If the checkout needs the overwrite recovery, the merge dialog is not
+  opened automatically; the user merges from the menu afterwards.
+  (`src/application/branchUpdateAction.ts::branchUpdatePlan`,
+  `src/presentation/RepoTree.tsx::branchUpdateMenuItems`,
+  `RepoDetailContainer.onUpdateBranch` / `onCheckoutAndMerge`.)
+- **Backend** (`crates/fjord-git/src/local/branch_update.rs`), all under the
+  repository write lock, in refusal order: the branch must exist
+  (`branch_update_branch_not_found`, also for an invalid name); it must not be
+  checked out in the main or any linked worktree, nor be the branch any
+  worktree is rebasing (`rebase-merge|rebase-apply/head-name`), since Git owns
+  it then (`branch_update_checked_out`); its tip must equal `expected_tip`
+  (`preflight_stale`); the source is re-resolved from its typed `MergeSource`
+  (local branch, remote-tracking, tag or full commit id); a source equal to or
+  behind the tip is `branch_update_up_to_date`; a source that is not a strict
+  descendant (`graph_descendant_of`) is `branch_update_not_fast_forward`. Then
+  `git update-ref -m "fjord: fast-forward from <source>" refs/heads/<branch>
+  <new> <old>` — each an argument — applies the compare-and-swap; if Git refuses
+  because the ref no longer holds `<old>`, the result is
+  `branch_update_ref_moved` and whatever moved it is kept.
+- **Generations:** `MutationKind::FastForwardBranch` advances `refs` and
+  `history` only, and only on success; every refusal advances nothing. The UI
+  refreshes refs, history and status; Working Changes is never invalidated.
+- **IPC:** `update_branch_fast_forward { repo_id, branch, source: MergeSource,
+  expected_tip } → GenerationSet`, a plain command (not an operation: it runs one
+  local `update-ref`).
+- **Verification:** `crates/fjord-git/src/local/tests/branch_update.rs` — a
+  clean fast-forward asserting the exact new tip, the reflog message, and an
+  untouched `HEAD`, index and working tree (dirty and staged changes present);
+  tag and raw-commit sources; refusal for the main worktree's branch, a linked
+  worktree's branch and a branch mid-rebase; a diverged source refused with
+  nothing changed; stale tip, unknown/invalid branch and up-to-date refusals;
+  and the compare-and-swap race, where the ref is moved by another Git between
+  the ancestry check and the write (the `pause_before_mutation` hook) and the
+  update fails with the other value kept. Unit tests cover the `update-ref`
+  argument vector and the `FastForwardBranch` generation mask. Component tests:
+  `branchUpdateAction.test.ts`, `RepoTree.test.tsx` (the action, every disabled
+  reason, the fallback only for a diverged branch) and
+  `RepoDetailContainer.test.tsx` (forwarded tip and source, refs/history-only
+  refresh, the refusal message, checkout-then-merge-dialog and no dialog after
+  a refused checkout).
 
 #### 10.4 Strategy options (`P12-MERGE-05`, optional)
 

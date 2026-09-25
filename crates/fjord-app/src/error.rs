@@ -346,6 +346,11 @@ fn git_error_to_app_error(err: GitError) -> AppError {
         GitError::OperationHasConflicts { .. } => "operation_has_conflicts",
         GitError::OperationStepFailed(_) => unreachable!("handled above"),
         GitError::PatchStale => "patch_stale",
+        GitError::BranchUpdateBranchNotFound => "branch_update_branch_not_found",
+        GitError::BranchUpdateCheckedOut => "branch_update_checked_out",
+        GitError::BranchUpdateAlreadyUpToDate => "branch_update_up_to_date",
+        GitError::BranchUpdateNotFastForward => "branch_update_not_fast_forward",
+        GitError::BranchUpdateRefMoved => "branch_update_ref_moved",
         GitError::ConflictResolutionNotApplicable => "conflict_resolution_not_applicable",
         GitError::ConflictMarkersPresent { .. } | GitError::ConflictResolutionFailed(_) => {
             unreachable!("handled above")
@@ -485,6 +490,31 @@ mod tests {
 
         assert_eq!(repo_error.code, "git_repository_ownership");
         assert_eq!(workspace_error.code, "git_repository_ownership");
+    }
+
+    #[test]
+    fn branch_update_refusals_have_distinct_stable_codes() {
+        for (error, code) in [
+            (
+                GitError::BranchUpdateBranchNotFound,
+                "branch_update_branch_not_found",
+            ),
+            (
+                GitError::BranchUpdateCheckedOut,
+                "branch_update_checked_out",
+            ),
+            (
+                GitError::BranchUpdateAlreadyUpToDate,
+                "branch_update_up_to_date",
+            ),
+            (
+                GitError::BranchUpdateNotFastForward,
+                "branch_update_not_fast_forward",
+            ),
+            (GitError::BranchUpdateRefMoved, "branch_update_ref_moved"),
+        ] {
+            assert_eq!(git_error_to_app_error(error).code, code);
+        }
     }
 
     #[test]

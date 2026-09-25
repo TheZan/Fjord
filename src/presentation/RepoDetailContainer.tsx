@@ -21,7 +21,7 @@ import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import { useStashes } from "@/application/useStashes";
 import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
-import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
+import type { AmendInfo, BranchInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
 import type { ConflictResolution, OperationControl, RepoOperationState } from "@/domain/generated";
 import type { ConflictMarkerWarning } from "@/presentation/ConflictsGroup";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
@@ -72,6 +72,7 @@ import {
   stagePatch,
   unstageFiles,
   unstagePatch,
+  updateBranchFastForward,
   unsetBranchUpstream,
   type OperationProgressEvent,
   type OperationTask,
@@ -711,6 +712,38 @@ export function RepoDetailContainer({
     setMergeSource(source);
   }
 
+  /**
+   * P12-MERGE-04: fast-forward a local branch that is not checked out to its
+   * upstream. Moves `refs`/`history` only, so nothing else is refreshed.
+   */
+  function onUpdateBranch(branch: BranchInfo, source: MergeSource) {
+    const values = { branch: branch.name, source: mergeSourceLabel(source) };
+    void runRepoAction(
+      "update-branch",
+      async () => {
+        await updateBranchFastForward(repo.id, branch.name, source, branch.targetCommitId);
+        setActionSuccess(t("branchUpdate.done", values));
+      },
+      ["refs", "history", "status"],
+      (error) => {
+        if (invokeErrorCode(error) !== "branch_update_not_fast_forward") return false;
+        setActionError(t("branchUpdate.error.notFastForward", values));
+        return true;
+      },
+      true,
+    );
+  }
+
+  /**
+   * The fallback when a fast-forward is impossible: the existing safe checkout
+   * (including its overwrite recovery), then the existing merge dialog with
+   * the upstream preselected. Fjord never merges into a branch it has not
+   * checked out.
+   */
+  function onCheckoutAndMerge(branch: string, source: MergeSource) {
+    performCheckoutAndScrollToBranch(branch, () => setMergeSource(source));
+  }
+
   function executeMerge(
     mode: MergeMode,
     dirtyPolicy: MergeDirtyPolicy,
@@ -908,7 +941,7 @@ export function RepoDetailContainer({
     performCheckoutAndScrollToBranch(branch);
   }
 
-  function performCheckoutAndScrollToBranch(branch: string) {
+  function performCheckoutAndScrollToBranch(branch: string, onCheckedOut?: () => void) {
     if (operationInProgress) {
       setActionError(t("operationBanner.blockedActions"));
       return;
@@ -925,7 +958,9 @@ export function RepoDetailContainer({
         return true;
       },
     ).then((ok) => {
-      if (ok) requestBranchGraphScroll(branch);
+      if (!ok) return;
+      requestBranchGraphScroll(branch);
+      onCheckedOut?.();
     });
   }
 
@@ -1252,6 +1287,8 @@ export function RepoDetailContainer({
       onRebaseInteractive={onRebaseInteractive}
       onMergeBranch={onMergeBranch}
       onSquashMergeBranch={onSquashMergeBranch}
+      onUpdateBranch={onUpdateBranch}
+      onCheckoutAndMerge={onCheckoutAndMerge}
       onPreflightAction={setDestructiveAction}
       onApplyStash={onApplyStash}
       onCreateBranchFromStash={onCreateBranchFromStash}

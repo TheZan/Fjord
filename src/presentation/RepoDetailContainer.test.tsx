@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { addIgnoreRule, applyStash, resolveConflict, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runPushTag, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
+import { addIgnoreRule, applyStash, resolveConflict, updateBranchFastForward, checkoutBranch, createBranchAt, createStash, discardPatch, discardPatches, exportPatch, getWorkingFileDiffWithGenerations, preflightDestructiveAction, previewIgnoreRule, runCommitAndPushRepo, runContinueOperation, runExecuteDestructiveAction, runFetchRepo, runMergeBranch, runStartRebase, runPublishBranch, runPushBranchToRemotes, runPushRepo, runPushTag, runSquashMergeBranch, runStashAndCheckout, stagePatch, unstagePatch } from "@/infrastructure/tauriClient";
 import { pickSaveDestination } from "@/infrastructure/dialog";
 import { invalidateRepoData } from "@/application/invalidateRepoData";
 import { rejectWorkingDiffSnapshot } from "@/application/diffSnapshotAuthority";
@@ -127,6 +127,7 @@ vi.mock("@/presentation/performance", () => ({
 vi.mock("@/infrastructure/tauriClient", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/infrastructure/tauriClient")>()),
   runStartRebase: vi.fn(),
+  updateBranchFastForward: vi.fn(),
   resolveConflict: vi.fn(),
   checkoutBranch: vi.fn(async () => undefined),
   previewIgnoreRule: vi.fn(async () => ({ rule: "*.log", alreadyPresent: false })),
@@ -282,6 +283,8 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     stashActionRequest,
     onPreflightAction,
     onApplyStash,
+    onUpdateBranch,
+    onCheckoutAndMerge,
     conflicts,
     conflictMarkerWarning,
     onResolveConflict,
@@ -321,11 +324,18 @@ vi.mock("@/presentation/RepoDetailView", () => ({
     stashActionRequest?: { action: import("@/application/stashActions").StashAction; stash: import("@/domain/git").StashEntry } | null;
     onPreflightAction: (action: import("@/domain/git").DestructiveAction) => void;
     onApplyStash: (stash: import("@/domain/git").StashEntry, restoreIndex: boolean) => void;
+    onUpdateBranch?: (branch: import("@/domain/git").BranchInfo, source: import("@/domain/git").MergeSource) => void;
+    onCheckoutAndMerge?: (branch: string, source: import("@/domain/git").MergeSource) => void;
     conflicts?: import("@/domain/generated").ConflictSet | null;
     conflictMarkerWarning?: { path: string; line: number } | null;
     onResolveConflict?: (path: string, resolution: import("@/domain/generated").ConflictResolution, allowMarkers: boolean) => void;
   }) => (
     <div>
+      <button type="button" onClick={() => onUpdateBranch?.(
+        { name: "release", isCurrent: false, isRemote: false, upstream: "origin/release", ahead: 0, behind: 2, targetCommitId: "release-tip" },
+        { refName: "refs/remotes/origin/release", kind: "remoteTracking" },
+      )}>update release</button>
+      <button type="button" onClick={() => onCheckoutAndMerge?.("hotfix", { refName: "refs/remotes/origin/hotfix", kind: "remoteTracking" })}>checkout and merge hotfix</button>
       <output data-testid="conflict-total">{conflicts ? String(conflicts.total) : "none"}</output>
       <output data-testid="operation-kind">{operationState?.operation.kind ?? ""}</output>
       <output data-testid="marker-warning">{conflictMarkerWarning ? `${conflictMarkerWarning.path}:${conflictMarkerWarning.line}` : ""}</output>
@@ -408,7 +418,8 @@ vi.mock("@/presentation/RebaseDialog", async (importOriginal) => ({
 }));
 
 vi.mock("@/presentation/MergeDialog", () => ({
-  MergeDialog: ({ onConfirm }: {
+  MergeDialog: ({ onConfirm, source }: {
+    source: import("@/domain/git").MergeSource;
     onConfirm: (
       mode: import("@/domain/git").MergeMode,
       policy: import("@/domain/git").MergeDirtyPolicy,
@@ -418,6 +429,7 @@ vi.mock("@/presentation/MergeDialog", () => ({
     ) => void;
   }) => (
     <>
+      <output data-testid="merge-dialog-source">{source.refName}</output>
       <button type="button" onClick={() => onConfirm("default", "refuse", false, false, "Merge branch 'feature'")}>confirm merge</button>
       <button type="button" onClick={() => onConfirm("default", "refuse", true, false, null)}>confirm merge with fetch</button>
     </>
@@ -539,6 +551,65 @@ describe("RepoDetailContainer checkout confirmation", () => {
     conflictsMock.enabled = [];
     statusMock.hasConflict = false;
     vi.mocked(resolveConflict).mockReset();
+    vi.mocked(updateBranchFastForward).mockReset();
+  });
+
+  describe("Update {{branch}} from {{source}} (P12-MERGE-04)", () => {
+    it("fast-forwards against the branch tip it showed and refreshes refs and history only", async () => {
+      vi.mocked(updateBranchFastForward).mockResolvedValue({ workingTree: 1, refs: 2, history: 2, stash: 0, config: 0 });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "update release" }));
+
+      await waitFor(() => expect(updateBranchFastForward).toHaveBeenCalledWith(
+        repo.id,
+        "release",
+        { refName: "refs/remotes/origin/release", kind: "remoteTracking" },
+        "release-tip",
+      ));
+      await waitFor(() => expect(invalidateRepoData).toHaveBeenCalledWith(
+        queryClientMock,
+        repo.id,
+        repo.workspaceId,
+        ["refs", "history", "status"],
+      ));
+      expect(screen.getByTestId("action-success")).toHaveTextContent("branchUpdate.done");
+      expect(checkoutBranch).not.toHaveBeenCalled();
+    });
+
+    it("names a fast-forward refusal and points to checkout-and-merge", async () => {
+      vi.mocked(updateBranchFastForward).mockRejectedValue({ code: "branch_update_not_fast_forward" });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "update release" }));
+
+      await waitFor(() => expect(screen.getByTestId("action-error")).toHaveTextContent(
+        "branchUpdate.error.notFastForward",
+      ));
+    });
+
+    it("checks the branch out through the safe checkout, then opens the existing merge dialog", async () => {
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "checkout and merge hotfix" }));
+
+      await waitFor(() => expect(checkoutBranch).toHaveBeenCalledWith(repo.id, "hotfix"));
+      await waitFor(() => expect(screen.getByTestId("merge-dialog-source")).toHaveTextContent(
+        "refs/remotes/origin/hotfix",
+      ));
+      expect(runMergeBranch).not.toHaveBeenCalled();
+      expect(updateBranchFastForward).not.toHaveBeenCalled();
+    });
+
+    it("does not open the merge dialog when the checkout is refused", async () => {
+      vi.mocked(checkoutBranch).mockRejectedValueOnce({ code: "checkout_would_overwrite", paths: ["a.txt"] });
+      render(<RepoDetailContainer repo={repo} command={null} onBack={vi.fn()} utilities={null} />);
+
+      fireEvent.click(screen.getByRole("button", { name: "checkout and merge hotfix" }));
+
+      await waitFor(() => expect(checkoutBranch).toHaveBeenCalledWith(repo.id, "hotfix"));
+      expect(screen.queryByTestId("merge-dialog-source")).not.toBeInTheDocument();
+    });
   });
 
   describe("in-app conflict resolution (P12-MERGE-03)", () => {

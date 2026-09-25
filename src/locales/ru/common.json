@@ -102,6 +102,11 @@
     "worktree_dirty": "В worktree есть незакоммиченные изменения.",
     "worktree_failed": "Git не смог выполнить операцию с worktree.",
     "log_folder_unavailable": "Не удалось открыть папку логов. Откройте папку данных приложения вручную.",
+    "branch_update_branch_not_found": "Эта ветка больше не существует.",
+    "branch_update_checked_out": "Ветка выгружена в рабочее дерево, поэтому Fjord не будет её перемещать. Выполните pull или слияние там.",
+    "branch_update_up_to_date": "Ветка уже содержит свой upstream. Ничего не изменено.",
+    "branch_update_not_fast_forward": "В ветке есть коммиты, которых нет в upstream, поэтому fast-forward невозможен. Переключитесь на неё и выполните слияние.",
+    "branch_update_ref_moved": "Ветка изменилась, пока Fjord её обновлял. Ничего не перезаписано; проверьте её и повторите попытку.",
     "conflict_markers_present": "В {{path}} остались маркеры конфликта (строка {{line}}).",
     "conflict_resolution_not_applicable": "Этот способ разрешения не подходит для такого конфликта.",
     "conflict_resolution_failed": "Git не смог завершить разрешение конфликта. Файл по-прежнему в конфликте."

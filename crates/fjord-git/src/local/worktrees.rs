@@ -259,7 +259,10 @@ fn find_uncached(
         .ok_or_else(|| GitError::WorktreeNotFound(name.to_string()))
 }
 
-fn list_uncached(commands: &GitCommandFactory, repo: &RepoPath) -> Result<Vec<Worktree>, GitError> {
+pub(super) fn list_uncached(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+) -> Result<Vec<Worktree>, GitError> {
     let output = git_output(
         commands,
         repo,
