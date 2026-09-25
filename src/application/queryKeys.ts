@@ -46,6 +46,9 @@ export const queryKeys = {
     fileDiffAuthority: (repoId: string, path: string, sourceKey: string) =>
       [...queryKeys.repos.fileDiffAuthorities(repoId), sourceKey, path] as const,
     workingChanges: (repoId: string) => [...queryKeys.repos.detail(repoId), "workingChanges"] as const,
+    // Nested under working changes: every invalidation of the working tree
+    // refreshes the conflict set derived from the same index.
+    conflicts: (repoId: string) => [...queryKeys.repos.workingChanges(repoId), "conflicts"] as const,
     stashes: (repoId: string) => [...queryKeys.repos.detail(repoId), "stashes"] as const,
     stashFiles: (repoId: string, stashId: string) =>
       [...queryKeys.repos.stashes(repoId), stashId, "files"] as const,

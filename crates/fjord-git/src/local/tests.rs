@@ -11900,4 +11900,5 @@ async fn start_interactive_rebase_rejects_a_todo_that_does_not_match_the_preflig
     assert_no_rebase_markers(&repo);
 }
 
+mod conflicts;
 mod strategy_option;

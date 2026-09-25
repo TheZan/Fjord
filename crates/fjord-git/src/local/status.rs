@@ -30,17 +30,14 @@ impl LocalGitBackend {
         Ok((ahead as u32, behind as u32))
     }
 
+    /// The banner's summary of conflicted paths. Derived by the same
+    /// `conflicts::raw_conflicts` pass that builds the detail `ConflictSet`,
+    /// so the two can never disagree about which paths are conflicted.
     pub(super) fn conflict_paths(index: &git2::Index) -> Vec<String> {
-        index
-            .conflicts()
-            .map(|conflicts| {
-                conflicts
-                    .filter_map(Result::ok)
-                    .filter_map(|conflict| conflict.our.or(conflict.their).or(conflict.ancestor))
-                    .map(|entry| String::from_utf8_lossy(&entry.path).into_owned())
-                    .collect()
-            })
-            .unwrap_or_default()
+        super::conflicts::raw_conflicts(index)
+            .iter()
+            .map(super::conflicts::RawConflict::path_lossy)
+            .collect()
     }
 
     pub(super) fn has_conflicts(repo: &RepoPath) -> Result<bool, GitError> {

@@ -34,6 +34,7 @@ const t = vi.fn((key: string, values?: Record<string, unknown>) => {
   if (key === "workingFile.createPatchFilesStaged") return `Create patch from ${values?.count} staged files…`;
   if (key === "workingFile.copyPatchFiles") return `Copy patch for ${values?.count} files`;
   if (key === "workingFile.disabled.conflictedSelection") return `${values?.path} conflicted`;
+  if (key === "workingFile.disabled.pathIsConflicted") return `${values?.path} is conflicted`;
   return key;
 }) as never;
 
@@ -248,10 +249,21 @@ describe("WorkingFileContextMenu", () => {
   });
 
   it("withholds mutations for conflicts and hides file launches for deleted rows", () => {
-    const conflict = ids(workingFileMenuItems({ ...normal, conflicted: true }, worktree, false, t));
-    expect(conflict).toEqual(["openEditor", "openDefault", "reveal", "openMergeTool", "copyPath"]);
+    const conflictItems = workingFileMenuItems({ ...normal, conflicted: true }, worktree, false, t);
+    const conflict = ids(conflictItems);
+    expect(conflict).toEqual(["stage", "discard", "openEditor", "openDefault", "reveal", "openMergeTool", "copyPath"]);
     expect(conflict).not.toContain("openExternalDiff");
     expect(conflict).not.toContain("stashFile");
+    // P12-MERGE-03: Stage/Discard stay visible, disabled, and name the conflict.
+    for (const item of conflictItems.filter((entry) => entry.id === "stage" || entry.id === "discard")) {
+      expect(item).toMatchObject({ disabled: true, disabledReason: "src/app.ts is conflicted" });
+    }
+    const stagedConflict = workingFileMenuItems({ ...normal, conflicted: true }, index, false, t);
+    expect(stagedConflict[0]).toMatchObject({
+      id: "unstage",
+      disabled: true,
+      disabledReason: "src/app.ts is conflicted",
+    });
 
     const deleted = ids(workingFileMenuItems({ ...normal, changeType: "deleted" }, worktree, false, t));
     expect(deleted).toContain("discard");

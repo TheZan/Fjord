@@ -50,6 +50,7 @@ pub enum OperationKind {
     Merge,
     SquashMerge,
     Rebase,
+    ResolveConflict,
 }
 
 impl OperationKind {
@@ -71,6 +72,7 @@ impl OperationKind {
             Self::Merge => "merge",
             Self::SquashMerge => "squash-merge",
             Self::Rebase => "rebase",
+            Self::ResolveConflict => "resolve-conflict",
         }
     }
 }

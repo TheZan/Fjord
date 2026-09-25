@@ -373,6 +373,12 @@ pub(super) async fn run_squash(
 
     let conflicted = conflicted_paths_now(&repo).map_err(|error| retain_stash(error, stashed))?;
     if !conflicted.is_empty() {
+        super::conflicts::record_index_only_source(
+            &repo,
+            super::conflicts::IndexOnlySource::SquashMerge {
+                label: preflight.source_label.clone(),
+            },
+        );
         return Ok(squash_result_from_preflight(
             preflight,
             SquashMergeOutcome::Conflicted { paths: conflicted },

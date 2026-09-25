@@ -101,7 +101,10 @@
     "worktree_locked": "Der Worktree ist gesperrt.",
     "worktree_dirty": "Der Worktree hat nicht committete Änderungen.",
     "worktree_failed": "Git konnte die Worktree-Operation nicht abschließen.",
-    "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell."
+    "log_folder_unavailable": "Der Protokollordner konnte nicht geöffnet werden. Öffne den App-Datenordner manuell.",
+    "conflict_markers_present": "{{path}} enthält in Zeile {{line}} noch Konfliktmarkierungen.",
+    "conflict_resolution_not_applicable": "Diese Lösung passt nicht zu dieser Art von Konflikt.",
+    "conflict_resolution_failed": "Git konnte den Konflikt nicht vollständig lösen. Die Datei ist weiterhin im Konflikt."
   },
   "settings": {
     "sections": {

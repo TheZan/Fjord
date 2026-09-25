@@ -39,6 +39,7 @@ use gix::object::tree::diff::{Change, ChangeDetached};
 use gix::prelude::TreeDiffChangeExt;
 use time::OffsetDateTime;
 
+mod conflicts;
 mod delete_file;
 mod destructive_confirmation;
 mod destructive_execution;
@@ -818,6 +819,29 @@ impl GitBackend for LocalGitBackend {
         keep: bool,
     ) -> Result<CreateBranchFromStashResult, GitError> {
         stash::create_branch_from_stash(&self.commands, repo, stash_id, name, apply, keep).await
+    }
+
+    async fn conflicts(&self, repo: &RepoPath) -> Result<fjord_domain::ConflictSet, GitError> {
+        conflicts::get(repo).await
+    }
+
+    async fn resolve_conflict(
+        &self,
+        repo: &RepoPath,
+        path: &str,
+        resolution: fjord_domain::ConflictResolution,
+        allow_markers: bool,
+        expected_generations: crate::GenerationSet,
+    ) -> Result<fjord_domain::ConflictSet, GitError> {
+        conflicts::resolve(
+            &self.commands,
+            repo,
+            path,
+            resolution,
+            allow_markers,
+            expected_generations,
+        )
+        .await
     }
 
     async fn stage(&self, repo: &RepoPath, paths: &[PathBuf]) -> Result<(), GitError> {

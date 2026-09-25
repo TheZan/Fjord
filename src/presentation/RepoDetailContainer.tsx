@@ -16,12 +16,14 @@ import { useRepoStatus } from "@/application/useRepoStatus";
 import { useRepoOperationState } from "@/application/useRepoOperationState";
 import { useRepositorySnapshot } from "@/application/useRepositorySnapshot";
 import { useWorkingChanges } from "@/application/useWorkingChanges";
+import { useConflicts } from "@/application/useConflicts";
 import { useWorkingFileActions } from "@/application/useWorkingFileActions";
 import { useStashes } from "@/application/useStashes";
 import type { StashAction } from "@/application/stashActions";
 import type { DiffSource } from "@/application/useFileDiff";
 import type { AmendInfo, CommitSummary, CreateBranchFromStashResult, DestructiveAction, DestructiveExecutionResult, DiffWhitespaceMode, GenerationSet, IgnoreRuleKind, IgnoreRuleOutcome, RebasePreflight, RebaseTodoStep, MergeDirtyPolicy, MergeMode, MergeSource, MergeStrategyOption, PatchSelection, StashApplyResult, StashEntry, StashId, WorkingFileTarget, Worktree } from "@/domain/git";
-import type { OperationControl, RepoOperationState } from "@/domain/generated";
+import type { ConflictResolution, OperationControl, RepoOperationState } from "@/domain/generated";
+import type { ConflictMarkerWarning } from "@/presentation/ConflictsGroup";
 import type { RemotePushResult, RepositoryEntry } from "@/domain/workspace";
 import {
   cancelOperation,
@@ -40,12 +42,14 @@ import {
   discardPatches,
   getAmendInfo,
   invokeErrorCode,
+  invokeErrorLine,
   invokeErrorPaths,
   invokeErrorStashRef,
   openInIde,
   openMergeTool,
   openTerminal,
   removeWorktree,
+  resolveConflict,
   runFetchRepo,
   runCommitAndPushRepo,
   runPullRepo,
@@ -131,6 +135,15 @@ export function RepoDetailContainer({
     loading: changesLoading,
     error: changesError,
   } = useWorkingChanges(repo.id, snapshot.ready);
+  // conflict-resolution.md §1: the live index, read whenever any signal says
+  // it holds a conflict — including a squash merge or stash apply, which
+  // leave the operation state `Normal`.
+  const indexMayHaveConflicts = Boolean(status?.hasConflict)
+    || (operationState?.conflictedPaths.length ?? 0) > 0
+    || changes.staged.some((file) => file.conflicted)
+    || changes.unstaged.some((file) => file.conflicted);
+  const { conflicts } = useConflicts(repo.id, snapshot.ready && indexMayHaveConflicts);
+  const [conflictMarkerWarning, setConflictMarkerWarning] = useState<ConflictMarkerWarning | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<CommitSummary | null>(null);
   const [selectedStashId, setSelectedStashId] = useState<StashId | null>(null);
   const [workingSelected, setWorkingSelected] = useState(false);
@@ -324,6 +337,7 @@ export function RepoDetailContainer({
     setSquashMergeSource(null);
     setStashDialog(null);
     setStashActionRequest(null);
+    setConflictMarkerWarning(null);
   }, [repo.id]);
 
   useEffect(() => {
@@ -925,6 +939,35 @@ export function RepoDetailContainer({
     return runWorkingAction("unstage", () => unstageFiles(repo.id, paths));
   }
 
+  /**
+   * Resolves one conflicted path against the generations its conflict set was
+   * read at. A file still holding conflict markers comes back as an inline
+   * "Stage anyway" offer instead of a notice.
+   */
+  function onResolveConflict(path: string, resolution: ConflictResolution, allowMarkers: boolean) {
+    const rendered = conflicts;
+    if (!rendered) return;
+    setConflictMarkerWarning(null);
+    void runRepoAction(
+      "resolve-conflict",
+      async () => {
+        const task = resolveConflict(repo.id, path, resolution, rendered.generations, allowMarkers);
+        setActionOperationId(task.operationId);
+        const next = await task.promise;
+        queryClient.setQueryData(queryKeys.repos.conflicts(repo.id), next);
+        setActionSuccess(t("conflicts.resolved", { path }));
+      },
+      ["status", "working", "operation"],
+      (error) => {
+        if (invokeErrorCode(error) !== "conflict_markers_present") return false;
+        setActionNoticeSuppressed(true);
+        setConflictMarkerWarning({ path, line: invokeErrorLine(error) ?? 0 });
+        return true;
+      },
+      true,
+    );
+  }
+
   function onOperationControl(control: OperationControl) {
     if (control === "abort") {
       setDestructiveAction({ kind: "abortOperation" });
@@ -1251,6 +1294,10 @@ export function RepoDetailContainer({
       onWorkingDiffWhitespaceModeChange={onWorkingDiffWhitespaceModeChange}
       diffToolDisabledReason={diffToolAvailable ? undefined : t("workingFile.disabled.noDiffTool")}
       stashFileDisabledReason={stashPathsSupported ? undefined : t("workingFile.stashFile.unsupportedGit")}
+      conflicts={conflicts}
+      conflictMarkerWarning={conflictMarkerWarning}
+      onResolveConflict={onResolveConflict}
+      onDismissConflictMarkerWarning={() => setConflictMarkerWarning(null)}
     />
     )}
     {stashDialog ? (

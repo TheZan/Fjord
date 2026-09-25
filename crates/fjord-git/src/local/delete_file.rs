@@ -26,12 +26,10 @@ fn worktree_modified_mask() -> git2::Status {
         | git2::Status::WT_TYPECHANGE
 }
 
-/// Resolves `path` (repository-relative, forward-slash form as reported by
-/// Git) to an absolute filesystem path strictly inside `repo`. `None` means
-/// the path cannot be a legitimate deletion target at all: empty, absolute,
-/// containing a `..` component, inside `.git`, or resolving outside the
-/// repository root.
-fn resolve(repo: &RepoPath, path: &str) -> Option<PathBuf> {
+/// The lexical half of [`resolve`], shared with conflict resolution: a
+/// non-empty relative path made only of normal components, none of them
+/// `.git`. `None` for anything that could escape the worktree.
+pub(super) fn normal_relative_path(path: &str) -> Option<PathBuf> {
     let requested = Path::new(path);
     if path.is_empty() || requested.is_absolute() {
         return None;
@@ -49,8 +47,17 @@ fn resolve(repo: &RepoPath, path: &str) -> Option<PathBuf> {
     if segments.is_empty() {
         return None;
     }
+    Some(segments.iter().collect())
+}
+
+/// Resolves `path` (repository-relative, forward-slash form as reported by
+/// Git) to an absolute filesystem path strictly inside `repo`. `None` means
+/// the path cannot be a legitimate deletion target at all: empty, absolute,
+/// containing a `..` component, inside `.git`, or resolving outside the
+/// repository root.
+fn resolve(repo: &RepoPath, path: &str) -> Option<PathBuf> {
+    let relative = normal_relative_path(path)?;
     let canonical_root = std::fs::canonicalize(&repo.0).ok()?;
-    let relative: PathBuf = segments.iter().collect();
     let parent = relative.parent().unwrap_or_else(|| Path::new(""));
     let canonical_parent = std::fs::canonicalize(canonical_root.join(parent)).ok()?;
     if !canonical_parent.starts_with(&canonical_root) {

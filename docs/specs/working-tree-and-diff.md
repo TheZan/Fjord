@@ -562,6 +562,9 @@ Create patch from staged changes…
 **Conflicted file** (`WorkingFile.conflicted`), either section:
 
 ```text
+Stage / Unstage          (disabled: "<path> has a conflict…")
+Discard working changes… (disabled, unstaged section only)
+──────────────────────────
 Open in <configured editor>
 Open with default application
 Show in folder
@@ -578,13 +581,16 @@ destructive semantics against an unmerged index entry, and refusing is the
 documented behavior rather than guessing. `Open merge tool` reuses the shipped
 `open_merge_tool` command.
 
-Phase 12 (`P12-MERGE-03`) adds resolution entries — take a named side, keep or
-delete the file, mark resolved — to this menu and a **Conflicts** group above
-Staged and Unstaged. Both are specified by
-[`conflict-resolution.md`](conflict-resolution.md) §4 and §6; the withholding
-rule above is unchanged, and its disabled reason gains a name. Nothing in that
-spec makes Stage, Unstage, Discard, Ignore, Stash, patch export, or Delete
-available on a conflicted row.
+Phase 12 (`P12-MERGE-03`, shipped) adds resolution entries — take a named side,
+keep or delete the file, mark resolved — and a **Conflicts** group above Staged
+and Unstaged, specified by [`conflict-resolution.md`](conflict-resolution.md) §4
+and §6. The resolution entries live on the Conflicts group's rows; the
+conflicted Staged/Unstaged row above keeps its diff and gains only the named
+disabled reason (`workingFile.disabled.pathIsConflicted`) on Stage/Unstage/
+Discard, including the row's inline Stage/Unstage control. **Stage all** /
+**Unstage all** skip conflicted paths. Nothing in that spec makes Stage,
+Unstage, Discard, Ignore, Stash, patch export, or Delete available on a
+conflicted row.
 
 Adaptivity rules:
 

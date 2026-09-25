@@ -128,6 +128,32 @@ export type SquashMergeResult = { outcome: SquashMergeOutcome, source: MergeSour
  */
 targetCommit: CommitId, stashRef: string | null, generations: GenerationSet, };
 
+export type ConflictKind = "bothModified" | "bothAdded" | "addedByUs" | "addedByThem" | "deletedByUs" | "deletedByThem" | "bothDeleted";
+
+export type ConflictStage = {
+/**
+ * Object id of the stage's blob.
+ */
+blob: CommitId, mode: number, size: number | null,
+/**
+ * From `.gitattributes` (`binary`, `-diff`, `-merge`, `-text`); no blob
+ * content is read to decide it.
+ */
+binary: boolean, };
+
+export type ConflictEntry = { path: string, kind: ConflictKind, base: ConflictStage | null, ours: ConflictStage | null, theirs: ConflictStage | null, };
+
+export type ConflictSides = { oursLabel: string,
+/**
+ * Empty when no producer can be identified (for example a conflicted
+ * `stash apply` run outside Fjord with no stash left to name).
+ */
+theirsLabel: string, inverted: boolean, };
+
+export type ConflictSet = { entries: Array<ConflictEntry>, truncated: boolean, total: number, sides: ConflictSides, generations: GenerationSet, };
+
+export type ConflictResolution = "takeOurs" | "takeTheirs" | "keepFile" | "deleteFile" | "markResolved";
+
 export type RemoteRef = { name: string, target: string, symbolicTarget: string | null, };
 
 export type TagInfo = { name: string, targetCommitId: CommitId, };
