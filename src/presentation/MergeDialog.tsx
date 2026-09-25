@@ -7,6 +7,7 @@ import type {
   MergeMode,
   MergePreflight,
   MergeSource,
+  MergeStrategyOption,
 } from "@/domain/git";
 import { Button, Textarea } from "@/presentation/ui";
 import { useDialogFocusTrap } from "@/presentation/useDialogFocusTrap";
@@ -29,6 +30,7 @@ export function MergeDialog({
     fetchFirst: boolean,
     allowUnrelatedHistories: boolean,
     message: string | null,
+    strategyOption: MergeStrategyOption | null,
   ) => void;
   onClose: () => void;
 }) {
@@ -41,6 +43,11 @@ export function MergeDialog({
   const [messageDraft, setMessageDraft] = useState<string | null>(null);
   const messageId = useId();
   const messageHintId = useId();
+  // P12-MERGE-05: off by default, behind an Advanced disclosure.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [strategyOption, setStrategyOption] = useState<MergeStrategyOption | null>(null);
+  const advancedId = useId();
+  const strategyWarningId = useId();
   const { preflight, loading, error, errorCode } = useMergeBranch(repoId, source);
   const remoteName = mergeSourceRemoteName(source);
   useDialogFocusTrap(dialogRef, onClose);
@@ -63,6 +70,14 @@ export function MergeDialog({
       && mergeCreatesCommit(preflight.prediction.kind, mode),
   );
   const message = messageDraft ?? preflight?.defaultMessage ?? "";
+  const showAdvanced = Boolean(
+    preflight
+      && hardBlockers.length === 0
+      && strategyOptionApplies(preflight.prediction.kind, mode),
+  );
+  const effectiveStrategyOption = showAdvanced ? strategyOption : null;
+  const preferredRef = strategyOption === "preferTarget" ? target : sourceLabel;
+  const discardedRef = strategyOption === "preferTarget" ? sourceLabel : target;
   const messageProblem = showMessage ? mergeMessageProblem(message) : null;
 
   return (
@@ -177,6 +192,73 @@ export function MergeDialog({
           </div>
         ) : null}
 
+        {showAdvanced ? (
+          <div className="mt-3 text-[13px]">
+            <button
+              type="button"
+              aria-expanded={advancedOpen}
+              aria-controls={advancedId}
+              disabled={pending || loading}
+              onClick={() => setAdvancedOpen((open) => !open)}
+              className="interactive-control rounded px-1 py-0.5 font-medium"
+              style={{ color: "var(--slate)" }}
+            >
+              <span aria-hidden="true">{advancedOpen ? "▾ " : "▸ "}</span>
+              {t("merge.advanced.toggle")}
+            </button>
+            {advancedOpen ? (
+              <fieldset
+                id={advancedId}
+                className="mt-2 flex flex-col gap-2"
+                disabled={pending || loading}
+              >
+                <legend className="mb-1 font-medium" style={{ color: "var(--slate)" }}>
+                  {t("merge.advanced.label")}
+                </legend>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="merge-strategy-option"
+                    checked={strategyOption === null}
+                    onChange={() => setStrategyOption(null)}
+                  />
+                  {t("merge.advanced.none")}
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="merge-strategy-option"
+                    checked={strategyOption === "preferTarget"}
+                    onChange={() => setStrategyOption("preferTarget")}
+                  />
+                  {t("merge.advanced.prefer", { ref: target })}
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="merge-strategy-option"
+                    checked={strategyOption === "preferSource"}
+                    onChange={() => setStrategyOption("preferSource")}
+                  />
+                  {t("merge.advanced.prefer", { ref: sourceLabel })}
+                </label>
+              </fieldset>
+            ) : null}
+            {/* Stays visible even with Advanced collapsed: a chosen option is
+                still applied, and its cost must never be out of sight. */}
+            {effectiveStrategyOption ? (
+              <p
+                id={strategyWarningId}
+                role="alert"
+                className="mt-2 rounded-md px-3 py-2"
+                style={{ background: "var(--amber-tint)", color: "var(--amber-ink)" }}
+              >
+                {t("merge.advanced.warning", { ref: preferredRef, other: discardedRef })}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {!alreadyUpToDate && hardBlockers.length === 0 && remoteName ? (
           <label className="mt-3 flex items-center gap-2 text-[13px]" style={{ color: "var(--slate)" }}>
             <input
@@ -208,6 +290,7 @@ export function MergeDialog({
           {!alreadyUpToDate && hardBlockers.length === 0 && preflight ? (
             <Button
               variant="primary"
+              aria-describedby={effectiveStrategyOption ? strategyWarningId : undefined}
               disabled={
                 pending
                 || loading
@@ -220,6 +303,7 @@ export function MergeDialog({
                 fetchFirst,
                 allowUnrelatedHistories,
                 showMessage ? message : null,
+                effectiveStrategyOption,
               )}
             >
               {pending
@@ -249,6 +333,18 @@ export function mergeCreatesCommit(
 ) {
   if (prediction === "alreadyUpToDate" || mode === "fastForwardOnly") return false;
   return !(mode === "default" && prediction === "fastForward");
+}
+
+/// Whether `-X ours|theirs` can matter (branch-merge §10.4): only when Git will
+/// run a real three-way merge — a predicted merge commit or unrelated
+/// histories — and not under fast-forward-only. A fast-forward, even one
+/// recorded with `--no-ff`, has no conflicting lines to prefer.
+export function strategyOptionApplies(
+  prediction: MergePreflight["prediction"]["kind"],
+  mode: MergeMode,
+) {
+  if (mode === "fastForwardOnly") return false;
+  return prediction === "mergeCommit" || prediction === "unrelated";
 }
 
 export function mergeMessageProblem(message: string): "empty" | "tooLong" | null {

@@ -2,7 +2,7 @@
 
 Referenced by: P10-MERGE-01, P10-MERGE-02, P10-MERGE-03 (shipped, §1–§9);
 P12-MERGE-01, P12-MERGE-02 (shipped, §10.1–§10.2);
-P12-MERGE-04 (shipped, §10.3); P12-MERGE-05 (designed, §10.4);
+P12-MERGE-04, P12-MERGE-05 (shipped, §10.3–§10.4);
 SDD §5.2, §15.
 Related: [`conflict-resolution.md`](conflict-resolution.md),
 [`repository-safety.md`](repository-safety.md),
@@ -71,12 +71,14 @@ and it has no preflight, no mode selection, and no UI entry point.
   merge into a branch Fjord has not checked out stays out permanently; where a
   fast-forward is impossible Fjord offers **Checkout `{{branch}}` and merge…**,
   the existing safe checkout followed by the existing merge dialog.
-- **Strategy and driver surface.** `--strategy`, `-X ours/theirs`, and custom
-  merge drivers are not exposed. Fjord does not expose raw Git flags as its
-  product model. `--no-ff` was originally in this list and has since shipped as
-  the `NoFastForward` *mode* (§3, §10.1, `P12-MERGE-01`) on the argument recorded
-  in §10.1; `-X` is reconsidered in §10.4; `--strategy` and custom drivers stay
-  out.
+- **Strategy and driver surface.** `--strategy` and custom merge drivers are
+  not exposed. Fjord does not expose raw Git flags as its product model.
+  `--no-ff` was originally in this list and has since shipped as the
+  `NoFastForward` *mode* (§3, §10.1, `P12-MERGE-01`). `-X ours` / `-X theirs`
+  was in this list too and has since shipped (§10.4, `P12-MERGE-05`) as the
+  typed `MergeStrategyOption` — "when both sides change the same lines, prefer
+  `{{ref}}`" — never as a raw flag and never worded as "ours"/"theirs".
+  `--strategy`, any other `-X` value, and custom drivers stay out.
 - **Octopus / multi-head merges.** One source ref per action.
 - **Squash merge.** Deferred to P10-MERGE-03 (§9); it produces a non-merge commit
   and needs its own commit-message flow.
@@ -256,8 +258,8 @@ not the prediction: `NoFastForward` over a fast-forwardable source returns
 
 No other mode is offered. `--squash`, `--strategy`, `-X`,
 `--allow-unrelated-histories`, and octopus merges are outside this section's
-scope (§Non-goals; squash is `P10-MERGE-03`; `-X` and unrelated histories are
-§10.2 and §10.4).
+scope (§Non-goals; squash is `P10-MERGE-03`; unrelated histories are §10.2; `-X`
+is the separate, orthogonal `MergeStrategyOption` of §10.4, not a mode).
 
 ### 4. Integration preflight (shared with rebase)
 
@@ -409,15 +411,17 @@ async fn merge_branch(
 ) -> Result<MergeResult, GitError>;
 
 // Phase 12: the shipped command path. `MergeBranchOptions` carries the
-// unrelated-histories acknowledgement (§10.2) and the optional confirmed
-// message (§10.1); `merge_branch` is this with the defaults.
+// unrelated-histories acknowledgement (§10.2), the optional confirmed
+// message (§10.1) and the optional strategy option (§10.4); `merge_branch`
+// is this with the defaults.
 async fn merge_branch_with_options(
     &self,
     repo: &RepoPath,
     source: &MergeSource,
     mode: MergeMode,
     dirty_policy: MergeDirtyPolicy,
-    options: MergeBranchOptions,      // { allow_unrelated_histories, message: Option<String> }
+    options: MergeBranchOptions,      // { allow_unrelated_histories, message: Option<String>,
+                                      //   strategy_option: Option<MergeStrategyOption> }
     context: GitOperationContext,
 ) -> Result<MergeResult, GitError>;
 ```
@@ -652,8 +656,8 @@ current one, and resolves to the same `onMergeBranch` with the same
 ### 10. Planned extensions (Phase 12)
 
 Everything above §9 describes **shipped** behavior. This section records the
-Phase 12 extensions: `P12-MERGE-01`, `P12-MERGE-02` and `P12-MERGE-04` are
-shipped, while `P12-MERGE-05` remains designed work in
+Phase 12 extensions, all five of which (`P12-MERGE-01`–`05`) have shipped; their
+tasks are in
 [`tasks.md`](../tasks.md). Until a task ships, the §Non-goals list above remains
 the accurate statement of what Fjord does. Conflict *resolution* is not here: it is owned by the new
 [`conflict-resolution.md`](conflict-resolution.md) and applies to every
@@ -822,15 +826,51 @@ crash is real. The checkout-then-merge path is one click and is comprehensible.
   refresh, the refusal message, checkout-then-merge-dialog and no dialog after
   a refused checkout).
 
-#### 10.4 Strategy options (`P12-MERGE-05`, optional)
+#### 10.4 Strategy options (`P12-MERGE-05`)
+
+**Status: shipped.** The project decided to ship this task rather than drop it
+(it was scheduled as optional); the decision is recorded in
+[`tasks.md`](../tasks.md).
 
 `-X ours` / `-X theirs` expressed as "when both sides change the same lines,
 prefer `{{ref}}`", behind an Advanced disclosure, with explicit wording that
 changes from the other side are discarded without review. Scheduled **after**
-[`conflict-resolution.md`](conflict-resolution.md) ships, because manual
-resolution removes most of its motivation; it may be dropped entirely.
+[`conflict-resolution.md`](conflict-resolution.md), because manual resolution
+removes most of its motivation.
 
 Octopus merges and custom merge drivers remain permanently out of scope.
+
+**As shipped:**
+
+- **Domain:** `MergeStrategyOption { PreferTarget, PreferSource }` in
+  `fjord-domain`, carried by `fjord_ports::MergeBranchOptions.strategy_option`
+  and IPC `merge_branch { …, strategy_option? }`. `null` (the default) leaves
+  conflicts to the user exactly as before.
+- **Arguments:** `merge_args` (`crates/fjord-git/src/local/merge.rs`) appends
+  `-X` and then `ours` (`PreferTarget` — the checked-out branch is Git's
+  "ours") or `theirs` (`PreferSource`) as two separate arguments, after the
+  mode flag: `merge [--ff-only|--no-ff] [-X ours|theirs]
+  [--allow-unrelated-histories] [-m <message>] --no-edit -- <ref>`. No other
+  `-X` value and no `--strategy` can be expressed.
+- **Dialog:** `MergeDialog` shows a collapsed **Advanced** disclosure (a button
+  with `aria-expanded`/`aria-controls`) only when a real three-way merge can
+  happen — a predicted merge commit or unrelated histories, and not
+  fast-forward-only (`strategyOptionApplies`). Inside, a radio group: stop on
+  conflicts (default, checked), "When both sides change the same lines, prefer
+  `{{target}}`", and the same for `{{source}}` — each with the real ref name.
+  Choosing an option shows a `role="alert"` warning that the other ref's
+  changes to those lines are discarded without review; it stays visible even
+  if Advanced is collapsed again, and it describes the **Merge** button
+  (`aria-describedby`). When the disclosure is hidden, `null` is sent whatever
+  was chosen.
+- **Verification:** argument-construction unit tests (both options, ordering,
+  no `-X` without an option); integration tests on a real conflicting fixture
+  (`crates/fjord-git/src/local/tests/strategy_option.rs`) asserting the
+  conflict without an option and the exact committed content for each option,
+  including the other side's non-conflicting hunk surviving; `MergeDialog`
+  component tests for the collapsed default, ref-named options, the warning
+  (with axe), the collapsed-with-option warning, and the hidden states;
+  `RepoDetailContainer` forwarding test; five-locale parity.
 
 ## i18n
 

@@ -135,6 +135,9 @@ async fn dispatch(
                                 .as_bool()
                                 .unwrap_or(false),
                             message: args["message"].as_str().map(str::to_string),
+                            strategy_option:
+                                serde_json::from_value(args["strategyOption"].clone(),)
+                                    .unwrap_or(None),
                         },
                         GitOperationContext::default()
                     )

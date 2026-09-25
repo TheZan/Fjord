@@ -4,11 +4,11 @@ use fjord_domain::{
     CreateStashResult, DestructiveAction, DestructiveExecutionResult, DestructivePreflight,
     FileDiff, FileDiffWindow, GenerationSet, GitConnectionTestResult, GlobalSearchResult,
     IgnoreRuleKind, IgnoreRuleOutcome, IgnoreRulePreview, LogCursor, MergeDirtyPolicy, MergeMode,
-    MergePreflight, MergeResult, MergeSource, OpenTarget, PatchSelection, PatchSource, ReflogPage,
-    RemoteInfo, RemotePushResult, RemoveRemotePreflight, RepoOperationState, RepoStatus,
-    RepositoryFilePath, RepositoryId, SnapshotRevalidation, SquashMergeResult, StashApplyResult,
-    StashEntry, StashFileGroup, StashFiles, StashId, StoredRepositorySnapshot, TagInfo,
-    WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
+    MergePreflight, MergeResult, MergeSource, MergeStrategyOption, OpenTarget, PatchSelection,
+    PatchSource, ReflogPage, RemoteInfo, RemotePushResult, RemoveRemotePreflight,
+    RepoOperationState, RepoStatus, RepositoryFilePath, RepositoryId, SnapshotRevalidation,
+    SquashMergeResult, StashApplyResult, StashEntry, StashFileGroup, StashFiles, StashId,
+    StoredRepositorySnapshot, TagInfo, WorkingChanges, WorkspaceId, Worktree, WorktreeBranch,
 };
 use fjord_ports::MergeBranchOptions;
 use serde::Serialize;
@@ -184,6 +184,7 @@ pub async fn merge_branch(
     dirty_policy: MergeDirtyPolicy,
     allow_unrelated_histories: bool,
     message: Option<String>,
+    strategy_option: Option<MergeStrategyOption>,
     operation_id: Option<String>,
 ) -> Result<MergeResult, AppError> {
     run_repo_operation(
@@ -201,6 +202,7 @@ pub async fn merge_branch(
                 MergeBranchOptions {
                     allow_unrelated_histories,
                     message,
+                    strategy_option,
                 },
                 context,
             )

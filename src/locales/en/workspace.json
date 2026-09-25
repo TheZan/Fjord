@@ -179,7 +179,7 @@
     "running": "Merging…",
     "dismiss": "Close",
     "mode": { "label": "Mode", "default": "Default merge", "fastForwardOnly": "Fast-forward only", "noFastForward": "Always create a merge commit" },
-    "message": { "label": "Merge commit message", "empty": "Enter a merge commit message.", "tooLong": "The message is longer than 4 KiB." },
+    "advanced": { "toggle": "Advanced", "label": "Conflicting lines", "none": "Stop on conflicts so I can resolve them (default)", "prefer": "When both sides change the same lines, prefer {{ref}}", "warning": "Changes {{other}} made to those lines are discarded without review. You will not see a conflict for them." }, "message": { "label": "Merge commit message", "empty": "Enter a merge commit message.", "tooLong": "The message is longer than 4 KiB." },
     "confirm": "Merge",
     "cancel": "Cancel",
     "prediction": {

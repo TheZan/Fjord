@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MergeDirtyPolicy, MergeMode, MergePreflight } from "@/domain/git";
-import { MERGE_MESSAGE_LIMIT_BYTES, MergeDialog, mergeCreatesCommit, mergeMessageProblem } from "@/presentation/MergeDialog";
+import { MERGE_MESSAGE_LIMIT_BYTES, MergeDialog, mergeCreatesCommit, mergeMessageProblem, strategyOptionApplies } from "@/presentation/MergeDialog";
 
 const mergeState = vi.hoisted(() => ({
   preflight: null as MergePreflight | null,
@@ -54,7 +54,7 @@ describe("MergeDialog", () => {
     expect(screen.getByText(/merge\.prediction\.fastForward/)).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false, false, null);
+    expect(onConfirm).toHaveBeenCalledWith("fastForwardOnly", "refuse", false, false, null, null);
     expect((await axe.run(container)).violations).toEqual([]);
   });
 
@@ -76,7 +76,7 @@ describe("MergeDialog", () => {
     // The prediction itself is unchanged; only the sentence the user reads is.
     expect(screen.getByText(/merge\.prediction\.fastForwardNoFf:/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false, false, "Merge branch 'feature'");
+    expect(onConfirm).toHaveBeenCalledWith("noFastForward", "refuse", false, false, "Merge branch 'feature'", null);
   });
 
   it("offers fetch-before-merge for a remote-tracking source and names the known commit", () => {
@@ -103,7 +103,7 @@ describe("MergeDialog", () => {
     expect(checkbox).not.toBeChecked();
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
-    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true, false, null);
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", true, false, null, null);
   });
 
   it("never offers fetch-before-merge for a local-branch source", () => {
@@ -130,7 +130,7 @@ describe("MergeDialog", () => {
     };
     rerender(dialog(onConfirm));
     fireEvent.click(screen.getByRole("button", { name: "merge.dirty.stashAndMerge" }));
-    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false, false, null);
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "stashFirst", false, false, null, null);
   });
 
   it("prefills the merge message from the preflight and submits the edited text", async () => {
@@ -148,6 +148,7 @@ describe("MergeDialog", () => {
       false,
       false,
       "Integrate feature\n\nWith a body.",
+      null,
     );
     expect((await axe.run(container)).violations).toEqual([]);
   });
@@ -227,7 +228,7 @@ describe("MergeDialog", () => {
     fireEvent.click(acknowledgement);
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
-    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, true, "Merge branch 'feature'");
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, true, "Merge branch 'feature'", null);
 
     mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
     rerender(dialog(onConfirm));
@@ -278,6 +279,95 @@ function preflight(prediction: MergePreflight["prediction"]): MergePreflight {
     generations: { workingTree: 1, refs: 1, history: 1, stash: 0, config: 0 },
   };
 }
+
+describe("strategy option: Advanced disclosure (P12-MERGE-05)", () => {
+  beforeEach(() => {
+    mergeState.preflight = preflight({ kind: "mergeCommit", ahead: 1, behind: 1 });
+    mergeState.loading = false;
+    mergeState.error = null;
+    mergeState.errorCode = null;
+  });
+
+  function renderDialog(onConfirm = vi.fn()) {
+    return render(
+      <MergeDialog
+        repoId="repo-1"
+        source={source}
+        currentBranch="main"
+        pending={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+  }
+
+  it("is collapsed and off by default, so a plain merge sends no option", () => {
+    const onConfirm = vi.fn();
+    renderDialog(onConfirm);
+
+    const toggle = screen.getByRole("button", { name: /merge\.advanced\.toggle/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("radio", { name: /merge\.advanced\.prefer/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenCalledWith("default", "refuse", false, false, "Merge branch 'feature'", null);
+  });
+
+  it("names each option by its real ref and warns that the other side is discarded", async () => {
+    const onConfirm = vi.fn();
+    const { container } = renderDialog(onConfirm);
+
+    fireEvent.click(screen.getByRole("button", { name: /merge\.advanced\.toggle/ }));
+    expect(screen.getByRole("button", { name: /merge\.advanced\.toggle/ })).toHaveAttribute("aria-expanded", "true");
+    const none = screen.getByRole("radio", { name: "merge.advanced.none" });
+    expect(none).toBeChecked();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "merge.advanced.prefer:ref=main" }));
+    const warning = screen.getByRole("alert");
+    expect(warning).toHaveTextContent("merge.advanced.warning:ref=main,other=feature");
+    expect(screen.getByRole("button", { name: "merge.confirm" })).toHaveAttribute("aria-describedby", warning.id);
+    expect((await axe.run(container)).violations).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "refuse", false, false, "Merge branch 'feature'", "preferTarget");
+
+    fireEvent.click(screen.getByRole("radio", { name: "merge.advanced.prefer:ref=feature" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("merge.advanced.warning:ref=feature,other=main");
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenLastCalledWith("default", "refuse", false, false, "Merge branch 'feature'", "preferSource");
+  });
+
+  it("keeps the warning visible when Advanced is collapsed with an option chosen", () => {
+    renderDialog();
+    const toggle = screen.getByRole("button", { name: /merge\.advanced\.toggle/ });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("radio", { name: "merge.advanced.prefer:ref=feature" }));
+    fireEvent.click(toggle);
+    expect(screen.getByRole("alert")).toHaveTextContent("merge.advanced.warning");
+  });
+
+  it("is absent when no three-way merge can happen, and never sends a hidden option", () => {
+    const onConfirm = vi.fn();
+    renderDialog(onConfirm);
+    fireEvent.click(screen.getByRole("button", { name: /merge\.advanced\.toggle/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "merge.advanced.prefer:ref=main" }));
+
+    fireEvent.click(screen.getByLabelText("merge.mode.fastForwardOnly"));
+    expect(screen.queryByRole("button", { name: /merge\.advanced\.toggle/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "merge.confirm" }));
+    expect(onConfirm).toHaveBeenLastCalledWith("fastForwardOnly", "refuse", false, false, null, null);
+  });
+
+  it("applies only to a predicted merge commit or unrelated histories", () => {
+    expect(strategyOptionApplies("mergeCommit", "default")).toBe(true);
+    expect(strategyOptionApplies("mergeCommit", "noFastForward")).toBe(true);
+    expect(strategyOptionApplies("unrelated", "default")).toBe(true);
+    expect(strategyOptionApplies("mergeCommit", "fastForwardOnly")).toBe(false);
+    expect(strategyOptionApplies("fastForward", "noFastForward")).toBe(false);
+    expect(strategyOptionApplies("fastForward", "default")).toBe(false);
+    expect(strategyOptionApplies("alreadyUpToDate", "default")).toBe(false);
+  });
+});
 
 describe("merge message rules", () => {
   it("matches the backend: a commit results unless fast-forward-only or a predicted fast-forward", () => {

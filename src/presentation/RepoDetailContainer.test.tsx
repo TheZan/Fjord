@@ -426,10 +426,12 @@ vi.mock("@/presentation/MergeDialog", () => ({
       fetchFirst: boolean,
       allowUnrelatedHistories: boolean,
       message: string | null,
+      strategyOption?: import("@/domain/git").MergeStrategyOption | null,
     ) => void;
   }) => (
     <>
       <output data-testid="merge-dialog-source">{source.refName}</output>
+      <button type="button" onClick={() => onConfirm("default", "refuse", false, false, "Merge branch 'feature'", "preferSource")}>confirm merge preferring source</button>
       <button type="button" onClick={() => onConfirm("default", "refuse", false, false, "Merge branch 'feature'")}>confirm merge</button>
       <button type="button" onClick={() => onConfirm("default", "refuse", true, false, null)}>confirm merge with fetch</button>
     </>
@@ -1440,6 +1442,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "refuse",
       false,
       "Merge branch 'feature'",
+      null,
     ));
     expect(queryClientMock.setQueryData).toHaveBeenCalledWith(
       ["repos", "repo-1", "operationState"],
@@ -1479,6 +1482,22 @@ describe("RepoDetailContainer checkout confirmation", () => {
     ));
   });
 
+  it("forwards the chosen strategy option to the merge (P12-MERGE-05)", async () => {
+    renderContainer();
+    fireEvent.click(screen.getByRole("button", { name: "merge feature" }));
+    fireEvent.click(screen.getByRole("button", { name: "confirm merge preferring source" }));
+
+    await waitFor(() => expect(runMergeBranch).toHaveBeenCalledWith(
+      "repo-1",
+      { refName: "refs/heads/feature", kind: "localBranch" },
+      "default",
+      "refuse",
+      false,
+      "Merge branch 'feature'",
+      "preferSource",
+    ));
+  });
+
   it("fetches the remote before merging, re-resolves the preflight, then merges", async () => {
     renderContainer();
     fireEvent.click(screen.getByRole("button", { name: "merge remote feature" }));
@@ -1490,6 +1509,7 @@ describe("RepoDetailContainer checkout confirmation", () => {
       "default",
       "refuse",
       false,
+      null,
       null,
     ));
     expect(runFetchRepo).toHaveBeenCalledWith("repo-1", "origin");

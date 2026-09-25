@@ -42,6 +42,7 @@ export type {
   MergeResult,
   MergeSource,
   MergeSourceKind,
+  MergeStrategyOption,
   OpenTarget,
   GenerationSet,
   HunkSelection,
