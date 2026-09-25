@@ -576,25 +576,34 @@ async fn case_11_generations_advance_working_tree_only_and_stale_views_are_refus
 
 #[tokio::test]
 async fn literal_pathspecs_resolve_only_the_named_path() {
+    // `[ab].txt` is a legal file name on every platform and, read as a glob,
+    // would also match `a.txt`. Only the literal path may be resolved.
     let (_directory, repo, backend) = diverged(
-        &[("*.txt", Some("base star\n")), ("x.txt", Some("base x\n"))],
-        &[("*.txt", Some("main star\n")), ("x.txt", Some("main x\n"))],
         &[
-            ("*.txt", Some("topic star\n")),
-            ("x.txt", Some("topic x\n")),
+            ("[ab].txt", Some("base glob\n")),
+            ("a.txt", Some("base a\n")),
+        ],
+        &[
+            ("[ab].txt", Some("main glob\n")),
+            ("a.txt", Some("main a\n")),
+        ],
+        &[
+            ("[ab].txt", Some("topic glob\n")),
+            ("a.txt", Some("topic a\n")),
         ],
     );
     merge_topic(&backend, &repo);
 
-    let set = resolve(&backend, &repo, "*.txt", ConflictResolution::TakeTheirs)
+    let set = resolve(&backend, &repo, "[ab].txt", ConflictResolution::TakeTheirs)
         .await
         .unwrap();
 
-    assert_eq!(conflicted_paths(&set), ["x.txt"]);
+    assert_eq!(conflicted_paths(&set), ["a.txt"]);
     assert_eq!(
-        stage0_blob(&repo, "*.txt"),
-        Some(blob_at(&repo, "topic", "*.txt"))
+        stage0_blob(&repo, "[ab].txt"),
+        Some(blob_at(&repo, "topic", "[ab].txt"))
     );
+    assert_eq!(stage0_blob(&repo, "a.txt"), None);
 }
 
 #[tokio::test]

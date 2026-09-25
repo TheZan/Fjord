@@ -460,7 +460,7 @@ and nothing else.
   three stable codes and the `line` field.
 - Integration (Rust): `crates/fjord-git/src/local/tests/conflicts.rs` —
   `case_01` … `case_11` in the order listed above, plus literal pathspecs
-  (`*.txt`), the 1000-entry bound with an exact `total`, a clean index, and
+  (`[ab].txt`, which as a glob would also match `a.txt`), the 1000-entry bound with an exact `total`, a clean index, and
   cherry-pick/revert side labels.
 - Component: `src/presentation/ConflictsGroup.test.tsx` (cases 1–5, axe),
   `RepoDetailContainer.test.tsx` (case 4's re-dispatch from a real
