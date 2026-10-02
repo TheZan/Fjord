@@ -621,7 +621,7 @@ export function RepoDetailContainer({
   function onPruneWorktree(worktree: Worktree) {
     void runRepoAction(
       "prune-worktree",
-      () => removeWorktree(repo.id, worktree.name, false),
+      () => removeWorktree(repo.id, worktree.name),
       ["refs"],
     );
   }

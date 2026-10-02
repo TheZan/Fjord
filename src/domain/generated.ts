@@ -101,7 +101,12 @@ export type RebaseResult = { state: RepoOperationState, stashRef: string | null,
 
 export type RebaseTodoAction = { "kind": "pick" } | { "kind": "reword", message: string, } | { "kind": "fixup" } | { "kind": "squash", message: string, } | { "kind": "drop" };
 
-export type RebaseTodoStep = { commit: CommitId, shortId: string, subject: string, action: RebaseTodoAction, };
+export type RebaseTodoStep = { commit: CommitId, shortId: string, subject: string, action: RebaseTodoAction, 
+/**
+ * Reachable from the current branch's upstream when the todo was read;
+ * display-only, ignored when the todo is submitted.
+ */
+published: boolean, };
 
 export type InteractiveRebaseTodo = { preflight: RebasePreflight, steps: Array<RebaseTodoStep>, };
 

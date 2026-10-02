@@ -149,14 +149,15 @@ pub async fn create_worktree(
         .await?)
 }
 
+/// Prunes a missing worktree or removes a clean one. Forced removal deletes
+/// local work, so it exists only as the confirmed destructive action.
 #[tauri::command]
 pub async fn remove_worktree(
     state: State<'_, AppState>,
     repo_id: RepositoryId,
     name: String,
-    force: bool,
 ) -> Result<(), AppError> {
-    Ok(state.repos.remove_worktree(repo_id, &name, force).await?)
+    Ok(state.repos.remove_worktree(repo_id, &name).await?)
 }
 
 #[tauri::command]

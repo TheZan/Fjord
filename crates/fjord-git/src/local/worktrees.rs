@@ -117,16 +117,21 @@ pub(super) fn remove_locked(
         ));
     }
     if entry.is_prunable {
-        run_git(
-            commands,
-            repo,
-            &[
-                OsString::from("worktree"),
-                OsString::from("prune"),
-                OsString::from("--expire"),
-                OsString::from("now"),
-            ],
-        )?;
+        // `git worktree prune` would also delete every *other* missing
+        // worktree's metadata. Prune exactly the confirmed one; libgit2
+        // re-checks that it is invalid and unlocked, and the working-tree
+        // flag stays off so nothing outside `.git` is touched.
+        let git = git2::Repository::open(&repo.0).map_err(LocalGitBackend::map_git2_error)?;
+        git.find_worktree(name)
+            .and_then(|worktree| {
+                worktree.prune(Some(
+                    git2::WorktreePruneOptions::new()
+                        .valid(false)
+                        .locked(false)
+                        .working_tree(false),
+                ))
+            })
+            .map_err(|error| GitError::WorktreeFailed(error.message().to_string()))?;
         runtime::bump_mutation(repo, MutationKind::RemoveWorktree);
         return Ok(());
     }
@@ -167,15 +172,99 @@ pub(super) fn removal_facts_locked(
     if dirty_count > 0 && !force {
         blockers.push(BLOCKER_DIRTY.to_string());
     }
-    Ok(DestructiveActionFacts {
-        consequences: vec![Consequence::WorktreeRemoved {
+    let mut consequences = Vec::new();
+    // A detached worktree can be the only thing keeping commits alive: its
+    // HEAD and reflog are deleted with it.
+    if entry.branch.is_none() && !entry.is_prunable {
+        let (count, sample) = commits_only_reachable_from(repo, &entry.head.0)?;
+        if count > 0 {
+            consequences.push(Consequence::CommitsUnreachable { count, sample });
+        }
+    }
+    consequences.insert(
+        0,
+        Consequence::WorktreeRemoved {
             name: entry.name,
             path: entry.path,
             dirty_count,
-        }],
+        },
+    );
+    Ok(DestructiveActionFacts {
+        consequences,
         recoverable: Recoverability::NotRecoverable,
         blockers,
     })
+}
+
+/// Commits reachable from `head` but from no ref in the repository.
+fn commits_only_reachable_from(
+    repo: &RepoPath,
+    head: &str,
+) -> Result<(u32, Vec<fjord_domain::CommitSummary>), GitError> {
+    const SAMPLE_LIMIT: usize = 5;
+    let git = git2::Repository::open(&repo.0).map_err(LocalGitBackend::map_git2_error)?;
+    let head = git2::Oid::from_str(head).map_err(LocalGitBackend::map_git2_error)?;
+    let mut walk = git.revwalk().map_err(LocalGitBackend::map_git2_error)?;
+    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)
+        .map_err(LocalGitBackend::map_git2_error)?;
+    walk.push(head).map_err(LocalGitBackend::map_git2_error)?;
+    for reference in git
+        .references()
+        .map_err(LocalGitBackend::map_git2_error)?
+        .flatten()
+    {
+        if let Ok(commit) = reference.peel_to_commit() {
+            walk.hide(commit.id())
+                .map_err(LocalGitBackend::map_git2_error)?;
+        }
+    }
+    let mut count = 0_u32;
+    let mut sample = Vec::new();
+    for id in walk {
+        let id = id.map_err(LocalGitBackend::map_git2_error)?;
+        count = count.saturating_add(1);
+        if sample.len() < SAMPLE_LIMIT {
+            sample.push(super::destructive_preflight::commit_summary(&git, id)?);
+        }
+    }
+    Ok((count, sample))
+}
+
+/// Binds a removal confirmation to the target worktree's own state. The
+/// repository generations never observe another worktree's files, so the
+/// executor recomputes this digest under the write lock and refuses a forced
+/// removal whose worktree changed after the preflight was shown.
+pub(super) fn fingerprint(
+    commands: &GitCommandFactory,
+    repo: &RepoPath,
+    name: &str,
+) -> Result<[u8; 32], GitError> {
+    use sha2::{Digest, Sha256};
+    let entry = find_uncached(commands, repo, name)?;
+    let mut digest = Sha256::new();
+    digest.update(entry.path.as_os_str().as_encoded_bytes());
+    digest.update([0]);
+    digest.update(entry.head.0.as_bytes());
+    digest.update([entry.is_locked as u8, entry.is_prunable as u8]);
+    if !entry.is_prunable {
+        let git = git2::Repository::open(&entry.path).map_err(LocalGitBackend::map_git2_error)?;
+        let mut options = git2::StatusOptions::new();
+        options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(true)
+            .recurse_ignored_dirs(false);
+        for status in git
+            .statuses(Some(&mut options))
+            .map_err(LocalGitBackend::map_git2_error)?
+            .iter()
+        {
+            digest.update((status.path_bytes().len() as u64).to_le_bytes());
+            digest.update(status.path_bytes());
+            digest.update(status.status().bits().to_le_bytes());
+        }
+    }
+    Ok(digest.finalize().into())
 }
 
 fn validate_name(name: &str) -> Result<(), GitError> {

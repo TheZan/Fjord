@@ -31,7 +31,29 @@ pub(super) async fn execute(
     if runtime::generations(&repo)? != expected_generations {
         return Err(GitError::PreflightStale);
     }
-    confirmations.consume_action(&confirmation_token, &repo, &action, expected_generations)?;
+    if let DestructiveAction::RemoveWorktree { name, .. } = &action {
+        let bound = confirmations.consume_worktree_removal(
+            &confirmation_token,
+            &repo,
+            &action,
+            expected_generations,
+        )?;
+        let current = {
+            let commands = commands.clone();
+            let repo = repo.clone();
+            let name = name.clone();
+            tokio::task::spawn_blocking(move || {
+                super::worktrees::fingerprint(&commands, &repo, &name)
+            })
+            .await
+            .map_err(|error| GitError::Git2(error.to_string()))??
+        };
+        if current != bound {
+            return Err(GitError::PreflightStale);
+        }
+    } else {
+        confirmations.consume_action(&confirmation_token, &repo, &action, expected_generations)?;
+    }
     if context.is_cancelled() {
         return Err(GitError::Cancelled);
     }

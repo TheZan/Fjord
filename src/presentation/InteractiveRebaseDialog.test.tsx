@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { InteractiveRebaseTodo, RebasePreflight, RebaseTodoStep } from "@/domain/git";
@@ -15,8 +15,8 @@ const preflight: RebasePreflight = {
   alreadyUpToDate: false, publishedRewrite: null,
   generations: { workingTree: 1, refs: 1, history: 1, stash: 0, config: 0 },
 };
-function pickStep(commit: string, subject: string): RebaseTodoStep {
-  return { commit, shortId: commit.slice(0, 7), subject, action: { kind: "pick" } };
+function pickStep(commit: string, subject: string, published = false): RebaseTodoStep {
+  return { commit, shortId: commit.slice(0, 7), subject, action: { kind: "pick" }, published };
 }
 function todo(): InteractiveRebaseTodo {
   return { preflight: structuredClone(preflight), steps: [pickStep("aaaaaaaaaa", "one"), pickStep("bbbbbbbbbb", "two")] };
@@ -89,5 +89,39 @@ describe("InteractiveRebaseDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "rebase.cancelOperation" }));
     expect(callbacks.onCancel).toHaveBeenCalledOnce();
     expect(screen.getByRole("combobox", { name: 'rebase.todo.actionLabel:{"subject":"one"}' })).toBeDisabled();
+  });
+
+  it("reorders with buttons and Alt+Arrow keys, keeping focus on the moved row", async () => {
+    const callbacks = props();
+    render(<InteractiveRebaseDialog {...callbacks} />);
+    expect(screen.getByRole("button", { name: 'rebase.todo.moveUp:{"subject":"one"}' })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: 'rebase.todo.moveDown:{"subject":"one"}' }));
+    fireEvent.click(screen.getByRole("button", { name: "rebase.todo.start" }));
+    expect(callbacks.onConfirm).toHaveBeenLastCalledWith(
+      state.todo!.preflight, [pickStep("bbbbbbbbbb", "two"), pickStep("aaaaaaaaaa", "one")], "refuse",
+    );
+
+    const twoAction = screen.getByRole("combobox", { name: 'rebase.todo.actionLabel:{"subject":"two"}' });
+    fireEvent.keyDown(twoAction, { key: "ArrowDown", altKey: true });
+    const moved = screen.getByRole("combobox", { name: 'rebase.todo.actionLabel:{"subject":"two"}' });
+    await waitFor(() => expect(moved).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "rebase.todo.start" }));
+    expect(callbacks.onConfirm).toHaveBeenLastCalledWith(
+      state.todo!.preflight, [pickStep("aaaaaaaaaa", "one"), pickStep("bbbbbbbbbb", "two")], "refuse",
+    );
+  });
+
+  it("warns about published commits an edit rewrites on an already-based branch", () => {
+    state.todo = {
+      preflight: { ...structuredClone(preflight), alreadyUpToDate: true, commits: 0 },
+      steps: [pickStep("aaaaaaaaaa", "one", true), pickStep("bbbbbbbbbb", "two")],
+    };
+    render(<InteractiveRebaseDialog {...props()} />);
+    expect(screen.queryByText(/rebase\.published/)).not.toBeInTheDocument();
+    // Editing only the unpublished tip leaves the published prefix untouched.
+    fireEvent.change(screen.getByRole("combobox", { name: 'rebase.todo.actionLabel:{"subject":"two"}' }), { target: { value: "drop" } });
+    expect(screen.queryByText(/rebase\.published/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: 'rebase.todo.actionLabel:{"subject":"one"}' }), { target: { value: "reword" } });
+    expect(screen.getByText('rebase.published:{"count":1}')).toBeInTheDocument();
   });
 });

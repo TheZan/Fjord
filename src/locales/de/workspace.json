@@ -154,6 +154,8 @@
       "entry": "Interaktiver Rebase von {{current}} auf {{onto}}…",
       "stepsLabel": "Rebase-Schritte",
       "dragHandle": "Zum Umsortieren ziehen",
+      "moveUp": "{{subject}} nach oben verschieben",
+      "moveDown": "{{subject}} nach unten verschieben",
       "actionLabel": "Aktion für {{subject}}",
       "messageLabel": "Neue Nachricht für {{subject}}",
       "messagePlaceholder": "Commit-Nachricht",

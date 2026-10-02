@@ -38,6 +38,7 @@ use super::{bump_repository_mutation, LocalGitBackend};
 
 const PLAN_DIR_NAME: &str = "fjord-rebase-plan";
 const TODO_SOURCE_FILE_NAME: &str = "fjord-rebase-todo-source";
+const SKIPPED_FILE_NAME: &str = "skipped";
 
 /// The same preflight basic rebase uses, plus the seeded todo list (all
 /// `Pick`, in commit order) for the editor to start from.
@@ -56,6 +57,7 @@ pub(super) async fn todo(
             short_id: entry.short_id,
             subject: entry.subject,
             action: RebaseTodoAction::Pick,
+            published: entry.published,
         })
         .collect();
     Ok(InteractiveRebaseTodo { preflight, steps })
@@ -86,7 +88,13 @@ pub(super) async fn run_preflighted(
         }
     }
     let before = observe(repo, &origins).await?;
-    if current.already_up_to_date {
+    // Only an unedited todo on an already-based branch is a no-op; edits to
+    // the branch's own commits are the common interactive case.
+    let unedited = steps.len() == entries.len()
+        && steps.iter().zip(&entries).all(|(step, entry)| {
+            step.action == RebaseTodoAction::Pick && step.commit.0 == entry.id.to_string()
+        });
+    if current.already_up_to_date && unedited {
         return Ok(RebaseResult {
             state: before.state,
             stash_ref: None,
@@ -292,10 +300,14 @@ pub(super) async fn drain_synthetic_breaks(
         )
     {
         let dir = git_dir(repo)?;
-        let Some(message) = pop_plan_entry(&dir)? else {
+        let Some(message) = take_plan_entry_for_break(&dir)? else {
             break;
         };
-        amend_head_message(commands, repo, &message, context.clone()).await?;
+        // `None` is a synthetic break whose commit was skipped: nothing of it
+        // was applied, so its message must not land on the previous commit.
+        if let Some(message) = message {
+            amend_head_message(commands, repo, &message, context.clone()).await?;
+        }
         let spec = command_spec(
             commands.executable()?,
             repo,
@@ -356,7 +368,7 @@ async fn amend_head_message(
 /// `Fixup` and a message-less `Squash` combine silently, matching Git's own
 /// `fixup` (a `Squash` without a message keeps the retained commit's message,
 /// same as `Fixup` — Fjord never opens an editor to concatenate messages).
-fn compile_todo(steps: &[RebaseTodoStep]) -> (String, Vec<String>) {
+fn compile_todo(steps: &[RebaseTodoStep]) -> (String, Vec<(CommitId, String)>) {
     let mut todo = String::new();
     let mut plan = Vec::new();
     for step in steps {
@@ -373,12 +385,12 @@ fn compile_todo(steps: &[RebaseTodoStep]) -> (String, Vec<String>) {
             RebaseTodoAction::Reword { message } => {
                 todo.push_str(&format!("pick {} {}\n", step.commit.0, step.subject));
                 todo.push_str("break\n");
-                plan.push(message.clone());
+                plan.push((step.commit.clone(), message.clone()));
             }
             RebaseTodoAction::Squash { message } => {
                 todo.push_str(&format!("fixup {} {}\n", step.commit.0, step.subject));
                 todo.push_str("break\n");
-                plan.push(message.clone());
+                plan.push((step.commit.clone(), message.clone()));
             }
         }
     }
@@ -449,40 +461,107 @@ fn plan_dir(git_dir: &Path) -> PathBuf {
     git_dir.join(PLAN_DIR_NAME)
 }
 
-fn write_plan(git_dir: &Path, messages: &[String]) -> Result<(), GitError> {
+/// One file per pending message, in todo order. Each records the commit
+/// whose `break` it belongs to, so a skipped step can never hand its message
+/// to whatever commit happens to be `HEAD` at the next break.
+fn write_plan(git_dir: &Path, messages: &[(CommitId, String)]) -> Result<(), GitError> {
     if messages.is_empty() {
         return Ok(());
     }
     let dir = plan_dir(git_dir);
     std::fs::create_dir_all(&dir).map_err(io_error)?;
-    for (index, message) in messages.iter().enumerate() {
-        std::fs::write(dir.join(format!("{:06}", index + 1)), message).map_err(io_error)?;
+    for (index, (commit, message)) in messages.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("{:06}", index + 1)),
+            format!("{}\n{message}", commit.0),
+        )
+        .map_err(io_error)?;
     }
     Ok(())
 }
 
-/// Pops the lowest-numbered pending message, if any. Filesystem order, not a
-/// sequence-position match against Git's todo file: Fjord's own breaks are
-/// hit in exactly the order they were written, so a FIFO queue is sufficient
-/// and needs no correlation with Git's internal step numbering.
-fn pop_plan_entry(git_dir: &Path) -> Result<Option<String>, GitError> {
+/// At a synthetic break, resolves the pending entry for the commit Git just
+/// handled (the last command before the break in `rebase-merge/done`).
+/// Returns `None` when no entry is pending, `Some(None)` when the entry's
+/// commit was skipped (discarded unapplied), and `Some(Some(message))` to
+/// amend. An entry for a later commit stays queued for its own break.
+fn take_plan_entry_for_break(git_dir: &Path) -> Result<Option<Option<String>>, GitError> {
+    let Some((path, commit, message)) = peek_plan_entry(git_dir)? else {
+        return Ok(None);
+    };
+    let handled = last_done_commit(git_dir);
+    if handled.as_deref() != Some(commit.as_str()) {
+        // A break belonging to a skipped step whose entry was already
+        // discarded: resume without touching any commit message.
+        return Ok(Some(None));
+    }
+    std::fs::remove_file(&path).map_err(io_error)?;
+    if skipped_commits(git_dir).contains(&commit) {
+        return Ok(Some(None));
+    }
+    Ok(Some(Some(message)))
+}
+
+fn peek_plan_entry(git_dir: &Path) -> Result<Option<(PathBuf, String, String)>, GitError> {
     let dir = plan_dir(git_dir);
     let mut entries: Vec<PathBuf> = match std::fs::read_dir(&dir) {
         Ok(read) => read
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name != SKIPPED_FILE_NAME)
+            })
             .collect(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(io_error(error)),
     };
     entries.sort();
     let Some(next) = entries.into_iter().next() else {
-        let _ = std::fs::remove_dir(&dir);
         return Ok(None);
     };
-    let message = std::fs::read_to_string(&next).map_err(io_error)?;
-    std::fs::remove_file(&next).map_err(io_error)?;
-    Ok(Some(message))
+    let content = std::fs::read_to_string(&next).map_err(io_error)?;
+    let (commit, message) = content
+        .split_once('\n')
+        .ok_or_else(|| GitError::OperationStepFailed("Rebase plan entry is malformed".into()))?;
+    Ok(Some((next, commit.to_string(), message.to_string())))
+}
+
+/// The object id named by the last non-`break` command Git recorded.
+fn last_done_commit(git_dir: &Path) -> Option<String> {
+    let done = std::fs::read_to_string(git_dir.join("rebase-merge").join("done")).ok()?;
+    done.lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#') && *line != "break")
+        .and_then(|line| line.split_whitespace().nth(1))
+        .map(str::to_string)
+}
+
+fn skipped_commits(git_dir: &Path) -> Vec<String> {
+    std::fs::read_to_string(plan_dir(git_dir).join(SKIPPED_FILE_NAME))
+        .map(|content| content.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// Called before Phase 9 Skip runs `git rebase --skip` during a Fjord
+/// interactive rebase: the stopped commit (`REBASE_HEAD`) will not be applied,
+/// so its queued message is discarded when its break is reached.
+pub(super) fn record_skipped_step(git_dir: &Path) -> Result<(), GitError> {
+    let dir = plan_dir(git_dir);
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    let Ok(skipped) = std::fs::read_to_string(git_dir.join("REBASE_HEAD")) else {
+        return Ok(());
+    };
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(SKIPPED_FILE_NAME))
+        .map_err(io_error)?;
+    writeln!(file, "{}", skipped.trim()).map_err(io_error)
 }
 
 pub(super) fn clear_plan(git_dir: &Path) -> Result<(), GitError> {
@@ -508,6 +587,7 @@ mod tests {
             short_id: id[..7.min(id.len())].into(),
             subject: format!("subject {id}"),
             action,
+            published: false,
         }
     }
 
@@ -543,7 +623,10 @@ mod tests {
         );
         assert_eq!(
             plan,
-            vec!["new message".to_string(), "combined message".to_string()]
+            vec![
+                (CommitId("bbb".into()), "new message".to_string()),
+                (CommitId("ddd".into()), "combined message".to_string()),
+            ]
         );
     }
 
@@ -553,6 +636,7 @@ mod tests {
             id: git2::Oid::from_str("0000000000000000000000000000000000000a").unwrap(),
             short_id: "0000000".into(),
             subject: "s".into(),
+            published: false,
         }];
         let steps = vec![step(
             "0000000000000000000000000000000000000a",
@@ -568,6 +652,7 @@ mod tests {
             id: git2::Oid::from_str("0000000000000000000000000000000000000a").unwrap(),
             short_id: "0000000".into(),
             subject: "s".into(),
+            published: false,
         }];
         let steps = vec![step(
             "0000000000000000000000000000000000000b",
@@ -583,6 +668,7 @@ mod tests {
             id: git2::Oid::from_str("0000000000000000000000000000000000000a").unwrap(),
             short_id: "0000000".into(),
             subject: "s".into(),
+            published: false,
         }];
         let steps = vec![step(
             "0000000000000000000000000000000000000a",
@@ -604,25 +690,57 @@ mod tests {
         );
     }
 
+    fn record_done(dir: &Path, lines: &str) {
+        std::fs::create_dir_all(dir.join("rebase-merge")).unwrap();
+        std::fs::write(dir.join("rebase-merge").join("done"), lines).unwrap();
+    }
+
     #[test]
-    fn plan_files_round_trip_in_order_including_multi_line_messages() {
+    fn plan_entries_are_released_only_at_their_own_commits_break() {
         let dir = tempfile::tempdir().unwrap();
         write_plan(
             dir.path(),
             &[
-                "first line\n\nsecond paragraph".to_string(),
-                "second message".to_string(),
+                (
+                    CommitId("a".repeat(40)),
+                    "first line\n\nsecond paragraph".to_string(),
+                ),
+                (CommitId("b".repeat(40)), "second message".to_string()),
             ],
         )
         .unwrap();
+        // A break whose preceding command is another commit releases nothing.
+        record_done(dir.path(), &format!("pick {} x\nbreak\n", "c".repeat(40)));
+        assert_eq!(take_plan_entry_for_break(dir.path()).unwrap(), Some(None));
+        record_done(dir.path(), &format!("pick {} x\nbreak\n", "a".repeat(40)));
         assert_eq!(
-            pop_plan_entry(dir.path()).unwrap().as_deref(),
-            Some("first line\n\nsecond paragraph")
+            take_plan_entry_for_break(dir.path()).unwrap(),
+            Some(Some("first line\n\nsecond paragraph".to_string()))
         );
+        record_done(dir.path(), &format!("fixup {} y\nbreak\n", "b".repeat(40)));
         assert_eq!(
-            pop_plan_entry(dir.path()).unwrap().as_deref(),
-            Some("second message")
+            take_plan_entry_for_break(dir.path()).unwrap(),
+            Some(Some("second message".to_string()))
         );
-        assert_eq!(pop_plan_entry(dir.path()).unwrap(), None);
+        assert_eq!(take_plan_entry_for_break(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn a_skipped_commits_message_is_discarded_at_its_break() {
+        let dir = tempfile::tempdir().unwrap();
+        write_plan(
+            dir.path(),
+            &[(CommitId("a".repeat(40)), "lost".to_string())],
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("REBASE_HEAD"),
+            format!("{}\n", "a".repeat(40)),
+        )
+        .unwrap();
+        record_skipped_step(dir.path()).unwrap();
+        record_done(dir.path(), &format!("pick {} x\nbreak\n", "a".repeat(40)));
+        assert_eq!(take_plan_entry_for_break(dir.path()).unwrap(), Some(None));
+        assert_eq!(take_plan_entry_for_break(dir.path()).unwrap(), None);
     }
 }

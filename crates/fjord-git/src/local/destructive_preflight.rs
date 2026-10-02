@@ -364,7 +364,10 @@ fn commits_between(
     Ok((count, sample))
 }
 
-fn commit_summary(git: &git2::Repository, id: git2::Oid) -> Result<CommitSummary, GitError> {
+pub(super) fn commit_summary(
+    git: &git2::Repository,
+    id: git2::Oid,
+) -> Result<CommitSummary, GitError> {
     let commit = git
         .find_commit(id)
         .map_err(LocalGitBackend::map_git2_error)?;

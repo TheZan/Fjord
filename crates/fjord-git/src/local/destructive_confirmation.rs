@@ -27,6 +27,9 @@ enum ConfirmationBinding {
     Discard(Vec<PatchSelection>),
     ForcePush(ForcePushPlan),
     Action,
+    /// `RemoveWorktree`: a digest of the target worktree's own state, which
+    /// the repository generations do not observe.
+    Worktree([u8; 32]),
 }
 
 struct PendingRemoteRemoval {
@@ -186,6 +189,31 @@ impl DestructiveConfirmationStore {
         action: &DestructiveAction,
         generations: GenerationSet,
     ) -> Result<String, GitError> {
+        self.issue_bound_action(repo, action, generations, ConfirmationBinding::Action)
+    }
+
+    pub(super) fn issue_worktree_removal(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: GenerationSet,
+        fingerprint: [u8; 32],
+    ) -> Result<String, GitError> {
+        self.issue_bound_action(
+            repo,
+            action,
+            generations,
+            ConfirmationBinding::Worktree(fingerprint),
+        )
+    }
+
+    fn issue_bound_action(
+        &self,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: GenerationSet,
+        binding: ConfirmationBinding,
+    ) -> Result<String, GitError> {
         let now = Instant::now();
         let mut entries = self.entries.lock().map_err(|_| GitError::PreflightStale)?;
         entries.retain(|_, pending| pending.expires_at > now);
@@ -196,7 +224,7 @@ impl DestructiveConfirmationStore {
             PendingConfirmation {
                 repo: repository_key(repo),
                 action: action.clone(),
-                binding: ConfirmationBinding::Action,
+                binding,
                 generations,
                 expires_at: now + self.ttl,
             },
@@ -226,6 +254,34 @@ impl DestructiveConfirmationStore {
             return Err(GitError::PreflightStale);
         }
         Ok(())
+    }
+
+    /// Consumes a worktree-removal token and returns its bound digest; the
+    /// caller recomputes the digest under the write lock before Git runs.
+    pub(super) fn consume_worktree_removal(
+        &self,
+        token: &str,
+        repo: &RepoPath,
+        action: &DestructiveAction,
+        generations: GenerationSet,
+    ) -> Result<[u8; 32], GitError> {
+        let pending = self
+            .entries
+            .lock()
+            .map_err(|_| GitError::PreflightStale)?
+            .remove(token)
+            .ok_or(GitError::PreflightStale)?;
+        if Instant::now() >= pending.expires_at
+            || pending.repo != repository_key(repo)
+            || pending.action != *action
+            || pending.generations != generations
+        {
+            return Err(GitError::PreflightStale);
+        }
+        match pending.binding {
+            ConfirmationBinding::Worktree(fingerprint) => Ok(fingerprint),
+            _ => Err(GitError::PreflightStale),
+        }
     }
 
     pub(super) fn consume_force_push(

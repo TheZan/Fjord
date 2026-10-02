@@ -13,7 +13,7 @@ const todo: InteractiveRebaseTodo = {
   preflight: { onto, ontoCommit: "old", ontoLabel: "develop", currentBranch: "feature", currentCommit: "head", commits: 1,
     alreadyUpToDate: false, blockers: [], dirty: { staged: 0, modified: 0, untracked: 0, wouldOverwrite: [] }, publishedRewrite: null,
     generations: { workingTree: 0, refs: 0, history: 0, config: 0, stash: 0 } },
-  steps: [{ commit: "aaa", shortId: "aaa", subject: "one", action: { kind: "pick" } }],
+  steps: [{ commit: "aaa", shortId: "aaa", subject: "one", action: { kind: "pick" }, published: false }],
 };
 
 function wrapper(queryClient: QueryClient) {
