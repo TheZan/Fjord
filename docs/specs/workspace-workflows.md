@@ -131,12 +131,24 @@ Safety:
   changes reports them, and `force` is required and labeled *not recoverable*.
 - A locked worktree cannot be removed without unlocking; the reason Git reports is
   shown.
-- Prunable worktrees (path gone) are listed with a Prune action.
+- Prunable worktrees (path gone) are listed with a Prune action. Prune deletes
+  only the named worktree's metadata (libgit2 prune with the working-tree flag
+  off), never every missing worktree as `git worktree prune` would.
+- Repository generations never observe another worktree's files, so the
+  removal confirmation also binds a digest of the target worktree's path,
+  `HEAD`, lock state, and status; a forced removal whose worktree changed after
+  the preflight fails with `preflight_stale` before Git runs.
+- Removing a detached worktree reports the commits only its `HEAD` retains
+  (`CommitsUnreachable`), since its `HEAD` and reflog are deleted with it.
+- `remove_worktree` (IPC) prunes or removes a clean worktree only; forced
+  removal exists solely as the token-bound destructive action.
 
 Import interaction: `fjord-fs` discovery must not add a worktree as a separate
-repository. Discovery gains a check — a `.git` *file* containing `gitdir:` marks a
-worktree; it is skipped during import and, if its parent repository is tracked,
-surfaced under that repository instead.
+repository. Discovery gains a check — a `.git` *file* whose `gitdir:` names a
+git-dir containing `commondir` marks a worktree; it is skipped during import and,
+if its parent repository is tracked, surfaced under that repository instead. A
+`.git` file without `commondir` (a `git init --separate-git-dir` repository) is a
+repository of its own and is imported and registrable like any other.
 
 Watcher interaction: a worktree has its own working tree but shares `.git`.
 Hot/warm worktrees of a hot repository get a working-tree watch; the shared
@@ -233,10 +245,21 @@ ever invoked for the todo list. `reword` and a message-carrying `squash` compile
 to their commit line(s) followed by Git's own `break` command rather than the
 literal `reword`/`squash` instructions, so the sequencer pauses without opening a
 commit-message editor either; `start_interactive_rebase` amends the queued
-message and resumes automatically. A real conflict still surfaces exactly like
+message and resumes automatically. Each queued message records the commit whose
+`break` it belongs to, and a break only releases it when the last command in
+`rebase-merge/done` names that commit; Phase 9 Skip records the stopped
+`REBASE_HEAD`, so a skipped commit's message is discarded instead of amending
+whatever commit is `HEAD` at the stray break. A real conflict still surfaces exactly like
 basic rebase, and resuming after one drains any remaining synthetic pauses
 through `continue_operation`, so Abort restores the original history at any
-point until the sequence completes. It was scheduled last in the phase because it
+point until the sequence completes. The todo is offered even when the branch is
+already based on the target — editing one's own recent commits is the common
+case — and only an unedited todo there is a no-op. Each step carries a
+display-only `published` flag (reachable from the upstream); the editor counts
+the published commits an edit will actually replace (the preflight's count when
+the base moves, otherwise those from the first edited row on, since Git
+fast-forwards the unchanged prefix). Rows reorder by drag, by Move up/down
+buttons, or with `Alt+↑`/`Alt+↓` on the focused row. It was scheduled last in the phase because it
 multiplies the state space and was only safe once basic rebase, the operation
 banner, and the Recovery Center were all proven.
 

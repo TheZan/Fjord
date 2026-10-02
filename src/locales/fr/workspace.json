@@ -154,6 +154,8 @@
       "entry": "Rebase interactif de {{current}} sur {{onto}}…",
       "stepsLabel": "Étapes du rebase",
       "dragHandle": "Glisser pour réordonner",
+      "moveUp": "Monter {{subject}}",
+      "moveDown": "Descendre {{subject}}",
       "actionLabel": "Action pour {{subject}}",
       "messageLabel": "Nouveau message pour {{subject}}",
       "messagePlaceholder": "Message du commit",

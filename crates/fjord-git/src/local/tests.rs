@@ -11902,4 +11902,5 @@ async fn start_interactive_rebase_rejects_a_todo_that_does_not_match_the_preflig
 
 mod branch_update;
 mod conflicts;
+mod review_followups;
 mod strategy_option;

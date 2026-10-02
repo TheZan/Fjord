@@ -154,6 +154,8 @@
       "entry": "Interactive rebase {{current}} onto {{onto}}…",
       "stepsLabel": "Rebase steps",
       "dragHandle": "Drag to reorder",
+      "moveUp": "Move {{subject}} up",
+      "moveDown": "Move {{subject}} down",
       "actionLabel": "Action for {{subject}}",
       "messageLabel": "New message for {{subject}}",
       "messagePlaceholder": "Commit message",

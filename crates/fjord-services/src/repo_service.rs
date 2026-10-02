@@ -901,16 +901,17 @@ impl RepoService {
             .await?)
     }
 
+    /// Never forced: removing local work requires the token-bound
+    /// `DestructiveAction::RemoveWorktree { force: true }` execution.
     pub async fn remove_worktree(
         &self,
         repo_id: RepositoryId,
         name: &str,
-        force: bool,
     ) -> Result<(), RepoError> {
         let repo = self.workspaces.get_repository(repo_id).await?;
         Ok(self
             .git
-            .remove_worktree(&RepoPath::new(repo.path), name, force)
+            .remove_worktree(&RepoPath::new(repo.path), name, false)
             .await?)
     }
 

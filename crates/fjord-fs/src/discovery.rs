@@ -26,18 +26,19 @@ pub fn discover_git_repositories(
     let mut stack = vec![root.to_path_buf()];
 
     while let Some(path) = stack.pop() {
-        let dot_git = path.join(".git");
-        if dot_git.is_dir() {
+        // Linked worktrees use a `.git` indirection file whose git-dir has a
+        // `commondir`. They belong to the parent repository and must never
+        // become duplicate workspace entries.
+        if is_linked_worktree(&path) {
+            continue;
+        }
+        // Any other `.git` — a directory, or an indirection file such as
+        // `git init --separate-git-dir` writes — is a repository of its own.
+        if path.join(".git").exists() {
             repos.push(path);
             if repos.len() >= limit {
                 break;
             }
-            continue;
-        }
-        // Linked worktrees (and submodules, deliberately outside this phase)
-        // use a `.git` indirection file. They belong to the parent repository
-        // and must never become duplicate workspace entries.
-        if is_linked_worktree(&path) {
             continue;
         }
 
@@ -71,20 +72,33 @@ pub fn discover_git_repositories(
     Ok(repos)
 }
 
+/// Whether `path` is the root of a linked worktree: its `.git` is a file
+/// naming a git-dir that contains `commondir`. A repository created with
+/// `--separate-git-dir` also uses a `.git` file, but its git-dir is a complete
+/// repository without `commondir`, so it is not mistaken for a worktree.
 pub fn is_linked_worktree(path: &Path) -> bool {
     let marker = path.join(".git");
-    marker.is_file()
-        && fs::read_to_string(marker)
-            .ok()
-            .and_then(|value| {
-                value
-                    .trim()
-                    .strip_prefix("gitdir:")
-                    .map(str::trim)
-                    .filter(|target| !target.is_empty())
-                    .map(ToOwned::to_owned)
-            })
-            .is_some()
+    if !marker.is_file() {
+        return false;
+    }
+    let Some(target) = fs::read_to_string(marker).ok().and_then(|value| {
+        value
+            .lines()
+            .next()?
+            .trim()
+            .strip_prefix("gitdir:")
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .map(PathBuf::from)
+    }) else {
+        return false;
+    };
+    let git_dir = if target.is_absolute() {
+        target
+    } else {
+        path.join(target)
+    };
+    git_dir.join("commondir").is_file()
 }
 
 fn should_skip_dir(name: &str) -> bool {
@@ -127,7 +141,9 @@ mod tests {
         let root = TempDir::new().unwrap();
         let repository = root.path().join("repository");
         let linked = root.path().join("repository-feature");
-        fs::create_dir_all(repository.join(".git").join("worktrees").join("feature")).unwrap();
+        let admin = repository.join(".git").join("worktrees").join("feature");
+        fs::create_dir_all(&admin).unwrap();
+        fs::write(admin.join("commondir"), "../..\n").unwrap();
         fs::create_dir_all(&linked).unwrap();
         fs::write(
             linked.join(".git"),
@@ -146,5 +162,22 @@ mod tests {
 
         assert_eq!(repos, vec![repository]);
         assert!(is_linked_worktree(&linked));
+    }
+
+    #[test]
+    fn a_separate_git_dir_repository_is_imported_not_skipped_as_a_worktree() {
+        let root = TempDir::new().unwrap();
+        let work = root.path().join("work");
+        let store = root.path().join("store");
+        fs::create_dir_all(&work).unwrap();
+        fs::create_dir_all(store.join("refs")).unwrap();
+        fs::write(store.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::write(work.join(".git"), format!("gitdir: {}\n", store.display())).unwrap();
+
+        assert!(!is_linked_worktree(&work));
+        assert_eq!(
+            discover_git_repositories(root.path(), 10).unwrap(),
+            vec![work]
+        );
     }
 }

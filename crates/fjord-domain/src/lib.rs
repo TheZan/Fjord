@@ -614,6 +614,10 @@ pub struct RebaseTodoStep {
     pub short_id: String,
     pub subject: String,
     pub action: RebaseTodoAction,
+    /// Reachable from the current branch's upstream when the todo was read;
+    /// display-only, ignored when the todo is submitted.
+    #[serde(default)]
+    pub published: bool,
 }
 
 /// The initial editor model: the same preflight basic rebase uses (revalidated

@@ -109,6 +109,9 @@ pub(super) struct TodoCommitEntry {
     pub(super) id: git2::Oid,
     pub(super) short_id: String,
     pub(super) subject: String,
+    /// Reachable from the current branch's upstream: rewriting it needs a
+    /// force-with-lease push.
+    pub(super) published: bool,
 }
 
 /// Whether a `rev-list --cherry-mark` commit survives into the rebase: not
@@ -265,6 +268,7 @@ pub(super) async fn preflight_locked(
                     .short_id()
                     .map_err(LocalGitBackend::map_git2_error)?;
                 entries.push(TodoCommitEntry {
+                    published: false,
                     id,
                     short_id: short_id.as_str().unwrap_or_default().to_string(),
                     subject: commit
@@ -292,6 +296,25 @@ pub(super) async fn preflight_locked(
                 Err(error) if error.code() == git2::ErrorCode::NotFound => None,
                 Err(error) => return Err(LocalGitBackend::map_git2_error(error)),
             };
+            if let Some(upstream) = &upstream {
+                // Per-commit flags for the interactive editor, which can rewrite
+                // published commits even when the branch is already based on
+                // the target (where the count below is deliberately absent).
+                let tip = upstream
+                    .get()
+                    .peel_to_commit()
+                    .map_err(LocalGitBackend::map_git2_error)?
+                    .id();
+                let mut walk = git.revwalk().map_err(LocalGitBackend::map_git2_error)?;
+                walk.push(tip).map_err(LocalGitBackend::map_git2_error)?;
+                walk.hide(target).map_err(LocalGitBackend::map_git2_error)?;
+                let reachable = walk
+                    .collect::<Result<std::collections::HashSet<_>, _>>()
+                    .map_err(LocalGitBackend::map_git2_error)?;
+                for entry in &mut entries {
+                    entry.published = reachable.contains(&entry.id);
+                }
+            }
             let mut published = None;
             if !already_up_to_date {
                 if let Some(upstream) = upstream {
@@ -328,11 +351,9 @@ pub(super) async fn preflight_locked(
                 if already_up_to_date { 0 } else { commits },
                 already_up_to_date,
                 published,
-                if already_up_to_date {
-                    Vec::new()
-                } else {
-                    entries
-                },
+                // An already-based branch has nothing for basic rebase to do,
+                // but its own commits are exactly what interactive rebase edits.
+                entries,
             ))
         })?;
     Ok((

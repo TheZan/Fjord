@@ -911,6 +911,22 @@ impl GitBackend for LocalGitBackend {
         if runtime::generations(repo)? != generations {
             return Err(GitError::PreflightStale);
         }
+        if let DestructiveAction::RemoveWorktree { name, .. } = action {
+            let fingerprint = {
+                let commands = self.commands.clone();
+                let repo = repo.clone();
+                let name = name.clone();
+                tokio::task::spawn_blocking(move || worktrees::fingerprint(&commands, &repo, &name))
+                    .await
+                    .map_err(|error| GitError::Git2(error.to_string()))??
+            };
+            return self.destructive_confirmations.issue_worktree_removal(
+                repo,
+                action,
+                generations,
+                fingerprint,
+            );
+        }
         self.destructive_confirmations
             .issue_action(repo, action, generations)
     }

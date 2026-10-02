@@ -53,6 +53,13 @@ pub(super) async fn run_locked(
         }
     }
     let args = command_args(action, &before)?;
+    if action == OperationAction::Skip && matches!(before.operation, RepoOperation::Rebase { .. }) {
+        if let Ok(dir) =
+            LocalGitBackend::with_runtime_git2(repo, |git| Ok(git.path().to_path_buf()))
+        {
+            super::interactive_rebase::record_skipped_step(&dir)?;
+        }
+    }
     let spec = command_spec(commands.executable()?, repo, args);
 
     // Even a command that exits unsuccessfully can advance a sequencer to its

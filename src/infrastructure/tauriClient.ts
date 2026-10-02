@@ -431,8 +431,9 @@ export function createWorktree(
   return invoke("create_worktree", { repoId, name, path, branch });
 }
 
-export function removeWorktree(repoId: string, name: string, force: boolean): Promise<void> {
-  return invoke("remove_worktree", { repoId, name, force });
+/** Prunes a missing worktree or removes a clean one; never forced. */
+export function removeWorktree(repoId: string, name: string): Promise<void> {
+  return invoke("remove_worktree", { repoId, name });
 }
 
 export function invokeErrorStashRef(error: unknown): string | null {

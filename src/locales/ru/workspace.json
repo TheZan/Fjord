@@ -154,6 +154,8 @@
       "entry": "Интерактивный rebase {{current}} на {{onto}}…",
       "stepsLabel": "Шаги rebase",
       "dragHandle": "Перетащите для изменения порядка",
+      "moveUp": "Переместить «{{subject}}» выше",
+      "moveDown": "Переместить «{{subject}}» ниже",
       "actionLabel": "Действие для {{subject}}",
       "messageLabel": "Новое сообщение для {{subject}}",
       "messagePlaceholder": "Сообщение коммита",
